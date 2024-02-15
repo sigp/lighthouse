@@ -22,7 +22,7 @@
 - [Does increasing the number of validators increase the CPU and other computer resources used?](#vc-resource)
 - [I want to add new validators. Do I have to reimport the existing keys?](#vc-reimport)
 - [Do I have to stop `lighthouse vc` the when importing new validator keys?](#vc-import)
-
+- [How can I delete my validator once it is imported?](#vc-delete)
 
 ## [Network, Monitoring and Maintenance](#network-monitoring-and-maintenance-1)
 - [I have a low peer count and it is not increasing](#net-peer)
@@ -33,6 +33,7 @@
 - [Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?](#net-ip)
 - [How to change the TCP/UDP port 9000 that Lighthouse listens on?](#net-port)
 - [Lighthouse `v4.3.0` introduces a change where a node will subscribe to only 2 subnets in total. I am worried that this will impact my validators return.](#net-subnet)
+- [How to know how many of my peers are connected through QUIC?](#net-quic)
 
 ## [Miscellaneous](#miscellaneous-1)
 - [What should I do if I lose my slashing protection database?](#misc-slashing)
@@ -41,6 +42,7 @@
 - [Does Lighthouse have pruning function like the execution client to save disk space?](#misc-prune)
 - [Can I use a HDD for the freezer database and only have the hot db on SSD?](#misc-freezer)
 - [Can Lighthouse log in local timestamp instead of UTC?](#misc-timestamp)
+- [My hard disk is full and my validator is down. What should I do? ](#misc-full)
 
 ## Beacon Node
 
@@ -78,13 +80,13 @@ The `WARN Execution engine called failed` log is shown when the beacon node cann
 `error: Reqwest(reqwest::Error { kind: Request, url: Url { scheme: "http", cannot_be_a_base: false, username: "", password: None, host: Some(Ipv4(127.0.0.1)), port: Some(8551), path: "/", query: None, fragment: None }, source: TimedOut }), service: exec`
 
 which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flags `--execution-timeout-multiplier 3` and `--disable-lock-timeouts` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
-1. The execution engine is not synced. Check the log of the execution engine to make sure that it is synced. If it is syncing, wait until it is synced and the error will disappear. You will see the beacon node logs `INFO Execution engine online` when it is synced. 
+1. The execution engine is not synced. Check the log of the execution engine to make sure that it is synced. If it is syncing, wait until it is synced and the error will disappear. You will see the beacon node logs `INFO Execution engine online` when it is synced.
 1. The computer is overloaded. Check the CPU and RAM usage to see if it has overloaded. You can use `htop` to check for CPU and RAM usage.
 1. Your SSD is slow. Check if your SSD is in "The Bad" list [here](https://gist.github.com/yorickdowne/f3a3e79a573bf35767cd002cc977b038). If your SSD is in "The Bad" list, it means it cannot keep in sync to the network and you may want to consider upgrading to a better SSD.
 
 If the reason for the error message is caused by no. 1 above, you may want to look further. If the execution engine is out of sync suddenly, it is usually caused by ungraceful shutdown. The common causes for ungraceful shutdown are:
-- Power outage. If power outages are an issue at your place, consider getting a UPS to avoid ungraceful shutdown of services. 
-- The service file is not stopped properly. To overcome this, make sure that the process is stopped properly, e.g., during client updates. 
+- Power outage. If power outages are an issue at your place, consider getting a UPS to avoid ungraceful shutdown of services.
+- The service file is not stopped properly. To overcome this, make sure that the process is stopped properly, e.g., during client updates.
 - Out of memory (oom) error. This can happen when the system memory usage has reached its maximum and causes the execution engine to be killed. When this occurs, the log file will show `Main process exited, code=killed, status=9/KILL`.  You can also run `sudo journalctl -a --since "18 hours ago" | grep -i "killed process` to confirm that the execution client has been killed due to oom. If you are using geth as the execution client, a short term solution is to reduce the resources used. For example, you can reduce the cache by adding the flag `--cache 2048`. If the oom occurs rather frequently, a long term solution is to increase the memory capacity of the computer.
 
 ### <a name="bn-download-historical"></a> My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?
@@ -96,8 +98,8 @@ INFO Downloading historical blocks           est_time: --, distance: 4524545 slo
 ```
 
 If the same log appears every minute and you do not see progress in downloading historical blocks, you can try one of the followings:
- 
-   - Check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the port 9000 TCP/UDP to increase peer count.
+
+   - Check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the ports 9000 TCP/UDP and 9001 UDP to increase peer count.
    - Restart the beacon node.
 
 
@@ -108,7 +110,7 @@ INFO Block from HTTP API already known`
 WARN Could not publish message error: Duplicate, service: libp2p
 ```
 
-This error usually happens when users are running mev-boost. The relay will publish the block on the network before returning it back to you. After the relay published the block on the network, it will propagate through nodes, and it happens quite often that your node will receive the block from your connected peers via gossip first, before getting the block from the relay, hence the message `duplicate`. 
+This error usually happens when users are running mev-boost. The relay will publish the block on the network before returning it back to you. After the relay published the block on the network, it will propagate through nodes, and it happens quite often that your node will receive the block from your connected peers via gossip first, before getting the block from the relay, hence the message `duplicate`.
 
 In short, it is nothing to worry about.
 
@@ -122,7 +124,7 @@ WARN Head is optimistic       execution_block_hash: 0x47e7555f1d4215d1ad409b1ac1
 
 It means the beacon node will follow the chain, but it will not be able to attest or produce blocks. This is because the execution client is not synced, so the beacon chain cannot verify the authenticity of the chain head, hence the word `optimistic`. What you need to do is to make sure that the execution client is up and syncing. Once the execution client is synced, the error will disappear.
 
-### <a name="bn-timeout"></a> My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout, service: beacon`, what should I do? 
+### <a name="bn-timeout"></a> My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout, service: beacon`, what should I do?
 
 An example of the log is shown below:
 
@@ -131,7 +133,7 @@ CRIT Beacon block processing error           error: ValidatorPubkeyCacheLockTime
 WARN BlockProcessingFailure                  outcome: ValidatorPubkeyCacheLockTimeout, msg: unexpected condition in processing block.
 ```
 
-A `Timeout` error suggests that the computer may be overloaded at the moment, for example, the execution client is still syncing. You may use the flag `--disable-lock-timeouts` to silence this error, although it will not fix the underlying slowness. Nevertheless, this is a relatively harmless log, and the error should go away once the resources used are back to normal. 
+A `Timeout` error suggests that the computer may be overloaded at the moment, for example, the execution client is still syncing. You may use the flag `--disable-lock-timeouts` to silence this error, although it will not fix the underlying slowness. Nevertheless, this is a relatively harmless log, and the error should go away once the resources used are back to normal.
 
 ### <a name="bn-missing-beacon"></a> My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?
 
@@ -141,7 +143,7 @@ An example of the full log is shown below:
 WARN BlockProcessingFailure                  outcome: MissingBeaconBlock(0xbdba211f8d72029554e405d8e4906690dca807d1d7b1bc8c9b88d7970f1648bc), msg: unexpected condition in processing block.
 ```
 
-`MissingBeaconBlock` suggests that the database has corrupted. You should wipe the database and use [Checkpoint Sync](./checkpoint-sync.md) to resync the beacon chain. 
+`MissingBeaconBlock` suggests that the database has corrupted. You should wipe the database and use [Checkpoint Sync](./checkpoint-sync.md) to resync the beacon chain.
 
 ### <a name="bn-download-slow"></a> After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?
 
@@ -171,7 +173,7 @@ The error is `503 Service Unavailable`. This means that the beacon node is still
 ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
 ```
 
-This means that the validator client is sending requests to the beacon node. However, as the beacon node is still syncing, it is therefore unable to fulfil the request. The error will disappear once the beacon node is synced. 
+This means that the validator client is sending requests to the beacon node. However, as the beacon node is still syncing, it is therefore unable to fulfil the request. The error will disappear once the beacon node is synced.
 
 ### <a name="bn-fork-choice"></a> My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?
 
@@ -266,9 +268,9 @@ repeats until the queue is cleared. The churn limit is summarised in the table b
 
 <div align="center" style="text-align: center;">
 
-| Number of active validators           | Validators activated per epoch     | Validators activated per day | 
+| Number of active validators           | Validators activated per epoch     | Validators activated per day |
 |-------------------|--------------------------------------------|----|
-| 327679 or less     | 4    | 900  | 
+| 327679 or less     | 4    | 900  |
 | 327680-393215            |  5   | 1125 |
 | 393216-458751 | 6 | 1350
 | 458752-524287 | 7  | 1575
@@ -283,7 +285,7 @@ repeats until the queue is cleared. The churn limit is summarised in the table b
 
 </div>
 
-For example, the number of active validators on Mainnet is about 574000 on May 2023. This means that 8 validators can be activated per epoch or 1800 per day (it is noted that the same applies to the exit queue). If, for example, there are 9000 validators waiting to be activated, this means that the waiting time can take up to 5 days. 
+For example, the number of active validators on Mainnet is about 574000 on May 2023. This means that 8 validators can be activated per epoch or 1800 per day (it is noted that the same applies to the exit queue). If, for example, there are 9000 validators waiting to be activated, this means that the waiting time can take up to 5 days.
 
 Once a validator has been activated, congratulations! It's time to
 produce blocks and attestations!
@@ -296,14 +298,14 @@ duplicate your JSON keystores and don't run `lighthouse vc` twice). This will le
 However, there are some components which can be configured with redundancy. See the
 [Redundancy](./redundancy.md) guide for more information.
 
-### <a name="vc-missed-attestations"></a> I am missing attestations. Why? 
+### <a name="vc-missed-attestations"></a> I am missing attestations. Why?
 The first thing is to ensure both consensus and execution clients are synced with the network. If they are synced, there may still be some issues with the node setup itself that is causing the missed attestations. Check the setup to ensure that:
 - the clock is synced
 - the computer has sufficient resources and is not overloaded
 - the internet is working well
 - you have sufficient peers
 
-You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). 
+You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
 
 Another cause for missing attestations is delays during block processing. When this happens, the debug logs will show (debug logs can be found under `$datadir/beacon/logs`):
 
@@ -311,14 +313,14 @@ Another cause for missing attestations is delays during block processing. When t
 DEBG Delayed head block                      set_as_head_delay: Some(93.579425ms), imported_delay: Some(1.460405278s), observed_delay: Some(2.540811921s), block_delay: 4.094796624s, slot: 6837344, proposer_index: 211108, block_root: 0x2c52231c0a5a117401f5231585de8aa5dd963bc7cbc00c544e681342eedd1700, service: beacon
 ```
 
-The fields to look for are `imported_delay > 1s` and `observed_delay < 3s`. The `imported_delay` is how long the node took to process the block. The `imported_delay` of larger than 1 second suggests that there is slowness in processing the block. It could be due to high CPU usage, high I/O disk usage or the clients are doing some background maintenance processes. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). The `observed_delay` of less than 3 seconds means that the block is not arriving late from the block proposer. Combining the above, this implies that the validator should have been able to attest to the block, but failed due to slowness in the node processing the block. 
+The fields to look for are `imported_delay > 1s` and `observed_delay < 3s`. The `imported_delay` is how long the node took to process the block. The `imported_delay` of larger than 1 second suggests that there is slowness in processing the block. It could be due to high CPU usage, high I/O disk usage or the clients are doing some background maintenance processes. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). The `observed_delay` of less than 3 seconds means that the block is not arriving late from the block proposer. Combining the above, this implies that the validator should have been able to attest to the block, but failed due to slowness in the node processing the block.
 
 
 ### <a name="vc-head-vote"></a> Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
 In general, it is unavoidable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone elses performance.
 
-You could also check for the sync aggregate participation percentage on block explorers such as [beaconcha.in](https://beaconcha.in/). A low sync aggregate participation percentage (e.g., 60-70%) indicates that the block that you are assigned to attest to may be published late. As a result, your validator fails to correctly attest to the block. 
+You could also check for the sync aggregate participation percentage on block explorers such as [beaconcha.in](https://beaconcha.in/). A low sync aggregate participation percentage (e.g., 60-70%) indicates that the block that you are assigned to attest to may be published late. As a result, your validator fails to correctly attest to the block.
 
 Another possible reason for missing the head vote is due to a chain "reorg". A reorg can happen if the proposer publishes block `n` late, and the proposer of block `n+1` builds upon block `n-1` instead of `n`. This is called a "reorg". Due to the reorg, block `n` was never included in the chain.  If you are assigned to attest at slot `n`, it is possible you may still attest to block `n` despite most of the network recognizing the block as being late. In this case you will miss the head reward.
 
@@ -344,6 +346,13 @@ No. You can just import new validator keys to the destination directory. If the 
 Generally yes.
 
 If you do not want to stop `lighthouse vc`, you can use the [key manager API](./api-vc-endpoints.md) to import keys.
+
+
+### <a name="vc-delete"></a> How can I delete my validator once it is imported? 
+
+Lighthouse supports the [KeyManager API](https://ethereum.github.io/keymanager-APIs/#/Local%20Key%20Manager/deleteKeys) to delete validators and remove them from the `validator_definitions.yml` file. To do so, start the validator client with the flag `--http` and call the API.
+
+If you are looking to delete the validators in one node and import it to another, you can use the [validator-manager](./validator-manager-move.md) to move the validators across nodes without the hassle of deleting and importing the keys.
 
 ## Network, Monitoring and Maintenance
 
@@ -379,7 +388,7 @@ If the ports are open, you should have incoming peers. To check that you have in
 
 If you have incoming peers, it should return a lot of data containing information of peers. If the response is empty, it means that you have no incoming peers and there the ports are not open. You may want to double check if the port forward was correctly set up.
 
-2. Check that you do not lower the number of peers using the flag `--target-peers`. The default is 80. A lower value set will lower the maximum number of peers your node can connect to, which may potentially interrupt the validator performance. We recommend users to leave the `--target peers` untouched to keep a diverse set of peers. 
+2. Check that you do not lower the number of peers using the flag `--target-peers`. The default is 80. A lower value set will lower the maximum number of peers your node can connect to, which may potentially interrupt the validator performance. We recommend users to leave the `--target peers` untouched to keep a diverse set of peers.
 
 3. Ensure that you have a quality router for the internet connection. For example, if you connect the router to many devices including the node, it may be possible that the router cannot handle all routing tasks, hence struggling to keep up the number of peers. Therefore, using a quality router for the node is important to keep a healthy number of peers.
 
@@ -426,8 +435,8 @@ For these reasons, we recommend that you make your node publicly accessible.
 Lighthouse supports UPnP. If you are behind a NAT with a router that supports
 UPnP, you can simply ensure UPnP is enabled (Lighthouse will inform you in its
 initial logs if a route has been established). You can also manually [set up port mappings/port forwarding](./advanced_networking.md#how-to-open-ports) in your router to your local Lighthouse instance. By default,
-Lighthouse uses port 9000 for both TCP and UDP. Opening both these ports will
-make your Lighthouse node maximally contactable.
+Lighthouse uses port 9000 for both TCP and UDP, and optionally 9001 UDP for QUIC support.
+Opening these ports will make your Lighthouse node maximally contactable.
 
 ### <a name="net-monitor"></a> How can I monitor my validators?
 
@@ -440,7 +449,7 @@ Monitoring](./validator-monitoring.md) for more information. Lighthouse has also
 The setting on the beacon node is the same for both cases below. In the beacon node, specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than `localhost`. You can find the `local_IP` by running the command `hostname -I | awk '{print $1}'` on the server running the beacon node.
 
 1. If the beacon node and validator clients are on different servers *in the same network*, the setting in the validator client is as follows:
- 
+
    Use the flag `--beacon-nodes` to point to the beacon node. For example, `lighthouse vc --beacon-nodes http://local_IP:5052` where `local_IP` is the local IP address of the beacon node and `5052` is the default `http-port` of the beacon node.
 
    If you have firewall setup, e.g., `ufw`, you will need to allow port 5052 (assuming that the default port is used) with `sudo ufw allow 5052`. Note: this will allow all IP addresses to access the HTTP API of the beacon node. If you are on an untrusted network (e.g., a university or public WiFi) or the host is exposed to the internet, use apply IP-address filtering as described later in this section.
@@ -463,7 +472,7 @@ The setting on the beacon node is the same for both cases below. In the beacon n
 
 
       If you have firewall setup, e.g., `ufw`, you will need to allow connections to port 5052 (assuming that the default port is used). Since the beacon node HTTP/HTTPS API is public-facing (i.e., the 5052 port is now exposed to the internet due to port forwarding), we strongly recommend users to apply IP-address filtering to the BN/VC connection from malicious actors. This can be done using the command:
-      
+
       ```
       sudo ufw allow from vc_IP_address proto tcp to any port 5052
       ```
@@ -476,15 +485,34 @@ It is also worth noting that the `--beacon-nodes` flag can also be used for redu
 No. Lighthouse will auto-detect the change and update your Ethereum Node Record (ENR). You just need to make sure you are not manually setting the ENR with `--enr-address` (which, for common use cases, this flag is not used).
 
 ### <a name="net-port"></a> How to change the TCP/UDP port 9000 that Lighthouse listens on?
-Use the flag ```--port <PORT>``` in the beacon node. This flag can be useful when you are running two beacon nodes at the same time. You can leave one beacon node as the default port 9000, and configure the second beacon node to listen on, e.g., ```--port 9001```.
+Use the flag `--port <PORT>` in the beacon node. This flag can be useful when you are running two beacon nodes at the same time. You can leave one beacon node as the default port 9000, and configure the second beacon node to listen on, e.g., `--port 9100`.
+Since V4.5.0, Lighthouse supports QUIC and by default will use the value of `--port` + 1 to listen via UDP (default `9001`).
+This can be configured by using the flag `--quic-port`. Refer to [Advanced Networking](./advanced_networking.md#nat-traversal-port-forwarding) for more information.
 
 ### <a name="net-subnet"></a> Lighthouse `v4.3.0` introduces a change where a node will subscribe to only 2 subnets in total. I am worried that this will impact my validators return.
 
-Previously, having more validators means subscribing to more subnets. Since the change, a node will now only subscribe to 2 subnets in total. This will bring about significant reductions in bandwidth for nodes with multiple validators. 
+Previously, having more validators means subscribing to more subnets. Since the change, a node will now only subscribe to 2 subnets in total. This will bring about significant reductions in bandwidth for nodes with multiple validators.
 
-While subscribing to more subnets can ensure you have peers on a wider range of subnets, these subscriptions consume resources and bandwidth. This does not significantly increase the performance of the node, however it does benefit other nodes on the network. 
- 
+While subscribing to more subnets can ensure you have peers on a wider range of subnets, these subscriptions consume resources and bandwidth. This does not significantly increase the performance of the node, however it does benefit other nodes on the network.
+
 If you would still like to subscribe to all subnets, you can use the flag `subscribe-all-subnets`. This may improve the block rewards by 1-5%, though it comes at the cost of a much higher bandwidth requirement.
+
+### <a name="net-quic"></a> How to know how many of my peers are connected via QUIC?
+
+With `--metrics` enabled in the beacon node, you can find the number of peers connected via QUIC using:
+
+```bash
+ curl -s "http://localhost:5054/metrics" | grep libp2p_quic_peers
+```
+
+A response example is:
+
+```
+# HELP libp2p_quic_peers Count of libp2p peers currently connected via QUIC
+# TYPE libp2p_quic_peers gauge
+libp2p_quic_peers 4
+```
+which shows that there are 4 peers connected via QUIC.
 
 ## Miscellaneous
 
@@ -523,7 +551,7 @@ which says that the version is v4.1.0.
 
 ### <a name="misc-prune"></a> Does Lighthouse have pruning function like the execution client to save disk space?
 
-There is no pruning of Lighthouse database for now. However, since v4.2.0, a feature to only sync back to the weak subjectivity point (approximately 5 months) when syncing via a checkpoint sync was added. This will help to save disk space since the previous behaviour will sync back to the genesis by default. 
+There is no pruning of Lighthouse database for now. However, since v4.2.0, a feature to only sync back to the weak subjectivity point (approximately 5 months) when syncing via a checkpoint sync was added. This will help to save disk space since the previous behaviour will sync back to the genesis by default.
 
 ### <a name="misc-freezer"></a> Can I use a HDD for the freezer database and only have the hot db on SSD?
 
@@ -531,11 +559,13 @@ Yes, you can do so by using the flag `--freezer-dir /path/to/freezer_db` in the 
 
 ### <a name="misc-timestamp"></a> Can Lighthouse log in local timestamp instead of UTC?
 
-The reason why Lighthouse logs in UTC is due to the dependency on an upstream library that is [yet to be resolved](https://github.com/sigp/lighthouse/issues/3130). Alternatively, using the flag `disable-log-timestamp` in combination with systemd will suppress the UTC timestamps and print the logs in local timestamps. 
+The reason why Lighthouse logs in UTC is due to the dependency on an upstream library that is [yet to be resolved](https://github.com/sigp/lighthouse/issues/3130). Alternatively, using the flag `disable-log-timestamp` in combination with systemd will suppress the UTC timestamps and print the logs in local timestamps.
 
+### <a name="misc-full"></a> My hard disk is full and my validator is down. What should I do? 
 
+A quick way to get the validator back online is by removing the Lighthouse beacon node database and resync Lighthouse using checkpoint sync. A guide to do this can be found in the [Lighthouse Discord server](https://discord.com/channels/605577013327167508/605577013331361793/1019755522985050142). With some free space left, you will then be able to prune the execution client database to free up more space.
 
-
+For a relatively long term solution, if you are using Geth and Nethermind as the execution client, you can consider setup the online pruning feature. Refer to [Geth](https://blog.ethereum.org/2023/09/12/geth-v1-13-0) and [Nethermind](https://gist.github.com/yorickdowne/67be09b3ba0a9ff85ed6f83315b5f7e0) for details. 
 
 
 

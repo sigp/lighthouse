@@ -545,6 +545,18 @@ pub struct AvailableBlock<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
+    pub fn __new_for_testing(
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: Option<BlobSidecarList<E>>,
+    ) -> Self {
+        Self {
+            block_root,
+            block,
+            blobs,
+        }
+    }
+
     pub fn block(&self) -> &SignedBeaconBlock<E> {
         &self.block
     }

@@ -207,6 +207,6 @@ guidance for specific setups.
 
 - [Ethereum.org: The Merge](https://ethereum.org/en/upgrades/merge/)
 - [Ethereum Staking Launchpad: Merge Readiness](https://launchpad.ethereum.org/en/merge-readiness).
-- [CoinCashew: Ethereum Merge Upgrade Checklist](https://www.coincashew.com/coins/overview-eth/ethereum-merge-upgrade-checklist-for-home-stakers-and-validators)
+- [CoinCashew: Ethereum Merge Upgrade Checklist](https://www.coincashew.com/coins/overview-eth/archived-guides/ethereum-merge-upgrade-checklist-for-home-stakers-and-validators)
 - [EthDocker: Merge Preparation](https://eth-docker.net/About/MergePrep/)
 - [Remy Roy: How to join the Goerli/Prater merge testnet](https://github.com/remyroy/ethstaker/blob/main/merge-goerli-prater.md)

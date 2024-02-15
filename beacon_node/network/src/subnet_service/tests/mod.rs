@@ -253,7 +253,7 @@ mod attestation_service {
             &attestation_service.beacon_chain.spec,
         )
         .unwrap();
-        let expected = vec![
+        let expected = [
             SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id)),
             SubnetServiceMessage::Unsubscribe(Subnet::Attestation(subnet_id)),
         ];
