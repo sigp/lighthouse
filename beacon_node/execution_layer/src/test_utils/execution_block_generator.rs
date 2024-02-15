@@ -699,7 +699,7 @@ pub fn generate_blobs<E: EthSpec>(
     Ok((bundle, transactions.into()))
 }
 
-fn static_valid_tx<T: EthSpec>() -> Result<Transaction<T::MaxBytesPerTransaction>, String> {
+pub fn static_valid_tx<T: EthSpec>() -> Result<Transaction<T::MaxBytesPerTransaction>, String> {
     // This is a real transaction hex encoded, but we don't care about the contents of the transaction.
     let transaction: EthersTransaction = serde_json::from_str(
         r#"{
