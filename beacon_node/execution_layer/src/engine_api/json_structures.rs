@@ -1,4 +1,5 @@
 use super::*;
+use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
@@ -359,6 +360,24 @@ impl From<JsonWithdrawal> for Withdrawal {
             validator_index: jw.validator_index,
             address: jw.address,
             amount: jw.amount,
+        }
+    }
+}
+#[derive(Debug, PartialEq, Clone, RlpEncodable)]
+pub struct EncodableJsonWithdrawal<'a> {
+    pub index: u64,
+    pub validator_index: u64,
+    pub address: &'a [u8],
+    pub amount: u64,
+}
+
+impl<'a> From<&'a JsonWithdrawal> for EncodableJsonWithdrawal<'a> {
+    fn from(json_withdrawal: &'a JsonWithdrawal) -> Self {
+        Self {
+            index: json_withdrawal.index,
+            validator_index: json_withdrawal.validator_index,
+            address: json_withdrawal.address.as_bytes(),
+            amount: json_withdrawal.amount,
         }
     }
 }

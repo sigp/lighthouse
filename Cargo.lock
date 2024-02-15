@@ -269,6 +269,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloy-rpc-types"
+version = "0.1.0"
+source = "git+https://github.com/alloy-rs/alloy.git#e127fed9118b53c9f6776ce7aed412788827e9a5"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "itertools 0.12.1",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "amcl"
 version = "0.3.0"
 source = "git+https://github.com/sigp/milagro_bls?tag=v1.5.1#d3fc0a40cfe8b72ccda46ba050ee6786a59ce753"
@@ -348,7 +361,7 @@ dependencies = [
  "ark-std 0.4.0",
  "derivative",
  "digest 0.10.7",
- "itertools",
+ "itertools 0.10.5",
  "num-bigint",
  "num-traits",
  "paste",
@@ -900,7 +913,7 @@ dependencies = [
  "genesis",
  "hex",
  "int_to_bytes",
- "itertools",
+ "itertools 0.10.5",
  "kzg",
  "lazy_static",
  "lighthouse_metrics",
@@ -983,7 +996,7 @@ dependencies = [
  "fnv",
  "futures",
  "hex",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
@@ -1540,7 +1553,7 @@ name = "compare_fields"
 version = "0.2.0"
 dependencies = [
  "compare_fields_derive",
- "itertools",
+ "itertools 0.10.5",
 ]
 
 [[package]]
@@ -1645,7 +1658,7 @@ dependencies = [
  "clap",
  "criterion-plot",
  "csv",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "num-traits",
  "oorandom",
@@ -1667,7 +1680,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2673cc8207403546f45f5fd319a974b1e6983ad1a3ee7e6041650013be041876"
 dependencies = [
  "cast",
- "itertools",
+ "itertools 0.10.5",
 ]
 
 [[package]]
@@ -2783,7 +2796,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e61ffea29f26e8249d35128a82ec8d3bd4fbc80179ea5f5e5e3daafef6a80fcb"
 dependencies = [
  "ethereum-types 0.14.1",
- "itertools",
+ "itertools 0.10.5",
  "smallvec",
 ]
 
@@ -3010,7 +3023,9 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
+ "alloy-primitives",
  "alloy-rlp",
+ "alloy-rpc-types",
  "arc-swap",
  "async-trait",
  "builder_client",
@@ -4358,6 +4373,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5471,7 +5495,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37cb4045d5677b7da537f8cb5d0730d5b6414e3cc81c61e4b50e1f0cbdc73909"
 dependencies = [
  "darling",
- "itertools",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "smallvec",
@@ -5743,7 +5767,7 @@ dependencies = [
  "hex",
  "if-addrs 0.6.7",
  "igd-next",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
@@ -6060,7 +6084,7 @@ dependencies = [
  "derivative",
  "ethereum_ssz",
  "ethereum_ssz_derive",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "lighthouse_metrics",
  "maplit",
@@ -8128,7 +8152,7 @@ dependencies = [
  "derivative",
  "ethereum_serde_utils",
  "ethereum_ssz",
- "itertools",
+ "itertools 0.10.5",
  "serde",
  "serde_derive",
  "smallvec",
@@ -8150,7 +8174,7 @@ dependencies = [
  "ethereum_ssz_derive",
  "int_to_bytes",
  "integer-sqrt",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "lighthouse_metrics",
  "merkle_proof",
@@ -8190,7 +8214,7 @@ dependencies = [
  "directory",
  "ethereum_ssz",
  "ethereum_ssz_derive",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "leveldb",
  "lighthouse_metrics",
@@ -8263,7 +8287,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75b9e5728aa1a87141cefd4e7509903fc01fa0dcb108022b1e841a67c5159fc5"
 dependencies = [
  "darling",
- "itertools",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "smallvec",
@@ -8976,6 +9000,8 @@ checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 name = "types"
 version = "0.2.1"
 dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
  "arbitrary",
  "beacon_chain",
  "bls",
@@ -8992,7 +9018,7 @@ dependencies = [
  "ethereum_ssz_derive",
  "hex",
  "int_to_bytes",
- "itertools",
+ "itertools 0.10.5",
  "kzg",
  "lazy_static",
  "log",
@@ -9212,7 +9238,7 @@ dependencies = [
  "futures",
  "hex",
  "hyper 1.1.0",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "libsecp256k1",
  "lighthouse_metrics",

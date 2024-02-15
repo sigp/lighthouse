@@ -1,13 +1,13 @@
 use crate::{
-    json_structures::JsonWithdrawal,
+    json_structures::{EncodableJsonWithdrawal, JsonWithdrawal},
     keccak::{keccak256, KeccakHasher},
 };
-use ethers_core::utils::rlp::RlpStream;
+use alloy_rlp::Encodable;
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
-    map_execution_block_header_fields_base, Address, EthSpec, ExecutionBlockHash,
-    ExecutionBlockHeader, ExecutionPayloadRef, Hash256, Hash64, Uint256,
+    EncodableExecutionBlockHeader, EthSpec, ExecutionBlockHash, ExecutionBlockHeader,
+    ExecutionPayloadRef, Hash256
 };
 
 /// Calculate the block hash of an execution block.
@@ -60,36 +60,22 @@ pub fn calculate_execution_block_hash<T: EthSpec>(
 
 /// RLP encode a withdrawal.
 pub fn rlp_encode_withdrawal(withdrawal: &JsonWithdrawal) -> Vec<u8> {
-    let mut rlp_stream = RlpStream::new();
-    rlp_stream.begin_list(4);
-    rlp_stream.append(&withdrawal.index);
-    rlp_stream.append(&withdrawal.validator_index);
-    rlp_stream.append(&withdrawal.address);
-    rlp_stream.append(&withdrawal.amount);
-    rlp_stream.out().into()
+    let mut out: Vec<u8> = vec![];
+    EncodableJsonWithdrawal::from(withdrawal).encode(&mut out);
+    // rlp_stream.begin_list(4);
+    // rlp_stream.append(&withdrawal.index);
+    // rlp_stream.append(&withdrawal.validator_index);
+    // rlp_stream.append(&withdrawal.address);
+    // rlp_stream.append(&withdrawal.amount);
+    // rlp_stream.out().into()
+    out
 }
 
 /// RLP encode an execution block header.
 pub fn rlp_encode_block_header(header: &ExecutionBlockHeader) -> Vec<u8> {
-    let mut rlp_header_stream = RlpStream::new();
-    rlp_header_stream.begin_unbounded_list();
-    map_execution_block_header_fields_base!(&header, |_, field| {
-        rlp_header_stream.append(field);
-    });
-    if let Some(withdrawals_root) = &header.withdrawals_root {
-        rlp_header_stream.append(withdrawals_root);
-    }
-    if let Some(blob_gas_used) = &header.blob_gas_used {
-        rlp_header_stream.append(blob_gas_used);
-    }
-    if let Some(excess_blob_gas) = &header.excess_blob_gas {
-        rlp_header_stream.append(excess_blob_gas);
-    }
-    if let Some(parent_beacon_block_root) = &header.parent_beacon_block_root {
-        rlp_header_stream.append(parent_beacon_block_root);
-    }
-    rlp_header_stream.finalize_unbounded_list();
-    rlp_header_stream.out().into()
+    let mut out: Vec<u8> = vec![];
+    EncodableExecutionBlockHeader::from(header).encode(&mut out);
+    out
 }
 
 #[cfg(test)]
@@ -97,6 +83,7 @@ mod test {
     use super::*;
     use hex::FromHex;
     use std::str::FromStr;
+    use types::{Address, Hash256, Hash64};
 
     fn test_rlp_encoding(
         header: &ExecutionBlockHeader,
