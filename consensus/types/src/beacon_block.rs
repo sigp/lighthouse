@@ -64,16 +64,8 @@ pub struct BeaconBlock<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload
     pub parent_root: Hash256,
     #[superstruct(getter(copy))]
     pub state_root: Hash256,
-    #[superstruct(only(Base), partial_getter(rename = "body_base"))]
-    pub body: BeaconBlockBodyBase<T, Payload>,
-    #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
-    pub body: BeaconBlockBodyAltair<T, Payload>,
-    #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
-    pub body: BeaconBlockBodyMerge<T, Payload>,
-    #[superstruct(only(Capella), partial_getter(rename = "body_capella"))]
-    pub body: BeaconBlockBodyCapella<T, Payload>,
-    #[superstruct(only(Deneb), partial_getter(rename = "body_deneb"))]
-    pub body: BeaconBlockBodyDeneb<T, Payload>,
+    #[superstruct(flatten)]
+    pub body: BeaconBlockBody<T, Payload>,
 }
 
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
