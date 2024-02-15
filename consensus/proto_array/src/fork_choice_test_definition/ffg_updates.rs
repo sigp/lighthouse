@@ -59,7 +59,7 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
         expected_head: get_root(3),
     });
 
-    // Ensure that with justified epoch 1 we find 2
+    // Ensure that with justified epoch 1 we find 3
     //
     //            0
     //            |
@@ -68,11 +68,15 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
     //            2 <- start
     //            |
     //            3 <- head
+    //
+    // Since https://github.com/ethereum/consensus-specs/pull/3431 it is valid
+    // to elect head blocks that have a higher justified checkpoint than the
+    // store.
     ops.push(Operation::FindHead {
         justified_checkpoint: get_checkpoint(1),
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
-        expected_head: get_root(2),
+        expected_head: get_root(3),
     });
 
     // Ensure that with justified epoch 2 we find 3
@@ -247,14 +251,19 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
     });
-    // Same as above, but with justified epoch 3 (should be invalid).
-    ops.push(Operation::InvalidFindHead {
+    // Same as above, but with justified epoch 3.
+    //
+    // Since https://github.com/ethereum/consensus-specs/pull/3431 it is valid
+    // to elect head blocks that have a higher justified checkpoint than the
+    // store.
+    ops.push(Operation::FindHead {
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(3),
             root: get_root(6),
         },
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
+        expected_head: get_root(10),
     });
 
     // Add a vote to 1.
@@ -305,14 +314,19 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
     });
-    // Save as above but justified epoch 3 (should fail).
-    ops.push(Operation::InvalidFindHead {
+    // Save as above but justified epoch 3.
+    //
+    // Since https://github.com/ethereum/consensus-specs/pull/3431 it is valid
+    // to elect head blocks that have a higher justified checkpoint than the
+    // store.
+    ops.push(Operation::FindHead {
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(3),
             root: get_root(5),
         },
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
+        expected_head: get_root(9),
     });
 
     // Add a vote to 2.
@@ -363,14 +377,19 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
     });
-    // Same as above but justified epoch 3 (should fail).
-    ops.push(Operation::InvalidFindHead {
+    // Same as above but justified epoch 3.
+    //
+    // Since https://github.com/ethereum/consensus-specs/pull/3431 it is valid
+    // to elect head blocks that have a higher justified checkpoint than the
+    // store.
+    ops.push(Operation::FindHead {
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(3),
             root: get_root(6),
         },
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
+        expected_head: get_root(10),
     });
 
     // Ensure that if we start at 1 we find 9 (just: 0, fin: 0).
@@ -405,14 +424,19 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: balances.clone(),
         expected_head: get_root(9),
     });
-    // Same as above but justified epoch 3 (should fail).
-    ops.push(Operation::InvalidFindHead {
+    // Same as above but justified epoch 3.
+    //
+    // Since https://github.com/ethereum/consensus-specs/pull/3431 it is valid
+    // to elect head blocks that have a higher justified checkpoint than the
+    // store.
+    ops.push(Operation::FindHead {
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(3),
             root: get_root(5),
         },
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
+        expected_head: get_root(9),
     });
 
     // Ensure that if we start at 2 we find 10 (just: 0, fin: 0).
@@ -444,14 +468,19 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: balances.clone(),
         expected_head: get_root(10),
     });
-    // Same as above but justified epoch 3 (should fail).
-    ops.push(Operation::InvalidFindHead {
+    // Same as above but justified epoch 3.
+    //
+    // Since https://github.com/ethereum/consensus-specs/pull/3431 it is valid
+    // to elect head blocks that have a higher justified checkpoint than the
+    // store.
+    ops.push(Operation::FindHead {
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(3),
             root: get_root(6),
         },
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances,
+        expected_head: get_root(10),
     });
 
     // END OF TESTS
