@@ -681,7 +681,7 @@ impl ChainSpec {
              * Deneb hard fork params
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x00],
-            deneb_fork_epoch: None,
+            deneb_fork_epoch: Some(Epoch::new(269568)),
 
             /*
              * Network specific
