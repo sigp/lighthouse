@@ -1,18 +1,15 @@
 use std::{num::NonZeroUsize, path::PathBuf};
 
-use crate::IpAddr;
 use beacon_chain::chain_config::DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION;
 pub use clap::Parser;
-use clap::{Arg, ArgGroup};
 use lighthouse_network::{Multiaddr, PeerIdSerialized};
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use std::num::NonZeroU16;
-use strum::VariantNames;
+use std::ops::RangeInclusive;
 use types::Address;
 use types::Epoch;
-use types::{ProgressiveBalancesMode};
-use std::ops::RangeInclusive;
+use types::ProgressiveBalancesMode;
 
 const NETWORK_LOAD_RANGE: RangeInclusive<u8> = 1..=5;
 
@@ -21,7 +18,7 @@ fn network_load_in_range(s: &str) -> Result<u8, String> {
         .parse()
         .map_err(|_| format!("`{s}` isn't a port number"))?;
     if NETWORK_LOAD_RANGE.contains(&network_load) {
-        Ok(network_load as u8)
+        Ok(network_load)
     } else {
         Err(format!(
             "network-load not in range {}-{}",
@@ -270,7 +267,7 @@ pub struct BeaconNode {
                 local node on this address. This will update the `ip4` or `ip6` ENR fields \
                 accordingly. To update both, set this flag twice with the different values."
     )]
-    pub enr_addresses: Option<Vec<IpAddr>>,
+    pub enr_addresses: Option<Vec<String>>,
 
     #[clap(
         long,
@@ -395,6 +392,7 @@ pub struct BeaconNode {
     /* REST API related arguments */
     #[clap(
         long,
+        group = "enable_http",
         help = "Enable the RESTful HTTP API server. Disabled by default."
     )]
     pub http: bool,
@@ -412,7 +410,7 @@ pub struct BeaconNode {
         long,
         value_name = "PORT",
         requires = "enable_http",
-        help = "Set the listen TCP port for the RESTful HTTP API server.",
+        help = "Set the listen TCP port for the RESTful HTTP API server."
     )]
     pub http_port: u16,
 
@@ -484,11 +482,12 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "STATUS_CODE",
+        default_value_t = 202,
         requires = "enable-http",
         help = "Status code to send when a block that is already known is POSTed to the \
                 HTTP API."
     )]
-    pub http_duplicate_block_status: Option<NonZeroU16>,
+    pub http_duplicate_block_status: u16,
 
     #[clap(
         long,
@@ -523,7 +522,7 @@ pub struct BeaconNode {
         value_name = "PORT",
         requires = "metrics",
         default_value_t = 5054,
-        help = "Set the listen TCP port for the Prometheus metrics HTTP server.",
+        help = "Set the listen TCP port for the Prometheus metrics HTTP server."
     )]
     pub metrics_port: u16,
 
@@ -574,6 +573,7 @@ pub struct BeaconNode {
     /* Standard staking flags */
     #[clap(
         long,
+        group = "enable_http",
         help = "Standard option for a staking beacon node. This will enable the HTTP server \
                 on localhost:5052 and import deposit logs from the execution node. This is \
                 equivalent to `--http` on merge-ready networks, or `--http --eth1` pre-merge"
@@ -1202,6 +1202,7 @@ pub struct BeaconNode {
 
     #[clap(
         long,
+        group = "enable_http",
         help = "Enable the graphical user interface and all its requirements. \
                 This enables --http and --validator-monitor-auto and enables SSE logging."
     )]
@@ -1283,10 +1284,12 @@ pub struct BeaconNode {
     )]
     pub beacon_processor_aggregate_batch_size: usize,
 
-    #[clap(
-        long,
-        help = "This flag is deprecated and has no effect."
-    )]
+    #[clap(long, help = "This flag is deprecated and has no effect.")]
     pub disable_duplicate_warn_logs: bool,
-    // TODO group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))
+}
+
+impl BeaconNode {
+    pub fn enable_http(&self) -> bool {
+        self.http || self.gui || self.staking
+    }
 }

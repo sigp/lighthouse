@@ -1,16 +1,15 @@
-#[macro_use]
 extern crate clap;
 
 mod cli;
 mod config;
 
+use crate::cli::BeaconNode;
 pub use beacon_chain;
 use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
     TimeoutRwLock,
 };
-use crate::cli::BeaconNode;
 use clap_utils::GlobalConfig;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_config, get_data_dir, get_slots_per_restore_point, set_network_config};
@@ -211,7 +210,6 @@ impl lighthouse_network::discv5::Executor for Discv5Executor {
 
 pub trait NetworkConfigurable {
     fn get_network_dir(&self) -> Option<PathBuf>;
-    fn get_listen_address(&self) -> IpAddr;
     fn get_listen_addresses(&self) -> ListenAddress;
     fn get_port(&self) -> u16;
     fn get_boot_nodes(&self) -> Option<String>;

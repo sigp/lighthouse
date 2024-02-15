@@ -123,9 +123,6 @@ impl NetworkConfigurable for BootNode {
     fn get_network_dir(&self) -> Option<PathBuf> {
         self.network_dir.clone()
     }
-    fn get_listen_address(&self) -> IpAddr {
-        self.listen_address
-    }
     fn get_port(&self) -> u16 {
         self.port
     }
