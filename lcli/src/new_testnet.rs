@@ -354,5 +354,10 @@ fn initialize_state_with_validators<T: EthSpec>(
     // Set genesis validators root for domain separation and chain versioning
     *state.genesis_validators_root_mut() = state.update_validators_tree_hash_cache().unwrap();
 
+    // Sanity check for state fork matching config fork.
+    state
+        .fork_name(spec)
+        .map_err(|e| format!("state fork mismatch: {e:?}"))?;
+
     Ok(state)
 }
