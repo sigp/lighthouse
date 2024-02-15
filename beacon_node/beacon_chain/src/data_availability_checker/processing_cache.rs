@@ -38,6 +38,9 @@ impl<E: EthSpec> ProcessingCache<E> {
         }
         roots_missing_components
     }
+    pub fn len(&self) -> usize {
+        self.processing_cache.len()
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -454,6 +454,24 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn persist_all(&self) -> Result<(), AvailabilityCheckError> {
         self.availability_cache.write_all_to_disk()
     }
+
+    /// Collects metrics from the data availability checker.
+    pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
+        DataAvailabilityCheckerMetrics {
+            processing_cache_size: self.processing_cache.read().len(),
+            num_store_entries: self.availability_cache.num_store_entries(),
+            state_cache_size: self.availability_cache.state_cache_size(),
+            block_cache_size: self.availability_cache.block_cache_size(),
+        }
+    }
+}
+
+/// Helper struct to group data availability checker metrics.
+pub struct DataAvailabilityCheckerMetrics {
+    pub processing_cache_size: usize,
+    pub num_store_entries: usize,
+    pub state_cache_size: usize,
+    pub block_cache_size: usize,
 }
 
 pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
