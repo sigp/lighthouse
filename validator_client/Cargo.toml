@@ -14,7 +14,7 @@ itertools = { workspace = true }
 
 [dependencies]
 tree_hash = { workspace = true }
-clap = { workspace = true }
+clap = { version = "4.5.0" , features = ["derive"]}
 slashing_protection = { workspace = true }
 slot_clock = { workspace = true }
 types = { workspace = true }

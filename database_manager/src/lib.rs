@@ -2,8 +2,9 @@ use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, schema_change::migrate_schema,
     slot_clock::SystemTimeSlotClock,
 };
-use beacon_node::{get_data_dir, get_slots_per_restore_point, ClientConfig};
+use beacon_node::{cli::BeaconNode, get_data_dir, get_slots_per_restore_point, ClientConfig};
 use clap::{App, Arg, ArgMatches};
+use clap_utils::GlobalConfig;
 use environment::{Environment, RuntimeContext};
 use slog::{info, warn, Logger};
 use std::fs;
@@ -205,30 +206,20 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 fn parse_client_config<E: EthSpec>(
-    cli_args: &ArgMatches,
+    global_config: &GlobalConfig,
+    beacon_node_config: &BeaconNode,
     _env: &Environment<E>,
 ) -> Result<ClientConfig, String> {
     let mut client_config = ClientConfig::default();
 
-    client_config.set_data_dir(get_data_dir(cli_args));
+    client_config.set_data_dir(get_data_dir(global_config));
+    client_config.freezer_db_path = beacon_node_config.freezer_dir.clone();
+    client_config.blobs_db_path = beacon_node_config.blobs_dir.clone();
 
-    if let Some(freezer_dir) = clap_utils::parse_optional(cli_args, "freezer-dir")? {
-        client_config.freezer_db_path = Some(freezer_dir);
-    }
-
-    if let Some(blobs_db_dir) = clap_utils::parse_optional(cli_args, "blobs-dir")? {
-        client_config.blobs_db_path = Some(blobs_db_dir);
-    }
-
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
+    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(beacon_node_config)?;
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
-
-    if let Some(blob_prune_margin_epochs) =
-        clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
-    {
-        client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
-    }
+    client_config.store.blob_prune_margin_epochs = beacon_node_config.blob_prune_margin_epochs;
 
     Ok(client_config)
 }
@@ -645,8 +636,13 @@ pub fn prune_states<E: EthSpec>(
 }
 
 /// Run the database manager, returning an error string if the operation did not succeed.
-pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result<(), String> {
-    let client_config = parse_client_config(cli_args, &env)?;
+pub fn run<T: EthSpec>(
+    cli_args: &ArgMatches<'_>,
+    global_config: &GlobalConfig,
+    beacon_node_config: &BeaconNode,
+    env: Environment<T>,
+) -> Result<(), String> {
+    let client_config = parse_client_config(global_config, beacon_node_config, &env)?;
     let context = env.core_context();
     let log = context.log().clone();
     let format_err = |e| format!("Fatal error: {:?}", e);

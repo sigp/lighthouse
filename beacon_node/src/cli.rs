@@ -1322,18 +1322,18 @@ impl NetworkConfigurable for BeaconNode {
         self.listen_addresses.clone()
     }
     fn get_port6(&self) -> u16 {
-        todo!()
+        self.port6
     }
     fn get_disc_port(&self) -> Option<u16> {
-        todo!()
+        self.discovery_port
     }
     fn get_disc6_port(&self) -> Option<u16> {
-        todo!()
+        self.discovery_port6
     }
     fn get_quic_port(&self) -> Option<u16> {
-        todo!()
+        self.quic_port
     }
     fn get_quic6_port(&self) -> Option<u16> {
-        todo!()
+        self.quic_port6
     }
 }

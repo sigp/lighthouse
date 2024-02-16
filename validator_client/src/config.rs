@@ -1,11 +1,13 @@
 use crate::beacon_node_fallback::ApiTopic;
+use crate::cli::ValidatorClient;
 use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
 use clap::ArgMatches;
+use clap_utils::GlobalConfig;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
-    get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
-    DEFAULT_VALIDATOR_DIR,
+    get_network_dir, get_network_dir_v2, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR,
+    DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR,
 };
 use eth2::types::Graffiti;
 use sensitive_url::SensitiveUrl;
@@ -142,7 +144,11 @@ impl Default for Config {
 impl Config {
     /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
     /// `cli_args`.
-    pub fn from_cli(cli_args: &ArgMatches, log: &Logger) -> Result<Config, String> {
+    pub fn from_cli(
+        validator_client_config: &ValidatorClient,
+        global_config: &GlobalConfig,
+        log: &Logger,
+    ) -> Result<Config, String> {
         let mut config = Config::default();
 
         let default_root_dir = dirs::home_dir()
@@ -150,27 +156,26 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("."));
 
         let (mut validator_dir, mut secrets_dir) = (None, None);
-        if cli_args.value_of("datadir").is_some() {
-            let base_dir: PathBuf = parse_required(cli_args, "datadir")?;
-            validator_dir = Some(base_dir.join(DEFAULT_VALIDATOR_DIR));
-            secrets_dir = Some(base_dir.join(DEFAULT_SECRET_DIR));
+        if let Some(datadir) = global_config.datadir.as_ref() {
+            validator_dir = Some(datadir.join(DEFAULT_VALIDATOR_DIR));
+            secrets_dir = Some(datadir.join(DEFAULT_SECRET_DIR));
         }
-        if cli_args.value_of("validators-dir").is_some() {
-            validator_dir = Some(parse_required(cli_args, "validators-dir")?);
+        if let Some(validator_dir_path) = validator_client_config.validators_dir.as_ref() {
+            validator_dir = validator_dir_path;
         }
-        if cli_args.value_of("secrets-dir").is_some() {
-            secrets_dir = Some(parse_required(cli_args, "secrets-dir")?);
+        if let Some(secrets_dir_path) = validator_client_config.secrets_dir.as_ref() {
+            secrets_dir = secrets_dir_path;
         }
 
         config.validator_dir = validator_dir.unwrap_or_else(|| {
             default_root_dir
-                .join(get_network_dir(cli_args))
+                .join(get_network_dir_v2(global_config))
                 .join(DEFAULT_VALIDATOR_DIR)
         });
 
         config.secrets_dir = secrets_dir.unwrap_or_else(|| {
             default_root_dir
-                .join(get_network_dir(cli_args))
+                .join(get_network_dir_v2(global_config))
                 .join(DEFAULT_SECRET_DIR)
         });
 
@@ -179,26 +184,26 @@ impl Config {
                 .map_err(|e| format!("Failed to create {:?}: {:?}", config.validator_dir, e))?;
         }
 
-        if let Some(beacon_nodes) = parse_optional::<String>(cli_args, "beacon-nodes")? {
+        if let Some(beacon_nodes) = validator_client_config.beacon_nodes {
             config.beacon_nodes = beacon_nodes
-                .split(',')
-                .map(SensitiveUrl::parse)
-                .collect::<Result<_, _>>()
+                .iter()
+                .map(|s| SensitiveUrl::parse(s))
+                .collect()
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
-        if let Some(proposer_nodes) = parse_optional::<String>(cli_args, "proposer_nodes")? {
+        if let Some(proposer_nodes) = validator_client_config.proposer_nodes {
             config.proposer_nodes = proposer_nodes
-                .split(',')
-                .map(SensitiveUrl::parse)
-                .collect::<Result<_, _>>()
+                .iter()
+                .map(|s| SensitiveUrl::parse(s))
+                .collect()
                 .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
         }
 
-        config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
-        config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
-        config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
+        config.disable_auto_discover = validator_client_config.disable_auto_discovery;
+        config.init_slashing_protection = validator_client_config.init_slashing_protection;
+        config.use_long_timeouts = validator_client_config.use_long_timeouts;
 
-        if let Some(graffiti_file_path) = cli_args.value_of("graffiti-file") {
+        if let Some(graffiti_file_path) = validator_client_config.graffiti_file {
             let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());
             graffiti_file
                 .read_graffiti_file()
@@ -207,7 +212,7 @@ impl Config {
             info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path);
         }
 
-        if let Some(input_graffiti) = cli_args.value_of("graffiti") {
+        if let Some(input_graffiti) = validator_client_config.graffiti {
             let graffiti_bytes = input_graffiti.as_bytes();
             if graffiti_bytes.len() > GRAFFITI_BYTES_LEN {
                 return Err(format!(
@@ -226,21 +231,18 @@ impl Config {
             }
         }
 
-        if let Some(input_fee_recipient) =
-            parse_optional::<Address>(cli_args, "suggested-fee-recipient")?
-        {
+        if let Some(input_fee_recipient) = validator_client_config.suggested_fee_recipient {
             config.fee_recipient = Some(input_fee_recipient);
         }
 
-        if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
-            config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
+        if let Some(tls_certs) = validator_client_config.beacon_nodes_tls_certs {
+            config.beacon_nodes_tls_certs =
+                Some(tls_certs.iter().map(|s| PathBuf::from(s)).collect());
         }
 
-        if cli_args.is_present("distributed") {
-            config.distributed = true;
-        }
+        config.distributed = validator_client_config.distributed;
 
-        if cli_args.is_present("disable-run-on-all") {
+        if validator_client_config.disable_run_on_all {
             warn!(
                 log,
                 "The --disable-run-on-all flag is deprecated";
@@ -248,9 +250,8 @@ impl Config {
             );
             config.broadcast_topics = vec![];
         }
-        if let Some(broadcast_topics) = cli_args.value_of("broadcast") {
+        if let Some(broadcast_topics) = validator_client_config.broadcast {
             config.broadcast_topics = broadcast_topics
-                .split(',')
                 .filter(|t| *t != "none")
                 .map(|t| {
                     t.trim()

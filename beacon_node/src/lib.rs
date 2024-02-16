@@ -1,6 +1,6 @@
 extern crate clap;
 
-mod cli;
+pub mod cli;
 mod config;
 
 use crate::cli::BeaconNode;
@@ -18,7 +18,6 @@ pub use config::{
 };
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
-use lighthouse_network::ListenAddress;
 use slasher::{DatabaseBackendOverride, Slasher};
 use slog::{info, warn};
 use std::num::NonZeroU16;

@@ -16,7 +16,7 @@ pub struct GlobalConfig {
     pub logfile_max_size: u64,
     pub logfile_max_number: usize,
     pub logfile_compress: bool,
-    pub log_format: Option<String>,
+    pub log_format: String,
     pub debug_level: String,
     pub datadir: Option<PathBuf>,
     pub testnet_dir: Option<PathBuf>,
@@ -29,7 +29,7 @@ pub struct GlobalConfig {
     pub terminal_block_hash_override: Option<Hash256>,
     pub terminal_block_hash_epoch_override: Option<Epoch>,
     pub genesis_state_url: Option<String>,
-    pub genesis_state_url_timeout: Option<u64>,
+    pub genesis_state_url_timeout: u64,
 }
 
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's

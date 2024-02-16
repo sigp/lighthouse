@@ -17,7 +17,6 @@ use std::cmp::max;
 use std::fs;
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
-use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;

@@ -5,7 +5,7 @@ use cli::BootNode;
 use slog::{o, Drain, Level, Logger};
 
 use eth2_network_config::Eth2NetworkConfig;
-mod cli;
+pub mod cli;
 pub mod config;
 mod server;
 use config::BootNodeConfig;

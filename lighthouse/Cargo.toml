@@ -34,7 +34,7 @@ sloggers = { workspace = true }
 types = { workspace = true }
 bls = { workspace = true }
 ethereum_hashing = { workspace = true }
-clap = { workspace = true }
+clap = { version = "4.5.0" , features = ["derive"]}
 environment = { workspace = true }
 boot_node = { path = "../boot_node" }
 futures = { workspace = true }

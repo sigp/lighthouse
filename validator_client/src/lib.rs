@@ -21,6 +21,7 @@ pub mod validator_store;
 
 pub use beacon_node_fallback::ApiTopic;
 pub use cli::cli_app;
+use cli::ValidatorClient;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
 use lighthouse_metrics::set_gauge;
@@ -109,9 +110,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     /// and attestation production.
     pub async fn new_from_cli(
         context: RuntimeContext<T>,
-        cli_args: &ArgMatches<'_>,
+        validator_client_config: &ValidatorClient,
     ) -> Result<Self, String> {
-        let config = Config::from_cli(cli_args, context.log())
+        let config = Config::from_cli(validator_client_config, context.log())
             .map_err(|e| format!("Unable to initialize config: {}", e))?;
         Self::new(context, config).await
     }
