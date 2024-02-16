@@ -12,12 +12,16 @@ use beacon_chain::{
 };
 use clap_utils::GlobalConfig;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_config, get_data_dir, get_slots_per_restore_point, set_network_config};
+pub use config::{
+    get_config, get_data_dir, get_slots_per_restore_point, set_network_config,
+    set_network_config_shared,
+};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use lighthouse_network::ListenAddress;
 use slasher::{DatabaseBackendOverride, Slasher};
 use slog::{info, warn};
+use std::num::NonZeroU16;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::{net::IpAddr, path::PathBuf};
@@ -210,10 +214,16 @@ impl lighthouse_network::discv5::Executor for Discv5Executor {
 
 pub trait NetworkConfigurable {
     fn get_network_dir(&self) -> Option<PathBuf>;
-    fn get_listen_addresses(&self) -> ListenAddress;
+    fn get_listen_addresses(&self) -> Vec<IpAddr>;
     fn get_port(&self) -> u16;
-    fn get_boot_nodes(&self) -> Option<String>;
-    fn get_enr_udp_port(&self) -> Option<u16>;
+    fn get_port6(&self) -> u16;
+    fn get_disc_port(&self) -> Option<u16>;
+    fn get_disc6_port(&self) -> Option<u16>;
+    fn get_quic_port(&self) -> Option<u16>;
+    fn get_quic6_port(&self) -> Option<u16>;
+    fn get_boot_nodes(&self) -> Option<Vec<String>>;
+    fn get_enr_udp_port(&self) -> Option<NonZeroU16>;
     fn get_enr_addresses(&self) -> Option<Vec<String>>;
     fn is_disable_packet_filter(&self) -> bool;
+    fn is_zero_ports(&self) -> bool;
 }

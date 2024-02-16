@@ -6,6 +6,7 @@ use clap::builder::Styles;
 pub use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
+use std::num::NonZeroU16;
 use std::path::PathBuf;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -20,7 +21,7 @@ use std::path::PathBuf;
 )]
 pub struct BootNode {
     #[clap(
-        long = "enr-address",
+        long,
         value_name = "ADDRESS",
         value_delimiter = ' ',
         num_args = 0..=2,
@@ -33,17 +34,17 @@ pub struct BootNode {
     pub enr_addresses: Option<Vec<String>>,
 
     #[clap(
-        long = "port",
+        long,
         value_name = "PORT",
-        default_value = "9000",
+        default_value_t = 9000,
         help = "The UDP port to listen on."
     )]
     pub port: u16,
 
     #[clap(
-        long = "port6",
+        long,
         value_name = "PORT",
-        default_value = "9090",
+        default_value_t = 9090,
         help = "The UDP port to listen on over IpV6 when listening over both Ipv4 and \
                 Ipv6. Defaults to 9090 when required.."
     )]
@@ -68,7 +69,7 @@ pub struct BootNode {
     pub listen_addresses: Vec<String>,
 
     #[clap(
-        long = "boot-nodes",
+        long,
         value_name = "ENR-LIST/Multiaddr",
         allow_hyphen_values = true,
         value_delimiter = ',',
@@ -78,7 +79,7 @@ pub struct BootNode {
     pub boot_nodes: Option<Vec<String>>,
 
     #[clap(
-        long = "enr-udp-port",
+        long,
         value_name = "PORT",
         conflicts_with = "network-dir",
         help = "The UDP port of the boot node's ENR. This is the port that external peers will dial \
@@ -87,9 +88,8 @@ pub struct BootNode {
     pub enr_port: Option<u16>,
 
     #[clap(
-        long = "enr-udp6-port",
+        long,
         value_name = "PORT",
-        takes_value = true,
         conflicts_with = "network-dir",
         help = "The UDP6 port of the local ENR. Set this only if you are sure other nodes \
                 can connect to your local node on this port over IpV6."
@@ -98,20 +98,20 @@ pub struct BootNode {
 
     #[clap(
         short = 'x',
-        long = "enable-enr-auto-update",
+        long,
         help = "Discovery can automatically update the node's local ENR with an external IP address \
             and port as seen by other peers on the network. , This enables this feature."
     )]
     pub enable_enr_auto_update: bool,
 
     #[clap(
-        long = "disable-packet-filter",
+        long,
         help = "Disables discv5 packet filter. Useful for testing in smaller networks"
     )]
     pub disable_packet_filter: bool,
 
     #[clap(
-        long = "network-dir",
+        long,
         value_name = "NETWORK_DIR",
         help = "The directory which contains the enr and it's assoicated private key",
         conflicts_with_all = &["enr-address","enr-port"],
@@ -126,23 +126,41 @@ impl NetworkConfigurable for BootNode {
     fn get_port(&self) -> u16 {
         self.port
     }
-    fn get_boot_nodes(&self) -> Option<String> {
+    fn get_boot_nodes(&self) -> Option<Vec<String>> {
         self.boot_nodes.clone()
     }
-    fn get_enr_udp_port(&self) -> Option<u16> {
-        self.enr_port
+    fn get_enr_udp_port(&self) -> Option<NonZeroU16> {
+        todo!()
     }
     fn get_enr_addresses(&self) -> Option<Vec<String>> {
-        self.enr_address.clone()
+        self.enr_addresses.clone()
     }
     fn is_disable_packet_filter(&self) -> bool {
         self.disable_packet_filter
     }
-
-    fn get_listen_addresses(&self) -> lighthouse_network::ListenAddress {
+    fn is_zero_ports(&self) -> bool {
+        false
+    }
+    fn get_listen_addresses(&self) -> Vec<IpAddr> {
         self.listen_addresses
             .iter()
-            .map(|addr| lighthouse_network::ListenAddress)
+            .map(|addr| addr.parse().unwrap())
+            .collect()
+    }
+    fn get_port6(&self) -> u16 {
+        todo!()
+    }
+    fn get_disc_port(&self) -> Option<u16> {
+        todo!()
+    }
+    fn get_disc6_port(&self) -> Option<u16> {
+        todo!()
+    }
+    fn get_quic_port(&self) -> Option<u16> {
+        todo!()
+    }
+    fn get_quic6_port(&self) -> Option<u16> {
+        todo!()
     }
 }
 

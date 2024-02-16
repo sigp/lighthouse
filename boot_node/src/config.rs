@@ -1,24 +1,18 @@
-use beacon_node::{get_data_dir, set_network_config};
-use clap::ArgMatches;
-use common::clap_utils::GlobalConfig;
+use crate::cli::BootNode;
+use beacon_node::{get_data_dir, set_network_config_shared};
+use clap_utils::GlobalConfig;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
-use lighthouse_network::multiaddr::Protocol;
-use lighthouse_network::Multiaddr;
 use lighthouse_network::{
     discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};
-use std::path::Path;
 use std::time::Duration;
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
-
-use crate::cli::BootNode;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
 pub struct BootNodeConfig<T: EthSpec> {
@@ -36,7 +30,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
         global_config: &GlobalConfig,
         eth2_network_config: &Eth2NetworkConfig,
     ) -> Result<Self, String> {
-        let data_dir = get_data_dir_v2(global_config);
+        let data_dir = get_data_dir(global_config);
 
         // Try and obtain bootnodes
 
@@ -62,7 +56,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         let logger = slog_scope::logger();
 
-        set_network_config(&mut network_config, matches, &data_dir, &logger)?;
+        set_network_config_shared(&mut network_config, boot_node_config, &data_dir, &logger)?;
 
         // Set the Enr Discovery ports to the listening ports if not present.
         if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
@@ -103,15 +97,15 @@ impl<T: EthSpec> BootNodeConfig<T> {
             let enr_fork = {
                 let spec = eth2_network_config.chain_spec::<T>()?;
 
-                let genesis_state_url: Option<String> =
-                    clap_utils::parse_optional(matches, "genesis-state-url")?;
-                let genesis_state_url_timeout =
-                    clap_utils::parse_required(matches, "genesis-state-url-timeout")
-                        .map(Duration::from_secs)?;
+                // TODO fix unwrap
+                let genesis_state_url_timeout = global_config
+                    .genesis_state_url_timeout
+                    .map(Duration::from_secs)
+                    .unwrap();
 
                 if eth2_network_config.genesis_state_is_known() {
                     let genesis_state = eth2_network_config
-                        .genesis_state::<T>(genesis_state_url.as_deref(), genesis_state_url_timeout, &logger).await?
+                        .genesis_state::<T>(global_config.genesis_state_url.as_deref(), genesis_state_url_timeout, &logger).await?
                         .ok_or_else(|| {
                             "The genesis state for this network is not known, this is an unsupported mode"
                                 .to_string()

@@ -1,5 +1,7 @@
 use std::{num::NonZeroUsize, path::PathBuf};
 
+use crate::IpAddr;
+use crate::NetworkConfigurable;
 use beacon_chain::chain_config::DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION;
 pub use clap::Parser;
 use lighthouse_network::{Multiaddr, PeerIdSerialized};
@@ -1291,5 +1293,47 @@ pub struct BeaconNode {
 impl BeaconNode {
     pub fn enable_http(&self) -> bool {
         self.http || self.gui || self.staking
+    }
+}
+
+impl NetworkConfigurable for BeaconNode {
+    fn get_network_dir(&self) -> Option<PathBuf> {
+        self.network_dir.clone()
+    }
+    fn get_port(&self) -> u16 {
+        self.port
+    }
+    fn get_boot_nodes(&self) -> Option<Vec<String>> {
+        self.boot_nodes.clone()
+    }
+    fn get_enr_udp_port(&self) -> Option<NonZeroU16> {
+        self.enr_udp_port
+    }
+    fn get_enr_addresses(&self) -> Option<Vec<String>> {
+        self.enr_addresses.clone()
+    }
+    fn is_disable_packet_filter(&self) -> bool {
+        self.disable_packet_filter
+    }
+    fn is_zero_ports(&self) -> bool {
+        false
+    }
+    fn get_listen_addresses(&self) -> Vec<IpAddr> {
+        self.listen_addresses.clone()
+    }
+    fn get_port6(&self) -> u16 {
+        todo!()
+    }
+    fn get_disc_port(&self) -> Option<u16> {
+        todo!()
+    }
+    fn get_disc6_port(&self) -> Option<u16> {
+        todo!()
+    }
+    fn get_quic_port(&self) -> Option<u16> {
+        todo!()
+    }
+    fn get_quic6_port(&self) -> Option<u16> {
+        todo!()
     }
 }

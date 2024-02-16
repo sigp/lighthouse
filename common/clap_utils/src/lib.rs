@@ -22,12 +22,14 @@ pub struct GlobalConfig {
     pub testnet_dir: Option<PathBuf>,
     pub network: Option<String>,
     pub dump_config: Option<PathBuf>,
+    pub dump_chain_config: Option<PathBuf>,
     pub immediate_shutdown: bool,
     pub disable_malloc_tuning: bool,
     pub terminal_total_difficulty_override: Option<String>,
     pub terminal_block_hash_override: Option<Hash256>,
     pub terminal_block_hash_epoch_override: Option<Epoch>,
     pub genesis_state_url: Option<String>,
+    pub genesis_state_url_timeout: Option<u64>,
 }
 
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's
@@ -109,6 +111,32 @@ pub fn parse_ssz_optional<T: Decode>(
             }
         })
         .transpose()
+}
+
+pub fn dump_config<S, E>(dump_path: PathBuf, config: S) -> Result<(), String>
+where
+    S: serde::Serialize,
+    E: EthSpec,
+{
+    let mut file = std::fs::File::create(dump_path)
+        .map_err(|e| format!("Failed to open file for writing config: {:?}", e))?;
+    serde_json::to_writer(&mut file, &config)
+        .map_err(|e| format!("Error serializing config: {:?}", e))?;
+
+    Ok(())
+}
+
+pub fn dump_chain_config<E>(dump_path: PathBuf, spec: &ChainSpec) -> Result<(), String>
+where
+    E: EthSpec,
+{
+    let chain_config = Config::from_chain_spec::<E>(spec);
+    let mut file = std::fs::File::create(dump_path)
+        .map_err(|e| format!("Failed to open file for writing chain config: {:?}", e))?;
+    serde_yaml::to_writer(&mut file, &chain_config)
+        .map_err(|e| format!("Error serializing config: {:?}", e))?;
+
+    Ok(())
 }
 
 /// Writes configs to file if `dump-config` or `dump-chain-config` flags are set

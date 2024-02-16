@@ -743,16 +743,16 @@ pub fn get_config<E: EthSpec>(
 }
 
 /// Gets the listening_addresses for lighthouse based on the cli options.
-pub fn parse_listening_addresses(
-    beacon_node: &BeaconNode,
+pub fn parse_listening_addresses<T: NetworkConfigurable>(
+    config: &T,
     log: &Logger,
 ) -> Result<ListenAddress, String> {
-    let use_zero_ports = beacon_node.zero_ports;
+    let use_zero_ports = config.is_zero_ports();
 
     // parse the possible ips
     let mut maybe_ipv4 = None;
     let mut maybe_ipv6 = None;
-    for addr in beacon_node.listen_addresses.clone() {
+    for addr in config.get_listen_addresses() {
         match addr {
             IpAddr::V4(v4_addr) => match &maybe_ipv4 {
                 Some(first_ipv4_addr) => {
@@ -775,12 +775,12 @@ pub fn parse_listening_addresses(
         }
     }
 
-    let port = beacon_node.port;
-    let port6 = beacon_node.port6;
-    let maybe_disc_port = beacon_node.discovery_port;
-    let maybe_disc6_port = beacon_node.discovery_port6;
-    let maybe_quic_port = beacon_node.quic_port;
-    let maybe_quic6_port = beacon_node.quic_port6;
+    let port = config.get_port();
+    let port6 = config.get_port6();
+    let maybe_disc_port = config.get_disc_port();
+    let maybe_disc6_port = config.get_disc6_port();
+    let maybe_quic_port = config.get_quic_port();
+    let maybe_quic6_port = config.get_quic6_port();
 
     // Now put everything together
     let listening_addresses = match (maybe_ipv4, maybe_ipv6) {
@@ -1184,12 +1184,12 @@ pub fn set_network_config_shared<T: NetworkConfigurable>(
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
-    config.set_listening_addr(cli_config.get_listen_addresses());
+    config.set_listening_addr(parse_listening_addresses(cli_config, log)?);
 
-    if let Some(boot_enr_str) = cli_config.get_boot_nodes() {
+    if let Some(boot_enrs) = cli_config.get_boot_nodes() {
         let mut enrs: Vec<Enr> = vec![];
         let mut multiaddrs: Vec<Multiaddr> = vec![];
-        for addr in boot_enr_str.split(',') {
+        for addr in boot_enrs {
             match addr.parse() {
                 Ok(enr) => enrs.push(enr),
                 Err(_) => {
@@ -1211,9 +1211,7 @@ pub fn set_network_config_shared<T: NetworkConfigurable>(
         config.boot_nodes_multiaddr = multiaddrs;
     };
 
-    if let Some(enr_udp_port) = cli_config.get_enr_udp_port() {
-        config.enr_udp4_port = NonZeroU16::new(enr_udp_port);
-    }
+    config.enr_udp4_port = cli_config.get_enr_udp_port();
 
     if let Some(enr_addresses) = cli_config.get_enr_addresses() {
         let mut enr_ip4 = None;

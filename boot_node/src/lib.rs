@@ -1,5 +1,7 @@
 //! Creates a simple DISCV5 server which can be used to bootstrap an Eth2 network.
 use clap::ArgMatches;
+use clap_utils::GlobalConfig;
+use cli::BootNode;
 use slog::{o, Drain, Level, Logger};
 
 use eth2_network_config::Eth2NetworkConfig;
@@ -13,8 +15,8 @@ const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
 pub fn run(
-    lh_matches: &ArgMatches,
-    bn_matches: &ArgMatches,
+    global_config: &GlobalConfig,
+    boot_node_config: &BootNode,
     eth_spec_id: EthSpecId,
     eth2_network_config: &Eth2NetworkConfig,
     debug_level: String,
@@ -52,13 +54,13 @@ pub fn run(
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
         EthSpecId::Minimal => {
-            main::<types::MinimalEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::MinimalEthSpec>(global_config, boot_node_config, eth2_network_config, log)
         }
         EthSpecId::Mainnet => {
-            main::<types::MainnetEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::MainnetEthSpec>(global_config, boot_node_config, eth2_network_config, log)
         }
         EthSpecId::Gnosis => {
-            main::<types::GnosisEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::GnosisEthSpec>(global_config, boot_node_config, eth2_network_config, log)
         }
     } {
         slog::crit!(slog_scope::logger(), "{}", e);
@@ -66,8 +68,8 @@ pub fn run(
 }
 
 fn main<T: EthSpec>(
-    lh_matches: &ArgMatches,
-    bn_matches: &ArgMatches,
+    global_config: &GlobalConfig,
+    boot_node_config: &BootNode,
     eth2_network_config: &Eth2NetworkConfig,
     log: slog::Logger,
 ) -> Result<(), String> {
@@ -79,8 +81,8 @@ fn main<T: EthSpec>(
 
     // Run the boot node
     runtime.block_on(server::run::<T>(
-        lh_matches,
-        bn_matches,
+        global_config,
+        boot_node_config,
         eth2_network_config,
         log,
     ))?;

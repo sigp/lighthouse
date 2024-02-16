@@ -1,8 +1,10 @@
 //! The main bootnode server execution.
 
 use super::BootNodeConfig;
+use crate::cli::BootNode;
 use crate::config::BootNodeConfigSerialization;
 use clap::ArgMatches;
+use clap_utils::GlobalConfig;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::{
     discv5::{self, enr::NodeId, Discv5},
@@ -12,23 +14,30 @@ use slog::info;
 use types::EthSpec;
 
 pub async fn run<T: EthSpec>(
-    lh_matches: &ArgMatches,
-    bn_matches: &ArgMatches,
+    global_config: &GlobalConfig,
+    boot_node_config: &BootNode,
     eth2_network_config: &Eth2NetworkConfig,
     log: slog::Logger,
 ) -> Result<(), String> {
     // parse the CLI args into a useable config
-    let config: BootNodeConfig<T> = BootNodeConfig::new(bn_matches, eth2_network_config).await?;
+    let config: BootNodeConfig<T> =
+        BootNodeConfig::new(boot_node_config, global_config, eth2_network_config).await?;
 
     // Dump configs if `dump-config` or `dump-chain-config` flags are set
     let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
-    clap_utils::check_dump_configs::<_, T>(
-        lh_matches,
-        &config_sz,
-        &eth2_network_config.chain_spec::<T>()?,
-    )?;
 
-    if lh_matches.is_present("immediate-shutdown") {
+    if let Some(dump_config) = global_config.dump_config.as_ref() {
+        clap_utils::dump_config::<_, T>(dump_config.clone(), &config_sz)?;
+    }
+
+    if let Some(dump_chain_config) = global_config.dump_chain_config.as_ref() {
+        clap_utils::dump_chain_config::<T>(
+            dump_chain_config.clone(),
+            &eth2_network_config.chain_spec::<T>()?,
+        )?;
+    }
+
+    if global_config.immediate_shutdown {
         return Ok(());
     }
 
