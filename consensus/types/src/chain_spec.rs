@@ -958,7 +958,7 @@ impl ChainSpec {
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
-            min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
+            min_epochs_for_block_requests: 16384,
             max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
