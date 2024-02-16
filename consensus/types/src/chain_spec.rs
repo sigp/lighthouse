@@ -944,7 +944,7 @@ impl ChainSpec {
              * Deneb hard fork params
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x64],
-            deneb_fork_epoch: None,
+            deneb_fork_epoch: Some(Epoch::new(889856)),
 
             /*
              * Network specific
@@ -958,7 +958,7 @@ impl ChainSpec {
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
-            min_epochs_for_block_requests: 16384,
+            min_epochs_for_block_requests: 33024,
             max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
@@ -975,7 +975,7 @@ impl ChainSpec {
              */
             max_request_blocks_deneb: default_max_request_blocks_deneb(),
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
-            min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
 
             /*
