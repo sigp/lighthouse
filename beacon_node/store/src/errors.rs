@@ -1,8 +1,8 @@
 use crate::config::StoreConfigError;
 use crate::hdiff;
 use crate::hot_cold_store::HotColdDBError;
-use ssz::DecodeError;
 use promise_cache::PromiseCacheError;
+use ssz::DecodeError;
 use state_processing::BlockReplayError;
 use types::{milhouse, BeaconStateError, Epoch, EpochCacheError, Hash256, InconsistentFork, Slot};
 

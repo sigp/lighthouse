@@ -5,9 +5,9 @@ use std::hash::Hash;
 
 #[derive(Debug)]
 pub struct PromiseCache<K, V>
-    where
-        K: Hash + Eq + Clone,
-        V: Clone,
+where
+    K: Hash + Eq + Clone,
+    V: Clone,
 {
     cache: Mutex<HashMap<K, Receiver<Result<V, ()>>>>,
 }
@@ -18,9 +18,9 @@ pub enum PromiseCacheError<E> {
 }
 
 impl<K, V> PromiseCache<K, V>
-    where
-        K: Hash + Eq + Clone,
-        V: Clone,
+where
+    K: Hash + Eq + Clone,
+    V: Clone,
 {
     pub fn new() -> Self {
         Self {
@@ -28,13 +28,9 @@ impl<K, V> PromiseCache<K, V>
         }
     }
 
-    pub fn get_or_compute<F, E>(
-        &self,
-        key: &K,
-        computation: F,
-    ) -> Result<V, PromiseCacheError<E>>
-        where
-            F: FnOnce() -> Result<V, E>,
+    pub fn get_or_compute<F, E>(&self, key: &K, computation: F) -> Result<V, PromiseCacheError<E>>
+    where
+        F: FnOnce() -> Result<V, E>,
     {
         let mut cache = self.cache.lock();
         match cache.get(key) {
@@ -75,9 +71,9 @@ impl<K, V> PromiseCache<K, V>
 }
 
 impl<K, V> Default for PromiseCache<K, V>
-    where
-        K: Hash + Eq + Clone,
-        V: Clone,
+where
+    K: Hash + Eq + Clone,
+    V: Clone,
 {
     fn default() -> Self {
         Self::new()

@@ -24,6 +24,7 @@ use itertools::process_results;
 use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
+use promise_cache::PromiseCache;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, warn, Logger};
@@ -44,7 +45,6 @@ use std::time::Duration;
 use types::blob_sidecar::BlobSidecarList;
 use types::*;
 use zstd::{Decoder, Encoder};
-use promise_cache::PromiseCache;
 
 pub const MAX_PARENT_STATES_TO_CACHE: u64 = 1;
 
@@ -1867,47 +1867,51 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok((slot, buffer.clone()));
         }
 
-        Ok(self.diff_buffer_computation_cache.get_or_compute(&slot, || {
-            // Load buffer for the previous state.
-            // This amount of recursion (<10 levels) should be OK.
-            let t = std::time::Instant::now();
-            let (_buffer_slot, mut buffer) = match self.hierarchy.storage_strategy(slot)? {
-                // Base case.
-                StorageStrategy::Snapshot => {
-                    let state = self
-                        .load_cold_state_as_snapshot(slot)?
-                        .ok_or(Error::MissingSnapshot(slot))?;
-                    let buffer = HDiffBuffer::from_state(state);
+        Ok(self
+            .diff_buffer_computation_cache
+            .get_or_compute(&slot, || {
+                // Load buffer for the previous state.
+                // This amount of recursion (<10 levels) should be OK.
+                let t = std::time::Instant::now();
+                let (_buffer_slot, mut buffer) = match self.hierarchy.storage_strategy(slot)? {
+                    // Base case.
+                    StorageStrategy::Snapshot => {
+                        let state = self
+                            .load_cold_state_as_snapshot(slot)?
+                            .ok_or(Error::MissingSnapshot(slot))?;
+                        let buffer = HDiffBuffer::from_state(state);
 
-                    self.diff_buffer_cache.lock().put(slot, buffer.clone());
-                    debug!(
+                        self.diff_buffer_cache.lock().put(slot, buffer.clone());
+                        debug!(
+                            self.log,
+                            "Added diff buffer to cache";
+                            "load_time_ms" => t.elapsed().as_millis(),
+                            "slot" => slot
+                        );
+
+                        return Ok((slot, buffer));
+                    }
+                    // Recursive case.
+                    StorageStrategy::DiffFrom(from) => self.load_hdiff_buffer_for_slot(from)?,
+                    StorageStrategy::ReplayFrom(from) => {
+                        return self.load_hdiff_buffer_for_slot(from)
+                    }
+                };
+
+                // Load diff and apply it to buffer.
+                let diff = self.load_hdiff_for_slot(slot)?;
+                diff.apply(&mut buffer)?;
+
+                self.diff_buffer_cache.lock().put(slot, buffer.clone());
+                debug!(
                     self.log,
                     "Added diff buffer to cache";
                     "load_time_ms" => t.elapsed().as_millis(),
                     "slot" => slot
                 );
 
-                    return Ok((slot, buffer));
-                }
-                // Recursive case.
-                StorageStrategy::DiffFrom(from) => self.load_hdiff_buffer_for_slot(from)?,
-                StorageStrategy::ReplayFrom(from) => return self.load_hdiff_buffer_for_slot(from),
-            };
-
-            // Load diff and apply it to buffer.
-            let diff = self.load_hdiff_for_slot(slot)?;
-            diff.apply(&mut buffer)?;
-
-            self.diff_buffer_cache.lock().put(slot, buffer.clone());
-            debug!(
-                self.log,
-                "Added diff buffer to cache";
-                "load_time_ms" => t.elapsed().as_millis(),
-                "slot" => slot
-            );
-
-            Ok((slot, buffer))
-        })?)
+                Ok((slot, buffer))
+            })?)
     }
 
     /// Load cold blocks between `start_slot` and `end_slot` inclusive.
