@@ -24,7 +24,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use tokio::time::{sleep_until, Instant as TInstant, Sleep};
+use tokio::time::{sleep, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
 use types::{EthSpec, ForkContext};
 
@@ -32,7 +32,7 @@ use types::{EthSpec, ForkContext};
 const IO_ERROR_RETRIES: u8 = 3;
 
 /// Maximum time given to the handler to perform shutdown operations.
-const SHUTDOWN_TIMEOUT_SECS: u8 = 15;
+const SHUTDOWN_TIMEOUT_SECS: u64 = 15;
 
 /// Maximum number of simultaneous inbound substreams we keep for this peer.
 const MAX_INBOUND_SUBSTREAMS: usize = 32;
@@ -266,9 +266,9 @@ where
                 self.dial_queue.push((id, OutboundRequest::Goodbye(reason)));
             }
 
-            self.state = HandlerState::ShuttingDown(Box::pin(sleep_until(
-                TInstant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECS as u64),
-            )));
+            self.state = HandlerState::ShuttingDown(Box::pin(sleep(Duration::from_secs(
+                SHUTDOWN_TIMEOUT_SECS,
+            ))));
         }
     }
 
@@ -349,21 +349,8 @@ where
     }
 
     fn connection_keep_alive(&self) -> bool {
-        // Check that we don't have outbound items pending for dialing, nor dialing, nor
-        // established. Also check that there are no established inbound substreams.
-        // Errors and events need to be reported back, so check those too.
         match self.state {
-            HandlerState::ShuttingDown(_) => {
-                !self.dial_queue.is_empty()
-                    || !self.outbound_substreams.is_empty()
-                    || !self.inbound_substreams.is_empty()
-                    || !self.events_out.is_empty()
-                    || !self.dial_negotiated != 0
-            }
-            HandlerState::Deactivated => {
-                // Regardless of events, the timeout has expired. Force the disconnect.
-                false
-            }
+            HandlerState::Deactivated => false,
             _ => true,
         }
     }
@@ -395,7 +382,7 @@ where
             match delay.as_mut().poll(cx) {
                 Poll::Ready(_) => {
                     self.state = HandlerState::Deactivated;
-                    debug!(self.log, "Handler deactivated");
+                    debug!(self.log, "Shutdown timeout elapsed, Handler deactivated");
                     return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                         HandlerEvent::Close(RPCError::Disconnected),
                     ));
@@ -844,6 +831,8 @@ where
                 && self.events_out.is_empty()
                 && self.dial_negotiated == 0
             {
+                debug!(self.log, "Goodbye sent, Handler deactivated");
+                self.state = HandlerState::Deactivated;
                 return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                     HandlerEvent::Close(RPCError::Disconnected),
                 ));
