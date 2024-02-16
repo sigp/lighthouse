@@ -288,7 +288,7 @@ pub struct ValidatorClient {
         help = "Defines how many seconds to wait between each message sent to \
                 the monitoring-endpoint. Default: 60s"
     )]
-    pub monitoring_endpoint_period: u16,
+    pub monitoring_endpoint_period: u64,
 
     #[clap(
         long,
@@ -316,10 +316,11 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        value_name = "UNIX-TIMESTAMP",
         help = "This flag takes a unix timestamp value that will be used to override the \
                 timestamp used in the builder api registration."
     )]
-    pub builder_registration_timestamp_override: bool,
+    pub builder_registration_timestamp_override: Option<u64>,
 
     #[clap(
         long,
@@ -348,7 +349,7 @@ pub struct ValidatorClient {
                 validator/register_validator request sent to the BN. This value \
                 can be reduced to avoid timeouts from builders."
     )]
-    pub validator_registration_batch_size: u64,
+    pub validator_registration_batch_size: usize,
 
     #[clap(
         long,
@@ -394,5 +395,5 @@ pub struct ValidatorClient {
         help = "Maximum number of idle connections to maintain per web3signer host. Default \
                 is unlimited."
     )]
-    pub web3_signer_max_idle_connections: Option<u64>,
+    pub web3_signer_max_idle_connections: Option<usize>,
 }

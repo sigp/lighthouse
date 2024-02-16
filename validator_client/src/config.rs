@@ -155,16 +155,17 @@ impl Config {
             .map(|home| home.join(DEFAULT_ROOT_DIR))
             .unwrap_or_else(|| PathBuf::from("."));
 
+        // TODO check the logic here
         let (mut validator_dir, mut secrets_dir) = (None, None);
         if let Some(datadir) = global_config.datadir.as_ref() {
             validator_dir = Some(datadir.join(DEFAULT_VALIDATOR_DIR));
             secrets_dir = Some(datadir.join(DEFAULT_SECRET_DIR));
         }
         if let Some(validator_dir_path) = validator_client_config.validators_dir.as_ref() {
-            validator_dir = validator_dir_path;
+            validator_dir = Some(validator_dir_path.clone());
         }
         if let Some(secrets_dir_path) = validator_client_config.secrets_dir.as_ref() {
-            secrets_dir = secrets_dir_path;
+            secrets_dir = Some(secrets_dir_path.clone());
         }
 
         config.validator_dir = validator_dir.unwrap_or_else(|| {
@@ -184,19 +185,18 @@ impl Config {
                 .map_err(|e| format!("Failed to create {:?}: {:?}", config.validator_dir, e))?;
         }
 
+        // TODO fix unwraps
         if let Some(beacon_nodes) = validator_client_config.beacon_nodes {
             config.beacon_nodes = beacon_nodes
                 .iter()
-                .map(|s| SensitiveUrl::parse(s))
-                .collect()
-                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
+                .map(|s| SensitiveUrl::parse(s).unwrap())
+                .collect::<Vec<_>>();
         }
         if let Some(proposer_nodes) = validator_client_config.proposer_nodes {
             config.proposer_nodes = proposer_nodes
                 .iter()
-                .map(|s| SensitiveUrl::parse(s))
-                .collect()
-                .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
+                .map(|s| SensitiveUrl::parse(s).unwrap())
+                .collect::<Vec<_>>();
         }
 
         config.disable_auto_discover = validator_client_config.disable_auto_discovery;
@@ -209,7 +209,7 @@ impl Config {
                 .read_graffiti_file()
                 .map_err(|e| format!("Error reading graffiti file: {:?}", e))?;
             config.graffiti_file = Some(graffiti_file);
-            info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path);
+            info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path.to_str());
         }
 
         if let Some(input_graffiti) = validator_client_config.graffiti {
@@ -252,6 +252,7 @@ impl Config {
         }
         if let Some(broadcast_topics) = validator_client_config.broadcast {
             config.broadcast_topics = broadcast_topics
+                .iter()
                 .filter(|t| *t != "none")
                 .map(|t| {
                     t.trim()
@@ -264,16 +265,13 @@ impl Config {
         /*
          * Web3 signer
          */
-        if let Some(s) = parse_optional::<String>(cli_args, "web3-signer-keep-alive-timeout")? {
-            config.web3_signer_keep_alive_timeout = if s == "null" {
-                None
-            } else {
-                Some(Duration::from_millis(
-                    s.parse().map_err(|_| "invalid timeout value".to_string())?,
-                ))
-            }
-        }
-        if let Some(n) = parse_optional::<usize>(cli_args, "web3-signer-max-idle-connections")? {
+
+        // TODO check if default is ok
+        config.web3_signer_keep_alive_timeout = Some(Duration::from_millis(
+            validator_client_config.web3_signer_keep_alive_timeout,
+        ));
+
+        if let Some(n) = validator_client_config.web3_signer_max_idle_connections {
             config.web3_signer_max_idle_connections = Some(n);
         }
 
@@ -281,15 +279,11 @@ impl Config {
          * Http API server
          */
 
-        if cli_args.is_present("http") {
-            config.http_api.enabled = true;
-        }
+        config.http_api.enabled = validator_client_config.http;
 
-        if let Some(address) = cli_args.value_of("http-address") {
-            if cli_args.is_present("unencrypted-http-transport") {
-                config.http_api.listen_addr = address
-                    .parse::<IpAddr>()
-                    .map_err(|_| "http-address is not a valid IP address.")?;
+        if let Some(address) = validator_client_config.http_address {
+            if validator_client_config.unencrypted_http_transport {
+                config.http_api.listen_addr = IpAddr::V4(address);
             } else {
                 return Err(
                     "While using `--http-address`, you must also use `--unencrypted-http-transport`."
@@ -298,72 +292,47 @@ impl Config {
             }
         }
 
-        if let Some(port) = cli_args.value_of("http-port") {
-            config.http_api.listen_port = port
-                .parse::<u16>()
-                .map_err(|_| "http-port is not a valid u16.")?;
-        }
+        config.http_api.listen_port = validator_client_config.http_port;
 
-        if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+        if let Some(allow_origin) = validator_client_config.http_allow_origin {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
-            hyper::header::HeaderValue::from_str(allow_origin)
+            hyper::header::HeaderValue::from_str(&allow_origin)
                 .map_err(|_| "Invalid allow-origin value")?;
 
             config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
-        if cli_args.is_present("http-allow-keystore-export") {
-            config.http_api.allow_keystore_export = true;
-        }
-
-        if cli_args.is_present("http-store-passwords-in-secrets-dir") {
-            config.http_api.store_passwords_in_secrets_dir = true;
-        }
+        config.http_api.allow_keystore_export = validator_client_config.http_allow_keystore_export;
+        config.http_api.store_passwords_in_secrets_dir =
+            validator_client_config.http_store_passwords_in_secrets_dir;
 
         /*
          * Prometheus metrics HTTP server
          */
 
-        if cli_args.is_present("metrics") {
-            config.http_metrics.enabled = true;
-        }
+        config.http_metrics.enabled = validator_client_config.metrics;
+        config.enable_high_validator_count_metrics =
+            validator_client_config.enable_high_validator_count_metrics;
+        config.http_metrics.listen_addr = IpAddr::V4(validator_client_config.metrics_address);
+        config.http_metrics.listen_port = validator_client_config.metrics_port;
 
-        if cli_args.is_present("enable-high-validator-count-metrics") {
-            config.enable_high_validator_count_metrics = true;
-        }
-
-        if let Some(address) = cli_args.value_of("metrics-address") {
-            config.http_metrics.listen_addr = address
-                .parse::<IpAddr>()
-                .map_err(|_| "metrics-address is not a valid IP address.")?;
-        }
-
-        if let Some(port) = cli_args.value_of("metrics-port") {
-            config.http_metrics.listen_port = port
-                .parse::<u16>()
-                .map_err(|_| "metrics-port is not a valid u16.")?;
-        }
-
-        if let Some(allow_origin) = cli_args.value_of("metrics-allow-origin") {
+        if let Some(allow_origin) = validator_client_config.metrics_allow_origin {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
-            hyper::header::HeaderValue::from_str(allow_origin)
+            hyper::header::HeaderValue::from_str(&allow_origin)
                 .map_err(|_| "Invalid allow-origin value")?;
 
             config.http_metrics.allow_origin = Some(allow_origin.to_string());
         }
 
-        if cli_args.is_present(DISABLE_MALLOC_TUNING_FLAG) {
-            config.http_metrics.allocator_metrics_enabled = false;
-        }
+        config.http_metrics.allocator_metrics_enabled = !global_config.disable_malloc_tuning;
 
         /*
          * Explorer metrics
          */
-        if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
-            let update_period_secs =
-                clap_utils::parse_optional(cli_args, "monitoring-endpoint-period")?;
+        if let Some(monitoring_endpoint) = validator_client_config.monitoring_endpoint {
+            let update_period_secs = Some(validator_client_config.monitoring_endpoint_period);
             config.monitoring_api = Some(monitoring_api::Config {
                 db_path: None,
                 freezer_db_path: None,
@@ -372,54 +341,26 @@ impl Config {
             });
         }
 
-        if cli_args.is_present("enable-doppelganger-protection") {
-            config.enable_doppelganger_protection = true;
-        }
-
-        if cli_args.is_present("builder-proposals") {
-            config.builder_proposals = true;
-        }
-
-        if cli_args.is_present("produce-block-v3") {
-            config.produce_block_v3 = true;
-        }
-
-        if cli_args.is_present("prefer-builder-proposals") {
-            config.prefer_builder_proposals = true;
-        }
-
-        config.gas_limit = cli_args
-            .value_of("gas-limit")
-            .map(|gas_limit| {
-                gas_limit
-                    .parse::<u64>()
-                    .map_err(|_| "gas-limit is not a valid u64.")
-            })
-            .transpose()?;
-
-        if let Some(registration_timestamp_override) =
-            cli_args.value_of("builder-registration-timestamp-override")
-        {
-            config.builder_registration_timestamp_override = Some(
-                registration_timestamp_override
-                    .parse::<u64>()
-                    .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
-            );
-        }
-
-        config.builder_boost_factor = parse_optional(cli_args, "builder-boost-factor")?;
-
+        config.enable_doppelganger_protection =
+            validator_client_config.enable_doppelganger_protection;
+        config.builder_proposals = validator_client_config.builder_proposals;
+        config.produce_block_v3 = validator_client_config.produce_block_v3;
+        config.prefer_builder_proposals = validator_client_config.prefer_builder_proposals;
+        config.gas_limit = Some(validator_client_config.gas_limit);
+        config.builder_registration_timestamp_override =
+            validator_client_config.builder_registration_timestamp_override;
+        config.builder_boost_factor = validator_client_config.builder_boost_factor;
         config.enable_latency_measurement_service =
-            parse_optional(cli_args, "latency-measurement-service")?.unwrap_or(true);
-
+            validator_client_config.latency_measurement_service;
         config.validator_registration_batch_size =
-            parse_required(cli_args, "validator-registration-batch-size")?;
+            validator_client_config.validator_registration_batch_size;
+
         if config.validator_registration_batch_size == 0 {
             return Err("validator-registration-batch-size cannot be 0".to_string());
         }
 
         config.enable_web3signer_slashing_protection =
-            if cli_args.is_present("disable-slashing-protection-web3signer") {
+            if validator_client_config.disable_slashing_protection_web3signer {
                 warn!(
                     log,
                     "Slashing protection for remote keys disabled";
