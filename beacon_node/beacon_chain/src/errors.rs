@@ -211,7 +211,6 @@ pub enum BeaconChainError {
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
-    ShufflingCacheError(promise_cache::PromiseCacheError),
     BlsToExecutionPriorToCapella,
     BlsToExecutionConflictsWithPool,
     InconsistentFork(InconsistentFork),

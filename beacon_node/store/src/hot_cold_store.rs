@@ -44,7 +44,7 @@ use std::time::Duration;
 use types::blob_sidecar::BlobSidecarList;
 use types::*;
 use zstd::{Decoder, Encoder};
-use promise_cache::computation_cache::ComputationCache;
+use promise_cache::PromiseCache;
 
 pub const MAX_PARENT_STATES_TO_CACHE: u64 = 1;
 
@@ -79,7 +79,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     ///
     /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
     state_cache: Mutex<StateCache<E>>,
-    hot_computation_cache: ComputationCache<Hash256, Option<BeaconState<E>>>,
+    hot_computation_cache: PromiseCache<Hash256, Option<BeaconState<E>>>,
     /// Immutable validator cache.
     pub immutable_validators: Arc<RwLock<ValidatorPubkeyCache<E, Hot, Cold>>>,
     /// LRU cache of replayed states.
@@ -88,7 +88,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     historic_state_cache: Mutex<LruCache<Slot, BeaconState<E>>>,
     /// Cache of hierarchical diff buffers.
     diff_buffer_cache: Mutex<LruCache<Slot, HDiffBuffer>>,
-    diff_buffer_computation_cache: ComputationCache<Slot, (Slot, HDiffBuffer)>,
+    diff_buffer_computation_cache: PromiseCache<Slot, (Slot, HDiffBuffer)>,
     /// Chain spec.
     pub(crate) spec: ChainSpec,
     /// Logger.
@@ -214,11 +214,11 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(BlockCache::new(block_cache_size)),
             state_cache: Mutex::new(StateCache::new(state_cache_size)),
-            hot_computation_cache: ComputationCache::new(),
+            hot_computation_cache: PromiseCache::new(),
             immutable_validators: Arc::new(RwLock::new(Default::default())),
             historic_state_cache: Mutex::new(LruCache::new(historic_state_cache_size)),
             diff_buffer_cache: Mutex::new(LruCache::new(diff_buffer_cache_size)),
-            diff_buffer_computation_cache: ComputationCache::new(),
+            diff_buffer_computation_cache: PromiseCache::new(),
             config,
             hierarchy,
             spec,
@@ -262,11 +262,11 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(BlockCache::new(block_cache_size)),
             state_cache: Mutex::new(StateCache::new(state_cache_size)),
-            hot_computation_cache: ComputationCache::new(),
+            hot_computation_cache: PromiseCache::new(),
             immutable_validators: Arc::new(RwLock::new(Default::default())),
             historic_state_cache: Mutex::new(LruCache::new(historic_state_cache_size)),
             diff_buffer_cache: Mutex::new(LruCache::new(diff_buffer_cache_size)),
-            diff_buffer_computation_cache: ComputationCache::new(),
+            diff_buffer_computation_cache: PromiseCache::new(),
             config,
             hierarchy,
             spec,

@@ -2,7 +2,7 @@ use crate::config::StoreConfigError;
 use crate::hdiff;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
-use promise_cache::computation_cache::ComputationCacheError;
+use promise_cache::PromiseCacheError;
 use state_processing::BlockReplayError;
 use types::{milhouse, BeaconStateError, Epoch, EpochCacheError, Hash256, InconsistentFork, Slot};
 
@@ -153,10 +153,10 @@ impl From<EpochCacheError> for Error {
     }
 }
 
-impl From<ComputationCacheError<Error>> for Error {
-    fn from(e: ComputationCacheError<Error>) -> Error {
+impl From<PromiseCacheError<Error>> for Error {
+    fn from(e: PromiseCacheError<Error>) -> Error {
         match e {
-            ComputationCacheError::Error(Some(e)) => e,
+            PromiseCacheError::Error(Some(e)) => e,
             _ => Error::CachedComputationError,
         }
     }

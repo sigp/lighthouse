@@ -8,7 +8,6 @@ use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_bound
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::ChainConfig;
@@ -763,8 +762,6 @@ where
             )?;
         }
 
-        let head_shuffling_ids = BlockShufflingIds::try_from_head(head_block_root, &head_state)?;
-
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
             beacon_block: Arc::new(head_block),
@@ -855,7 +852,6 @@ where
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
-        let shuffling_cache_size = self.chain_config.shuffling_cache_size;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -929,11 +925,6 @@ where
             fork_choice_signal_rx,
             event_handler: self.event_handler,
             head_tracker,
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
-                shuffling_cache_size,
-                head_shuffling_ids,
-                log.clone(),
-            )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),

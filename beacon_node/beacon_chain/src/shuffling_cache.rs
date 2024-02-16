@@ -1,9 +1,4 @@
-use promise_cache::{PromiseCache, Protect};
-use slog::{debug, Logger};
-use types::{
-    beacon_state::CommitteeCache, AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256,
-    RelativeEpoch,
-};
+use types::{AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256, RelativeEpoch};
 
 /// The size of the cache that stores committee caches for quicker verification.
 ///
@@ -22,29 +17,6 @@ use types::{
 /// see some attestations dropped due to this concurrency limit, however I propose that this is
 /// better than low-resource nodes going OOM.
 pub const DEFAULT_CACHE_SIZE: usize = 16;
-
-impl Protect<AttestationShufflingId> for BlockShufflingIds {
-    type SortKey = Epoch;
-
-    fn sort_key(&self, k: &AttestationShufflingId) -> Epoch {
-        k.shuffling_epoch
-    }
-
-    fn protect_from_eviction(&self, shuffling_id: &AttestationShufflingId) -> bool {
-        Some(shuffling_id) == self.id_for_epoch(shuffling_id.shuffling_epoch).as_ref()
-    }
-
-    fn notify_eviction(&self, shuffling_id: &AttestationShufflingId, logger: &Logger) {
-        debug!(
-            logger,
-            "Removing old shuffling from cache";
-            "shuffling_epoch" => shuffling_id.shuffling_epoch,
-            "shuffling_decision_block" => ?shuffling_id.shuffling_decision_block
-        );
-    }
-}
-
-pub type ShufflingCache = PromiseCache<AttestationShufflingId, CommitteeCache, BlockShufflingIds>;
 
 /// Contains the shuffling IDs for a beacon block.
 #[derive(Debug, Clone)]
