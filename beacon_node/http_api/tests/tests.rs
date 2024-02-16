@@ -248,6 +248,7 @@ impl ApiTester {
         let log = null_logger().unwrap();
 
         let ApiServer {
+            ctx: _,
             server,
             listening_socket,
             network_rx,
@@ -341,6 +342,7 @@ impl ApiTester {
         let log = null_logger().unwrap();
 
         let ApiServer {
+            ctx: _,
             server,
             listening_socket,
             network_rx,
