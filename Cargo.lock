@@ -1267,6 +1267,7 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_config",
+ "ethereum_ssz",
  "execution_layer",
  "futures",
  "genesis",
