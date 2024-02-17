@@ -238,10 +238,9 @@ where
             },
             (),
         );
-        // NOTE: this is needed because PeerIds have interior mutability.
         let log = self
             .log
-            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => format!("{connection_id}")));
+            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),
@@ -270,10 +269,9 @@ where
             (),
         );
 
-        // NOTE: this is needed because PeerIds have interior mutability.
         let log = self
             .log
-            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => format!("{connection_id}")));
+            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
 
         let handler = RPCHandler::new(
             protocol,
