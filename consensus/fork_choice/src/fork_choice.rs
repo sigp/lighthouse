@@ -634,6 +634,7 @@ where
     ///
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
+    #[allow(clippy::too_many_arguments)]
     pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,
         system_time_current_slot: Slot,
