@@ -2,6 +2,7 @@
 
 use clap::Parser;
 use clap::Subcommand;
+use clap::ValueEnum;
 use clap_utils::GlobalConfig;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
@@ -9,7 +10,7 @@ use lazy_static::lazy_static;
 use lighthouse_version::VERSION;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::str::FromStr;
+use types::ExecutionBlockHash;
 use types::{ChainSpec, Config, Epoch, EthSpec, Hash256, Uint256};
 
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
@@ -93,13 +94,11 @@ pub struct Lighthouse {
 
     #[clap(
         long,
-        value_name = "LEVEL",
+        value_enum,
+        default_value_t = LogLevel::Debug,
         help = "The verbosity level used when emitting logs to the log file.",
-        possible_values = &["info","debug","trace","warn","error","crit"],
-        default_value_t = String::from("debug"),
-        global = true
     )]
-    pub logfile_debug_level: String,
+    pub logfile_debug_level: LogLevel,
 
     #[clap(
         long,
@@ -110,6 +109,15 @@ pub struct Lighthouse {
         global = true
     )]
     pub logfile_max_size: u64,
+
+    // TODO the only optional value here is JSON
+    #[clap(
+        long,
+        value_name = "FORMAT",
+        default_value_t = String::from("JSON"),
+        help = "Specifies the log format used when emitting logs to the terminal.",
+    )]
+    pub log_format: String,
 
     #[clap(
         long,
@@ -130,20 +138,11 @@ pub struct Lighthouse {
 
     #[clap(
         long,
-        value_name = "FORMAT",
+        value_enum,
+        default_value_t = LogFormat::Default,
         help = "Specifies the log format used when emitting logs to the terminal.",
-        possible_values = &["DEFAULT", "JSON"],
-        default_value_t = String::from("DEFAULT")
     )]
-    pub logfile_format: String,
-
-    #[clap(
-        long,
-        value_name = "FORMAT",
-        help = "Specifies the log format used when emitting logs to the terminal.",
-        possible_values = &["JSON"],
-    )]
-    pub log_format: String,
+    pub logfile_format: LogFormat,
 
     #[clap(
         long,
@@ -169,12 +168,11 @@ pub struct Lighthouse {
 
     #[clap(
         long,
-        value_name = "LEVEL",
+        value_enum,
+        default_value_t = LogLevel::Info,
         help = "Specifies the verbosity level used when emitting logs to the terminal.",
-        possible_values = &["info","debug","trace","warn","error","crit"],
-        default_value = "info"
     )]
-    pub debug_level: String,
+    pub debug_level: LogLevel,
 
     #[clap(
         long,
@@ -199,11 +197,10 @@ pub struct Lighthouse {
     #[clap(
         long,
         value_name = "network",
-        help = "Name of the Eth2 chain Lighthouse will sync and follow.",
-        possible_values = HARDCODED_NET_NAMES,
         conflicts_with = "testnet_dir",
+        help = "Name of the Eth2 chain Lighthouse will sync and follow."
     )]
-    pub network: Option<String>,
+    pub network: Option<NetworkName>,
 
     #[clap(
         long,
@@ -303,36 +300,41 @@ pub struct Lighthouse {
     )]
     pub genesis_state_url_timeout: u64,
 
-    #[clap(subcommand)]
+    #[command(subcommand)]
     pub subcommand: LighthouseSubcommand,
 }
 
-#[derive(Subcommand, Clone, Deserialize, Serialize, Debug)]
-#[clap(rename_all = "snake_case")]
+#[derive(Clone, Deserialize, Serialize, Debug, Subcommand)]
 pub enum LighthouseSubcommand {
     BeaconNode(beacon_node::cli::BeaconNode),
     ValidatorClient(validator_client::cli::ValidatorClient),
-    //ValidatorClient(validator_client::ValidatorClient),
     BootNode(boot_node::cli::BootNode),
-    //#[clap(subcommand)]
-    //AccountManager(account_manager::AccountManager),
+    AccountManager(account_manager::AccountManager),
+    DatabaseManager(database_manager::cli::DatabaseManager),
+    ValidatorManager(validator_manager::cli::ValidatorManager),
 }
 
 impl Lighthouse {
     pub fn get_global_config(&self) -> GlobalConfig {
+        let network_name = if let Some(network) = self.network {
+            network.to_str()
+        } else {
+            String::from(DEFAULT_HARDCODED_NETWORK)
+        };
+
         GlobalConfig {
             config_file: self.config_file.clone(),
             spec: self.spec.clone(),
             logfile: self.logfile.clone(),
-            logfile_debug_level: self.logfile_debug_level.clone(),
+            logfile_debug_level: self.logfile_debug_level.to_str(),
             logfile_max_size: self.logfile_max_size,
             logfile_max_number: self.logfile_max_number,
             logfile_compress: self.logfile_compress,
-            log_format: self.log_format.clone(),
-            debug_level: self.debug_level.clone(),
+            log_format: String::from("JSON"),
+            debug_level: self.debug_level.to_str(),
             datadir: self.datadir.clone(),
             testnet_dir: self.testnet_dir.clone(),
-            network: self.network.clone(),
+            network: Some(network_name),
             dump_config: self.dump_config.clone(),
             immediate_shutdown: self.immediate_shutdown,
             disable_malloc_tuning: self.disable_malloc_tuning,
@@ -349,7 +351,7 @@ impl Lighthouse {
     /// Returns the default hardcoded testnet if neither flags are set.
     pub fn get_eth2_network_config(&self) -> Result<Eth2NetworkConfig, String> {
         let optional_network_config = if let Some(network) = self.network.as_ref() {
-            load_hardcoded_network(network)?
+            load_hardcoded_network(&network.to_str())?
         } else if let Some(testnet_dir) = self.testnet_dir.as_ref() {
             load_testnet_dir(testnet_dir)?
         } else {
@@ -373,7 +375,7 @@ impl Lighthouse {
         }
 
         if let Some(hash) = self.terminal_block_hash_override {
-            eth2_network_config.config.terminal_block_hash = hash;
+            eth2_network_config.config.terminal_block_hash = ExecutionBlockHash(hash);
         }
 
         if let Some(epoch) = self.terminal_block_hash_epoch_override {
@@ -404,4 +406,67 @@ pub fn load_testnet_dir(path: &PathBuf) -> Result<Option<Eth2NetworkConfig>, Str
 /// the name is not a valid network name.
 pub fn load_hardcoded_network(network_name: &str) -> Result<Option<Eth2NetworkConfig>, String> {
     Eth2NetworkConfig::constant(network_name)
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum LogLevel {
+    Info,
+    Debug,
+    Trace,
+    Warn,
+    Error,
+    Crit,
+}
+
+impl LogLevel {
+    pub fn to_str(&self) -> String {
+        match self {
+            LogLevel::Info => String::from("info"),
+            LogLevel::Debug => String::from("debug"),
+            LogLevel::Trace => String::from("trace"),
+            LogLevel::Warn => String::from("warn"),
+            LogLevel::Error => String::from("error"),
+            LogLevel::Crit => String::from("crit"),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum LogFormat {
+    Default,
+    Json,
+}
+
+impl LogFormat {
+    pub fn to_str(&self) -> String {
+        match self {
+            LogFormat::Default => String::from("DEFAULT"),
+            LogFormat::Json => String::from("JSON"),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum NetworkName {
+    Mainnet,
+    Prater,
+    Goerli,
+    Gnosis,
+    Chiado,
+    Sepolia,
+    Holesky,
+}
+
+impl NetworkName {
+    pub fn to_str(&self) -> String {
+        match self {
+            NetworkName::Mainnet => String::from("mainnet"),
+            NetworkName::Prater => String::from("prater"),
+            NetworkName::Goerli => String::from("goerli"),
+            NetworkName::Gnosis => String::from("gnosis"),
+            NetworkName::Chiado => String::from("chiado"),
+            NetworkName::Sepolia => String::from("sepolia"),
+            NetworkName::Holesky => String::from("holesky"),
+        }
+    }
 }

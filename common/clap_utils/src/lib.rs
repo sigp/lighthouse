@@ -141,7 +141,7 @@ where
 
 /// Writes configs to file if `dump-config` or `dump-chain-config` flags are set
 pub fn check_dump_configs<S, E>(
-    matches: &ArgMatches,
+    global_config: &GlobalConfig,
     config: S,
     spec: &ChainSpec,
 ) -> Result<(), String>
@@ -149,13 +149,13 @@ where
     S: serde::Serialize,
     E: EthSpec,
 {
-    if let Some(dump_path) = parse_optional::<PathBuf>(matches, "dump-config")? {
+    if let Some(dump_path) = global_config.dump_config.as_ref() {
         let mut file = std::fs::File::create(dump_path)
             .map_err(|e| format!("Failed to open file for writing config: {:?}", e))?;
         serde_json::to_writer(&mut file, &config)
             .map_err(|e| format!("Error serializing config: {:?}", e))?;
     }
-    if let Some(dump_path) = parse_optional::<PathBuf>(matches, "dump-chain-config")? {
+    if let Some(dump_path) = global_config.dump_chain_config.as_ref() {
         let chain_config = Config::from_chain_spec::<E>(spec);
         let mut file = std::fs::File::create(dump_path)
             .map_err(|e| format!("Failed to open file for writing chain config: {:?}", e))?;

@@ -2,7 +2,7 @@ mod attestation_service;
 mod beacon_node_fallback;
 mod block_service;
 mod check_synced;
-mod cli;
+pub mod cli;
 mod config;
 mod duties_service;
 mod graffiti_file;

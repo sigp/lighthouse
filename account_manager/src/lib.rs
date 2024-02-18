@@ -14,8 +14,8 @@ pub const VALIDATOR_DIR_FLAG: &str = "validator-dir";
 pub const VALIDATOR_DIR_FLAG_ALIAS: &str = "validators-dir";
 pub const WALLETS_DIR_FLAG: &str = "wallets-dir";
 
-#[derive(Subcommand, Clone, Deserialize, Serialize, Debug)]
-#[clap(rename_all = "snake_case", visible_aliases = &["a", "am", "account"],
+#[derive(Clone, Deserialize, Serialize, Debug, Parser)]
+#[clap(visible_aliases = &["a", "am", "account"],
 about = "Utilities for generating and managing Ethereum 2.0 accounts.")]
 pub enum AccountManager {
     Wallet(wallet::cli::Wallet),
