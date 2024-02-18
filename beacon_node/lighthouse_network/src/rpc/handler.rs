@@ -349,10 +349,7 @@ where
     }
 
     fn connection_keep_alive(&self) -> bool {
-        match self.state {
-            HandlerState::Deactivated => false,
-            _ => true,
-        }
+        !matches!(self.state, HandlerState::Deactivated)
     }
 
     fn poll(
