@@ -186,7 +186,7 @@ fn run<E: EthSpec>(
                     .join("beacon")
                     .with_extension("log"),
             ),
-            cli::LighthouseSubcommand::ValidatorClient() => {
+            cli::LighthouseSubcommand::ValidatorClient(_) => {
                 let base_path = if vc_matches.is_present("validators-dir") {
                     parse_path_or_default(vc_matches, "validators-dir")?
                 } else {
@@ -314,6 +314,12 @@ fn run<E: EthSpec>(
     }
 
     // TODO VD manager
+    match lighthouse_config.subcommand {
+        cli::LighthouseSubcommand::BeaconNode(_) => todo!(),
+        cli::LighthouseSubcommand::ValidatorClient(_) => todo!(),
+        cli::LighthouseSubcommand::BootNode(_) => todo!(),
+    }
+
     if let Some(sub_matches) = matches.subcommand_matches(validator_manager::CMD) {
         eprintln!("Running validator manager for {} network", network_name);
 

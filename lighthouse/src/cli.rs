@@ -310,8 +310,8 @@ pub struct Lighthouse {
 #[derive(Subcommand, Clone, Deserialize, Serialize, Debug)]
 #[clap(rename_all = "snake_case")]
 pub enum LighthouseSubcommand {
-    BeaconNode(Box<beacon_node::cli::BeaconNode>),
-    ValidatorClient(),
+    BeaconNode(beacon_node::cli::BeaconNode),
+    ValidatorClient(validator_client::cli::ValidatorClient),
     //ValidatorClient(validator_client::ValidatorClient),
     BootNode(boot_node::cli::BootNode),
     //#[clap(subcommand)]

@@ -7,7 +7,7 @@ edition = { workspace = true }
 
 [dependencies]
 bls = { workspace = true }
-clap = { workspace = true }
+clap = { version = "4.5.0" , features = ["derive"]}
 types = { workspace = true }
 environment = { workspace = true }
 eth2_network_config = { workspace = true }

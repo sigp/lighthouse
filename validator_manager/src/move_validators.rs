@@ -1,7 +1,6 @@
 use super::common::*;
-use crate::DumpConfig;
+use crate::{cli::Move, DumpConfig};
 use account_utils::{read_password_from_user, ZeroizeString};
-use clap::{App, Arg, ArgMatches};
 use eth2::{
     lighthouse_vc::{
         std_types::{
@@ -22,18 +21,9 @@ use types::{Address, PublicKeyBytes};
 
 pub const MOVE_DIR_NAME: &str = "lighthouse-validator-move";
 pub const VALIDATOR_SPECIFICATION_FILE: &str = "validator-specification.json";
-
-pub const CMD: &str = "move";
 pub const SRC_VC_URL_FLAG: &str = "src-vc-url";
-pub const SRC_VC_TOKEN_FLAG: &str = "src-vc-token";
 pub const DEST_VC_URL_FLAG: &str = "dest-vc-url";
-pub const DEST_VC_TOKEN_FLAG: &str = "dest-vc-token";
 pub const VALIDATORS_FLAG: &str = "validators";
-pub const GAS_LIMIT_FLAG: &str = "gas-limit";
-pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
-pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
-pub const BUILDER_BOOST_FACTOR_FLAG: &str = "builder-boost-factor";
-pub const PREFER_BUILDER_PROPOSALS_FLAG: &str = "prefer-builder-proposals";
 
 const NO_VALIDATORS_MSG: &str = "No validators present on source validator client";
 
@@ -66,138 +56,6 @@ impl PasswordSource {
     }
 }
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .about(
-            "Uploads validators to a validator client using the HTTP API. The validators \
-                are defined in a JSON file which can be generated using the \"create-validators\" \
-                command. This command only supports validators signing via a keystore on the local \
-                file system (i.e., not Web3Signer validators).",
-        )
-        .arg(
-            Arg::with_name(SRC_VC_URL_FLAG)
-                .long(SRC_VC_URL_FLAG)
-                .value_name("HTTP_ADDRESS")
-                .help(
-                    "A HTTP(S) address of a validator client using the keymanager-API. \
-                    This validator client is the \"source\" and contains the validators \
-                    that are to be moved.",
-                )
-                .required(true)
-                .requires(SRC_VC_TOKEN_FLAG)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(SRC_VC_TOKEN_FLAG)
-                .long(SRC_VC_TOKEN_FLAG)
-                .value_name("PATH")
-                .help("The file containing a token required by the source validator client.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(DEST_VC_URL_FLAG)
-                .long(DEST_VC_URL_FLAG)
-                .value_name("HTTP_ADDRESS")
-                .help(
-                    "A HTTP(S) address of a validator client using the keymanager-API. \
-                    This validator client is the \"destination\" and will have new validators \
-                    added as they are removed from the \"source\" validator client.",
-                )
-                .required(true)
-                .requires(DEST_VC_TOKEN_FLAG)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(DEST_VC_TOKEN_FLAG)
-                .long(DEST_VC_TOKEN_FLAG)
-                .value_name("PATH")
-                .help("The file containing a token required by the destination validator client.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(VALIDATORS_FLAG)
-                .long(VALIDATORS_FLAG)
-                .value_name("STRING")
-                .help(
-                    "The validators to be moved. Either a list of 0x-prefixed \
-                    validator pubkeys or the keyword \"all\".",
-                )
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(COUNT_FLAG)
-                .long(COUNT_FLAG)
-                .value_name("VALIDATOR_COUNT")
-                .help("The number of validators to move.")
-                .conflicts_with(VALIDATORS_FLAG)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(GAS_LIMIT_FLAG)
-                .long(GAS_LIMIT_FLAG)
-                .value_name("UINT64")
-                .help(
-                    "All created validators will use this gas limit. It is recommended \
-                    to leave this as the default value by not specifying this flag.",
-                )
-                .required(false)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(FEE_RECIPIENT_FLAG)
-                .long(FEE_RECIPIENT_FLAG)
-                .value_name("ETH1_ADDRESS")
-                .help(
-                    "All created validators will use this value for the suggested \
-                    fee recipient. Omit this flag to use the default value from the VC.",
-                )
-                .required(false)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(BUILDER_PROPOSALS_FLAG)
-                .long(BUILDER_PROPOSALS_FLAG)
-                .help(
-                    "When provided, all created validators will attempt to create \
-                    blocks via builder rather than the local EL.",
-                )
-                .required(false)
-                .possible_values(&["true", "false"])
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
-        .arg(
-            Arg::with_name(BUILDER_BOOST_FACTOR_FLAG)
-                .long(BUILDER_BOOST_FACTOR_FLAG)
-                .takes_value(true)
-                .value_name("UINT64")
-                .required(false)
-                .help(
-                    "Defines the boost factor, \
-                    a percentage multiplier to apply to the builder's payload value \
-                    when choosing between a builder payload header and payload from \
-                    the local execution node.",
-                ),
-        )
-        .arg(
-            Arg::with_name(PREFER_BUILDER_PROPOSALS_FLAG)
-                .long(PREFER_BUILDER_PROPOSALS_FLAG)
-                .help(
-                    "If this flag is set, Lighthouse will always prefer blocks \
-                    constructed by builders, regardless of payload value.",
-                )
-                .required(false)
-                .possible_values(&["true", "false"])
-                .takes_value(true),
-        )
-}
-
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Validators {
     All,
@@ -221,19 +79,25 @@ pub struct MoveConfig {
 }
 
 impl MoveConfig {
-    fn from_cli(matches: &ArgMatches) -> Result<Self, String> {
-        let count_flag = clap_utils::parse_optional(matches, COUNT_FLAG)?;
-        let validators_flag = matches.value_of(VALIDATORS_FLAG);
+    fn from_cli(move_config: &Move) -> Result<Self, String> {
+        let count_flag = move_config.count;
+        let validators_flag = move_config.validators.as_ref();
         let validators = match (count_flag, validators_flag) {
             (Some(count), None) => Validators::Count(count),
-            (None, Some(string)) => match string {
-                "all" => Validators::All,
-                pubkeys => pubkeys
-                    .split(',')
-                    .map(PublicKeyBytes::from_str)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map(Validators::Specific)?,
-            },
+            (None, Some(validators_list)) => validators_list.first().map_or_else(
+                || Ok(Validators::All),
+                |first| {
+                    if first == "all" {
+                        Ok(Validators::All)
+                    } else {
+                        validators_list
+                            .iter()
+                            .map(|s| PublicKeyBytes::from_str(s))
+                            .collect::<Result<Vec<_>, _>>()
+                            .map(Validators::Specific)
+                    }
+                },
+            )?,
             (None, None) => Err(format!(
                 "Must supply either --{VALIDATORS_FLAG} or --{COUNT_FLAG}."
             ))?,
@@ -242,32 +106,31 @@ impl MoveConfig {
             }
         };
 
+        let src_vc_url = SensitiveUrl::parse(&move_config.src_vc_url)
+            .map_err(|e| format!("Error parsing {}: {}", SRC_VC_URL_FLAG, e.to_string()))?;
+        let dest_vc_url = SensitiveUrl::parse(&move_config.src_vc_url)
+            .map_err(|e| format!("Error parsing {}: {}", DEST_VC_URL_FLAG, e.to_string()))?;
+
         Ok(Self {
-            src_vc_url: clap_utils::parse_required(matches, SRC_VC_URL_FLAG)?,
-            src_vc_token_path: clap_utils::parse_required(matches, SRC_VC_TOKEN_FLAG)?,
-            dest_vc_url: clap_utils::parse_required(matches, DEST_VC_URL_FLAG)?,
-            dest_vc_token_path: clap_utils::parse_required(matches, DEST_VC_TOKEN_FLAG)?,
+            src_vc_url: src_vc_url,
+            src_vc_token_path: move_config.src_vc_token.clone(),
+            dest_vc_url: dest_vc_url,
+            dest_vc_token_path: move_config.dest_vc_token.clone(),
             validators,
-            builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
-            builder_boost_factor: clap_utils::parse_optional(matches, BUILDER_BOOST_FACTOR_FLAG)?,
-            prefer_builder_proposals: clap_utils::parse_optional(
-                matches,
-                PREFER_BUILDER_PROPOSALS_FLAG,
-            )?,
-            fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
-            gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
+            builder_proposals: move_config.builder_proposals,
+            builder_boost_factor: move_config.builder_boost_factor,
+            prefer_builder_proposals: move_config.prefer_builder_proposals,
+            fee_recipient: move_config.suggested_fee_recipient,
+            gas_limit: move_config.gas_limit,
             password_source: PasswordSource::Interactive {
-                stdin_inputs: cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG),
+                stdin_inputs: cfg!(windows) || move_config.stdin_inputs,
             },
         })
     }
 }
 
-pub async fn cli_run<'a>(
-    matches: &'a ArgMatches<'a>,
-    dump_config: DumpConfig,
-) -> Result<(), String> {
-    let config = MoveConfig::from_cli(matches)?;
+pub async fn cli_run<'a>(move_config: &Move, dump_config: DumpConfig) -> Result<(), String> {
+    let config = MoveConfig::from_cli(move_config)?;
     if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {

@@ -1,11 +1,12 @@
-use clap::App;
-use clap::ArgMatches;
+use clap_utils::GlobalConfig;
+use cli::ValidatorManager;
 use common::write_to_json_file;
 use environment::Environment;
 use serde::Serialize;
 use std::path::PathBuf;
 use types::EthSpec;
 
+pub mod cli;
 pub mod common;
 pub mod create_validators;
 pub mod import_validators;
@@ -38,20 +39,17 @@ impl DumpConfig {
     }
 }
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .visible_aliases(&["vm", "validator-manager", CMD])
-        .about("Utilities for managing a Lighthouse validator client via the HTTP API.")
-        .subcommand(create_validators::cli_app())
-        .subcommand(import_validators::cli_app())
-        .subcommand(move_validators::cli_app())
-}
-
 /// Run the account manager, returning an error if the operation did not succeed.
-pub fn run<'a, T: EthSpec>(matches: &'a ArgMatches<'a>, env: Environment<T>) -> Result<(), String> {
+pub fn run<'a, T: EthSpec>(
+    validator_mananager_config: &ValidatorManager,
+    global_config: &GlobalConfig,
+    env: Environment<T>,
+) -> Result<(), String> {
     let context = env.core_context();
     let spec = context.eth2_config.spec;
-    let dump_config = clap_utils::parse_optional(matches, DUMP_CONFIGS_FLAG)?
+    let dump_config = global_config
+        .dump_config
+        .clone()
         .map(DumpConfig::Enabled)
         .unwrap_or_else(|| DumpConfig::Disabled);
 
@@ -62,21 +60,16 @@ pub fn run<'a, T: EthSpec>(matches: &'a ArgMatches<'a>, env: Environment<T>) -> 
         // async and should never call `block_on_dangerous` themselves.
         .block_on_dangerous(
             async {
-                match matches.subcommand() {
-                    (create_validators::CMD, Some(matches)) => {
-                        create_validators::cli_run::<T>(matches, &spec, dump_config).await
+                match &validator_mananager_config.subcommand {
+                    cli::ValidatorManagerSubcommand::Create(create_config) => {
+                        create_validators::cli_run::<T>(create_config, &spec, dump_config).await
                     }
-                    (import_validators::CMD, Some(matches)) => {
-                        import_validators::cli_run(matches, dump_config).await
+                    cli::ValidatorManagerSubcommand::Import(import_config) => {
+                        import_validators::cli_run(import_config, dump_config).await
                     }
-                    (move_validators::CMD, Some(matches)) => {
-                        move_validators::cli_run(matches, dump_config).await
+                    cli::ValidatorManagerSubcommand::Move(move_config) => {
+                        move_validators::cli_run(move_config, dump_config).await
                     }
-                    ("", _) => Err("No command supplied. See --help.".to_string()),
-                    (unknown, _) => Err(format!(
-                        "{} is not a valid {} command. See --help.",
-                        unknown, CMD
-                    )),
                 }
             },
             "validator_manager",

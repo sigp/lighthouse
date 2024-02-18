@@ -21,7 +21,6 @@ pub mod validator_store;
 
 pub use beacon_node_fallback::ApiTopic;
 use clap_utils::GlobalConfig;
-pub use cli::cli_app;
 use cli::ValidatorClient;
 pub use config::Config;
 use initialized_validators::InitializedValidators;

@@ -1,4 +1,3 @@
-use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use slashing_protection::{
     interchange::Interchange, InterchangeError, InterchangeImportOutcome, SlashingDatabase,
@@ -9,6 +8,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
+use super::cli::SlashingProtection;
+
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";
 pub const EXPORT_CMD: &str = "export";
@@ -18,43 +19,8 @@ pub const EXPORT_FILE_ARG: &str = "EXPORT-FILE";
 
 pub const PUBKEYS_FLAG: &str = "pubkeys";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .about("Import or export slashing protection data to or from another client")
-        .subcommand(
-            App::new(IMPORT_CMD)
-                .about("Import an interchange file")
-                .arg(
-                    Arg::with_name(IMPORT_FILE_ARG)
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .help("The slashing protection interchange file to import (.json)"),
-                )
-        )
-        .subcommand(
-            App::new(EXPORT_CMD)
-                .about("Export an interchange file")
-                .arg(
-                    Arg::with_name(EXPORT_FILE_ARG)
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .help("The filename to export the interchange file to"),
-                )
-                .arg(
-                    Arg::with_name(PUBKEYS_FLAG)
-                        .long(PUBKEYS_FLAG)
-                        .takes_value(true)
-                        .value_name("PUBKEYS")
-                        .help(
-                            "List of public keys to export history for. Keys should be 0x-prefixed, \
-                             comma-separated. All known keys will be exported if omitted",
-                        ),
-                )
-        )
-}
-
 pub fn cli_run<T: EthSpec>(
-    matches: &ArgMatches<'_>,
+    slashing_protection_config: &SlashingProtection,
     env: Environment<T>,
     validator_base_dir: PathBuf,
 ) -> Result<(), String> {
@@ -67,9 +33,9 @@ pub fn cli_run<T: EthSpec>(
         .genesis_validators_root::<T>()?
         .ok_or_else(|| "Unable to get genesis state, has genesis occurred?".to_string())?;
 
-    match matches.subcommand() {
-        (IMPORT_CMD, Some(matches)) => {
-            let import_filename: PathBuf = clap_utils::parse_required(matches, IMPORT_FILE_ARG)?;
+    match slashing_protection_config {
+        SlashingProtection::Import(import_config) => {
+            let import_filename: PathBuf = import_config.import_file.clone();
             let import_file = File::open(&import_filename).map_err(|e| {
                 format!(
                     "Unable to open import file at {}: {:?}",
@@ -168,14 +134,12 @@ pub fn cli_run<T: EthSpec>(
 
             Ok(())
         }
-        (EXPORT_CMD, Some(matches)) => {
-            let export_filename: PathBuf = clap_utils::parse_required(matches, EXPORT_FILE_ARG)?;
+        SlashingProtection::Export(export_config) => {
+            let export_filename = export_config.export_file;
 
-            let selected_pubkeys = if let Some(pubkeys) =
-                clap_utils::parse_optional::<String>(matches, PUBKEYS_FLAG)?
-            {
+            let selected_pubkeys = if let Some(pubkeys) = export_config.pubkeys {
                 let pubkeys = pubkeys
-                    .split(',')
+                    .iter()
                     .map(PublicKeyBytes::from_str)
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| format!("Invalid --{} value: {:?}", PUBKEYS_FLAG, e))?;

@@ -186,13 +186,13 @@ impl Config {
         }
 
         // TODO fix unwraps
-        if let Some(beacon_nodes) = validator_client_config.beacon_nodes {
+        if let Some(beacon_nodes) = validator_client_config.beacon_nodes.as_ref() {
             config.beacon_nodes = beacon_nodes
                 .iter()
                 .map(|s| SensitiveUrl::parse(s).unwrap())
                 .collect::<Vec<_>>();
         }
-        if let Some(proposer_nodes) = validator_client_config.proposer_nodes {
+        if let Some(proposer_nodes) = validator_client_config.proposer_nodes.as_ref() {
             config.proposer_nodes = proposer_nodes
                 .iter()
                 .map(|s| SensitiveUrl::parse(s).unwrap())
@@ -203,7 +203,7 @@ impl Config {
         config.init_slashing_protection = validator_client_config.init_slashing_protection;
         config.use_long_timeouts = validator_client_config.use_long_timeouts;
 
-        if let Some(graffiti_file_path) = validator_client_config.graffiti_file {
+        if let Some(graffiti_file_path) = validator_client_config.graffiti_file.as_ref() {
             let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());
             graffiti_file
                 .read_graffiti_file()
@@ -212,7 +212,7 @@ impl Config {
             info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path.to_str());
         }
 
-        if let Some(input_graffiti) = validator_client_config.graffiti {
+        if let Some(input_graffiti) = validator_client_config.graffiti.as_ref() {
             let graffiti_bytes = input_graffiti.as_bytes();
             if graffiti_bytes.len() > GRAFFITI_BYTES_LEN {
                 return Err(format!(
@@ -235,7 +235,7 @@ impl Config {
             config.fee_recipient = Some(input_fee_recipient);
         }
 
-        if let Some(tls_certs) = validator_client_config.beacon_nodes_tls_certs {
+        if let Some(tls_certs) = validator_client_config.beacon_nodes_tls_certs.as_ref() {
             config.beacon_nodes_tls_certs =
                 Some(tls_certs.iter().map(|s| PathBuf::from(s)).collect());
         }
@@ -250,7 +250,7 @@ impl Config {
             );
             config.broadcast_topics = vec![];
         }
-        if let Some(broadcast_topics) = validator_client_config.broadcast {
+        if let Some(broadcast_topics) = validator_client_config.broadcast.as_ref() {
             config.broadcast_topics = broadcast_topics
                 .iter()
                 .filter(|t| *t != "none")
@@ -294,7 +294,7 @@ impl Config {
 
         config.http_api.listen_port = validator_client_config.http_port;
 
-        if let Some(allow_origin) = validator_client_config.http_allow_origin {
+        if let Some(allow_origin) = validator_client_config.http_allow_origin.as_ref() {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
             hyper::header::HeaderValue::from_str(&allow_origin)
@@ -317,7 +317,7 @@ impl Config {
         config.http_metrics.listen_addr = IpAddr::V4(validator_client_config.metrics_address);
         config.http_metrics.listen_port = validator_client_config.metrics_port;
 
-        if let Some(allow_origin) = validator_client_config.metrics_allow_origin {
+        if let Some(allow_origin) = validator_client_config.metrics_allow_origin.as_ref() {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
             hyper::header::HeaderValue::from_str(&allow_origin)
@@ -331,7 +331,7 @@ impl Config {
         /*
          * Explorer metrics
          */
-        if let Some(monitoring_endpoint) = validator_client_config.monitoring_endpoint {
+        if let Some(monitoring_endpoint) = validator_client_config.monitoring_endpoint.as_ref() {
             let update_period_secs = Some(validator_client_config.monitoring_endpoint_period);
             config.monitoring_api = Some(monitoring_api::Config {
                 db_path: None,

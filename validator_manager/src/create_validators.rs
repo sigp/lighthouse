@@ -1,7 +1,7 @@
 use super::common::*;
+use crate::cli::Create;
 use crate::DumpConfig;
 use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_from_user};
-use clap::{App, Arg, ArgMatches};
 use eth2::{
     lighthouse_vc::std_types::KeystoreJsonStr,
     types::{StateId, ValidatorId},
@@ -9,207 +9,17 @@ use eth2::{
 };
 use eth2_wallet::WalletBuilder;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::{fs, str::FromStr};
 use types::*;
 
-pub const CMD: &str = "create";
-pub const OUTPUT_PATH_FLAG: &str = "output-path";
-pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
-pub const DISABLE_DEPOSITS_FLAG: &str = "disable-deposits";
-pub const FIRST_INDEX_FLAG: &str = "first-index";
-pub const MNEMONIC_FLAG: &str = "mnemonic-path";
-pub const SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG: &str = "specify-voting-keystore-password";
 pub const ETH1_WITHDRAWAL_ADDRESS_FLAG: &str = "eth1-withdrawal-address";
-pub const GAS_LIMIT_FLAG: &str = "gas-limit";
-pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
-pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
-pub const BUILDER_BOOST_FACTOR_FLAG: &str = "builder-boost-factor";
-pub const PREFER_BUILDER_PROPOSALS_FLAG: &str = "prefer-builder-proposals";
 pub const BEACON_NODE_FLAG: &str = "beacon-node";
-pub const FORCE_BLS_WITHDRAWAL_CREDENTIALS: &str = "force-bls-withdrawal-credentials";
-
 pub const VALIDATORS_FILENAME: &str = "validators.json";
 pub const DEPOSITS_FILENAME: &str = "deposits.json";
 
 const BEACON_NODE_HTTP_TIMEOUT: Duration = Duration::from_secs(2);
-
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .about(
-            "Creates new validators from BIP-39 mnemonic. A JSON file will be created which \
-                contains all the validator keystores and other validator data. This file can then \
-                be imported to a validator client using the \"import-validators\" command. \
-                Another, optional JSON file is created which contains a list of validator \
-                deposits in the same format as the \"ethereum/staking-deposit-cli\" tool.",
-        )
-        .arg(
-            Arg::with_name(OUTPUT_PATH_FLAG)
-                .long(OUTPUT_PATH_FLAG)
-                .value_name("DIRECTORY")
-                .help(
-                    "The path to a directory where the validator and (optionally) deposits \
-                    files will be created. The directory will be created if it does not exist.",
-                )
-                .required(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(DEPOSIT_GWEI_FLAG)
-                .long(DEPOSIT_GWEI_FLAG)
-                .value_name("DEPOSIT_GWEI")
-                .help(
-                    "The GWEI value of the deposit amount. Defaults to the minimum amount \
-                    required for an active validator (MAX_EFFECTIVE_BALANCE)",
-                )
-                .conflicts_with(DISABLE_DEPOSITS_FLAG)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(FIRST_INDEX_FLAG)
-                .long(FIRST_INDEX_FLAG)
-                .value_name("FIRST_INDEX")
-                .help("The first of consecutive key indexes you wish to create.")
-                .takes_value(true)
-                .required(false)
-                .default_value("0"),
-        )
-        .arg(
-            Arg::with_name(COUNT_FLAG)
-                .long(COUNT_FLAG)
-                .value_name("VALIDATOR_COUNT")
-                .help("The number of validators to create, regardless of how many already exist")
-                .conflicts_with("at-most")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(MNEMONIC_FLAG)
-                .long(MNEMONIC_FLAG)
-                .value_name("MNEMONIC_PATH")
-                .help("If present, the mnemonic will be read in from this file.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
-        .arg(
-            Arg::with_name(DISABLE_DEPOSITS_FLAG)
-                .long(DISABLE_DEPOSITS_FLAG)
-                .help(
-                    "When provided don't generate the deposits JSON file that is \
-                    commonly used for submitting validator deposits via a web UI. \
-                    Using this flag will save several seconds per validator if the \
-                    user has an alternate strategy for submitting deposits.",
-                ),
-        )
-        .arg(
-            Arg::with_name(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG)
-                .long(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG)
-                .help(
-                    "If present, the user will be prompted to enter the voting keystore \
-                    password that will be used to encrypt the voting keystores. If this \
-                    flag is not provided, a random password will be used. It is not \
-                    necessary to keep backups of voting keystore passwords if the \
-                    mnemonic is safely backed up.",
-                ),
-        )
-        .arg(
-            Arg::with_name(ETH1_WITHDRAWAL_ADDRESS_FLAG)
-                .long(ETH1_WITHDRAWAL_ADDRESS_FLAG)
-                .value_name("ETH1_ADDRESS")
-                .help(
-                    "If this field is set, the given eth1 address will be used to create the \
-                    withdrawal credentials. Otherwise, it will generate withdrawal credentials \
-                    with the mnemonic-derived withdrawal public key in EIP-2334 format.",
-                )
-                .conflicts_with(DISABLE_DEPOSITS_FLAG)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(GAS_LIMIT_FLAG)
-                .long(GAS_LIMIT_FLAG)
-                .value_name("UINT64")
-                .help(
-                    "All created validators will use this gas limit. It is recommended \
-                    to leave this as the default value by not specifying this flag.",
-                )
-                .required(false)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(FEE_RECIPIENT_FLAG)
-                .long(FEE_RECIPIENT_FLAG)
-                .value_name("ETH1_ADDRESS")
-                .help(
-                    "All created validators will use this value for the suggested \
-                    fee recipient. Omit this flag to use the default value from the VC.",
-                )
-                .required(false)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(BUILDER_PROPOSALS_FLAG)
-                .long(BUILDER_PROPOSALS_FLAG)
-                .help(
-                    "When provided, all created validators will attempt to create \
-                    blocks via builder rather than the local EL.",
-                )
-                .required(false)
-                .possible_values(&["true", "false"])
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(BEACON_NODE_FLAG)
-                .long(BEACON_NODE_FLAG)
-                .value_name("HTTP_ADDRESS")
-                .help(
-                    "A HTTP(S) address of a beacon node using the beacon-API. \
-                    If this value is provided, an error will be raised if any validator \
-                    key here is already known as a validator by that beacon node. This helps \
-                    prevent the same validator being created twice and therefore slashable \
-                    conditions.",
-                )
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
-                .takes_value(false)
-                .long(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
-                .help(
-                    "If present, allows BLS withdrawal credentials rather than an execution \
-                    address. This is not recommended.",
-                ),
-        )
-        .arg(
-            Arg::with_name(BUILDER_BOOST_FACTOR_FLAG)
-                .long(BUILDER_BOOST_FACTOR_FLAG)
-                .takes_value(true)
-                .value_name("UINT64")
-                .required(false)
-                .help(
-                    "Defines the boost factor, \
-                    a percentage multiplier to apply to the builder's payload value \
-                    when choosing between a builder payload header and payload from \
-                    the local execution node.",
-                ),
-        )
-        .arg(
-            Arg::with_name(PREFER_BUILDER_PROPOSALS_FLAG)
-                .long(PREFER_BUILDER_PROPOSALS_FLAG)
-                .help(
-                    "If this flag is set, Lighthouse will always prefer blocks \
-                    constructed by builders, regardless of payload value.",
-                )
-                .required(false)
-                .possible_values(&["true", "false"])
-                .takes_value(true),
-        )
-}
 
 /// The CLI arguments are parsed into this struct before running the application. This step of
 /// indirection allows for testing the underlying logic without needing to parse CLI arguments.
@@ -234,32 +44,35 @@ pub struct CreateConfig {
 }
 
 impl CreateConfig {
-    fn from_cli(matches: &ArgMatches, spec: &ChainSpec) -> Result<Self, String> {
+    fn from_cli(create_config: &Create, spec: &ChainSpec) -> Result<Self, String> {
+        let beacon_node =
+            if let Some(bn) = create_config.beacon_node.as_ref() {
+                Some(SensitiveUrl::parse(bn).map_err(|e| {
+                    format!("Error parsing {}: {}", BEACON_NODE_FLAG, e.to_string())
+                })?)
+            } else {
+                None
+            };
+
         Ok(Self {
-            output_path: clap_utils::parse_required(matches, OUTPUT_PATH_FLAG)?,
-            deposit_gwei: clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
+            output_path: create_config.output_path.clone(),
+            deposit_gwei: create_config
+                .deposit_gwei
                 .unwrap_or(spec.max_effective_balance),
-            first_index: clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?,
-            count: clap_utils::parse_required(matches, COUNT_FLAG)?,
-            mnemonic_path: clap_utils::parse_optional(matches, MNEMONIC_FLAG)?,
-            stdin_inputs: cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG),
-            disable_deposits: matches.is_present(DISABLE_DEPOSITS_FLAG),
-            specify_voting_keystore_password: matches
-                .is_present(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG),
-            eth1_withdrawal_address: clap_utils::parse_optional(
-                matches,
-                ETH1_WITHDRAWAL_ADDRESS_FLAG,
-            )?,
-            builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
-            builder_boost_factor: clap_utils::parse_optional(matches, BUILDER_BOOST_FACTOR_FLAG)?,
-            prefer_builder_proposals: clap_utils::parse_optional(
-                matches,
-                PREFER_BUILDER_PROPOSALS_FLAG,
-            )?,
-            fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
-            gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
-            bn_url: clap_utils::parse_optional(matches, BEACON_NODE_FLAG)?,
-            force_bls_withdrawal_credentials: matches.is_present(FORCE_BLS_WITHDRAWAL_CREDENTIALS),
+            first_index: create_config.first_index,
+            count: create_config.count,
+            mnemonic_path: create_config.mnemonic_path.clone(),
+            stdin_inputs: cfg!(windows) || create_config.stdin_inputs,
+            disable_deposits: create_config.disable_deposits,
+            specify_voting_keystore_password: create_config.specify_voting_keystore_password,
+            eth1_withdrawal_address: create_config.eth1_withdrawal_address,
+            builder_proposals: Some(create_config.builder_proposals),
+            builder_boost_factor: create_config.builder_boost_factor,
+            prefer_builder_proposals: create_config.prefer_builder_proposals,
+            fee_recipient: create_config.suggested_fee_recipient,
+            gas_limit: create_config.gas_limit,
+            bn_url: beacon_node,
+            force_bls_withdrawal_credentials: create_config.force_bls_withdrawal_credentials,
         })
     }
 }
@@ -517,11 +330,11 @@ impl ValidatorsAndDeposits {
 }
 
 pub async fn cli_run<'a, T: EthSpec>(
-    matches: &'a ArgMatches<'a>,
+    create_config: &Create,
     spec: &ChainSpec,
     dump_config: DumpConfig,
 ) -> Result<(), String> {
-    let config = CreateConfig::from_cli(matches, spec)?;
+    let config = CreateConfig::from_cli(create_config, spec)?;
     if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {
