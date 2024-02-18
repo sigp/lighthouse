@@ -1796,11 +1796,12 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "beacon_node",
- "clap 2.34.0",
+ "clap 4.5.0",
  "clap_utils",
  "environment",
  "hex",
  "logging",
+ "serde",
  "slog",
  "sloggers",
  "store",
