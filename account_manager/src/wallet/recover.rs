@@ -8,7 +8,7 @@ pub const CMD: &str = "recover";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
 pub fn cli_run(recover_config: &Recover, wallet_base_dir: PathBuf) -> Result<(), String> {
-    let mnemonic_path = recover_config.mnemonic;
+    let mnemonic_path = recover_config.mnemonic.clone();
     let stdin_inputs = cfg!(windows) || recover_config.stdin_inputs;
 
     eprintln!();
@@ -18,7 +18,7 @@ pub fn cli_run(recover_config: &Recover, wallet_base_dir: PathBuf) -> Result<(),
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
 
     let wallet = recover_config
-        .create_wallet_from_mnemonic(wallet_base_dir, mnemonic)
+        .create_wallet_from_mnemonic(&wallet_base_dir.as_path(), &mnemonic)
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
 
     println!("Your wallet has been successfully recovered.");

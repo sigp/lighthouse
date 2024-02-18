@@ -1,5 +1,5 @@
 use crate::common::read_wallet_name_from_cli;
-use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
+use crate::WALLETS_DIR_FLAG;
 use account_utils::{
     random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
 };
@@ -33,27 +33,25 @@ pub fn cli_run<T: EthSpec>(
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;
 
-    let name: Option<String> = create_config.name;
+    let name: Option<String> = create_config.wallet_name.clone();
     let stdin_inputs = cfg!(windows) || create_config.stdin_inputs;
 
-    let wallet_base_dir = if let Some(datadir) = global_config.datadir {
+    let wallet_base_dir = if let Some(datadir) = global_config.datadir.as_ref() {
         datadir.join(DEFAULT_WALLET_DIR)
     } else {
-        if let Some(wallet_dir) = create_config.wallets_dir {
-            wallet_dir
-        } else {
-            DEFAULT_WALLET_DIR;
-        }
+        create_config
+            .wallets_dir
+            .clone()
+            .unwrap_or(PathBuf::from(DEFAULT_WALLET_DIR))
     };
 
-    let secrets_dir = if let Some(datadir) = global_config.datadir {
+    let secrets_dir = if let Some(datadir) = global_config.datadir.as_ref() {
         datadir.join(DEFAULT_SECRET_DIR)
     } else {
-        if let Some(secrets_dir) = create_config.secrets_dir {
-            secrets_dir
-        } else {
-            DEFAULT_SECRET_DIR;
-        }
+        create_config
+            .secrets_dir
+            .clone()
+            .unwrap_or(PathBuf::from(DEFAULT_SECRET_DIR))
     };
 
     let deposit_gwei = create_config
@@ -67,7 +65,7 @@ pub fn cli_run<T: EthSpec>(
         return Err(format!(
             "No wallet directory at {:?}. Use the `lighthouse --network {} {} {} {}` command to create a wallet",
             wallet_base_dir,
-            global_config.network.unwrap_or(String::from("<NETWORK>")),
+            global_config.network.clone().unwrap_or(String::from("<NETWORK>")),
             crate::CMD,
             crate::wallet::CMD,
             crate::wallet::create::CMD
@@ -103,7 +101,7 @@ pub fn cli_run<T: EthSpec>(
         return Ok(());
     }
 
-    let wallet_password_path: Option<PathBuf> = create_config.wallet_password;
+    let wallet_password_path: Option<PathBuf> = create_config.wallet_password.clone();
 
     let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
     let wallet_password = read_wallet_password_from_cli(wallet_password_path, stdin_inputs)?;
@@ -167,7 +165,7 @@ pub fn cli_run<T: EthSpec>(
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
             .create_eth1_tx_data(deposit_gwei, &spec)
-            .store_withdrawal_keystore(create_config.store_withdraw_keystore)
+            .store_withdrawal_keystore(create_config.store_withdrawal_keystore)
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 

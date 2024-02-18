@@ -9,6 +9,8 @@ use filesystem::create_with_600_perms;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::wallet::cli::NewWallet;
+
 use super::cli::Create;
 
 pub const CMD: &str = "create";
@@ -31,7 +33,7 @@ pub const NEW_WALLET_PASSWORD_PROMPT: &str =
 pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
 
 pub fn cli_run(create_config: &Create, wallet_base_dir: PathBuf) -> Result<(), String> {
-    let mnemonic_output_path = create_config.mnemonic_output_path;
+    let mnemonic_output_path = create_config.mnemonic_output_path.clone();
 
     // Create a new random mnemonic.
     //

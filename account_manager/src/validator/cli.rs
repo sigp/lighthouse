@@ -12,17 +12,16 @@ pub struct Validator {
     #[clap(
         long,
         value_name = "VALIDATOR_DIRECTORY",
+        conflicts_with = "datadir",
         help = "The path to search for validator directories. \
-                Defaults to ~/.lighthouse/{network}/validators",
-        takes_value = true,
-        conflicts_with = "datadir"
+                Defaults to ~/.lighthouse/{network}/validators"
     )]
     pub validator_dir: Option<PathBuf>,
     #[clap(subcommand)]
     pub subcommand: ValidatorSubcommand,
 }
 
-#[derive(Parser, Subcommand, Clone, Deserialize, Serialize, Debug)]
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(rename_all = "kebab-case")]
 pub enum ValidatorSubcommand {
     Create(Create),

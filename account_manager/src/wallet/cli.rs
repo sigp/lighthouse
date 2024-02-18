@@ -58,8 +58,8 @@ pub struct Create {
     #[clap(
         long = "type",
         value_name = "WALLET_TYPE",
-        possible_values = &[HD_TYPE],
-        default_value_t = HD_TYPE,
+        value_enum,
+        default_value_t = WalletType::Hd,
         help = "The type of wallet to create. Only HD (hierarchical-deterministic) \
                 wallets are supported presently..",
     )]
@@ -81,7 +81,7 @@ pub struct Create {
 
     #[clap(
         long,
-        validator = validate_mnemonic_length,
+        value_parser = validate_mnemonic_length,
         default_value_t = 24,
         value_name = "MNEMONIC_LENGTH",
         help = "The number of words to use for the mnemonic phrase.",
@@ -125,9 +125,8 @@ pub struct Recover {
     #[clap(
         long = "type",
         value_name = "WALLET_TYPE",
-
-        possible_values = &[HD_TYPE],
-        default_value_t = HD_TYPE,
+        value_enum,
+        default_value_t = WalletType::Hd,
         help = "The type of wallet to create. Only HD (hierarchical-deterministic) \
                 wallets are supported presently..",
     )]

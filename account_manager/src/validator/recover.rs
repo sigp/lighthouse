@@ -1,13 +1,9 @@
 use super::cli::Recover;
-use super::create::STORE_WITHDRAW_FLAG;
-use crate::validator::create::COUNT_FLAG;
-use crate::wallet::create::STDIN_INPUTS_FLAG;
-use crate::SECRETS_DIR_FLAG;
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
 use account_utils::{random_password, read_mnemonic_from_cli};
 use clap_utils::GlobalConfig;
 use directory::ensure_dir_exists;
-use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
+use directory::DEFAULT_SECRET_DIR;
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
 use std::path::PathBuf;
@@ -25,11 +21,14 @@ pub fn cli_run(
     let secrets_dir = if let Some(datadir) = global_config.datadir.as_ref() {
         datadir.join(DEFAULT_SECRET_DIR)
     } else {
-        recover_config.secrets_dir.unwrap_or(DEFAULT_SECRET_DIR)
+        recover_config
+            .secrets_dir
+            .clone()
+            .unwrap_or(PathBuf::from(DEFAULT_SECRET_DIR))
     };
     let first_index = recover_config.first_index;
     let count = recover_config.count;
-    let mnemonic_path = recover_config.mnemonic;
+    let mnemonic_path = recover_config.mnemonic.clone();
     let stdin_inputs = cfg!(windows) || recover_config.stdin_inputs;
 
     eprintln!("secrets-dir path: {:?}", secrets_dir);

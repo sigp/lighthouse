@@ -2517,8 +2517,10 @@ dependencies = [
 name = "eth2_wallet_manager"
 version = "0.1.0"
 dependencies = [
+ "clap 4.5.0",
  "eth2_wallet",
  "lockfile",
+ "serde",
  "tempfile",
 ]
 

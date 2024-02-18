@@ -135,12 +135,12 @@ pub fn cli_run<T: EthSpec>(
             Ok(())
         }
         SlashingProtection::Export(export_config) => {
-            let export_filename = export_config.export_file;
+            let export_filename = export_config.export_file.clone();
 
-            let selected_pubkeys = if let Some(pubkeys) = export_config.pubkeys {
+            let selected_pubkeys = if let Some(pubkeys) = export_config.pubkeys.clone() {
                 let pubkeys = pubkeys
                     .iter()
-                    .map(PublicKeyBytes::from_str)
+                    .map(|s| PublicKeyBytes::from_str(s))
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| format!("Invalid --{} value: {:?}", PUBKEYS_FLAG, e))?;
                 Some(pubkeys)
@@ -179,7 +179,5 @@ pub fn cli_run<T: EthSpec>(
 
             Ok(())
         }
-        ("", _) => Err("No subcommand provided, see --help for options".to_string()),
-        (command, _) => Err(format!("No such subcommand `{}`", command)),
     }
 }

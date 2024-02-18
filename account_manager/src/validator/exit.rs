@@ -29,14 +29,14 @@ pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-exit.html";
 
 pub fn cli_run<E: EthSpec>(exit_config: &Exit, env: Environment<E>) -> Result<(), String> {
-    let keystore_path: PathBuf = exit_config.keystore;
-    let password_file_path: Option<PathBuf> = exit_config.password_file;
+    let keystore_path: PathBuf = exit_config.keystore.clone();
+    let password_file_path: Option<PathBuf> = exit_config.password_file.clone();
     let stdin_inputs = cfg!(windows) || exit_config.stdin_inputs;
     let no_wait = exit_config.no_wait;
     let no_confirmation = exit_config.no_confirmation;
 
     let spec = env.eth2_config().spec.clone();
-    let server_url: String = exit_config.beacon_node;
+    let server_url: String = exit_config.beacon_node.clone();
     let client = BeaconNodeHttpClient::new(
         SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,

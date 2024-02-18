@@ -98,11 +98,8 @@ impl<T: EthSpec> BootNodeConfig<T> {
                 let spec = eth2_network_config.chain_spec::<T>()?;
 
                 // TODO fix unwrap
-                let genesis_state_url_timeout = global_config
-                    .genesis_state_url_timeout
-                    .map(Duration::from_secs)
-                    .unwrap();
-
+                let genesis_state_url_timeout =
+                    Duration::from_secs(global_config.genesis_state_url_timeout);
                 if eth2_network_config.genesis_state_is_known() {
                     let genesis_state = eth2_network_config
                         .genesis_state::<T>(global_config.genesis_state_url.as_deref(), genesis_state_url_timeout, &logger).await?
