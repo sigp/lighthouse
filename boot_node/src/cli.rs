@@ -148,19 +148,19 @@ impl NetworkConfigurable for BootNode {
             .collect()
     }
     fn get_port6(&self) -> u16 {
-        todo!()
+        self.port6
     }
     fn get_disc_port(&self) -> Option<u16> {
-        todo!()
+        None
     }
     fn get_disc6_port(&self) -> Option<u16> {
-        todo!()
+        None
     }
     fn get_quic_port(&self) -> Option<u16> {
-        todo!()
+        None
     }
     fn get_quic6_port(&self) -> Option<u16> {
-        todo!()
+        None
     }
 }
 

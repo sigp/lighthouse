@@ -46,7 +46,7 @@ pub fn get_config<E: EthSpec>(
     let mut client_config = ClientConfig::default();
 
     // Update the client's data directory
-    client_config.set_data_dir(get_data_dir_v2(global_config));
+    client_config.set_data_dir(get_data_dir(global_config));
 
     // If necessary, remove any existing database and configuration
     if client_config.data_dir().exists() && beacon_config.purge_db {
@@ -234,14 +234,14 @@ pub fn get_config<E: EthSpec>(
         client_config.sync_eth1_chain = true;
 
         // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
-        let execution_endpoint = SensitiveUrl::from_str(endpoint).unwrap();
+        let execution_endpoint = SensitiveUrl::from_str(endpoint)
+            .map_err(|e| format!("Failed to parse execution endpoint url, {}", e))?;
 
         // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
         // file_path or directly as string.
 
         let secret_file: PathBuf;
-        // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
-        // TODO fail on multiple
+        // Parse a single JWT secret from a given file_path
         if let Some(execution_jwt) = beacon_config.execution_jwt.as_ref() {
             secret_file = execution_jwt.clone();
         // Check if the JWT secret key is passed directly via cli flag and persist it to the default
@@ -760,12 +760,7 @@ pub fn parse_listening_addresses<T: NetworkConfigurable>(
         }
         (None, Some(ipv6)) => {
             // A single ipv6 address was provided. Set the ports
-
-
-            // TODO: understand how to display this warning message
-            // if cli_args.is_present("port6") {
-            //     warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.")
-            // }
+            warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.")
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp6_port)
@@ -1271,7 +1266,7 @@ pub fn set_network_config_shared<T: NetworkConfigurable>(
 }
 
 /// Gets the datadir which should be used.
-pub fn get_data_dir_v2(config: &GlobalConfig) -> PathBuf {
+pub fn get_data_dir(config: &GlobalConfig) -> PathBuf {
     // Read the `--datadir` flag.
     //
     // If it's not present, try and find the home directory (`~`) and push the default data
@@ -1284,35 +1279,11 @@ pub fn get_data_dir_v2(config: &GlobalConfig) -> PathBuf {
         .or_else(|| {
             dirs::home_dir().map(|home| {
                 home.join(DEFAULT_ROOT_DIR)
-                    .join(directory::get_network_dir_v2(config))
+                    .join(directory::get_network_dir(config))
                     .join(DEFAULT_BEACON_NODE_DIR)
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// Gets the datadir which should be used.
-pub fn get_data_dir(global_config: &GlobalConfig) -> PathBuf {
-    // Read the `--datadir` flag.
-    //
-    // If it's not present, try and find the home directory (`~`) and push the default data
-    // directory and the testnet name onto it.
-
-    // TODO not sure if this is correct
-
-    global_config
-        .datadir
-        .clone()
-        .unwrap_or(
-            dirs::home_dir()
-                .map(|home| {
-                    home.join(DEFAULT_ROOT_DIR)
-                        .join(directory::get_network_dir_v2(global_config))
-                        .join(DEFAULT_BEACON_NODE_DIR)
-                })
-                .unwrap_or_else(|| PathBuf::from(".")),
-        )
-        .join(DEFAULT_BEACON_NODE_DIR)
 }
 
 /// Get the `slots_per_restore_point` value to use for the database.
