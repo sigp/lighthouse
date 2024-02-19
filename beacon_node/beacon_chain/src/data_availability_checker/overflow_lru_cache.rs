@@ -84,11 +84,14 @@ impl<T: EthSpec> PendingComponents<T> {
             verified_blobs,
             executed_block,
         } = self;
-
+        println!("A");
         let Some(diet_executed_block) = executed_block else {
+            println!("FAILURE POINT A");
             return Err(AvailabilityCheckError::Unexpected);
         };
         let num_blobs_expected = diet_executed_block.num_blobs_expected();
+        println!("num blobs expected {}", num_blobs_expected);
+        println!("verified blobs {}", verified_blobs.len());
         let Some(verified_blobs) = verified_blobs
             .into_iter()
             .cloned()
@@ -96,10 +99,11 @@ impl<T: EthSpec> PendingComponents<T> {
             .take(num_blobs_expected)
             .collect::<Option<Vec<_>>>()
         else {
+            println!("FAILURE POINT B");
             return Err(AvailabilityCheckError::Unexpected);
         };
         let verified_blobs = VariableList::new(verified_blobs)?;
-
+        println!("B");
         let executed_block = recover(diet_executed_block)?;
 
         let AvailabilityPendingExecutedBlock {
@@ -453,6 +457,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         pending_components.merge_blobs(fixed_blobs);
 
         if pending_components.is_available() {
+            println!("IS AVAILABLE");
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(|diet_block| {
@@ -474,6 +479,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        println!("put_pending_executed_block");
         let mut write_lock = self.critical.write();
         let block_root = executed_block.import_data.block_root;
 
@@ -498,6 +504,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 self.state_cache.recover_pending_executed_block(diet_block)
             })
         } else {
+            println!("{}", block_root);
             write_lock.put_pending_components(
                 block_root,
                 pending_components,
@@ -1548,8 +1555,8 @@ mod test {
                 let availability = recovered_cache
                     .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                     .expect("should put blob");
-                println!("{}", i);
-                println!("addtional_blobs {}", additional_blobs - 1);
+                println!("i counter {}", i);
+                println!("additional_blobs {}", additional_blobs - i);
                 println!("{:?}", availability);
                 if i == additional_blobs - 1 {
                     assert!(matches!(availability, Availability::Available(_)))
