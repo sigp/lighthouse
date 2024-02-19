@@ -9,6 +9,7 @@ use clap_utils::parse_required;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
+use eth2::types::StateId;
 use execution_layer::DEFAULT_JWT_FILE;
 use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
@@ -539,7 +540,22 @@ pub fn get_config<E: EthSpec>(
             let url = SensitiveUrl::parse(remote_bn_url)
                 .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
 
-            ClientGenesis::CheckpointSyncUrl { url }
+            let remote_state_id = cli_args
+                .value_of("checkpoint-sync-state-id")
+                .unwrap_or("finalized") // this should unwrap to "finalized" anyway due to Clap's configuration
+                .parse::<StateId>()
+                .map_err(|e| format!("Invalid checkpoint state ID: {:?}", e))?;
+
+            if remote_state_id == StateId::Genesis {
+                return Err(
+                    "Invalid checkpoint state ID: cannot checkpoint sync from genesis".to_string(),
+                );
+            }
+
+            ClientGenesis::CheckpointSyncUrl {
+                url,
+                remote_state_id,
+            }
         } else {
             ClientGenesis::GenesisState
         }

@@ -1,5 +1,5 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
-use fork_choice::{ForkChoice, PayloadVerificationStatus};
+use fork_choice::{AnchorState, ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
@@ -97,6 +97,7 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
 /// WARNING: this function is destructive and causes fork choice to permanently forget all
 /// chains other than the chain leading to `head_block_root`. It should only be used in extreme
 /// circumstances when there is no better alternative.
+#[allow(clippy::too_many_arguments)]
 pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     head_block_root: Hash256,
     head_state: &BeaconState<E>,
@@ -104,6 +105,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     current_slot: Option<Slot>,
     spec: &ChainSpec,
     progressive_balances_mode: ProgressiveBalancesMode,
+    anchor_state: AnchorState,
     log: &Logger,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
@@ -157,6 +159,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         finalized_block_root,
         &finalized_snapshot.beacon_block,
         &finalized_snapshot.beacon_state,
+        anchor_state,
         current_slot,
         spec,
     )

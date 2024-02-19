@@ -17,7 +17,8 @@ use beacon_chain::{
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
+    AnchorState, BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig,
+    ServerSentEventHandler,
 };
 use beacon_processor::BeaconProcessorConfig;
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
@@ -328,17 +329,27 @@ where
                     );
                 }
 
-                let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
-                    .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
+                let anchor_beacon_state =
+                    BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
+                        .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder
-                    .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
+                    .weak_subjectivity_state(
+                        anchor_beacon_state,
+                        anchor_block,
+                        genesis_state,
+                        // default to non-revertible, this won't be an issue if state really is finalized
+                        AnchorState::NonRevertible,
+                    )
                     .map(|v| (v, None))?
             }
-            ClientGenesis::CheckpointSyncUrl { url } => {
+            ClientGenesis::CheckpointSyncUrl {
+                url,
+                remote_state_id,
+            } => {
                 info!(
                     context.log(),
                     "Starting checkpoint sync";
@@ -403,23 +414,73 @@ where
                     None
                 };
 
-                debug!(
-                    context.log(),
-                    "Downloading finalized state";
-                );
-                let state = remote
-                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Finalized, &spec)
+                let state_string = match remote_state_id {
+                    StateId::Head | StateId::Finalized | StateId::Justified => {
+                        format!("{} state", remote_state_id)
+                    }
+                    StateId::Slot(slot) => format!("state at slot {}", slot),
+                    StateId::Root(root) => format!("state with root {:?}", root),
+                    StateId::Genesis => {
+                        return Err("Cannot checkpoint sync to genesis state".to_string())
+                    }
+                };
+                debug!(context.log(), "Downloading {}", state_string);
+
+                let checkpoint_state = remote
+                    .get_debug_beacon_states_ssz::<TEthSpec>(remote_state_id, &spec)
                     .await
                     .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
                     .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
 
-                debug!(context.log(), "Downloaded finalized state"; "slot" => ?state.slot());
+                debug!(context.log(), "Downloaded {}", state_string; "slot" => ?checkpoint_state.slot());
 
-                let finalized_block_slot = state.latest_block_header().slot;
+                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
-                debug!(context.log(), "Downloading finalized block"; "block_slot" => ?finalized_block_slot);
+                if let Some(deneb_fork_epoch) = spec.deneb_fork_epoch {
+                    // Deneb is enabled. We must ensure the checkpoint state is within the data availability boundary.
+                    let genesis_time = genesis_state.genesis_time();
+                    let slot_clock = SystemTimeSlotClock::new(
+                        spec.genesis_slot,
+                        Duration::from_secs(genesis_time),
+                        Duration::from_secs(spec.seconds_per_slot),
+                    );
+                    let slot_clock_current_epoch = slot_clock
+                        .now()
+                        .map(|slot| slot.epoch(TEthSpec::slots_per_epoch()))
+                        .ok_or("Unable to determine current slot for DA boundary calculation")?;
+
+                    if slot_clock_current_epoch > deneb_fork_epoch {
+                        let cutoff_epoch = if checkpoint_state.current_epoch() < deneb_fork_epoch {
+                            // The chain is past the deneb fork and we are trying to checkpoint sync to a state
+                            // before the fork. Here we use a modified DA boundary calculation. As long as we can
+                            // sync up to the deneb fork before the DA boundary advances past it, we are good.
+                            slot_clock_current_epoch.saturating_sub(
+                                spec.min_epochs_for_blob_sidecars_requests
+                                    .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS),
+                            )
+                        } else {
+                            std::cmp::max(
+                                deneb_fork_epoch,
+                                slot_clock_current_epoch
+                                    .saturating_sub(spec.min_epochs_for_blob_sidecars_requests),
+                            )
+                        };
+
+                        if checkpoint_state.current_epoch() < cutoff_epoch {
+                            return Err("Requested checkpoint state is outside of the data availability boundary".to_string());
+                        }
+                    }
+                    debug!(
+                        context.log(),
+                        "Checkpoint state is within data availability boundary"
+                    );
+                }
+
+                let state_block_slot = checkpoint_state.latest_block_header().slot;
+
+                debug!(context.log(), "Downloading corresponding block"; "block_slot" => ?state_block_slot);
                 let block = remote
-                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(finalized_block_slot), &spec)
+                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(state_block_slot), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -427,19 +488,45 @@ where
                             node for the correct network",
                             e
                         ),
-                        e => format!("Error fetching finalized block from remote: {:?}", e),
+                        e => format!("Error fetching corresponding block from remote: {:?}", e),
                     })?
-                    .ok_or("Finalized block missing from remote, it returned 404")?;
+                    .ok_or("Corresponding block missing from remote, it returned 404")?;
 
-                debug!(context.log(), "Downloaded finalized block");
+                debug!(context.log(), "Downloaded corresponding block");
 
-                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
+                let anchor_state = if remote_state_id == StateId::Finalized {
+                    AnchorState::Finalized
+                } else {
+                    debug!(context.log(), "Downloading finalized block header");
+                    let finalized_header = remote
+                        .get_beacon_headers_block_id(BlockId::Finalized)
+                        .await
+                        .map_err(|e| match e {
+                            ApiError::InvalidSsz(e) => format!(
+                                "Unable to parse SSZ: {:?}. Ensure the checkpoint-sync-url refers to a \
+                                node for the correct network",
+                                e
+                            ),
+                            e => format!("Error fetching finalized block header from remote: {:?}", e),
+                        })?
+                        .ok_or("Finalized block header missing from remote, it returned 404")?
+                        .data
+                        .header
+                        .message;
+                    debug!(context.log(), "Downloaded finalized block header"; "anchor_slot" => block.slot(), "finalized_slot" => finalized_header.slot);
+                    if finalized_header.slot < checkpoint_state.slot() {
+                        debug!(context.log(), "Checkpoint state is newer than remote finalized checkpoint. Treating anchor state as non-revertible.");
+                        AnchorState::NonRevertible
+                    } else {
+                        AnchorState::Finalized
+                    }
+                };
 
                 info!(
                     context.log(),
                     "Loaded checkpoint block and state";
                     "block_slot" => block.slot(),
-                    "state_slot" => state.slot(),
+                    "state_slot" => checkpoint_state.slot(),
                     "block_root" => ?block.canonical_root(),
                 );
 
@@ -468,7 +555,7 @@ where
                     });
 
                 builder
-                    .weak_subjectivity_state(state, block, genesis_state)
+                    .weak_subjectivity_state(checkpoint_state, block, genesis_state, anchor_state)
                     .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {

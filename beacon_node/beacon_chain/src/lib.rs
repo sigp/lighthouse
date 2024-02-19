@@ -84,7 +84,7 @@ pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::ServerSentEventHandler;
 pub use execution_layer::EngineState;
 pub use execution_payload::NotifyExecutionLayer;
-pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
+pub use fork_choice::{AnchorState, ExecutionStatus, ForkchoiceUpdateParameters};
 pub use kzg::TrustedSetup;
 pub use metrics::scrape_for_metrics;
 pub use migrate::MigratorConfig;

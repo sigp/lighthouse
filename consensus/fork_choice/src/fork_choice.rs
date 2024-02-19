@@ -17,6 +17,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
+use types::superstruct;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
@@ -280,6 +281,19 @@ fn dequeue_attestations(
     std::mem::replace(queued_attestations, remaining)
 }
 
+/// This enum tells us whether our anchor state is actually finalized or just non-revertible. The
+/// latter case only occurs when we weak subjectivity sync against a state which is not finalized.
+/// This could be necessary in extreme circumstances where finalization extends past the data
+/// availabilty boundary post-deneb.
+#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode)]
+#[ssz(enum_behaviour = "tag")]
+pub enum AnchorState {
+    /// The finalized checkpoint is truly finalized
+    Finalized,
+    /// The finalized checkpoint is non-revertible but not finalized (yet)
+    NonRevertible,
+}
+
 /// Denotes whether an attestation we are processing was received from a block or from gossip.
 /// Equivalent to the `is_from_block` `bool` in:
 ///
@@ -305,6 +319,8 @@ pub struct ForkChoiceView {
     pub head_block_root: Hash256,
     pub justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
+    /// The state of the finalized checkpoint
+    pub anchor_state: AnchorState,
 }
 
 /// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
@@ -326,6 +342,8 @@ pub struct ForkChoice<T, E> {
     queued_attestations: Vec<QueuedAttestation>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
+    /// The state of the finalized checkpoint
+    anchor_state: AnchorState,
     _phantom: PhantomData<E>,
 }
 
@@ -351,26 +369,33 @@ where
         fc_store: T,
         anchor_block_root: Hash256,
         anchor_block: &SignedBeaconBlock<E>,
-        anchor_state: &BeaconState<E>,
+        anchor_beacon_state: &BeaconState<E>,
+        anchor_state: AnchorState,
         current_slot: Option<Slot>,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         // Sanity check: the anchor must lie on an epoch boundary.
-        if anchor_state.slot() % E::slots_per_epoch() != 0 {
+        if anchor_beacon_state.slot() % E::slots_per_epoch() != 0 {
             return Err(Error::InvalidAnchor {
                 block_slot: anchor_block.slot(),
-                state_slot: anchor_state.slot(),
+                state_slot: anchor_beacon_state.slot(),
             });
         }
 
         let finalized_block_slot = anchor_block.slot();
         let finalized_block_state_root = anchor_block.state_root();
-        let current_epoch_shuffling_id =
-            AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Current)
-                .map_err(Error::BeaconStateError)?;
-        let next_epoch_shuffling_id =
-            AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
-                .map_err(Error::BeaconStateError)?;
+        let current_epoch_shuffling_id = AttestationShufflingId::new(
+            anchor_block_root,
+            anchor_beacon_state,
+            RelativeEpoch::Current,
+        )
+        .map_err(Error::BeaconStateError)?;
+        let next_epoch_shuffling_id = AttestationShufflingId::new(
+            anchor_block_root,
+            anchor_beacon_state,
+            RelativeEpoch::Next,
+        )
+        .map_err(Error::BeaconStateError)?;
 
         let execution_status = anchor_block.message().execution_payload().map_or_else(
             // If the block doesn't have an execution payload then it can't have
@@ -414,6 +439,7 @@ where
                 // This will be updated during the next call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
+            anchor_state,
             _phantom: PhantomData,
         };
 
@@ -608,6 +634,7 @@ where
             head_block_root: self.forkchoice_update_parameters.head_root,
             justified_checkpoint: self.justified_checkpoint(),
             finalized_checkpoint: self.finalized_checkpoint(),
+            anchor_state: self.anchor_state,
         }
     }
 
@@ -950,6 +977,8 @@ where
         // Update finalized checkpoint.
         if finalized_checkpoint.epoch > self.fc_store.finalized_checkpoint().epoch {
             self.fc_store.set_finalized_checkpoint(finalized_checkpoint);
+            // When the chain finalizes, the anchor state is finalized.
+            self.anchor_state = AnchorState::Finalized;
         }
 
         Ok(())
@@ -1444,6 +1473,10 @@ where
             .map_err(Into::into)
     }
 
+    pub fn anchor_state(&self) -> AnchorState {
+        self.anchor_state
+    }
+
     /// Instantiate `Self` from some `PersistedForkChoice` generated by a earlier call to
     /// `Self::to_persisted`.
     pub fn proto_array_from_persisted(
@@ -1521,6 +1554,7 @@ where
                 // Will be updated in the following call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
+            anchor_state: persisted.anchor_state,
             _phantom: PhantomData,
         };
 
@@ -1554,6 +1588,7 @@ where
         PersistedForkChoice {
             proto_array_bytes: self.proto_array().as_bytes(),
             queued_attestations: self.queued_attestations().to_vec(),
+            anchor_state: self.anchor_state,
         }
     }
 }
@@ -1647,10 +1682,38 @@ where
 /// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
 ///
 /// This is used when persisting the state of the fork choice to disk.
-#[derive(Encode, Decode, Clone)]
+
+pub type PersistedForkChoice = PersistedForkChoiceV20;
+
+#[superstruct(
+    variants(V19, V20),
+    variant_attributes(derive(Encode, Decode, Clone)),
+    no_enum
+)]
 pub struct PersistedForkChoice {
     pub proto_array_bytes: Vec<u8>,
     queued_attestations: Vec<QueuedAttestation>,
+    #[superstruct(only(V20))]
+    pub anchor_state: AnchorState,
+}
+
+impl Into<PersistedForkChoiceV20> for PersistedForkChoiceV19 {
+    fn into(self) -> PersistedForkChoiceV20 {
+        PersistedForkChoiceV20 {
+            proto_array_bytes: self.proto_array_bytes,
+            queued_attestations: self.queued_attestations,
+            anchor_state: AnchorState::Finalized,
+        }
+    }
+}
+
+impl Into<PersistedForkChoiceV19> for PersistedForkChoiceV20 {
+    fn into(self) -> PersistedForkChoiceV19 {
+        PersistedForkChoiceV19 {
+            proto_array_bytes: self.proto_array_bytes,
+            queued_attestations: self.queued_attestations,
+        }
+    }
 }
 
 #[cfg(test)]
