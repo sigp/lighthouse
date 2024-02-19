@@ -1,4 +1,3 @@
-use crate::wallet::create::{PASSWORD_FLAG, STDIN_INPUTS_FLAG};
 use account_utils::validator_definitions::SigningDefinition;
 use account_utils::{
     eth2_keystore::Keystore,

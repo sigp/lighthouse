@@ -14,9 +14,6 @@ pub mod move_validators;
 
 pub const CMD: &str = "validator_manager";
 
-/// This flag is on the top-level `lighthouse` binary.
-const DUMP_CONFIGS_FLAG: &str = "dump-config";
-
 /// Used only in testing, this allows a command to dump its configuration to a file and then exit
 /// successfully. This allows for testing how the CLI arguments translate to some configuration.
 pub enum DumpConfig {
@@ -40,7 +37,7 @@ impl DumpConfig {
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.
-pub fn run<'a, T: EthSpec>(
+pub fn run<T: EthSpec>(
     validator_mananager_config: &ValidatorManager,
     global_config: &GlobalConfig,
     env: Environment<T>,

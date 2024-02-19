@@ -1,9 +1,7 @@
 //! The main bootnode server execution.
-
 use super::BootNodeConfig;
 use crate::cli::BootNode;
 use crate::config::BootNodeConfigSerialization;
-use clap::ArgMatches;
 use clap_utils::GlobalConfig;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::{

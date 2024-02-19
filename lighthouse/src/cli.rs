@@ -4,14 +4,14 @@ use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
 use clap_utils::GlobalConfig;
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use ethereum_hashing::have_sha_extensions;
 use lazy_static::lazy_static;
 use lighthouse_version::VERSION;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::ExecutionBlockHash;
-use types::{ChainSpec, Config, Epoch, EthSpec, Hash256, Uint256};
+use types::{Epoch, Hash256, Uint256};
 
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
                                         This happens when Lighthouse is migrating between spec versions \
@@ -306,7 +306,7 @@ pub struct Lighthouse {
 
 #[derive(Clone, Deserialize, Serialize, Debug, Subcommand)]
 pub enum LighthouseSubcommand {
-    BeaconNode(beacon_node::cli::BeaconNode),
+    BeaconNode(Box<beacon_node::cli::BeaconNode>),
     ValidatorClient(validator_client::cli::ValidatorClient),
     BootNode(boot_node::cli::BootNode),
     AccountManager(account_manager::AccountManager),
@@ -341,8 +341,8 @@ impl Lighthouse {
             terminal_total_difficulty_override: self.terminal_total_difficulty_override.clone(),
             terminal_block_hash_override: self.terminal_block_hash_override,
             terminal_block_hash_epoch_override: self.terminal_block_hash_epoch_override,
-            dump_chain_config: self.dump_chain_config,
-            genesis_state_url: self.genesis_state_url,
+            dump_chain_config: self.dump_chain_config.clone(),
+            genesis_state_url: self.genesis_state_url.clone(),
             genesis_state_url_timeout: self.genesis_state_url_timeout,
         }
     }
@@ -362,7 +362,7 @@ impl Lighthouse {
         let mut eth2_network_config =
             optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
 
-        if let Some(string) = self.terminal_total_difficulty_override {
+        if let Some(string) = self.terminal_total_difficulty_override.clone() {
             let stripped = string.replace(',', "");
             let terminal_total_difficulty = Uint256::from_dec_str(&stripped).map_err(|e| {
                 format!(
@@ -419,7 +419,7 @@ pub enum LogLevel {
 }
 
 impl LogLevel {
-    pub fn to_str(&self) -> String {
+    pub fn to_str(self) -> String {
         match self {
             LogLevel::Info => String::from("info"),
             LogLevel::Debug => String::from("debug"),
@@ -438,7 +438,7 @@ pub enum LogFormat {
 }
 
 impl LogFormat {
-    pub fn to_str(&self) -> String {
+    pub fn to_str(self) -> String {
         match self {
             LogFormat::Default => String::from("DEFAULT"),
             LogFormat::Json => String::from("JSON"),
@@ -458,7 +458,7 @@ pub enum NetworkName {
 }
 
 impl NetworkName {
-    pub fn to_str(&self) -> String {
+    pub fn to_str(self) -> String {
         match self {
             NetworkName::Mainnet => String::from("mainnet"),
             NetworkName::Prater => String::from("prater"),

@@ -9,9 +9,9 @@ use eth2::{
 };
 use eth2_wallet::WalletBuilder;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use std::{fs, str::FromStr};
 use types::*;
 
 pub const ETH1_WITHDRAWAL_ADDRESS_FLAG: &str = "eth1-withdrawal-address";
@@ -45,14 +45,14 @@ pub struct CreateConfig {
 
 impl CreateConfig {
     fn from_cli(create_config: &Create, spec: &ChainSpec) -> Result<Self, String> {
-        let beacon_node =
-            if let Some(bn) = create_config.beacon_node.as_ref() {
-                Some(SensitiveUrl::parse(bn).map_err(|e| {
-                    format!("Error parsing {}: {}", BEACON_NODE_FLAG, e.to_string())
-                })?)
-            } else {
-                None
-            };
+        let beacon_node = if let Some(bn) = create_config.beacon_node.as_ref() {
+            Some(
+                SensitiveUrl::parse(bn)
+                    .map_err(|e| format!("Error parsing {}: {}", BEACON_NODE_FLAG, e))?,
+            )
+        } else {
+            None
+        };
 
         Ok(Self {
             output_path: create_config.output_path.clone(),

@@ -2,12 +2,10 @@ use crate::beacon_node_fallback::ApiTopic;
 use crate::cli::ValidatorClient;
 use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
-use clap::ArgMatches;
 use clap_utils::GlobalConfig;
-use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
-    get_network_dir, get_network_dir_v2, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR,
-    DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR,
+    get_network_dir_v2, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
+    DEFAULT_VALIDATOR_DIR,
 };
 use eth2::types::Graffiti;
 use sensitive_url::SensitiveUrl;
@@ -236,8 +234,7 @@ impl Config {
         }
 
         if let Some(tls_certs) = validator_client_config.beacon_nodes_tls_certs.as_ref() {
-            config.beacon_nodes_tls_certs =
-                Some(tls_certs.iter().map(|s| PathBuf::from(s)).collect());
+            config.beacon_nodes_tls_certs = Some(tls_certs.iter().map(PathBuf::from).collect());
         }
 
         config.distributed = validator_client_config.distributed;
@@ -297,7 +294,7 @@ impl Config {
         if let Some(allow_origin) = validator_client_config.http_allow_origin.as_ref() {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
-            hyper::header::HeaderValue::from_str(&allow_origin)
+            hyper::header::HeaderValue::from_str(allow_origin)
                 .map_err(|_| "Invalid allow-origin value")?;
 
             config.http_api.allow_origin = Some(allow_origin.to_string());
@@ -320,7 +317,7 @@ impl Config {
         if let Some(allow_origin) = validator_client_config.metrics_allow_origin.as_ref() {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
-            hyper::header::HeaderValue::from_str(&allow_origin)
+            hyper::header::HeaderValue::from_str(allow_origin)
                 .map_err(|_| "Invalid allow-origin value")?;
 
             config.http_metrics.allow_origin = Some(allow_origin.to_string());

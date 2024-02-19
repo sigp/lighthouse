@@ -1,6 +1,4 @@
-use bls::PublicKey;
 pub use clap::Parser;
-use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use std::{net::Ipv4Addr, path::PathBuf};
 use types::Address;

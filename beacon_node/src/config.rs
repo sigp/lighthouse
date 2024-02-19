@@ -334,7 +334,8 @@ pub fn get_config<E: EthSpec>(
         client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
     }
 
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(beacon_config)?;
+    let (sprp, sprp_explicit) =
+        get_slots_per_restore_point::<E>(beacon_config.slots_per_restore_point)?;
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
 
@@ -1347,9 +1348,9 @@ pub fn get_data_dir(global_config: &GlobalConfig) -> PathBuf {
 ///
 /// Return `(sprp, set_explicitly)` where `set_explicitly` is `true` if the user provided the value.
 pub fn get_slots_per_restore_point<E: EthSpec>(
-    beacon_config: &BeaconNode,
+    maybe_slots_per_restore_point: Option<u64>,
 ) -> Result<(u64, bool), String> {
-    if let Some(slots_per_restore_point) = beacon_config.slots_per_restore_point {
+    if let Some(slots_per_restore_point) = maybe_slots_per_restore_point {
         Ok((slots_per_restore_point, true))
     } else {
         let default = std::cmp::min(

@@ -1,5 +1,4 @@
 //! Creates a simple DISCV5 server which can be used to bootstrap an Eth2 network.
-use clap::ArgMatches;
 use clap_utils::GlobalConfig;
 use cli::BootNode;
 use slog::{o, Drain, Level, Logger};

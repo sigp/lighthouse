@@ -1,5 +1,4 @@
 pub use clap::Parser;
-use eth2::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::Address;

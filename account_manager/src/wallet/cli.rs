@@ -1,6 +1,5 @@
 use crate::common::read_wallet_name_from_cli;
 use crate::wallet::create::read_new_wallet_password_from_cli;
-use crate::wallet::create::HD_TYPE;
 use crate::WALLETS_DIR_FLAG;
 use account_utils::{random_password, PlainText};
 pub use clap::Parser;
@@ -155,7 +154,7 @@ pub trait NewWallet {
         let wallet_type: WalletType = self.get_type();
         let stdin_inputs = cfg!(windows) || self.is_stdin_inputs();
 
-        let mgr = WalletManager::open(&wallet_base_dir)
+        let mgr = WalletManager::open(wallet_base_dir)
             .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
 
         let wallet_password: PlainText = match wallet_password_path {
@@ -201,7 +200,7 @@ impl NewWallet for Create {
         self.password_file.clone()
     }
     fn get_type(&self) -> WalletType {
-        self.create_type.clone()
+        self.create_type
     }
     fn is_stdin_inputs(&self) -> bool {
         self.stdin_inputs
@@ -216,7 +215,7 @@ impl NewWallet for Recover {
         self.password_file.clone()
     }
     fn get_type(&self) -> WalletType {
-        self.recover_type.clone()
+        self.recover_type
     }
     fn is_stdin_inputs(&self) -> bool {
         self.stdin_inputs

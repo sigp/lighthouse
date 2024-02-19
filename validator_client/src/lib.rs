@@ -39,7 +39,6 @@ use crate::initialized_validators::Error::UnableToOpenVotingKeystore;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
-use clap::ArgMatches;
 use duties_service::{sync::SyncDutiesMap, DutiesService};
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};

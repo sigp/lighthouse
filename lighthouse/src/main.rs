@@ -5,10 +5,9 @@ use beacon_node::ProductionBeaconNode;
 use clap::Parser;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, GlobalConfig};
 use cli::Lighthouse;
-use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
+use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR};
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
-use ethereum_hashing::have_sha_extensions;
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
@@ -19,37 +18,6 @@ use std::process::exit;
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
-
-fn bls_library_name() -> &'static str {
-    if cfg!(feature = "portable") {
-        "blst-portable"
-    } else if cfg!(feature = "modern") {
-        "blst-modern"
-    } else if cfg!(feature = "milagro") {
-        "milagro"
-    } else {
-        "blst"
-    }
-}
-
-fn allocator_name() -> &'static str {
-    if cfg!(feature = "jemalloc") {
-        "jemalloc"
-    } else {
-        "system"
-    }
-}
-
-fn build_profile_name() -> String {
-    // Nice hack from https://stackoverflow.com/questions/73595435/how-to-get-profile-from-cargo-toml-in-build-rs-or-at-runtime
-    // The profile name is always the 3rd last part of the path (with 1 based indexing).
-    // e.g. /code/core/target/cli/build/my-build-info-9f91ba6f99d7a061/out
-    std::env!("OUT_DIR")
-        .split(std::path::MAIN_SEPARATOR)
-        .nth_back(3)
-        .unwrap_or_else(|| "unknown")
-        .to_string()
-}
 
 fn main() {
     // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
@@ -65,45 +33,40 @@ fn main() {
     //
     // Only apply this optimization for the beacon node. It's the only process with a substantial
     // memory footprint.
-    match lighthouse_config.subcommand {
-        cli::LighthouseSubcommand::BeaconNode(_) => {
-            if !lighthouse_config.disable_malloc_tuning {
-                if let Err(e) = configure_memory_allocator() {
-                    eprintln!(
-                        "Unable to configure the memory allocator: {} \n\
-                        Try providing the --{} flag",
-                        e, DISABLE_MALLOC_TUNING_FLAG
-                    );
-                    exit(1)
-                }
+    if let cli::LighthouseSubcommand::BeaconNode(_) = &lighthouse_config.subcommand {
+        if !lighthouse_config.disable_malloc_tuning {
+            if let Err(e) = configure_memory_allocator() {
+                eprintln!(
+                    "Unable to configure the memory allocator: {} \n\
+                    Try providing the --{} flag",
+                    e, DISABLE_MALLOC_TUNING_FLAG
+                );
+                exit(1)
             }
         }
-        _ => (),
-    };
+    }
 
     let result = lighthouse_config
         .get_eth2_network_config()
         .and_then(|eth2_network_config| {
             let eth_spec_id = eth2_network_config.eth_spec_id()?;
 
-            match lighthouse_config.subcommand {
-                // boot node subcommand circumvents the environment
-                cli::LighthouseSubcommand::BootNode(boot_node_config) => {
-                    // The bootnode uses the main debug-level flag
-                    let debug_info = lighthouse_config.debug_level;
+            if let cli::LighthouseSubcommand::BootNode(boot_node_config) =
+                &lighthouse_config.subcommand
+            {
+                // The bootnode uses the main debug-level flag
+                let debug_info = lighthouse_config.debug_level;
 
-                    boot_node::run(
-                        &global_config,
-                        &boot_node_config,
-                        eth_spec_id,
-                        &eth2_network_config,
-                        debug_info.to_str(),
-                    );
+                boot_node::run(
+                    &global_config,
+                    boot_node_config,
+                    eth_spec_id,
+                    &eth2_network_config,
+                    debug_info.to_str(),
+                );
 
-                    return Ok(());
-                }
-                _ => (),
-            };
+                return Ok(());
+            }
 
             match eth_spec_id {
                 EthSpecId::Mainnet => run(
@@ -163,7 +126,7 @@ fn run<E: EthSpec>(
     }
 
     let debug_level = lighthouse_config.debug_level;
-    let log_format = lighthouse_config.log_format;
+    let log_format = lighthouse_config.log_format.clone();
     let log_color = lighthouse_config.log_color;
     let disable_log_timestamp = lighthouse_config.disable_log_timestamp;
     let logfile_debug_level = lighthouse_config.logfile_debug_level;
@@ -174,24 +137,21 @@ fn run<E: EthSpec>(
     let logfile_restricted = lighthouse_config.logfile_no_restricted_perms;
 
     // Construct the path to the log file.
-    let mut log_path: Option<PathBuf> = lighthouse_config.logfile;
+    let mut log_path: Option<PathBuf> = lighthouse_config.logfile.clone();
     if log_path.is_none() {
-        log_path = match lighthouse_config.subcommand {
+        log_path = match &lighthouse_config.subcommand {
             cli::LighthouseSubcommand::BeaconNode(_) => Some(
-                lighthouse_config
-                    .datadir
-                    .unwrap_or(PathBuf::from(DEFAULT_BEACON_NODE_DIR))
+                parse_path_or_default(global_config, global_config.datadir.clone())?
+                    .join(DEFAULT_BEACON_NODE_DIR)
                     .join("logs")
                     .join("beacon")
                     .with_extension("log"),
             ),
             cli::LighthouseSubcommand::ValidatorClient(validator_config) => {
-                let base_path = if let Some(validators_dir) = validator_config.validators_dir {
-                    validators_dir
+                let base_path = if let Some(validators_dir) = &validator_config.validators_dir {
+                    parse_path_or_default(global_config, Some(validators_dir.clone()))?
                 } else {
-                    global_config
-                        .datadir
-                        .unwrap_or(PathBuf::from(DEFAULT_VALIDATOR_DIR))
+                    parse_path_or_default(global_config, global_config.datadir.clone())?
                 };
 
                 Some(
@@ -254,11 +214,11 @@ fn run<E: EthSpec>(
         }));
     }
 
-    let mut tracing_log_path = lighthouse_config.logfile;
+    let mut tracing_log_path = lighthouse_config.logfile.clone();
 
     if tracing_log_path.is_none() {
         tracing_log_path = Some(
-            parse_path_or_default(matches, "datadir")?
+            parse_path_or_default(global_config, global_config.datadir.clone())?
                 .join(DEFAULT_BEACON_NODE_DIR)
                 .join("logs"),
         )
@@ -295,7 +255,7 @@ fn run<E: EthSpec>(
 
     // Print an indication of which network is currently in use.
     let optional_testnet = lighthouse_config.network;
-    let optional_testnet_dir = lighthouse_config.testnet_dir;
+    let optional_testnet_dir = lighthouse_config.testnet_dir.clone();
 
     let network_name = match (optional_testnet, optional_testnet_dir) {
         (Some(testnet), None) => testnet.to_str(),
@@ -303,6 +263,35 @@ fn run<E: EthSpec>(
         (None, None) => DEFAULT_HARDCODED_NETWORK.to_string(),
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
+
+    match &lighthouse_config.subcommand {
+        cli::LighthouseSubcommand::AccountManager(account_manager_config) => {
+            eprintln!("Running account manager for {} network", network_name);
+            // Pass the entire `environment` to the account manager so it can run blocking operations.
+            account_manager::run(account_manager_config, global_config, environment)?;
+
+            // Exit as soon as account manager returns control.
+            return Ok(());
+        }
+        cli::LighthouseSubcommand::DatabaseManager(database_manager_config) => {
+            info!(log, "Running database manager for {} network", network_name);
+            // Pass the entire `environment` to the database manager so it can run blocking operations.
+            database_manager::run(database_manager_config, global_config, environment)?;
+
+            // Exit as soon as database manager returns control.
+            return Ok(());
+        }
+        cli::LighthouseSubcommand::ValidatorManager(validator_manager_config) => {
+            eprintln!("Running validator manager for {} network", network_name);
+
+            // Pass the entire `environment` to the account manager so it can run blocking operations.
+            validator_manager::run::<E>(validator_manager_config, global_config, environment)?;
+
+            // Exit as soon as account manager returns control.
+            return Ok(());
+        }
+        _ => {}
+    }
 
     info!(log, "Lighthouse started"; "version" => VERSION);
     info!(
@@ -384,37 +373,9 @@ fn run<E: EthSpec>(
                 ));
             }
         }
-        // TODO
-        cli::LighthouseSubcommand::BootNode(_) => return Err("No subcommand supplied.".into()),
-        cli::LighthouseSubcommand::AccountManager(account_manager_config) => {
-            eprintln!("Running account manager for {} network", network_name);
-            // Pass the entire `environment` to the account manager so it can run blocking operations.
-            account_manager::run(account_manager_config, global_config, environment)?;
-
-            // Exit as soon as account manager returns control.
-            return Ok(());
-        }
-        cli::LighthouseSubcommand::DatabaseManager(database_manager_config, beacon_node_config) => {
-            info!(log, "Running database manager for {} network", network_name);
-            // Pass the entire `environment` to the database manager so it can run blocking operations.
-            database_manager::run(
-                database_manager_config,
-                global_config,
-                beacon_node_config,
-                environment,
-            )?;
-
-            // Exit as soon as database manager returns control.
-            return Ok(());
-        }
-        cli::LighthouseSubcommand::ValidatorManager(validator_manager_config) => {
-            eprintln!("Running validator manager for {} network", network_name);
-
-            // Pass the entire `environment` to the account manager so it can run blocking operations.
-            validator_manager::run::<E>(validator_manager_config, global_config, environment)?;
-
-            // Exit as soon as account manager returns control.
-            return Ok(());
+        _ => {
+            crit!(log, "No subcommand supplied. See --help .");
+            return Err("No subcommand supplied.".into());
         }
     }
 

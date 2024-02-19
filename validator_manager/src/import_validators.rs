@@ -20,11 +20,11 @@ pub struct ImportConfig {
 impl ImportConfig {
     fn from_cli(import_config: &Import) -> Result<Self, String> {
         let vc_url = SensitiveUrl::parse(&import_config.vc_url)
-            .map_err(|e| format!("Error parsing {}: {}", VC_URL_FLAG, e.to_string()))?;
+            .map_err(|e| format!("Error parsing {}: {}", VC_URL_FLAG, e))?;
 
         Ok(Self {
             validators_file_path: import_config.validators_file.clone(),
-            vc_url: vc_url,
+            vc_url,
             vc_token_path: import_config.vc_token.clone(),
             ignore_duplicates: import_config.ignore_duplicates,
         })

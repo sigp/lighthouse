@@ -18,7 +18,7 @@ pub fn cli_run(recover_config: &Recover, wallet_base_dir: PathBuf) -> Result<(),
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
 
     let wallet = recover_config
-        .create_wallet_from_mnemonic(&wallet_base_dir.as_path(), &mnemonic)
+        .create_wallet_from_mnemonic(wallet_base_dir.as_path(), &mnemonic)
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
 
     println!("Your wallet has been successfully recovered.");

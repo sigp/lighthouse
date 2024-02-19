@@ -107,14 +107,14 @@ impl MoveConfig {
         };
 
         let src_vc_url = SensitiveUrl::parse(&move_config.src_vc_url)
-            .map_err(|e| format!("Error parsing {}: {}", SRC_VC_URL_FLAG, e.to_string()))?;
+            .map_err(|e| format!("Error parsing {}: {}", SRC_VC_URL_FLAG, e))?;
         let dest_vc_url = SensitiveUrl::parse(&move_config.src_vc_url)
-            .map_err(|e| format!("Error parsing {}: {}", DEST_VC_URL_FLAG, e.to_string()))?;
+            .map_err(|e| format!("Error parsing {}: {}", DEST_VC_URL_FLAG, e))?;
 
         Ok(Self {
-            src_vc_url: src_vc_url,
+            src_vc_url,
             src_vc_token_path: move_config.src_vc_token.clone(),
-            dest_vc_url: dest_vc_url,
+            dest_vc_url,
             dest_vc_token_path: move_config.dest_vc_token.clone(),
             validators,
             builder_proposals: move_config.builder_proposals,

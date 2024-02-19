@@ -4,7 +4,7 @@ use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, schema_change::migrate_schema,
     slot_clock::SystemTimeSlotClock,
 };
-use beacon_node::{cli::BeaconNode, get_data_dir, get_slots_per_restore_point, ClientConfig};
+use beacon_node::{get_data_dir, get_slots_per_restore_point, ClientConfig};
 use clap_utils::GlobalConfig;
 use cli::{Compact, DatabaseManager, Inspect, Migrate, PruneStates};
 use environment::{Environment, RuntimeContext};
@@ -25,19 +25,20 @@ pub const CMD: &str = "database_manager";
 
 fn parse_client_config<E: EthSpec>(
     global_config: &GlobalConfig,
-    beacon_node_config: &BeaconNode,
+    database_manager_config: &DatabaseManager,
     _env: &Environment<E>,
 ) -> Result<ClientConfig, String> {
     let mut client_config = ClientConfig::default();
 
     client_config.set_data_dir(get_data_dir(global_config));
-    client_config.freezer_db_path = beacon_node_config.freezer_dir.clone();
-    client_config.blobs_db_path = beacon_node_config.blobs_dir.clone();
+    client_config.freezer_db_path = database_manager_config.freezer_dir.clone();
+    client_config.blobs_db_path = database_manager_config.blobs_dir.clone();
 
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(beacon_node_config)?;
+    let (sprp, sprp_explicit) =
+        get_slots_per_restore_point::<E>(database_manager_config.slots_per_restore_point)?;
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
-    client_config.store.blob_prune_margin_epochs = beacon_node_config.blob_prune_margin_epochs;
+    client_config.store.blob_prune_margin_epochs = database_manager_config.blob_prune_margin_epochs;
 
     Ok(client_config)
 }
@@ -110,10 +111,7 @@ fn parse_inspect_config(inspect_config: &Inspect) -> Result<InspectConfig, Strin
     let freezer = inspect_config.freezer;
     let blobs_db = inspect_config.blobs_db;
 
-    let output_dir: PathBuf = inspect_config
-        .output_dir
-        .clone()
-        .unwrap_or_else(PathBuf::new);
+    let output_dir: PathBuf = inspect_config.output_dir.clone().unwrap_or_default();
     Ok(InspectConfig {
         column,
         target,
@@ -461,10 +459,9 @@ pub fn prune_states<E: EthSpec>(
 pub fn run<T: EthSpec>(
     db_manager_config: &DatabaseManager,
     global_config: &GlobalConfig,
-    beacon_node_config: &BeaconNode,
     env: Environment<T>,
 ) -> Result<(), String> {
-    let client_config = parse_client_config(global_config, beacon_node_config, &env)?;
+    let client_config = parse_client_config(global_config, db_manager_config, &env)?;
     let context = env.core_context();
     let log = context.log().clone();
     let format_err = |e| format!("Fatal error: {:?}", e);
