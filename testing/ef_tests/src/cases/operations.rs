@@ -40,8 +40,8 @@ struct ExecutionMetadata {
 
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
-pub struct WithdrawalsPayload<T: EthSpec> {
-    payload: FullPayload<T>,
+pub struct WithdrawalsPayload<E: EthSpec> {
+    payload: FullPayload<E>,
 }
 
 #[derive(Debug, Clone)]

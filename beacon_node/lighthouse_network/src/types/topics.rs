@@ -43,7 +43,7 @@ pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
 pub const DENEB_CORE_TOPICS: [GossipKind; 0] = [];
 
 /// Returns the core topics associated with each fork that are new to the previous fork
-pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> Vec<GossipKind> {
+pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> Vec<GossipKind> {
     match fork_name {
         ForkName::Base => BASE_CORE_TOPICS.to_vec(),
         ForkName::Altair => ALTAIR_CORE_TOPICS.to_vec(),
@@ -64,13 +64,13 @@ pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> V
 
 /// Returns all the topics that we need to subscribe to for a given fork
 /// including topics from older forks and new topics for the current fork.
-pub fn core_topics_to_subscribe<T: EthSpec>(
+pub fn core_topics_to_subscribe<E: EthSpec>(
     mut current_fork: ForkName,
     spec: &ChainSpec,
 ) -> Vec<GossipKind> {
-    let mut topics = fork_core_topics::<T>(&current_fork, spec);
+    let mut topics = fork_core_topics::<E>(&current_fork, spec);
     while let Some(previous_fork) = current_fork.previous_fork() {
-        let previous_fork_topics = fork_core_topics::<T>(&previous_fork, spec);
+        let previous_fork_topics = fork_core_topics::<E>(&previous_fork, spec);
         topics.extend(previous_fork_topics);
         current_fork = previous_fork;
     }

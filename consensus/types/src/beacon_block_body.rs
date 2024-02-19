@@ -11,10 +11,10 @@ use test_random_derive::TestRandom;
 use tree_hash::{TreeHash, BYTES_PER_CHUNK};
 use tree_hash_derive::TreeHash;
 
-pub type KzgCommitments<T> =
-    VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
-pub type KzgCommitmentOpts<T> =
-    FixedVector<Option<KzgCommitment>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type KzgCommitments<E> =
+    VariableList<KzgCommitment, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type KzgCommitmentOpts<E> =
+    FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>;
 
 /// Index of the `blob_kzg_commitments` leaf in the `BeaconBlockBody` tree post-deneb.
 pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
@@ -37,32 +37,32 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
             Derivative,
             arbitrary::Arbitrary
         ),
-        derivative(PartialEq, Hash(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")),
+        derivative(PartialEq, Hash(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")),
         serde(
-            bound = "T: EthSpec, Payload: AbstractExecPayload<T>",
+            bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
             deny_unknown_fields
         ),
-        arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>"),
+        arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, Derivative, arbitrary::Arbitrary)]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
+#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
-#[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
-#[arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
-pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
+#[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
+#[arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
+pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
     pub graffiti: Graffiti,
-    pub proposer_slashings: VariableList<ProposerSlashing, T::MaxProposerSlashings>,
-    pub attester_slashings: VariableList<AttesterSlashing<T>, T::MaxAttesterSlashings>,
-    pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
-    pub deposits: VariableList<Deposit, T::MaxDeposits>,
-    pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
+    pub proposer_slashings: VariableList<ProposerSlashing, E::MaxProposerSlashings>,
+    pub attester_slashings: VariableList<AttesterSlashing<E>, E::MaxAttesterSlashings>,
+    pub attestations: VariableList<Attestation<E>, E::MaxAttestations>,
+    pub deposits: VariableList<Deposit, E::MaxDeposits>,
+    pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
     #[superstruct(only(Altair, Merge, Capella, Deneb))]
-    pub sync_aggregate: SyncAggregate<T>,
+    pub sync_aggregate: SyncAggregate<E>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
     // payloads.
@@ -77,9 +77,9 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     pub execution_payload: Payload::Deneb,
     #[superstruct(only(Capella, Deneb))]
     pub bls_to_execution_changes:
-        VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
+        VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
     #[superstruct(only(Deneb))]
-    pub blob_kzg_commitments: KzgCommitments<T>,
+    pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -88,13 +88,13 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     pub _phantom: PhantomData<Payload>,
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBody<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBody<E, Payload> {
     pub fn execution_payload(&self) -> Result<Payload::Ref<'_>, Error> {
         self.to_ref().execution_payload()
     }
 }
 
-impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, Payload> {
+impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, Payload> {
     pub fn execution_payload(&self) -> Result<Payload::Ref<'a>, Error> {
         match self {
             Self::Base(_) | Self::Altair(_) => Err(Error::IncorrectStateVariant),
@@ -109,7 +109,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
     pub fn kzg_commitment_merkle_proof(
         &self,
         index: usize,
-    ) -> Result<FixedVector<Hash256, T::KzgCommitmentInclusionProofDepth>, Error> {
+    ) -> Result<FixedVector<Hash256, E::KzgCommitmentInclusionProofDepth>, Error> {
         match self {
             Self::Base(_) | Self::Altair(_) | Self::Merge(_) | Self::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
@@ -123,7 +123,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 // Part1 (Branches for the subtree rooted at `blob_kzg_commitments`)
                 //
                 // Branches for `blob_kzg_commitments` without length mix-in
-                let depth = T::max_blob_commitments_per_block()
+                let depth = E::max_blob_commitments_per_block()
                     .next_power_of_two()
                     .ilog2();
                 let leaves: Vec<_> = body
@@ -171,7 +171,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
                 // Join the proofs for the subtree and the main tree
                 proof.append(&mut proof_body);
 
-                debug_assert_eq!(proof.len(), T::kzg_proof_inclusion_proof_depth());
+                debug_assert_eq!(proof.len(), E::kzg_proof_inclusion_proof_depth());
                 Ok(proof.into())
             }
         }
@@ -184,7 +184,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
     }
 }
 
-impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, Payload> {
+impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, Payload> {
     /// Get the fork_name of this object
     pub fn fork_name(self) -> ForkName {
         match self {

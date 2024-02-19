@@ -67,13 +67,13 @@ impl From<ArithError> for Error {
     TestRandom,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct LightClientUpdate<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct LightClientUpdate<E: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     pub attested_header: LightClientHeader,
     /// The `SyncCommittee` used in the next period.
-    pub next_sync_committee: Arc<SyncCommittee<T>>,
+    pub next_sync_committee: Arc<SyncCommittee<E>>,
     /// Merkle proof for next sync committee
     pub next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
@@ -81,23 +81,23 @@ pub struct LightClientUpdate<T: EthSpec> {
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
-    pub sync_aggregate: SyncAggregate<T>,
+    pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated singature
     pub signature_slot: Slot,
 }
 
-impl<T: EthSpec> LightClientUpdate<T> {
+impl<E: EthSpec> LightClientUpdate<E> {
     pub fn new(
         chain_spec: ChainSpec,
-        beacon_state: BeaconState<T>,
-        block: BeaconBlock<T>,
-        attested_state: &mut BeaconState<T>,
-        finalized_block: BeaconBlock<T>,
+        beacon_state: BeaconState<E>,
+        block: BeaconBlock<E>,
+        attested_state: &mut BeaconState<E>,
+        finalized_block: BeaconBlock<E>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
             .altair_fork_epoch
             .ok_or(Error::AltairForkNotActive)?;
-        if attested_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
+        if attested_state.slot().epoch(E::slots_per_epoch()) < altair_fork_epoch {
             return Err(Error::AltairForkNotActive);
         }
 
@@ -112,7 +112,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
         attested_header.state_root = attested_state.tree_hash_root();
         let attested_period = attested_header
             .slot
-            .epoch(T::slots_per_epoch())
+            .epoch(E::slots_per_epoch())
             .sync_committee_period(&chain_spec)?;
         if attested_period != signature_period {
             return Err(Error::MismatchingPeriods);
@@ -143,14 +143,14 @@ impl<T: EthSpec> LightClientUpdate<T> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientUpdate<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientUpdate<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
             ForkName::Altair | ForkName::Merge => {
-                Ok(serde_json::from_value::<LightClientUpdate<T>>(value)
+                Ok(serde_json::from_value::<LightClientUpdate<E>>(value)
                     .map_err(serde::de::Error::custom))?
             }
             ForkName::Base | ForkName::Capella | ForkName::Deneb => {

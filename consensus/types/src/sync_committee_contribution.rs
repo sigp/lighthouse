@@ -27,18 +27,18 @@ pub enum Error {
     TestRandom,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct SyncCommitteeContribution<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct SyncCommitteeContribution<E: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub subcommittee_index: u64,
-    pub aggregation_bits: BitVector<T::SyncSubcommitteeSize>,
+    pub aggregation_bits: BitVector<E::SyncSubcommitteeSize>,
     pub signature: AggregateSignature,
 }
 
-impl<T: EthSpec> SyncCommitteeContribution<T> {
+impl<E: EthSpec> SyncCommitteeContribution<E> {
     /// Create a `SyncCommitteeContribution` from:
     ///
     /// - `message`: A single `SyncCommitteeMessage`.
@@ -95,7 +95,7 @@ pub struct SyncContributionData {
 }
 
 impl SyncContributionData {
-    pub fn from_contribution<T: EthSpec>(signing_data: &SyncCommitteeContribution<T>) -> Self {
+    pub fn from_contribution<E: EthSpec>(signing_data: &SyncCommitteeContribution<E>) -> Self {
         Self {
             slot: signing_data.slot,
             beacon_block_root: signing_data.beacon_block_root,
@@ -104,7 +104,7 @@ impl SyncContributionData {
     }
 }
 
-impl<T: EthSpec> SlotData for SyncCommitteeContribution<T> {
+impl<E: EthSpec> SlotData for SyncCommitteeContribution<E> {
     fn get_slot(&self) -> Slot {
         self.slot
     }

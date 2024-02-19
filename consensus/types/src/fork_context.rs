@@ -17,7 +17,7 @@ impl ForkContext {
     /// fork digest.
     ///
     /// A fork is disabled in the `ChainSpec` if the activation slot corresponding to that fork is `None`.
-    pub fn new<T: EthSpec>(
+    pub fn new<E: EthSpec>(
         current_slot: Slot,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
@@ -71,7 +71,7 @@ impl ForkContext {
             .collect();
 
         Self {
-            current_fork: RwLock::new(spec.fork_name_at_slot::<T>(current_slot)),
+            current_fork: RwLock::new(spec.fork_name_at_slot::<E>(current_slot)),
             fork_to_digest,
             digest_to_fork,
             spec: spec.clone(),

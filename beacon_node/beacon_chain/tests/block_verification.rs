@@ -840,7 +840,7 @@ async fn invalid_signature_exit() {
     }
 }
 
-fn unwrap_err<T, E>(result: Result<T, E>) -> E {
+fn unwrap_err<T, U>(result: Result<T, U>) -> U {
     match result {
         Ok(_) => panic!("called unwrap_err on Ok"),
         Err(e) => e,
@@ -1609,7 +1609,7 @@ async fn import_duplicate_block_unrealized_justification() {
 
 async fn import_execution_pending_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    execution_pending_block: ExecutionPendingBlock<T>,
+    execution_pending_block: ExecutionPendingBlock<E>,
 ) -> Result<AvailabilityProcessingStatus, String> {
     match chain
         .clone()

@@ -727,11 +727,11 @@ impl HttpJsonRpc {
         .await
     }
 
-    pub async fn get_block_by_hash_with_txns<T: EthSpec>(
+    pub async fn get_block_by_hash_with_txns<E: EthSpec>(
         &self,
         block_hash: ExecutionBlockHash,
         fork: ForkName,
-    ) -> Result<Option<ExecutionBlockWithTransactions<T>>, Error> {
+    ) -> Result<Option<ExecutionBlockWithTransactions<E>>, Error> {
         let params = json!([block_hash, true]);
         Ok(Some(match fork {
             ForkName::Merge => ExecutionBlockWithTransactions::Merge(
@@ -767,9 +767,9 @@ impl HttpJsonRpc {
         }))
     }
 
-    pub async fn new_payload_v1<T: EthSpec>(
+    pub async fn new_payload_v1<E: EthSpec>(
         &self,
-        execution_payload: ExecutionPayload<T>,
+        execution_payload: ExecutionPayload<E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
@@ -784,9 +784,9 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v2<T: EthSpec>(
+    pub async fn new_payload_v2<E: EthSpec>(
         &self,
-        execution_payload: ExecutionPayload<T>,
+        execution_payload: ExecutionPayload<E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
@@ -801,9 +801,9 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v3<T: EthSpec>(
+    pub async fn new_payload_v3<E: EthSpec>(
         &self,
-        new_payload_request_deneb: NewPayloadRequestDeneb<'_, T>,
+        new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
             JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
@@ -822,13 +822,13 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn get_payload_v1<T: EthSpec>(
+    pub async fn get_payload_v1<E: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let payload_v1: JsonExecutionPayloadV1<T> = self
+        let payload_v1: JsonExecutionPayloadV1<E> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_V1,
                 params,
@@ -845,16 +845,16 @@ impl HttpJsonRpc {
         }))
     }
 
-    pub async fn get_payload_v2<T: EthSpec>(
+    pub async fn get_payload_v2<E: EthSpec>(
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
             ForkName::Merge => {
-                let response: JsonGetPayloadResponseV1<T> = self
+                let response: JsonGetPayloadResponseV1<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
                         params,
@@ -864,7 +864,7 @@ impl HttpJsonRpc {
                 Ok(JsonGetPayloadResponse::V1(response).into())
             }
             ForkName::Capella => {
-                let response: JsonGetPayloadResponseV2<T> = self
+                let response: JsonGetPayloadResponseV2<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
                         params,
@@ -879,16 +879,16 @@ impl HttpJsonRpc {
         }
     }
 
-    pub async fn get_payload_v3<T: EthSpec>(
+    pub async fn get_payload_v3<E: EthSpec>(
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
             ForkName::Deneb => {
-                let response: JsonGetPayloadResponseV3<T> = self
+                let response: JsonGetPayloadResponseV3<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V3,
                         params,
@@ -1077,9 +1077,9 @@ impl HttpJsonRpc {
 
     // automatically selects the latest version of
     // new_payload that the execution engine supports
-    pub async fn new_payload<T: EthSpec>(
+    pub async fn new_payload<E: EthSpec>(
         &self,
-        new_payload_request: NewPayloadRequest<'_, T>,
+        new_payload_request: NewPayloadRequest<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match new_payload_request {
@@ -1106,11 +1106,11 @@ impl HttpJsonRpc {
 
     // automatically selects the latest version of
     // get_payload that the execution engine supports
-    pub async fn get_payload<T: EthSpec>(
+    pub async fn get_payload<E: EthSpec>(
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match fork_name {
             ForkName::Merge | ForkName::Capella => {

@@ -8,18 +8,18 @@ use types::{EthSpec, SyncCommittee};
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]
-pub enum EpochProcessingSummary<T: EthSpec> {
+pub enum EpochProcessingSummary<E: EthSpec> {
     Base {
         total_balances: TotalBalances,
         statuses: Vec<ValidatorStatus>,
     },
     Altair {
         participation_cache: ParticipationCache,
-        sync_committee: Arc<SyncCommittee<T>>,
+        sync_committee: Arc<SyncCommittee<E>>,
     },
 }
 
-impl<T: EthSpec> EpochProcessingSummary<T> {
+impl<E: EthSpec> EpochProcessingSummary<E> {
     /// Updates some Prometheus metrics with some values in `self`.
     pub fn observe_metrics(&self) -> Result<(), ParticipationCacheError> {
         metrics::set_gauge(
@@ -43,7 +43,7 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
     }
 
     /// Returns the sync committee indices for the current epoch for altair.
-    pub fn sync_committee(&self) -> Option<&SyncCommittee<T>> {
+    pub fn sync_committee(&self) -> Option<&SyncCommittee<E>> {
         match self {
             EpochProcessingSummary::Altair { sync_committee, .. } => Some(sync_committee),
             EpochProcessingSummary::Base { .. } => None,

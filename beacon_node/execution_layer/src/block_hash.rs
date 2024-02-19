@@ -14,8 +14,8 @@ use types::{
 ///
 /// Return `(block_hash, transactions_root)`, where `transactions_root` is the root of the RLP
 /// transactions.
-pub fn calculate_execution_block_hash<T: EthSpec>(
-    payload: ExecutionPayloadRef<T>,
+pub fn calculate_execution_block_hash<E: EthSpec>(
+    payload: ExecutionPayloadRef<E>,
     parent_beacon_block_root: Option<Hash256>,
 ) -> (ExecutionBlockHash, Hash256) {
     // Calculate the transactions root.

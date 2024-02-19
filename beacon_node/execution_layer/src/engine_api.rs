@@ -154,21 +154,21 @@ pub struct ExecutionBlock {
     variants(Merge, Capella, Deneb),
     variant_attributes(
         derive(Clone, Debug, PartialEq, Serialize, Deserialize,),
-        serde(bound = "T: EthSpec", rename_all = "camelCase"),
+        serde(bound = "E: EthSpec", rename_all = "camelCase"),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec", rename_all = "camelCase", untagged)]
-pub struct ExecutionBlockWithTransactions<T: EthSpec> {
+#[serde(bound = "E: EthSpec", rename_all = "camelCase", untagged)]
+pub struct ExecutionBlockWithTransactions<E: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     #[serde(alias = "miner")]
     pub fee_recipient: Address,
     pub state_root: Hash256,
     pub receipts_root: Hash256,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
-    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
+    pub logs_bloom: FixedVector<u8, E::BytesPerLogsBloom>,
     #[serde(alias = "mixHash")]
     pub prev_randao: Hash256,
     #[serde(rename = "number", with = "serde_utils::u64_hex_be")]
@@ -180,7 +180,7 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    pub extra_data: VariableList<u8, E::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
@@ -195,10 +195,10 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     pub excess_blob_gas: u64,
 }
 
-impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T> {
+impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions<E> {
     type Error = Error;
 
-    fn try_from(payload: ExecutionPayload<T>) -> Result<Self, Error> {
+    fn try_from(payload: ExecutionPayload<E>) -> Result<Self, Error> {
         let json_payload = match payload {
             ExecutionPayload::Merge(block) => Self::Merge(ExecutionBlockWithTransactionsMerge {
                 parent_hash: block.parent_hash,
@@ -399,16 +399,16 @@ pub struct ProposeBlindedBlockResponse {
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Clone, Debug, PartialEq)]
-pub struct GetPayloadResponse<T: EthSpec> {
+pub struct GetPayloadResponse<E: EthSpec> {
     #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload: ExecutionPayloadMerge<T>,
+    pub execution_payload: ExecutionPayloadMerge<E>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload: ExecutionPayloadCapella<T>,
+    pub execution_payload: ExecutionPayloadCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload: ExecutionPayloadDeneb<T>,
+    pub execution_payload: ExecutionPayloadDeneb<E>,
     pub block_value: Uint256,
     #[superstruct(only(Deneb))]
-    pub blobs_bundle: BlobsBundle<T>,
+    pub blobs_bundle: BlobsBundle<E>,
     #[superstruct(only(Deneb), partial_getter(copy))]
     pub should_override_builder: bool,
 }
@@ -427,26 +427,26 @@ impl<E: EthSpec> GetPayloadResponse<E> {
     }
 }
 
-impl<'a, T: EthSpec> From<GetPayloadResponseRef<'a, T>> for ExecutionPayloadRef<'a, T> {
-    fn from(response: GetPayloadResponseRef<'a, T>) -> Self {
+impl<'a, E: EthSpec> From<GetPayloadResponseRef<'a, E>> for ExecutionPayloadRef<'a, E> {
+    fn from(response: GetPayloadResponseRef<'a, E>) -> Self {
         map_get_payload_response_ref_into_execution_payload_ref!(&'a _, response, |inner, cons| {
             cons(&inner.execution_payload)
         })
     }
 }
 
-impl<T: EthSpec> From<GetPayloadResponse<T>> for ExecutionPayload<T> {
-    fn from(response: GetPayloadResponse<T>) -> Self {
+impl<E: EthSpec> From<GetPayloadResponse<E>> for ExecutionPayload<E> {
+    fn from(response: GetPayloadResponse<E>) -> Self {
         map_get_payload_response_into_execution_payload!(response, |inner, cons| {
             cons(inner.execution_payload)
         })
     }
 }
 
-impl<T: EthSpec> From<GetPayloadResponse<T>>
-    for (ExecutionPayload<T>, Uint256, Option<BlobsBundle<T>>)
+impl<E: EthSpec> From<GetPayloadResponse<E>>
+    for (ExecutionPayload<E>, Uint256, Option<BlobsBundle<E>>)
 {
-    fn from(response: GetPayloadResponse<T>) -> Self {
+    fn from(response: GetPayloadResponse<E>) -> Self {
         match response {
             GetPayloadResponse::Merge(inner) => (
                 ExecutionPayload::Merge(inner.execution_payload),
@@ -472,8 +472,8 @@ pub enum GetPayloadResponseType<E: EthSpec> {
     Blinded(GetPayloadResponse<E>),
 }
 
-impl<T: EthSpec> GetPayloadResponse<T> {
-    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<T> {
+impl<E: EthSpec> GetPayloadResponse<E> {
+    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<E> {
         self.to_ref().into()
     }
 }

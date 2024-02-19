@@ -968,8 +968,8 @@ fn main() {
     }
 }
 
-fn run<T: EthSpec>(
-    env_builder: EnvironmentBuilder<T>,
+fn run<E: EthSpec>(
+    env_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches<'_>,
 ) -> Result<(), String> {
     let env = env_builder
@@ -1024,71 +1024,71 @@ fn run<T: EthSpec>(
     match matches.subcommand() {
         ("transition-blocks", Some(matches)) => {
             let network_config = get_network_config()?;
-            transition_blocks::run::<T>(env, network_config, matches)
+            transition_blocks::run::<E>(env, network_config, matches)
                 .map_err(|e| format!("Failed to transition blocks: {}", e))
         }
         ("skip-slots", Some(matches)) => {
             let network_config = get_network_config()?;
-            skip_slots::run::<T>(env, network_config, matches)
+            skip_slots::run::<E>(env, network_config, matches)
                 .map_err(|e| format!("Failed to skip slots: {}", e))
         }
         ("pretty-ssz", Some(matches)) => {
             let network_config = get_network_config()?;
-            run_parse_ssz::<T>(network_config, matches)
+            run_parse_ssz::<E>(network_config, matches)
                 .map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
         ("deploy-deposit-contract", Some(matches)) => {
-            deploy_deposit_contract::run::<T>(env, matches)
+            deploy_deposit_contract::run::<E>(env, matches)
                 .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
         ("eth1-genesis", Some(matches)) => {
             let testnet_dir = get_testnet_dir()?;
-            eth1_genesis::run::<T>(env, testnet_dir, matches)
+            eth1_genesis::run::<E>(env, testnet_dir, matches)
                 .map_err(|e| format!("Failed to run eth1-genesis command: {}", e))
         }
         ("interop-genesis", Some(matches)) => {
             let testnet_dir = get_testnet_dir()?;
-            interop_genesis::run::<T>(testnet_dir, matches)
+            interop_genesis::run::<E>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run interop-genesis command: {}", e))
         }
         ("change-genesis-time", Some(matches)) => {
             let testnet_dir = get_testnet_dir()?;
-            change_genesis_time::run::<T>(testnet_dir, matches)
+            change_genesis_time::run::<E>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run change-genesis-time command: {}", e))
         }
-        ("create-payload-header", Some(matches)) => create_payload_header::run::<T>(matches)
+        ("create-payload-header", Some(matches)) => create_payload_header::run::<E>(matches)
             .map_err(|e| format!("Failed to run create-payload-header command: {}", e)),
         ("replace-state-pubkeys", Some(matches)) => {
             let testnet_dir = get_testnet_dir()?;
-            replace_state_pubkeys::run::<T>(testnet_dir, matches)
+            replace_state_pubkeys::run::<E>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
         }
         ("new-testnet", Some(matches)) => {
             let testnet_dir = get_testnet_dir()?;
-            new_testnet::run::<T>(testnet_dir, matches)
+            new_testnet::run::<E>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run new_testnet command: {}", e))
         }
         ("check-deposit-data", Some(matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
-        ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
+        ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<E>(matches)
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
         ("mnemonic-validators", Some(matches)) => mnemonic_validators::run(matches)
             .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
-        ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
+        ("indexed-attestations", Some(matches)) => indexed_attestations::run::<E>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         ("block-root", Some(matches)) => {
             let network_config = get_network_config()?;
-            block_root::run::<T>(env, network_config, matches)
+            block_root::run::<E>(env, network_config, matches)
                 .map_err(|e| format!("Failed to run block-root command: {}", e))
         }
         ("state-root", Some(matches)) => {
             let network_config = get_network_config()?;
-            state_root::run::<T>(env, network_config, matches)
+            state_root::run::<E>(env, network_config, matches)
                 .map_err(|e| format!("Failed to run state-root command: {}", e))
         }
-        ("mock-el", Some(matches)) => mock_el::run::<T>(env, matches)
+        ("mock-el", Some(matches)) => mock_el::run::<E>(env, matches)
             .map_err(|e| format!("Failed to run mock-el command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }

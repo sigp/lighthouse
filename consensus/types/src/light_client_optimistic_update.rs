@@ -22,27 +22,27 @@ use tree_hash::TreeHash;
     TestRandom,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct LightClientOptimisticUpdate<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct LightClientOptimisticUpdate<E: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     pub attested_header: LightClientHeader,
     /// current sync aggreggate
-    pub sync_aggregate: SyncAggregate<T>,
+    pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated singature
     pub signature_slot: Slot,
 }
 
-impl<T: EthSpec> LightClientOptimisticUpdate<T> {
+impl<E: EthSpec> LightClientOptimisticUpdate<E> {
     pub fn new(
         chain_spec: &ChainSpec,
-        block: &SignedBeaconBlock<T>,
-        attested_state: &BeaconState<T>,
+        block: &SignedBeaconBlock<E>,
+        attested_state: &BeaconState<E>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
             .altair_fork_epoch
             .ok_or(Error::AltairForkNotActive)?;
-        if attested_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
+        if attested_state.slot().epoch(E::slots_per_epoch()) < altair_fork_epoch {
             return Err(Error::AltairForkNotActive);
         }
 
@@ -62,14 +62,14 @@ impl<T: EthSpec> LightClientOptimisticUpdate<T> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
             ForkName::Altair | ForkName::Merge => Ok(serde_json::from_value::<
-                LightClientOptimisticUpdate<T>,
+                LightClientOptimisticUpdate<E>,
             >(value)
             .map_err(serde::de::Error::custom))?,
             ForkName::Base | ForkName::Capella | ForkName::Deneb => {

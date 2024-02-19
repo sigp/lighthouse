@@ -68,7 +68,7 @@ pub struct SignedBuilderBid<E: EthSpec> {
     pub signature: Signature,
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for BuilderBid<T> {
+impl<E: EthSpec> ForkVersionDeserialize for BuilderBid<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
@@ -90,7 +90,7 @@ impl<T: EthSpec> ForkVersionDeserialize for BuilderBid<T> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for SignedBuilderBid<T> {
+impl<E: EthSpec> ForkVersionDeserialize for SignedBuilderBid<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,

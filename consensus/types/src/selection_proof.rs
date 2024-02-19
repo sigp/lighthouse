@@ -11,7 +11,7 @@ use std::convert::TryInto;
 pub struct SelectionProof(Signature);
 
 impl SelectionProof {
-    pub fn new<T: EthSpec>(
+    pub fn new<E: EthSpec>(
         slot: Slot,
         secret_key: &SecretKey,
         fork: &Fork,
@@ -19,7 +19,7 @@ impl SelectionProof {
         spec: &ChainSpec,
     ) -> Self {
         let domain = spec.get_domain(
-            slot.epoch(T::slots_per_epoch()),
+            slot.epoch(E::slots_per_epoch()),
             Domain::SelectionProof,
             fork,
             genesis_validators_root,
@@ -58,7 +58,7 @@ impl SelectionProof {
         signature_hash_int.safe_rem(modulo).map(|rem| rem == 0)
     }
 
-    pub fn verify<T: EthSpec>(
+    pub fn verify<E: EthSpec>(
         &self,
         slot: Slot,
         pubkey: &PublicKey,
@@ -67,7 +67,7 @@ impl SelectionProof {
         spec: &ChainSpec,
     ) -> bool {
         let domain = spec.get_domain(
-            slot.epoch(T::slots_per_epoch()),
+            slot.epoch(E::slots_per_epoch()),
             Domain::SelectionProof,
             fork,
             genesis_validators_root,

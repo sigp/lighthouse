@@ -66,20 +66,20 @@ pub struct JsonPayloadIdResponse {
     variants(V1, V2, V3),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
-        serde(bound = "T: EthSpec", rename_all = "camelCase"),
+        serde(bound = "E: EthSpec", rename_all = "camelCase"),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec", rename_all = "camelCase", untagged)]
-pub struct JsonExecutionPayload<T: EthSpec> {
+#[serde(bound = "E: EthSpec", rename_all = "camelCase", untagged)]
+pub struct JsonExecutionPayload<E: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
     pub state_root: Hash256,
     pub receipts_root: Hash256,
     #[serde(with = "serde_logs_bloom")]
-    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
+    pub logs_bloom: FixedVector<u8, E::BytesPerLogsBloom>,
     pub prev_randao: Hash256,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub block_number: u64,
@@ -90,14 +90,14 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    pub extra_data: VariableList<u8, E::MaxExtraDataBytes>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions: Transactions<T>,
+    pub transactions: Transactions<E>,
     #[superstruct(only(V2, V3))]
-    pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
+    pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
     #[superstruct(only(V3))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
@@ -106,8 +106,8 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub excess_blob_gas: u64,
 }
 
-impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
-    fn from(payload: ExecutionPayloadMerge<T>) -> Self {
+impl<E: EthSpec> From<ExecutionPayloadMerge<E>> for JsonExecutionPayloadV1<E> {
+    fn from(payload: ExecutionPayloadMerge<E>) -> Self {
         JsonExecutionPayloadV1 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -126,8 +126,8 @@ impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
         }
     }
 }
-impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for JsonExecutionPayloadV2<T> {
-    fn from(payload: ExecutionPayloadCapella<T>) -> Self {
+impl<E: EthSpec> From<ExecutionPayloadCapella<E>> for JsonExecutionPayloadV2<E> {
+    fn from(payload: ExecutionPayloadCapella<E>) -> Self {
         JsonExecutionPayloadV2 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -152,8 +152,8 @@ impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for JsonExecutionPayloadV2<T> 
         }
     }
 }
-impl<T: EthSpec> From<ExecutionPayloadDeneb<T>> for JsonExecutionPayloadV3<T> {
-    fn from(payload: ExecutionPayloadDeneb<T>) -> Self {
+impl<E: EthSpec> From<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadV3<E> {
+    fn from(payload: ExecutionPayloadDeneb<E>) -> Self {
         JsonExecutionPayloadV3 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -181,8 +181,8 @@ impl<T: EthSpec> From<ExecutionPayloadDeneb<T>> for JsonExecutionPayloadV3<T> {
     }
 }
 
-impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
-    fn from(execution_payload: ExecutionPayload<T>) -> Self {
+impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
+    fn from(execution_payload: ExecutionPayload<E>) -> Self {
         match execution_payload {
             ExecutionPayload::Merge(payload) => JsonExecutionPayload::V1(payload.into()),
             ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
@@ -191,8 +191,8 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
     }
 }
 
-impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayloadMerge<T> {
-    fn from(payload: JsonExecutionPayloadV1<T>) -> Self {
+impl<E: EthSpec> From<JsonExecutionPayloadV1<E>> for ExecutionPayloadMerge<E> {
+    fn from(payload: JsonExecutionPayloadV1<E>) -> Self {
         ExecutionPayloadMerge {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -211,8 +211,8 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayloadMerge<T> {
         }
     }
 }
-impl<T: EthSpec> From<JsonExecutionPayloadV2<T>> for ExecutionPayloadCapella<T> {
-    fn from(payload: JsonExecutionPayloadV2<T>) -> Self {
+impl<E: EthSpec> From<JsonExecutionPayloadV2<E>> for ExecutionPayloadCapella<E> {
+    fn from(payload: JsonExecutionPayloadV2<E>) -> Self {
         ExecutionPayloadCapella {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -237,8 +237,8 @@ impl<T: EthSpec> From<JsonExecutionPayloadV2<T>> for ExecutionPayloadCapella<T> 
         }
     }
 }
-impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadDeneb<T> {
-    fn from(payload: JsonExecutionPayloadV3<T>) -> Self {
+impl<E: EthSpec> From<JsonExecutionPayloadV3<E>> for ExecutionPayloadDeneb<E> {
+    fn from(payload: JsonExecutionPayloadV3<E>) -> Self {
         ExecutionPayloadDeneb {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -266,8 +266,8 @@ impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadDeneb<T> {
     }
 }
 
-impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
-    fn from(json_execution_payload: JsonExecutionPayload<T>) -> Self {
+impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
+    fn from(json_execution_payload: JsonExecutionPayload<E>) -> Self {
         match json_execution_payload {
             JsonExecutionPayload::V1(payload) => ExecutionPayload::Merge(payload.into()),
             JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
@@ -280,30 +280,30 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
     variants(V1, V2, V3),
     variant_attributes(
         derive(Debug, PartialEq, Serialize, Deserialize),
-        serde(bound = "T: EthSpec", rename_all = "camelCase")
+        serde(bound = "E: EthSpec", rename_all = "camelCase")
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub struct JsonGetPayloadResponse<T: EthSpec> {
+pub struct JsonGetPayloadResponse<E: EthSpec> {
     #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
-    pub execution_payload: JsonExecutionPayloadV1<T>,
+    pub execution_payload: JsonExecutionPayloadV1<E>,
     #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
-    pub execution_payload: JsonExecutionPayloadV2<T>,
+    pub execution_payload: JsonExecutionPayloadV2<E>,
     #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
-    pub execution_payload: JsonExecutionPayloadV3<T>,
+    pub execution_payload: JsonExecutionPayloadV3<E>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub block_value: Uint256,
     #[superstruct(only(V3))]
-    pub blobs_bundle: JsonBlobsBundleV1<T>,
+    pub blobs_bundle: JsonBlobsBundleV1<E>,
     #[superstruct(only(V3))]
     pub should_override_builder: bool,
 }
 
-impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
-    fn from(json_get_payload_response: JsonGetPayloadResponse<T>) -> Self {
+impl<E: EthSpec> From<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
+    fn from(json_get_payload_response: JsonGetPayloadResponse<E>) -> Self {
         match json_get_payload_response {
             JsonGetPayloadResponse::V1(response) => {
                 GetPayloadResponse::Merge(GetPayloadResponseMerge {

@@ -9,7 +9,7 @@ use types::{
     ExecutionPayloadHeaderMerge, ForkName,
 };
 
-pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
+pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let eth1_block_hash = parse_required(matches, "execution-block-hash")?;
     let genesis_time = parse_optional(matches, "genesis-time")?.unwrap_or(
         SystemTime::now()
@@ -22,7 +22,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let file_name = matches.value_of("file").ok_or("No file supplied")?;
     let fork_name: ForkName = parse_optional(matches, "fork")?.unwrap_or(ForkName::Merge);
 
-    let execution_payload_header: ExecutionPayloadHeader<T> = match fork_name {
+    let execution_payload_header: ExecutionPayloadHeader<E> = match fork_name {
         ForkName::Base | ForkName::Altair => return Err("invalid fork name".to_string()),
         ForkName::Merge => ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
             gas_limit,

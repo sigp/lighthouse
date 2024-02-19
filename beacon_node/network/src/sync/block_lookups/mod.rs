@@ -40,7 +40,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-pub type DownloadedBlock<T> = (Hash256, RpcBlock<T>);
+pub type DownloadedBlock<E> = (Hash256, RpcBlock<E>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;

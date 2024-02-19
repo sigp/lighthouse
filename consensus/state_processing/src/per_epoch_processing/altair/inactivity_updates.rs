@@ -9,14 +9,14 @@ use types::chain_spec::ChainSpec;
 use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 use types::eth_spec::EthSpec;
 
-pub fn process_inactivity_updates<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_inactivity_updates<E: EthSpec>(
+    state: &mut BeaconState<E>,
     participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
     let previous_epoch = state.previous_epoch();
     // Score updates based on previous epoch participation, skip genesis epoch
-    if state.current_epoch() == T::genesis_epoch() {
+    if state.current_epoch() == E::genesis_epoch() {
         return Ok(());
     }
 

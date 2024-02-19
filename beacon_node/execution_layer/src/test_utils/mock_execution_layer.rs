@@ -11,14 +11,14 @@ use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use types::{Address, ChainSpec, Epoch, EthSpec, Hash256, MainnetEthSpec};
 
-pub struct MockExecutionLayer<T: EthSpec> {
-    pub server: MockServer<T>,
-    pub el: ExecutionLayer<T>,
+pub struct MockExecutionLayer<E: EthSpec> {
+    pub server: MockServer<E>,
+    pub el: ExecutionLayer<E>,
     pub executor: TaskExecutor,
     pub spec: ChainSpec,
 }
 
-impl<T: EthSpec> MockExecutionLayer<T> {
+impl<E: EthSpec> MockExecutionLayer<E> {
     pub fn default_params(executor: TaskExecutor) -> Self {
         let mut spec = MainnetEthSpec::default_spec();
         spec.terminal_total_difficulty = DEFAULT_TERMINAL_DIFFICULTY.into();
@@ -145,7 +145,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .await
             .unwrap();
 
-        let payload: ExecutionPayload<T> = match block_proposal_content_type {
+        let payload: ExecutionPayload<E> = match block_proposal_content_type {
             BlockProposalContentsType::Full(block) => block.to_payload().into(),
             BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
         };
@@ -218,9 +218,9 @@ impl<T: EthSpec> MockExecutionLayer<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn assert_valid_execution_payload_on_head<Payload: AbstractExecPayload<T>>(
+    pub async fn assert_valid_execution_payload_on_head<Payload: AbstractExecPayload<E>>(
         &self,
-        payload: ExecutionPayload<T>,
+        payload: ExecutionPayload<E>,
         payload_header: Payload,
         block_hash: ExecutionBlockHash,
         parent_hash: ExecutionBlockHash,
@@ -306,7 +306,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
     pub async fn with_terminal_block<'a, U, V>(self, func: U) -> Self
     where
-        U: Fn(ChainSpec, ExecutionLayer<T>, Option<ExecutionBlock>) -> V,
+        U: Fn(ChainSpec, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
         V: Future<Output = ()>,
     {
         let terminal_block_number = self

@@ -101,15 +101,15 @@ impl PartialEq<bool> for RequireSynced {
 }
 
 #[derive(Debug)]
-pub enum Error<E> {
+pub enum Error<T> {
     /// The node was unavailable and we didn't attempt to contact it.
     Unavailable(CandidateError),
     /// We attempted to contact the node but it failed.
-    RequestFailed(E),
+    RequestFailed(T),
 }
 
-impl<E> Error<E> {
-    pub fn request_failure(&self) -> Option<&E> {
+impl<T> Error<T> {
+    pub fn request_failure(&self) -> Option<&T> {
         match self {
             Error::RequestFailed(e) => Some(e),
             _ => None,
@@ -118,9 +118,9 @@ impl<E> Error<E> {
 }
 
 /// The list of errors encountered whilst attempting to perform a query.
-pub struct Errors<E>(pub Vec<(String, Error<E>)>);
+pub struct Errors<T>(pub Vec<(String, Error<T>)>);
 
-impl<E: Debug> fmt::Display for Errors<E> {
+impl<T: Debug> fmt::Display for Errors<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if !self.0.is_empty() {
             write!(f, "Some endpoints failed, num_failed: {}", self.0.len())?;
