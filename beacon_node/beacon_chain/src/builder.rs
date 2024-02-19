@@ -491,6 +491,29 @@ where
             ));
         }
 
+        // Verify that blobs (if provided) match the block.
+        if let Some(blobs) = &weak_subj_blobs {
+            let commitments = weak_subj_block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .map_err(|e| format!("Blobs provided but block does not reference them: {e:?}"))?;
+            if blobs.len() != commitments.len() {
+                return Err(format!(
+                    "Wrong number of blobs, expected: {}, got: {}",
+                    commitments.len(),
+                    blobs.len()
+                ));
+            }
+            if commitments
+                .iter()
+                .zip(blobs.iter())
+                .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
+            {
+                return Err("Checkpoint blob does not match block commitment".into());
+            }
+        }
+
         // Set the store's split point *before* storing genesis so that genesis is stored
         // immediately in the freezer DB.
         store.set_split(weak_subj_slot, weak_subj_state_root, weak_subj_block_root);
@@ -521,27 +544,6 @@ where
             .put_block(&weak_subj_block_root, weak_subj_block.clone())
             .map_err(|e| format!("Failed to store weak subjectivity block: {e:?}"))?;
         if let Some(blobs) = weak_subj_blobs {
-            // Verify that blobs (if provided) match the block.
-            let commitments = weak_subj_block
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .map_err(|e| format!("Blobs provided but block does not reference them: {e:?}"))?;
-            if blobs.len() != commitments.len() {
-                return Err(format!(
-                    "Wrong number of blobs, expected: {}, got: {}",
-                    commitments.len(),
-                    blobs.len()
-                ));
-            }
-            if commitments
-                .iter()
-                .zip(blobs.iter())
-                .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
-            {
-                return Err("Checkpoint blob does not match block commitment".into());
-            }
-
             store
                 .put_blobs(&weak_subj_block_root, blobs)
                 .map_err(|e| format!("Failed to store weak subjectivity blobs: {e:?}"))?;
