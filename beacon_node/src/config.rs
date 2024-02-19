@@ -441,9 +441,10 @@ pub fn get_config<E: EthSpec>(
     // TODO check if checkpoint_state and checkpoint_block types are ok
     client_config.genesis = if eth2_network_config.genesis_state_is_known() {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
-        if let (Some(anchor_state_bytes), Some(anchor_block_bytes)) = (
+        if let (Some(anchor_state_bytes), Some(anchor_block_bytes), anchor_blobs_bytes) = (
             beacon_config.checkpoint_state.as_ref(),
             beacon_config.checkpoint_block.as_ref(),
+            beacon_config.checkpoint_blobs.as_ref(),
         ) {
             // TODO check this
             let _read = |path: &str| {
@@ -461,6 +462,7 @@ pub fn get_config<E: EthSpec>(
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes: anchor_state_bytes.clone(),
                 anchor_block_bytes: anchor_block_bytes.clone(),
+                anchor_blobs_bytes: anchor_blobs_bytes.clone(),
             }
         } else if let Some(remote_bn_url) = beacon_config.checkpoint_sync_url.as_ref() {
             let url = SensitiveUrl::from_str(remote_bn_url)

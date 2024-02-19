@@ -951,6 +951,15 @@ pub struct BeaconNode {
 
     #[clap(
         long,
+        value_name = "BLOBS_SSZ",
+        requires = "checkpoint_block",
+        help = "Set the checkpoint blobs to start syncing from. Must be aligned and match \
+                --checkpoint-block. Using --checkpoint-sync-url instead is recommended."
+    )]
+    pub checkpoint_blobs: Option<Vec<u8>>,
+
+    #[clap(
+        long,
         value_name = "BEACON_NODE",
         conflicts_with = "checkpoint-state",
         help = "Set the remote beacon node HTTP endpoint to use for checkpoint sync."
