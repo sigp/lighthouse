@@ -51,3 +51,39 @@ impl AttestationShufflingId {
         }
     }
 }
+
+/// Contains the shuffling IDs for a beacon block.
+#[derive(Debug, Clone)]
+pub struct BlockShufflingIds {
+    pub current: AttestationShufflingId,
+    pub next: AttestationShufflingId,
+    pub previous: Option<AttestationShufflingId>,
+    pub block_root: Hash256,
+}
+
+impl BlockShufflingIds {
+    /// Returns the shuffling ID for the given epoch.
+    ///
+    /// Returns `None` if `epoch` is prior to `self.previous?.shuffling_epoch` or
+    /// `self.current.shuffling_epoch` (if `previous` is `None`).
+    pub fn id_for_epoch(&self, epoch: Epoch) -> Option<AttestationShufflingId> {
+        if epoch == self.current.shuffling_epoch {
+            Some(self.current.clone())
+        } else if self
+            .previous
+            .as_ref()
+            .map_or(false, |id| id.shuffling_epoch == epoch)
+        {
+            self.previous.clone()
+        } else if epoch == self.next.shuffling_epoch {
+            Some(self.next.clone())
+        } else if epoch > self.next.shuffling_epoch {
+            Some(AttestationShufflingId::from_components(
+                epoch,
+                self.block_root,
+            ))
+        } else {
+            None
+        }
+    }
+}
