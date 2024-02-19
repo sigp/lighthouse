@@ -2,8 +2,8 @@ use super::cli::Recover;
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
 use account_utils::{random_password, read_mnemonic_from_cli};
 use clap_utils::GlobalConfig;
-use directory::ensure_dir_exists;
 use directory::DEFAULT_SECRET_DIR;
+use directory::{ensure_dir_exists, parse_path_or_default_with_flag};
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
 use std::path::PathBuf;
@@ -23,7 +23,7 @@ pub fn cli_run(
     } else {
         parse_path_or_default_with_flag(
             global_config,
-            recover_config.secrets_dir,
+            recover_config.secrets_dir.clone(),
             DEFAULT_SECRET_DIR,
         )?
     };

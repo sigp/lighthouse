@@ -1,4 +1,6 @@
-use beacon_chain::chain_config::{DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR};
+use beacon_chain::chain_config::{
+    DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+};
 use beacon_chain::TrustedSetup;
 use clap_utils::GlobalConfig;
 use client::{ClientConfig, ClientGenesis};
@@ -143,12 +145,11 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.sse_capacity_multiplier = beacon_config.http_sse_capacity_multiplier;
         client_config.http_api.enable_beacon_processor = beacon_config.http_enable_beacon_processor;
 
-        // TODO fix
         client_config.http_api.duplicate_block_status_code = beacon_config
             .http_duplicate_block_status
             .to_string()
             .parse()
-            .unwrap();
+            .map_err(|e| format!("Failed to parse duplicate block status code. {}", e))?;
 
         client_config.http_api.enable_light_client_server = beacon_config.light_client_server;
     }
@@ -197,11 +198,8 @@ pub fn get_config<E: EthSpec>(
         );
     }
 
-    // TODO MALLOC
     // Do not scrape for malloc metrics if we've disabled tuning malloc as it may cause panics.
-    // if cli_args.is_present(DISABLE_MALLOC_TUNING_FLAG) {
-    //     client_config.http_metrics.allocator_metrics_enabled = false;
-    // }
+    client_config.http_metrics.allocator_metrics_enabled = !global_config.disable_malloc_tuning;
 
     /*
      * Eth1
@@ -237,7 +235,6 @@ pub fn get_config<E: EthSpec>(
 
         // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
         let execution_endpoint = SensitiveUrl::from_str(endpoint).unwrap();
-        // TODO should we allow multiple endpoints?
 
         // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
         // file_path or directly as string.
@@ -269,8 +266,8 @@ pub fn get_config<E: EthSpec>(
 
         // Parse and set the payload builder, if any.
         if let Some(endpoint) = beacon_config.builder.as_ref() {
-            let payload_builder =
-                SensitiveUrl::from_str(endpoint).ok_or("Failed to parse payload builder")?;
+            let payload_builder = SensitiveUrl::from_str(endpoint)
+                .map_err(|e| format!("Failed to parse payload builder, {}", e))?;
             el_config.builder_url = Some(payload_builder);
 
             el_config.builder_user_agent = beacon_config.builder_user_agent.clone();
@@ -341,23 +338,12 @@ pub fn get_config<E: EthSpec>(
         get_slots_per_restore_point::<E>(beacon_config.slots_per_restore_point)?;
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
-
-    if let Some(block_cache_size) = beacon_config.block_cache_size {
-        client_config.store.block_cache_size = block_cache_size;
-    }
-
-    if let Some(historic_state_cache_size) = beacon_config.historic_state_cache_size {
-        client_config.store.historic_state_cache_size = historic_state_cache_size;
-    }
-
+    client_config.store.block_cache_size = beacon_config.block_cache_size;
+    client_config.store.historic_state_cache_size = beacon_config.historic_state_cache_size;
     client_config.store.compact_on_init = beacon_config.compact_db;
     client_config.store.compact_on_prune = beacon_config.auto_compact_db;
     client_config.store.prune_payloads = beacon_config.prune_payloads;
-
-    if let Some(epochs_per_migration) = beacon_config.epochs_per_migration {
-        client_config.chain.epochs_per_migration = epochs_per_migration;
-    }
-
+    client_config.chain.epochs_per_migration = beacon_config.epochs_per_migration;
     client_config.store.prune_blobs = beacon_config.prune_blobs;
     client_config.store.epochs_per_blob_prune = beacon_config.epochs_per_blob_prune;
     client_config.store.blob_prune_margin_epochs = beacon_config.blob_prune_margin_epochs;
@@ -412,14 +398,9 @@ pub fn get_config<E: EthSpec>(
         }
     }
 
-    if let Some(checkpoint_sync_url_timeout) = beacon_config.checkpoint_sync_url_timeout {
-        client_config.chain.checkpoint_sync_url_timeout = checkpoint_sync_url_timeout;
-    }
-
-    if let Some(genesis_state_url_timeout) = beacon_config.genesis_state_url_timeout {
-        client_config.genesis_state_url_timeout = Duration::from_secs(genesis_state_url_timeout);
-    }
-
+    client_config.chain.checkpoint_sync_url_timeout = beacon_config.checkpoint_sync_url_timeout;
+    client_config.genesis_state_url_timeout =
+        Duration::from_secs(global_config.genesis_state_url_timeout);
     let genesis_state_url_opt = global_config.genesis_state_url.clone();
     let checkpoint_sync_url_opt = beacon_config.checkpoint_sync_url.clone();
 
@@ -461,7 +442,9 @@ pub fn get_config<E: EthSpec>(
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes: read(initial_state_path)?,
                 anchor_block_bytes: read(initial_block_path)?,
-                anchor_blobs_bytes: maybe_initial_blobs_path.map(read).transpose()?,
+                anchor_blobs_bytes: maybe_initial_blobs_path
+                    .map(|path| read(path))
+                    .transpose()?,
             }
         } else if let Some(remote_bn_url) = beacon_config.checkpoint_sync_url.as_ref() {
             let url = SensitiveUrl::from_str(remote_bn_url)
@@ -656,14 +639,16 @@ pub fn get_config<E: EthSpec>(
     // Note: This overrides any previous flags that enable this option.
     client_config.sync_eth1_chain = !beacon_config.disable_deposit_contract_sync;
 
-    client_config.chain.prepare_payload_lookahead = beacon_config.prepare_payload_lookahead
+    client_config.chain.prepare_payload_lookahead = beacon_config
+        .prepare_payload_lookahead
+        .map(Duration::from_secs)
         .unwrap_or_else(|| {
-            Duration::from_secs(spec.seconds_per_slot)
-                / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
+            Duration::from_secs(spec.seconds_per_slot) / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
         });
 
     client_config.chain.always_prepare_payload = beacon_config.always_prepare_payload;
-    client_config.chain.fork_choice_before_proposal_timeout_ms = beacon_config.fork_choice_before_proposal_timeout;
+    client_config.chain.fork_choice_before_proposal_timeout_ms =
+        beacon_config.fork_choice_before_proposal_timeout;
     client_config.chain.always_reset_payload_statuses = beacon_config.reset_payload_statuses;
     client_config.chain.paranoid_block_proposal = beacon_config.paranoid_block_proposal;
 
@@ -671,8 +656,9 @@ pub fn get_config<E: EthSpec>(
      * Builder fallback configs.
      */
     client_config.chain.builder_fallback_skips = beacon_config.builder_fallback_skips;
-    client_config.chain.builder_fallback_skips_per_epoch = beacon_config.builder_fallback_skips_per_epoch;
-   
+    client_config.chain.builder_fallback_skips_per_epoch =
+        beacon_config.builder_fallback_skips_per_epoch;
+
     client_config
         .chain
         .builder_fallback_epochs_since_finalization =
@@ -774,6 +760,7 @@ pub fn parse_listening_addresses<T: NetworkConfigurable>(
         }
         (None, Some(ipv6)) => {
             // A single ipv6 address was provided. Set the ports
+
 
             // TODO: understand how to display this warning message
             // if cli_args.is_present("port6") {

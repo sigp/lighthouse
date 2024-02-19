@@ -7,10 +7,8 @@ pub mod modify;
 pub mod recover;
 pub mod slashing_protection;
 
-use std::path::PathBuf;
-
 use clap_utils::GlobalConfig;
-use directory::{parse_path_or_default, DEFAULT_VALIDATOR_DIR};
+use directory::{parse_path_or_default_with_flag, DEFAULT_VALIDATOR_DIR};
 use environment::Environment;
 use types::EthSpec;
 
@@ -28,7 +26,7 @@ pub fn cli_run<T: EthSpec>(
     } else {
         parse_path_or_default_with_flag(
             global_config,
-            validator_config.validator_dir,
+            validator_config.validator_dir.clone(),
             DEFAULT_VALIDATOR_DIR,
         )?
     };

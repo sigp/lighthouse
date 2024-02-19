@@ -2,11 +2,10 @@ pub mod cli;
 pub mod create;
 pub mod list;
 pub mod recover;
-use std::path::PathBuf;
 
 use self::cli::Wallet;
 use clap_utils::GlobalConfig;
-use directory::{ensure_dir_exists, DEFAULT_WALLET_DIR};
+use directory::{ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
 
 pub const CMD: &str = "wallet";
 
@@ -16,7 +15,7 @@ pub fn cli_run(wallet_config: &Wallet, global_config: &GlobalConfig) -> Result<(
     } else {
         parse_path_or_default_with_flag(
             global_config,
-            wallet_config.wallets_dir,
+            wallet_config.wallets_dir.clone(),
             DEFAULT_WALLET_DIR,
         )?
     };

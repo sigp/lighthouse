@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 use std::num::NonZeroU16;
 use std::ops::RangeInclusive;
+use types::non_zero_usize::new_non_zero_usize;
 use types::Address;
 use types::Epoch;
 use types::ProgressiveBalancesMode;
@@ -112,7 +113,7 @@ pub struct BeaconNode {
                 - --listen-address '0.0.0.0' '::' will also listen over both \
                 IPv4 and IPv6. The order of the given addresses is not relevant. However, \
                 multiple IPv4, or multiple IPv6 addresses will not be accepted.",
-        default_value_t = vec![IpAddr::V4(Ipv4Addr::new(0, 0, 0, 1))],
+        default_value = "0.0.0.0"
     )]
     pub listen_addresses: Vec<std::net::IpAddr>,
 
@@ -641,12 +642,12 @@ pub struct BeaconNode {
                 hot DB to the cold DB. Less frequent runs can be useful for minimizing disk \
                 writes"
     )]
-    pub epochs_per_migration: Option<u64>,
+    pub epochs_per_migration: u64,
 
     #[clap(
         long,
         value_name = "SIZE",
-        default_value_t = NonZeroUsize::from(5),
+        default_value_t = new_non_zero_usize(5),
         help = "Specifies how many blocks the database should cache in memory."
     )]
     pub block_cache_size: NonZeroUsize,
@@ -654,7 +655,7 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "SIZE",
-        default_value_t = NonZeroUsize::from(1),
+        default_value_t = new_non_zero_usize(1),
         help = "Specifies how many states from the freezer database should cache in memory."
     )]
     pub historic_state_cache_size: NonZeroUsize,
