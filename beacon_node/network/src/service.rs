@@ -236,14 +236,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         ) {
             let nw = network_log.clone();
             let v4 = v4.clone();
-            tokio::spawn(async move {
-                info!(nw, "UPnP Attempting to initialise routes");
-                if let Err(e) =
-                    nat::construct_upnp_mappings(v4.addr, v4.disc_port, nw.clone()).await
-                {
-                    info!(nw, "Could not UPnP map Discovery port"; "error" => %e);
-                }
-            });
+            executor.spawn(
+                async move {
+                    info!(nw, "UPnP Attempting to initialise routes");
+                    if let Err(e) =
+                        nat::construct_upnp_mappings(v4.addr, v4.disc_port, nw.clone()).await
+                    {
+                        info!(nw, "Could not UPnP map Discovery port"; "error" => %e);
+                    }
+                },
+                "UPnP",
+            );
         }
 
         // get a reference to the beacon chain store
