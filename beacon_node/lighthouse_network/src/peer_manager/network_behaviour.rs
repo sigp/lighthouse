@@ -154,8 +154,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 self.on_dial_failure(peer_id);
             }
             FromSwarm::ExternalAddrConfirmed(_) => {
-                // We have an external address confirmed, means we are able to do NAT traversal.
-                metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p"], 1);
                 // TODO: we likely want to check this against our assumed external tcp
                 // address
             }
@@ -245,14 +243,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.events.push(PeerManagerEvent::MetaData(peer_id));
         }
 
+        // Check NAT if metrics are enabled
+        if self.network_globals.local_enr.read().udp4().is_some() {
+            metrics::check_nat();
+        }
+
         // increment prometheus metrics
         if self.metrics_enabled {
             let remote_addr = endpoint.get_remote_address();
-            let direction = if endpoint.is_dialer() {
-                "outbound"
-            } else {
-                "inbound"
-            };
             match remote_addr.iter().find(|proto| {
                 matches!(
                     proto,
@@ -260,10 +258,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 )
             }) {
                 Some(multiaddr::Protocol::QuicV1) => {
-                    metrics::inc_gauge_vec(&metrics::PEERS_CONNECTED, &[direction, "quic"]);
+                    metrics::inc_gauge(&metrics::QUIC_PEERS_CONNECTED);
                 }
                 Some(multiaddr::Protocol::Tcp(_)) => {
-                    metrics::inc_gauge_vec(&metrics::PEERS_CONNECTED, &[direction, "tcp"]);
+                    metrics::inc_gauge(&metrics::TCP_PEERS_CONNECTED);
                 }
                 Some(_) => unreachable!(),
                 None => {
@@ -341,12 +339,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let remote_addr = endpoint.get_remote_address();
         // Update the prometheus metrics
         if self.metrics_enabled {
-            let direction = if endpoint.is_dialer() {
-                "outbound"
-            } else {
-                "inbound"
-            };
-
             match remote_addr.iter().find(|proto| {
                 matches!(
                     proto,
@@ -354,10 +346,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 )
             }) {
                 Some(multiaddr::Protocol::QuicV1) => {
-                    metrics::dec_gauge_vec(&metrics::PEERS_CONNECTED, &[direction, "quic"]);
+                    metrics::dec_gauge(&metrics::QUIC_PEERS_CONNECTED);
                 }
                 Some(multiaddr::Protocol::Tcp(_)) => {
-                    metrics::dec_gauge_vec(&metrics::PEERS_CONNECTED, &[direction, "tcp"]);
+                    metrics::dec_gauge(&metrics::TCP_PEERS_CONNECTED);
                 }
                 // If it's an unknown protocol we already logged when connection was established.
                 _ => {}

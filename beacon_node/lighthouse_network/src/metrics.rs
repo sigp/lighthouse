@@ -1,17 +1,29 @@
 pub use lighthouse_metrics::*;
 
 lazy_static! {
-    pub static ref NAT_OPEN: Result<IntGaugeVec> = try_create_int_gauge_vec(
+    pub static ref NAT_OPEN: Result<IntCounter> = try_create_int_counter(
         "nat_open",
-        "An estimate indicating if the local node is reachable from external nodes",
-        &["protocol"]
+        "An estimate indicating if the local node is exposed to the internet."
     );
     pub static ref ADDRESS_UPDATE_COUNT: Result<IntCounter> = try_create_int_counter(
         "libp2p_address_update_total",
         "Count of libp2p socked updated events (when our view of our IP address has changed)"
     );
-    pub static ref PEERS_CONNECTED: Result<IntGaugeVec> =
-        try_create_int_gauge_vec("libp2p_peers", "Count of libp2p peers currently connected", &["direction", "transport"]);
+    pub static ref PEERS_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_peers",
+        "Count of libp2p peers currently connected"
+    );
+
+    pub static ref TCP_PEERS_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_tcp_peers",
+        "Count of libp2p peers currently connected via TCP"
+    );
+
+    pub static ref QUIC_PEERS_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_quic_peers",
+        "Count of libp2p peers currently connected via QUIC"
+    );
+
     pub static ref PEER_CONNECT_EVENT_COUNT: Result<IntCounter> = try_create_int_counter(
         "libp2p_peer_connect_event_total",
         "Count of libp2p peer connect events (not the current number of connected peers)"
@@ -20,10 +32,13 @@ lazy_static! {
         "libp2p_peer_disconnect_event_total",
         "Count of libp2p peer disconnect events"
     );
-    pub static ref DISCOVERY_BYTES: Result<IntGaugeVec> = try_create_int_gauge_vec(
-        "discovery_bytes",
-        "The number of bytes sent and received in discovery",
-        &["direction"]
+    pub static ref DISCOVERY_SENT_BYTES: Result<IntGauge> = try_create_int_gauge(
+        "discovery_sent_bytes",
+        "The number of bytes sent in discovery"
+    );
+    pub static ref DISCOVERY_RECV_BYTES: Result<IntGauge> = try_create_int_gauge(
+        "discovery_recv_bytes",
+        "The number of bytes received in discovery"
     );
     pub static ref DISCOVERY_QUEUE: Result<IntGauge> = try_create_int_gauge(
         "discovery_queue_size",
@@ -121,6 +136,17 @@ lazy_static! {
         );
 
     /*
+     * Inbound/Outbound peers
+     */
+    /// The number of peers that dialed us.
+    pub static ref NETWORK_INBOUND_PEERS: Result<IntGauge> =
+        try_create_int_gauge("network_inbound_peers","The number of peers that are currently connected that have dialed us.");
+
+    /// The number of peers that we dialed us.
+    pub static ref NETWORK_OUTBOUND_PEERS: Result<IntGauge> =
+        try_create_int_gauge("network_outbound_peers","The number of peers that are currently connected that we dialed.");
+
+    /*
      * Peer Reporting
      */
     pub static ref REPORT_PEER_MSGS: Result<IntCounterVec> = try_create_int_counter_vec(
@@ -130,11 +156,31 @@ lazy_static! {
     );
 }
 
+/// Checks if we consider the NAT open.
+///
+/// Conditions for an open NAT:
+/// 1. We have 1 or more SOCKET_UPDATED messages. This occurs when discovery has a majority of
+///    users reporting an external port and our ENR gets updated.
+/// 2. We have 0 SOCKET_UPDATED messages (can be true if the port was correct on boot), then we
+///    rely on whether we have any inbound messages. If we have no socket update messages, but
+///    manage to get at least one inbound peer, we are exposed correctly.
+pub fn check_nat() {
+    // NAT is already deemed open.
+    if NAT_OPEN.as_ref().map(|v| v.get()).unwrap_or(0) != 0 {
+        return;
+    }
+    if ADDRESS_UPDATE_COUNT.as_ref().map(|v| v.get()).unwrap_or(0) != 0
+        || NETWORK_INBOUND_PEERS.as_ref().map(|v| v.get()).unwrap_or(0) != 0_i64
+    {
+        inc_counter(&NAT_OPEN);
+    }
+}
+
 pub fn scrape_discovery_metrics() {
     let metrics =
         discv5::metrics::Metrics::from(discv5::Discv5::<discv5::DefaultProtocolId>::raw_metrics());
     set_float_gauge(&DISCOVERY_REQS, metrics.unsolicited_requests_per_second);
     set_gauge(&DISCOVERY_SESSIONS, metrics.active_sessions as i64);
-    set_gauge_vec(&DISCOVERY_BYTES, &["inbound"], metrics.bytes_recv as i64);
-    set_gauge_vec(&DISCOVERY_BYTES, &["outbound"], metrics.bytes_sent as i64);
+    set_gauge(&DISCOVERY_SENT_BYTES, metrics.bytes_sent as i64);
+    set_gauge(&DISCOVERY_RECV_BYTES, metrics.bytes_recv as i64);
 }
