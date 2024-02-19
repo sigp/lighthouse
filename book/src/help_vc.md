@@ -26,6 +26,9 @@ FLAGS:
             but is only safe if slashing protection is enabled on the remote signer and is implemented correctly. DO NOT
             ENABLE THIS FLAG UNLESS YOU ARE CERTAIN THAT SLASHING PROTECTION IS ENABLED ON THE REMOTE SIGNER. YOU WILL
             GET SLASHED IF YOU USE THIS FLAG WITHOUT ENABLING WEB3SIGNER'S SLASHING PROTECTION.
+        --distributed
+            Enables functionality required for running the validator in a distributed validator cluster.
+
         --enable-doppelganger-protection
             If this flag is set, Lighthouse will delay startup for three epochs and monitor for messages on the network
             by any of the validators managed by this client. This will result in three (possibly four) epochs worth of
