@@ -176,12 +176,6 @@ impl Handler {
 }
 
 impl EnabledHandler {
-    #[cfg(test)]
-    /// For testing purposed obtain the RPCReceiver
-    pub fn receiver(&mut self) -> RpcReceiver {
-        self.send_queue.clone()
-    }
-
     fn on_fully_negotiated_inbound(
         &mut self,
         (substream, peer_kind): (Framed<Stream, GossipsubCodec>, PeerKind),
@@ -237,7 +231,7 @@ impl EnabledHandler {
         }
 
         // determine if we need to create the outbound stream
-        if !self.send_queue.is_empty()
+        if !self.send_queue.poll_is_empty(cx)
             && self.outbound_substream.is_none()
             && !self.outbound_substream_establishing
         {
@@ -246,10 +240,6 @@ impl EnabledHandler {
                 protocol: SubstreamProtocol::new(self.listen_protocol.clone(), ()),
             });
         }
-
-        // We may need to inform the behviour if we have a dropped a message. This gets set if that
-        // is the case.
-        let mut dropped_message = None;
 
         // process outbound stream
         loop {
@@ -271,10 +261,11 @@ impl EnabledHandler {
                             } => {
                                 if Pin::new(timeout).poll(cx).is_ready() {
                                     // Inform the behaviour and end the poll.
-                                    dropped_message = Some(HandlerEvent::MessageDropped(message));
                                     self.outbound_substream =
                                         Some(OutboundSubstreamState::WaitingOutput(substream));
-                                    break;
+                                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                        HandlerEvent::MessageDropped(message),
+                                    ));
                                 }
                             }
                             _ => {} // All other messages are not time-bound.
@@ -348,13 +339,7 @@ impl EnabledHandler {
             }
         }
 
-        // If there was a timeout in sending a message, inform the behaviour before restarting the
-        // poll
-        if let Some(handler_event) = dropped_message {
-            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(handler_event));
-        }
-
-        // Handle inbound messages
+        // Handle inbound messages.
         loop {
             match std::mem::replace(
                 &mut self.inbound_substream,
@@ -417,6 +402,13 @@ impl EnabledHandler {
                     unreachable!("Error occurred during inbound stream processing")
                 }
             }
+        }
+
+        // Drop the next message in queue if it's stale.
+        if let Poll::Ready(Some(rpc)) = self.send_queue.poll_stale(cx) {
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                HandlerEvent::MessageDropped(rpc),
+            ));
         }
 
         Poll::Pending

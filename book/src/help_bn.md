@@ -179,6 +179,9 @@ OPTIONS:
         --builder-user-agent <STRING>
             The HTTP user agent to send alongside requests to the builder URL. The default is Lighthouse's version
             string.
+        --checkpoint-blobs <BLOBS_SSZ>
+            Set the checkpoint blobs to start syncing from. Must be aligned and match --checkpoint-block. Using
+            --checkpoint-sync-url instead is recommended.
         --checkpoint-block <BLOCK_SSZ>
             Set a checkpoint block to start syncing from. Must be aligned and match --checkpoint-state. Using
             --checkpoint-sync-url instead is recommended.
