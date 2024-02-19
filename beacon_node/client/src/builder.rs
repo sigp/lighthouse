@@ -447,19 +447,29 @@ where
                         e => format!("Error fetching finalized block from remote: {:?}", e),
                     })?
                     .ok_or("Finalized block missing from remote, it returned 404")?;
+                let block_root = block.canonical_root();
 
                 debug!(context.log(), "Downloaded finalized block");
 
                 let blobs = if block.message().body().has_blobs() {
                     debug!(context.log(), "Downloading finalized blobs");
-                    let blobs = remote
-                        .get_blobs::<TEthSpec>(BlockId::Root(block.canonical_root()), None)
+                    if let Some(response) = remote
+                        .get_blobs::<TEthSpec>(BlockId::Root(block_root), None)
                         .await
-                        .map_err(|e| format!("Error fetching finalized blocks from remote: {e:?}"))?
-                        .ok_or("Finalized blobs missing from remote, it returned 404")?
-                        .data;
-                    debug!(context.log(), "Downloaded finalized blobs");
-                    Some(blobs)
+                        .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
+                    {
+                        debug!(context.log(), "Downloaded finalized blobs");
+                        Some(response.data)
+                    } else {
+                        warn!(
+                            context.log(),
+                            "Checkpoint server is missing blobs";
+                            "block_root" => %block_root,
+                            "hint" => "use a different URL or ask the provider to update",
+                            "impact" => "db will be slightly corrupt until these blobs are pruned",
+                        );
+                        None
+                    }
                 } else {
                     None
                 };
@@ -471,7 +481,7 @@ where
                     "Loaded checkpoint block and state";
                     "block_slot" => block.slot(),
                     "state_slot" => state.slot(),
-                    "block_root" => ?block.canonical_root(),
+                    "block_root" => ?block_root,
                 );
 
                 let service =
