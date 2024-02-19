@@ -58,6 +58,24 @@ pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
 
 /// If `arg` is in `matches`, parses the value as a path.
 ///
+/// Otherwise, attempts to find the default directory for the `testnet` from the `matches`
+/// and appends `flag` to it.
+pub fn parse_path_or_default_with_flag(
+    global_config: &GlobalConfig,
+    dir: Option<PathBuf>,
+    flag: &str,
+) -> Result<PathBuf, String> {
+    clap_utils::parse_path_with_default_in_home_dir(
+        dir,
+        PathBuf::new()
+            .join(DEFAULT_ROOT_DIR)
+            .join(get_network_dir(global_config))
+            .join(flag),
+    )
+}
+
+/// If `arg` is in `matches`, parses the value as a path.
+///
 /// Otherwise, attempts to find the default directory for the `testnet` from the `matches`.
 pub fn parse_path_or_default(
     global_config: &GlobalConfig,

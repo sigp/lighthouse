@@ -14,10 +14,11 @@ pub fn cli_run(wallet_config: &Wallet, global_config: &GlobalConfig) -> Result<(
     let wallet_base_dir = if let Some(datadir) = global_config.datadir.as_ref() {
         datadir.join(DEFAULT_WALLET_DIR)
     } else {
-        wallet_config
-            .wallets_dir
-            .clone()
-            .unwrap_or(PathBuf::from(DEFAULT_WALLET_DIR))
+        parse_path_or_default_with_flag(
+            global_config,
+            wallet_config.wallets_dir,
+            DEFAULT_WALLET_DIR,
+        )?
     };
     ensure_dir_exists(&wallet_base_dir)?;
 

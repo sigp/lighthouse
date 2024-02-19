@@ -1,4 +1,4 @@
-use beacon_chain::chain_config::{DisallowedReOrgOffsets, ReOrgThreshold};
+use beacon_chain::chain_config::{DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR};
 use beacon_chain::TrustedSetup;
 use clap_utils::GlobalConfig;
 use client::{ClientConfig, ClientGenesis};
@@ -123,16 +123,19 @@ pub fn get_config<E: EthSpec>(
         }
 
         if let Some(fork_name_str) = beacon_config.http_spec_fork.as_ref() {
-            // TODO UNWRAP
-            client_config.http_api.spec_fork_name =
-                Some(ForkName::from_str(fork_name_str).unwrap());
+            client_config.http_api.spec_fork_name = Some(ForkName::from_str(fork_name_str)?);
         }
 
-        // TODO unwrap
         if beacon_config.http_enable_tls {
             client_config.http_api.tls_config = Some(TlsConfig {
-                cert: beacon_config.http_tls_cert.clone().unwrap(),
-                key: beacon_config.http_tls_key.clone().unwrap(),
+                cert: beacon_config
+                    .http_tls_cert
+                    .clone()
+                    .ok_or("--http-tls-cert was not provided.")?,
+                key: beacon_config
+                    .http_tls_key
+                    .clone()
+                    .ok_or("--http-tls-key was not provided.")?,
             });
         }
 
@@ -266,8 +269,8 @@ pub fn get_config<E: EthSpec>(
 
         // Parse and set the payload builder, if any.
         if let Some(endpoint) = beacon_config.builder.as_ref() {
-            // TODO unwrap
-            let payload_builder = SensitiveUrl::from_str(endpoint).unwrap();
+            let payload_builder =
+                SensitiveUrl::from_str(endpoint).ok_or("Failed to parse payload builder")?;
             el_config.builder_url = Some(payload_builder);
 
             el_config.builder_user_agent = beacon_config.builder_user_agent.clone();
@@ -295,7 +298,7 @@ pub fn get_config<E: EthSpec>(
         el_config.jwt_id = beacon_config.execution_jwt_id.clone();
         el_config.jwt_version = beacon_config.execution_jwt_version.clone();
         el_config.default_datadir = client_config.data_dir().clone();
-        el_config.execution_timeout_multiplier = beacon_config.execution_timeout_multiplier;
+        el_config.execution_timeout_multiplier = Some(beacon_config.execution_timeout_multiplier);
 
         client_config.eth1.endpoint = Eth1Endpoint::Auth {
             endpoint: execution_endpoint,
@@ -413,12 +416,10 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.checkpoint_sync_url_timeout = checkpoint_sync_url_timeout;
     }
 
-    // TODO fix
-    // if let Some(genesis_state_url_timeout) = beacon_config.genesis_state_url_timeout {
-    //     client_config.genesis_state_url_timeout = Duration::from_secs(genesis_state_url_timeout);
-    // }
+    if let Some(genesis_state_url_timeout) = beacon_config.genesis_state_url_timeout {
+        client_config.genesis_state_url_timeout = Duration::from_secs(genesis_state_url_timeout);
+    }
 
-    // TODO check gensis state url
     let genesis_state_url_opt = global_config.genesis_state_url.clone();
     let checkpoint_sync_url_opt = beacon_config.checkpoint_sync_url.clone();
 
@@ -438,16 +439,14 @@ pub fn get_config<E: EthSpec>(
 
     client_config.allow_insecure_genesis_sync = beacon_config.allow_insecure_genesis_sync;
 
-    // TODO check if checkpoint_state and checkpoint_block types are ok
     client_config.genesis = if eth2_network_config.genesis_state_is_known() {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
-        if let (Some(anchor_state_bytes), Some(anchor_block_bytes), anchor_blobs_bytes) = (
+        if let (Some(initial_state_path), Some(initial_block_path), maybe_initial_blobs_path) = (
             beacon_config.checkpoint_state.as_ref(),
             beacon_config.checkpoint_block.as_ref(),
             beacon_config.checkpoint_blobs.as_ref(),
         ) {
-            // TODO check this
-            let _read = |path: &str| {
+            let read = |path: &str| {
                 use std::fs::File;
                 use std::io::Read;
                 File::open(Path::new(path))
@@ -460,9 +459,9 @@ pub fn get_config<E: EthSpec>(
             };
 
             ClientGenesis::WeakSubjSszBytes {
-                anchor_state_bytes: anchor_state_bytes.clone(),
-                anchor_block_bytes: anchor_block_bytes.clone(),
-                anchor_blobs_bytes: anchor_blobs_bytes.clone(),
+                anchor_state_bytes: read(initial_state_path)?,
+                anchor_block_bytes: read(initial_block_path)?,
+                anchor_blobs_bytes: maybe_initial_blobs_path.map(read).transpose()?,
             }
         } else if let Some(remote_bn_url) = beacon_config.checkpoint_sync_url.as_ref() {
             let url = SensitiveUrl::from_str(remote_bn_url)
@@ -657,40 +656,23 @@ pub fn get_config<E: EthSpec>(
     // Note: This overrides any previous flags that enable this option.
     client_config.sync_eth1_chain = !beacon_config.disable_deposit_contract_sync;
 
-    if let Some(prepare_payload_lookahead) = beacon_config.prepare_payload_lookahead {
-        client_config.chain.prepare_payload_lookahead =
-            Duration::from_millis(prepare_payload_lookahead);
-        // TODO figure out what to do with this default value
-        /*
+    client_config.chain.prepare_payload_lookahead = beacon_config.prepare_payload_lookahead
         .unwrap_or_else(|| {
             Duration::from_secs(spec.seconds_per_slot)
                 / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
-        });*/
-    }
+        });
 
     client_config.chain.always_prepare_payload = beacon_config.always_prepare_payload;
-
-    if let Some(timeout) = beacon_config.fork_choice_before_proposal_timeout {
-        client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
-    }
-
+    client_config.chain.fork_choice_before_proposal_timeout_ms = beacon_config.fork_choice_before_proposal_timeout;
     client_config.chain.always_reset_payload_statuses = beacon_config.reset_payload_statuses;
     client_config.chain.paranoid_block_proposal = beacon_config.paranoid_block_proposal;
 
     /*
      * Builder fallback configs.
      */
-    if let Some(builder_fallback_skips) = beacon_config.builder_fallback_skips {
-        client_config.chain.builder_fallback_skips = builder_fallback_skips;
-    } else {
-        // TODO error for required field
-    }
-
-    if let Some(builder_fallback_skips_per_epoch) = beacon_config.builder_fallback_skips_per_epoch {
-        client_config.chain.builder_fallback_skips_per_epoch = builder_fallback_skips_per_epoch;
-    } else {
-        // TODO error for required field
-    }
+    client_config.chain.builder_fallback_skips = beacon_config.builder_fallback_skips;
+    client_config.chain.builder_fallback_skips_per_epoch = beacon_config.builder_fallback_skips_per_epoch;
+   
     client_config
         .chain
         .builder_fallback_epochs_since_finalization =

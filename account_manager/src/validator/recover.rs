@@ -21,10 +21,11 @@ pub fn cli_run(
     let secrets_dir = if let Some(datadir) = global_config.datadir.as_ref() {
         datadir.join(DEFAULT_SECRET_DIR)
     } else {
-        recover_config
-            .secrets_dir
-            .clone()
-            .unwrap_or(PathBuf::from(DEFAULT_SECRET_DIR))
+        parse_path_or_default_with_flag(
+            global_config,
+            recover_config.secrets_dir,
+            DEFAULT_SECRET_DIR,
+        )?
     };
     let first_index = recover_config.first_index;
     let count = recover_config.count;

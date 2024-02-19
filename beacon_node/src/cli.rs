@@ -112,7 +112,7 @@ pub struct BeaconNode {
                 - --listen-address '0.0.0.0' '::' will also listen over both \
                 IPv4 and IPv6. The order of the given addresses is not relevant. However, \
                 multiple IPv4, or multiple IPv6 addresses will not be accepted.",
-        default_value = "0.0.0.0"
+        default_value_t = vec![IpAddr::V4(Ipv4Addr::new(0, 0, 0, 1))],
     )]
     pub listen_addresses: Vec<std::net::IpAddr>,
 
@@ -636,7 +636,7 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "N",
-        default_value = "1",
+        default_value_t = 1,
         help = "The number of epochs to wait between running the migration of data from the \
                 hot DB to the cold DB. Less frequent runs can be useful for minimizing disk \
                 writes"
@@ -646,18 +646,18 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "SIZE",
-        default_value = "5",
+        default_value_t = NonZeroUsize::from(5),
         help = "Specifies how many blocks the database should cache in memory."
     )]
-    pub block_cache_size: Option<NonZeroUsize>,
+    pub block_cache_size: NonZeroUsize,
 
     #[clap(
         long,
         value_name = "SIZE",
-        default_value = "1",
+        default_value_t = NonZeroUsize::from(1),
         help = "Specifies how many states from the freezer database should cache in memory."
     )]
-    pub historic_state_cache_size: Option<NonZeroUsize>,
+    pub historic_state_cache_size: NonZeroUsize,
 
     /* Execution Layer Integration */
     #[clap(
@@ -735,10 +735,10 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "NUM",
-        default_value = "1",
+        default_value_t = 1,
         help = "Unsigned integer to multiply the default execution timeouts by."
     )]
-    pub execution_timeout_multiplier: Option<u32>,
+    pub execution_timeout_multiplier: u32,
 
     /* Deneb settings */
     #[clap(
@@ -768,7 +768,7 @@ pub struct BeaconNode {
         long,
         value_name = "BOOLEAN",
         help = "Enable or disable automatic compaction of the database on finalization.",
-        default_value = "true"
+        default_value_t = true
     )]
     pub auto_compact_db: bool,
 
@@ -778,7 +778,7 @@ pub struct BeaconNode {
         help = "Prune execution payloads from Lighthouse's database. This saves space but \
                 imposes load on the execution client, as payloads need to be \
                 reconstructed and sent to syncing peers.",
-        default_value = "true"
+        default_value_t = true
     )]
     pub prune_payloads: bool,
 
@@ -787,7 +787,7 @@ pub struct BeaconNode {
         value_name = "BOOLEAN",
         help = "Prune blobs from Lighthouse's database when they are older than the \
                 data availability boundary relative to the current epoch.",
-        default_value = "true"
+        default_value_t = true
     )]
     pub prune_blobs: bool,
 
@@ -934,20 +934,20 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "STATE_SSZ",
-        requires = "checkpoint-block",
+        requires = "checkpoint_block",
         help = "Set a checkpoint state to start syncing from. Must be aligned and match \
                 --checkpoint-block. Using --checkpoint-sync-url instead is recommended."
     )]
-    pub checkpoint_state: Option<Vec<u8>>,
+    pub checkpoint_state: Option<String>,
 
     #[clap(
         long,
         value_name = "BLOCK_SSZ",
-        requires = "checkpoint-state",
+        requires = "checkpoint_state",
         help = "Set a checkpoint block to start syncing from. Must be aligned and match \
                 --checkpoint-state. Using --checkpoint-sync-url instead is recommended."
     )]
-    pub checkpoint_block: Option<Vec<u8>>,
+    pub checkpoint_block: Option<String>,
 
     #[clap(
         long,
@@ -956,7 +956,7 @@ pub struct BeaconNode {
         help = "Set the checkpoint blobs to start syncing from. Must be aligned and match \
                 --checkpoint-block. Using --checkpoint-sync-url instead is recommended."
     )]
-    pub checkpoint_blobs: Option<Vec<u8>>,
+    pub checkpoint_blobs: Option<String>,
 
     #[clap(
         long,
@@ -969,10 +969,10 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "SECONDS",
-        default_value = "180",
+        default_value_t = 180,
         help = "Set the remote beacon node HTTP endpoint to use for checkpoint sync."
     )]
-    pub checkpoint_sync_url_timeout: Option<u64>,
+    pub checkpoint_sync_url_timeout: u64,
 
     #[clap(
         long,
@@ -1108,12 +1108,12 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "MILLISECONDS",
-        default_value = "250",
+        default_value_t = 250,
         help = "Set the maximum number of milliseconds to wait for fork choice before \
                 proposing a block. You can prevent waiting at all by setting the timeout \
                 to 0, however you risk proposing atop the wrong parent block."
     )]
-    pub fork_choice_before_proposal_timeout: Option<u64>,
+    pub fork_choice_before_proposal_timeout: u64,
 
     #[clap(
         long,
@@ -1128,23 +1128,23 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "SLOTS",
-        default_value = "3",
+        default_value_t = 3,
         help = "If this node is proposing a block and has seen this number of skip slots \
                 on the canonical chain in a row, it will NOT query any connected builders, \
                 and will use the local execution engine for payload construction."
     )]
-    pub builder_fallback_skips: Option<usize>,
+    pub builder_fallback_skips: usize,
 
     #[clap(
         long,
         value_name = "SLOTS_PER_EPOCH",
-        default_value = "8",
+        default_value_t = 8,
         help = "If this node is proposing a block and has seen this number of skip slots \
                 on the canonical chain in the past `SLOTS_PER_EPOCH`, it will NOT query \
                 any connected builders, and will use the local execution engine for \
                 payload construction."
     )]
-    pub builder_fallback_skips_per_epoch: Option<usize>,
+    pub builder_fallback_skips_per_epoch: usize,
 
     #[clap(
         long,

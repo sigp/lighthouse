@@ -10,7 +10,7 @@ pub mod slashing_protection;
 use std::path::PathBuf;
 
 use clap_utils::GlobalConfig;
-use directory::DEFAULT_VALIDATOR_DIR;
+use directory::{parse_path_or_default, DEFAULT_VALIDATOR_DIR};
 use environment::Environment;
 use types::EthSpec;
 
@@ -26,10 +26,11 @@ pub fn cli_run<T: EthSpec>(
     let validator_base_dir = if let Some(datadir) = global_config.datadir.as_ref() {
         datadir.join(DEFAULT_VALIDATOR_DIR)
     } else {
-        validator_config
-            .validator_dir
-            .clone()
-            .unwrap_or(PathBuf::from(DEFAULT_VALIDATOR_DIR))
+        parse_path_or_default_with_flag(
+            global_config,
+            validator_config.validator_dir,
+            DEFAULT_VALIDATOR_DIR,
+        )?
     };
     eprintln!("validator-dir path: {:?}", validator_base_dir);
 
