@@ -67,7 +67,7 @@ const BLOB_AVAILABILITY_REDUCTION_EPOCHS: u64 = 2;
 /// called.
 ///
 /// If type inference errors are raised, ensure all necessary components have been initialized. For
-/// example, the compiler will be unable to infer `E::Store` unless `self.disk_store(..)` or
+/// example, the compiler will be unable to infer `T::Store` unless `self.disk_store(..)` or
 /// `self.memory_store(..)` has been called.
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,

@@ -1609,7 +1609,7 @@ async fn import_duplicate_block_unrealized_justification() {
 
 async fn import_execution_pending_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    execution_pending_block: ExecutionPendingBlock<E>,
+    execution_pending_block: ExecutionPendingBlock<T>,
 ) -> Result<AvailabilityProcessingStatus, String> {
     match chain
         .clone()
