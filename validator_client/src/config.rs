@@ -84,6 +84,8 @@ pub struct Config {
     pub builder_boost_factor: Option<u64>,
     /// If true, Lighthouse will prefer builder proposals, if available.
     pub prefer_builder_proposals: bool,
+    /// Whether we are running with distributed network support.
+    pub distributed: bool,
     pub web3_signer_keep_alive_timeout: Option<Duration>,
     pub web3_signer_max_idle_connections: Option<usize>,
 }
@@ -130,6 +132,7 @@ impl Default for Config {
             produce_block_v3: false,
             builder_boost_factor: None,
             prefer_builder_proposals: false,
+            distributed: false,
             web3_signer_keep_alive_timeout: Some(Duration::from_secs(90)),
             web3_signer_max_idle_connections: None,
         }
@@ -231,6 +234,10 @@ impl Config {
 
         if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
             config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
+        }
+
+        if cli_args.is_present("distributed") {
+            config.distributed = true;
         }
 
         if cli_args.is_present("disable-run-on-all") {

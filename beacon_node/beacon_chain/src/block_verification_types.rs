@@ -48,6 +48,13 @@ impl<E: EthSpec> RpcBlock<E> {
         }
     }
 
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        match &self.block {
+            RpcBlockInner::Block(block) => block.clone(),
+            RpcBlockInner::BlockAndBlobs(block, _) => block.clone(),
+        }
+    }
+
     pub fn blobs(&self) -> Option<&BlobSidecarList<E>> {
         match &self.block {
             RpcBlockInner::Block(_) => None,

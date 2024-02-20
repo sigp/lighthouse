@@ -223,7 +223,7 @@ where
 
     fn handle_established_inbound_connection(
         &mut self,
-        _connection_id: ConnectionId,
+        connection_id: ConnectionId,
         peer_id: PeerId,
         _local_addr: &libp2p::Multiaddr,
         _remote_addr: &libp2p::Multiaddr,
@@ -238,9 +238,9 @@ where
             },
             (),
         );
-        // NOTE: this is needed because PeerIds have interior mutability.
-        let peer_repr = peer_id.to_string();
-        let log = self.log.new(slog::o!("peer_id" => peer_repr));
+        let log = self
+            .log
+            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),
@@ -253,7 +253,7 @@ where
 
     fn handle_established_outbound_connection(
         &mut self,
-        _connection_id: ConnectionId,
+        connection_id: ConnectionId,
         peer_id: PeerId,
         _addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
@@ -269,9 +269,10 @@ where
             (),
         );
 
-        // NOTE: this is needed because PeerIds have interior mutability.
-        let peer_repr = peer_id.to_string();
-        let log = self.log.new(slog::o!("peer_id" => peer_repr));
+        let log = self
+            .log
+            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
+
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),

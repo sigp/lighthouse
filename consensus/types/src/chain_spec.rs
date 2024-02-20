@@ -690,7 +690,7 @@ impl ChainSpec {
              * Deneb hard fork params
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x00],
-            deneb_fork_epoch: None,
+            deneb_fork_epoch: Some(Epoch::new(269568)),
 
             /*
              * DAS params
@@ -826,7 +826,7 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
-            max_per_epoch_activation_churn_limit: 8,
+            max_per_epoch_activation_churn_limit: 2,
             churn_limit_quotient: 4_096,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 4_096,
@@ -961,7 +961,7 @@ impl ChainSpec {
              * Deneb hard fork params
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x64],
-            deneb_fork_epoch: None,
+            deneb_fork_epoch: Some(Epoch::new(889856)),
             /*
              * DAS params
              */
@@ -978,7 +978,7 @@ impl ChainSpec {
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
-            min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
+            min_epochs_for_block_requests: 33024,
             max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
@@ -996,7 +996,7 @@ impl ChainSpec {
             max_request_blocks_deneb: default_max_request_blocks_deneb(),
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
-            min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
             data_column_sidecar_subnet_count: default_data_column_sidecar_subnet_count(),
 

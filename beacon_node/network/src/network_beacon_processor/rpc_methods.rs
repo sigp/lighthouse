@@ -143,7 +143,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let requested_blocks = request.block_roots().len();
         let mut block_stream = match self
             .chain
-            .get_blocks_checking_early_attester_cache(request.block_roots().to_vec(), &executor)
+            .get_blocks_checking_caches(request.block_roots().to_vec(), &executor)
         {
             Ok(block_stream) => block_stream,
             Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
