@@ -52,6 +52,7 @@ impl<E: EthSpec> RpcBlock<E> {
         match &self.block {
             RpcBlockInner::Block(block) => block.clone(),
             RpcBlockInner::BlockAndBlobs(block, _) => block.clone(),
+            RpcBlockInner::BlockAndDataColumns(block, _) => block.clone(),
         }
     }
 

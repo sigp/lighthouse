@@ -377,7 +377,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block_root,
                         block,
                         blobs: verified_blobs,
-                        data_columns: verified_data_column,
+                        data_columns: verified_data_columns,
                     }))
                 }
             }
