@@ -5,10 +5,10 @@ use environment::Environment;
 use serde::Serialize;
 use std::path::PathBuf;
 use types::EthSpec;
-
 pub mod common;
 pub mod create_validators;
 pub mod import_validators;
+pub mod list_validators;
 pub mod move_validators;
 
 pub const CMD: &str = "validator_manager";
@@ -44,6 +44,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .about("Utilities for managing a Lighthouse validator client via the HTTP API.")
         .subcommand(create_validators::cli_app())
         .subcommand(import_validators::cli_app())
+        .subcommand(list_validators::cli_app())
         .subcommand(move_validators::cli_app())
 }
 
@@ -68,6 +69,9 @@ pub fn run<'a, T: EthSpec>(matches: &'a ArgMatches<'a>, env: Environment<T>) -> 
                     }
                     (import_validators::CMD, Some(matches)) => {
                         import_validators::cli_run(matches, dump_config).await
+                    }
+                    (list_validators::CMD, Some(matches)) => {
+                        list_validators::cli_run(matches, dump_config).await
                     }
                     (move_validators::CMD, Some(matches)) => {
                         move_validators::cli_run(matches, dump_config).await
