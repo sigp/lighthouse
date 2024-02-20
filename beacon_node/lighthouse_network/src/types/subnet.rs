@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use types::{SubnetId, SyncSubnetId};
 
@@ -6,7 +6,7 @@ use types::{SubnetId, SyncSubnetId};
 ///
 /// Used for subscribing to the appropriate gossipsub subnets and mark
 /// appropriate metadata bitfields.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub enum Subnet {
     /// Represents a gossipsub attestation subnet and the metadata `attnets` field.
     Attestation(SubnetId),

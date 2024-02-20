@@ -5193,6 +5193,7 @@ dependencies = [
  "rand",
  "regex",
  "serde",
+ "serde_utils",
  "sha2 0.9.9",
  "slog",
  "slog-async",
@@ -7664,6 +7665,13 @@ dependencies = [
  "form_urlencoded",
  "itoa",
  "ryu",
+ "serde",
+]
+
+[[package]]
+name = "serde_utils"
+version = "0.1.0"
+dependencies = [
  "serde",
 ]
 
