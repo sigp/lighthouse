@@ -178,7 +178,7 @@ fn snapshot_cache_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.chain.shuffling_cache_size,
+                config.chain.snapshot_cache_size,
                 beacon_node::beacon_chain::snapshot_cache::DEFAULT_SNAPSHOT_CACHE_SIZE
             )
         });
