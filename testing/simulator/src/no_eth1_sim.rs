@@ -13,12 +13,16 @@ use tokio::time::sleep;
 use types::{Epoch, EthSpec, MainnetEthSpec};
 
 pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
-    let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
-    let validators_per_node = value_t!(matches, "validators_per_node", usize)
+    let node_count = matches
+        .get_one::<usize>("nodes")
+        .expect("missing nodes default");
+    let validators_per_node = matches
+        .get_one::<usize>("validators_per_node")
         .expect("missing validators_per_node default");
-    let speed_up_factor =
-        value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
-    let continue_after_checks = matches.is_present("continue_after_checks");
+    let speed_up_factor = matches
+        .get_one::<u64>("speed_up_factor")
+        .expect("missing speed_up_factor default");
+    let continue_after_checks = matches.get_flag("continue_after_checks");
 
     println!("Beacon Chain Simulator:");
     println!(" nodes:{}", node_count);
@@ -26,7 +30,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" continue_after_checks:{}", continue_after_checks);
 
     // Generate the directories and keystores required for the validator clients.
-    let validator_files = (0..node_count)
+    let validator_files = (0..*node_count)
         .into_par_iter()
         .map(|i| {
             println!(

@@ -1,6 +1,6 @@
 use super::common::*;
 use crate::DumpConfig;
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -13,15 +13,15 @@ pub const VC_TOKEN_FLAG: &str = "vc-token";
 
 pub const DETECTED_DUPLICATE_MESSAGE: &str = "Duplicate validator detected!";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
         .about(
             "Uploads validators to a validator client using the HTTP API. The validators \
                 are defined in a JSON file which can be generated using the \"create-validators\" \
                 command.",
         )
         .arg(
-            Arg::with_name(VALIDATORS_FILE_FLAG)
+            Arg::new(VALIDATORS_FILE_FLAG)
                 .long(VALIDATORS_FILE_FLAG)
                 .value_name("PATH_TO_JSON_FILE")
                 .help(
@@ -30,10 +30,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     \"validators.json\".",
                 )
                 .required(true)
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
-            Arg::with_name(VC_URL_FLAG)
+            Arg::new(VC_URL_FLAG)
                 .long(VC_URL_FLAG)
                 .value_name("HTTP_ADDRESS")
                 .help(
@@ -43,18 +43,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .default_value("http://localhost:5062")
                 .requires(VC_TOKEN_FLAG)
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
-            Arg::with_name(VC_TOKEN_FLAG)
+            Arg::new(VC_TOKEN_FLAG)
                 .long(VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the validator client.")
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
-            Arg::with_name(IGNORE_DUPLICATES_FLAG)
-                .takes_value(false)
+            Arg::new(IGNORE_DUPLICATES_FLAG)
+                .action(ArgAction::SetTrue)
                 .long(IGNORE_DUPLICATES_FLAG)
                 .help(
                     "If present, ignore any validators which already exist on the VC. \
@@ -81,15 +81,12 @@ impl ImportConfig {
             validators_file_path: clap_utils::parse_required(matches, VALIDATORS_FILE_FLAG)?,
             vc_url: clap_utils::parse_required(matches, VC_URL_FLAG)?,
             vc_token_path: clap_utils::parse_required(matches, VC_TOKEN_FLAG)?,
-            ignore_duplicates: matches.is_present(IGNORE_DUPLICATES_FLAG),
+            ignore_duplicates: matches.get_flag(IGNORE_DUPLICATES_FLAG),
         })
     }
 }
 
-pub async fn cli_run<'a>(
-    matches: &'a ArgMatches<'a>,
-    dump_config: DumpConfig,
-) -> Result<(), String> {
+pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<(), String> {
     let config = ImportConfig::from_cli(matches)?;
     if dump_config.should_exit_early(&config)? {
         Ok(())

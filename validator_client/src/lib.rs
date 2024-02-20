@@ -109,7 +109,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     /// and attestation production.
     pub async fn new_from_cli(
         context: RuntimeContext<T>,
-        cli_args: &ArgMatches<'_>,
+        cli_args: &ArgMatches,
     ) -> Result<Self, String> {
         let config = Config::from_cli(cli_args, context.log())
             .map_err(|e| format!("Unable to initialize config: {}", e))?;

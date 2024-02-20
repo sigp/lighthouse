@@ -29,15 +29,21 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
-    let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
-    let proposer_nodes = value_t!(matches, "proposer-nodes", usize).unwrap_or(0);
+    let node_count = *matches
+        .get_one::<usize>("nodes")
+        .expect("missing nodes default");
+    let proposer_nodes = *matches
+        .get_one::<usize>("proposer-nodes")
+        .unwrap_or(&0);
     println!("PROPOSER-NODES: {}", proposer_nodes);
-    let validators_per_node = value_t!(matches, "validators_per_node", usize)
+    let validators_per_node = *matches
+        .get_one::<usize>("validators_per_node")
         .expect("missing validators_per_node default");
-    let speed_up_factor =
-        value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
-    let continue_after_checks = matches.is_present("continue_after_checks");
-    let post_merge_sim = matches.is_present("post-merge");
+    let speed_up_factor = *matches
+        .get_one::<u64>("speed_up_factor")
+        .expect("missing speed_up_factor default");
+    let continue_after_checks = matches.get_flag("continue_after_checks");
+    let post_merge_sim = matches.get_flag("post-merge");
 
     println!("Beacon Chain Simulator:");
     println!(" nodes:{}, proposer_nodes: {}", node_count, proposer_nodes);
