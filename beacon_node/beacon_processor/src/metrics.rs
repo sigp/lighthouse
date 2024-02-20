@@ -137,6 +137,10 @@ lazy_static::lazy_static! {
         "beacon_processor_reprocessing_queue_matched_attestations",
         "Number of queued attestations where as matching block has been imported."
     );
+    pub static ref BEACON_PROCESSOR_ATTESTATION_READY_QUEUE_PUT_ERRORS: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_ready_queue_put_errors",
+        "Number of failures to enqueue a block to be attested."
+    );
 
     /*
      * Light client update reprocessing queue metrics.

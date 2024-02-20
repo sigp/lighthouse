@@ -10,7 +10,7 @@
 //!
 //! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
 //! block will be re-queued until their block is imported, or until they expire.
-use crate::metrics;
+use crate::metrics::{self, BEACON_PROCESSOR_ATTESTATION_READY_QUEUE_PUT_ERRORS};
 use crate::{AsyncFn, BlockingFn, Work, WorkEvent};
 use fnv::FnvHashMap;
 use futures::task::Poll;
@@ -680,6 +680,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
 
                     if failed_to_send_count > 0 {
+                        metrics::inc_counter_by(
+                            &BEACON_PROCESSOR_ATTESTATION_READY_QUEUE_PUT_ERRORS,
+                            failed_to_send_count,
+                        );
                         error!(
                             log,
                             "Ignored scheduled attestation(s) for block";
