@@ -445,7 +445,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     // peer before they can be removed.
                     warn!(self.log,
                         "Not enough time for a discovery search";
-                        "subnet_id" => ?exact_subnet
+                        "subnet_id" => ?exact_subnet,
+                        "current_slot" => %current_slot,
                     );
                     None
                 }

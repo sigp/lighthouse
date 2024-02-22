@@ -692,6 +692,14 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
                 let duty = &duty_and_proof.duty;
                 let is_aggregator = duty_and_proof.selection_proof.is_some();
 
+                if current_slot > duty.slot {
+                    warn!(
+                        log,
+                        "Sending subscription for an expired slot";
+                        "current_slot" => current_slot,
+                        "duty_slot" => duty.slot,
+                    );
+                }
                 subscriptions.push(BeaconCommitteeSubscription {
                     validator_index: duty.validator_index,
                     committee_index: duty.committee_index,
@@ -703,6 +711,11 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             });
     }
 
+    info!(
+        log,
+        "Sending attestation subscriptions";
+        "current_slot" => %current_slot
+    );
     // If there are any subscriptions, push them out to beacon nodes
     if !subscriptions.is_empty() {
         let subscriptions_ref = &subscriptions;
@@ -735,6 +748,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
                 log,
                 "Broadcast attestation subscriptions";
                 "count" => subscriptions.len(),
+                "current_slot" => %current_slot,
             );
             for subscription_slots in subscription_slots_to_confirm {
                 subscription_slots.record_successful_subscription_at(current_slot);

@@ -465,7 +465,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     Some(msg) = self.network_recv.recv() => self.on_network_msg(msg, &mut shutdown_sender).await,
 
                     // handle a message from a validator requesting a subscription to a subnet
-                    Some(msg) = self.validator_subscription_recv.recv() => self.on_validator_subscription_msg(msg).await,
+                    Some(msg) = self.validator_subscription_recv.recv() => {
+                        debug!(
+                            self.log,
+                            "Received validator subscriptions request";
+                            "current_slot" => ?self.beacon_chain.slot(),
+                        );
+                        self.on_validator_subscription_msg(msg).await
+                    }
 
                     // process any attestation service events
                     Some(msg) = self.attestation_service.next() => self.on_attestation_service_msg(msg),
