@@ -145,6 +145,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        future.")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("distributed")
+                .long("distributed")
+                .help("Enables functionality required for running the validator in a distributed validator cluster.")
+                .takes_value(false)
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")
@@ -366,6 +372,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("If this flag is set, Lighthouse will always prefer blocks \
                     constructed by builders, regardless of payload value.")
                 .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("disable-slashing-protection-web3signer")
+                .long("disable-slashing-protection-web3signer")
+                .help("Disable Lighthouse's slashing protection for all web3signer keys. This can \
+                       reduce the I/O burden on the VC but is only safe if slashing protection \
+                       is enabled on the remote signer and is implemented correctly. DO NOT ENABLE \
+                       THIS FLAG UNLESS YOU ARE CERTAIN THAT SLASHING PROTECTION IS ENABLED ON \
+                       THE REMOTE SIGNER. YOU WILL GET SLASHED IF YOU USE THIS FLAG WITHOUT \
+                       ENABLING WEB3SIGNER'S SLASHING PROTECTION.")
+                .takes_value(false)
         )
         /*
          * Experimental/development options.

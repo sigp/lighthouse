@@ -76,12 +76,16 @@ pub struct Config {
     pub enable_latency_measurement_service: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
     pub validator_registration_batch_size: usize,
+    /// Enable slashing protection even while using web3signer keys.
+    pub enable_web3signer_slashing_protection: bool,
     /// Enables block production via the block v3 endpoint. This configuration option can be removed post deneb.
     pub produce_block_v3: bool,
     /// Specifies the boost factor, a percentage multiplier to apply to the builder's payload value.
     pub builder_boost_factor: Option<u64>,
     /// If true, Lighthouse will prefer builder proposals, if available.
     pub prefer_builder_proposals: bool,
+    /// Whether we are running with distributed network support.
+    pub distributed: bool,
     pub web3_signer_keep_alive_timeout: Option<Duration>,
     pub web3_signer_max_idle_connections: Option<usize>,
 }
@@ -124,9 +128,11 @@ impl Default for Config {
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
+            enable_web3signer_slashing_protection: true,
             produce_block_v3: false,
             builder_boost_factor: None,
             prefer_builder_proposals: false,
+            distributed: false,
             web3_signer_keep_alive_timeout: Some(Duration::from_secs(90)),
             web3_signer_max_idle_connections: None,
         }
@@ -228,6 +234,10 @@ impl Config {
 
         if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
             config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
+        }
+
+        if cli_args.is_present("distributed") {
+            config.distributed = true;
         }
 
         if cli_args.is_present("disable-run-on-all") {
@@ -406,6 +416,19 @@ impl Config {
         if config.validator_registration_batch_size == 0 {
             return Err("validator-registration-batch-size cannot be 0".to_string());
         }
+
+        config.enable_web3signer_slashing_protection =
+            if cli_args.is_present("disable-slashing-protection-web3signer") {
+                warn!(
+                    log,
+                    "Slashing protection for remote keys disabled";
+                    "info" => "ensure slashing protection on web3signer is enabled or you WILL \
+                               get slashed"
+                );
+                false
+            } else {
+                true
+            };
 
         Ok(config)
     }

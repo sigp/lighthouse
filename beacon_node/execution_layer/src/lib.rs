@@ -61,6 +61,7 @@ mod metrics;
 pub mod payload_cache;
 mod payload_status;
 pub mod test_utils;
+mod versioned_hashes;
 
 /// Indicates the default jwt authenticated execution endpoint.
 pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
@@ -141,6 +142,7 @@ pub enum Error {
     InvalidBlobConversion(String),
     BeaconStateError(BeaconStateError),
     PayloadTypeMismatch,
+    VerifyingVersionedHashes(versioned_hashes::Error),
 }
 
 impl From<BeaconStateError> for Error {
@@ -1321,7 +1323,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// Maps to the `engine_newPayload` JSON-RPC call.
     pub async fn notify_new_payload(
         &self,
-        new_payload_request: NewPayloadRequest<T>,
+        new_payload_request: NewPayloadRequest<'_, T>,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
