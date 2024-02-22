@@ -47,15 +47,7 @@ impl fmt::Debug for ForkChoiceTest {
 impl ForkChoiceTest {
     /// Creates a new tester.
     pub fn new() -> Self {
-        // Run fork choice tests against the latest fork.
-        let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec)
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .build();
-
-        Self { harness }
+        Self::new_with_chain_config(ChainConfig::default())
     }
 
     /// Creates a new tester with a custom chain config.
@@ -67,6 +59,7 @@ impl ForkChoiceTest {
             .chain_config(chain_config)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .build();
 
         Self { harness }
