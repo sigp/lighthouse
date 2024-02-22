@@ -996,6 +996,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("checkpoint-state")
         )
         .arg(
+            Arg::with_name("checkpoint-blobs")
+                .long("checkpoint-blobs")
+                .help("Set the checkpoint blobs to start syncing from. Must be aligned and match \
+                       --checkpoint-block. Using --checkpoint-sync-url instead is recommended.")
+                .value_name("BLOBS_SSZ")
+                .takes_value(true)
+                .requires("checkpoint-block")
+        )
+        .arg(
             Arg::with_name("checkpoint-sync-url")
                 .long("checkpoint-sync-url")
                 .help("Set the remote beacon node HTTP endpoint to use for checkpoint sync.")
@@ -1328,11 +1337,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("disable-duplicate-warn-logs")
                 .long("disable-duplicate-warn-logs")
-                .help("Disable warning logs for duplicate gossip messages. The WARN level log is \
-                    useful for detecting a duplicate validator key running elsewhere. However, this may \
-                    result in excessive warning logs if the validator is broadcasting messages to \
-                    multiple beacon nodes via the validator client --broadcast flag. In this case, \
-                    disabling these warn logs may be useful.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(false)
         )
         .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))

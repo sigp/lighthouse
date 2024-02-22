@@ -388,6 +388,7 @@ pub fn inspect_db<E: EthSpec>(
 
                 let write_result = fs::OpenOptions::new()
                     .create(true)
+                    .truncate(true)
                     .write(true)
                     .open(&file_path)
                     .map_err(|e| format!("Failed to open file: {:?}", e))

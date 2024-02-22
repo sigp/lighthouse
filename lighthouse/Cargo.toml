@@ -4,7 +4,7 @@ version = "4.6.222-exp"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
-rust-version = "1.73.0"
+rust-version = "1.75.0"
 
 [features]
 default = ["slasher-lmdb"]

@@ -19,7 +19,7 @@ use types::{
 };
 
 #[derive(PartialEq)]
-pub enum CheckEarlyAttesterCache {
+pub enum CheckCaches {
     Yes,
     No,
 }
@@ -385,14 +385,14 @@ impl<E: EthSpec> EngineRequest<E> {
 
 pub struct BeaconBlockStreamer<T: BeaconChainTypes> {
     execution_layer: ExecutionLayer<T::EthSpec>,
-    check_early_attester_cache: CheckEarlyAttesterCache,
+    check_caches: CheckCaches,
     beacon_chain: Arc<BeaconChain<T>>,
 }
 
 impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     pub fn new(
         beacon_chain: &Arc<BeaconChain<T>>,
-        check_early_attester_cache: CheckEarlyAttesterCache,
+        check_caches: CheckCaches,
     ) -> Result<Self, BeaconChainError> {
         let execution_layer = beacon_chain
             .execution_layer
@@ -402,17 +402,17 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
 
         Ok(Self {
             execution_layer,
-            check_early_attester_cache,
+            check_caches,
             beacon_chain: beacon_chain.clone(),
         })
     }
 
-    fn check_early_attester_cache(
-        &self,
-        root: Hash256,
-    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
-        if self.check_early_attester_cache == CheckEarlyAttesterCache::Yes {
-            self.beacon_chain.early_attester_cache.get_block(root)
+    fn check_caches(&self, root: Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+        if self.check_caches == CheckCaches::Yes {
+            self.beacon_chain
+                .data_availability_checker
+                .get_block(&root)
+                .or(self.beacon_chain.early_attester_cache.get_block(root))
         } else {
             None
         }
@@ -422,10 +422,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         let mut db_blocks = Vec::new();
 
         for root in block_roots {
-            if let Some(cached_block) = self
-                .check_early_attester_cache(root)
-                .map(LoadedBeaconBlock::Full)
-            {
+            if let Some(cached_block) = self.check_caches(root).map(LoadedBeaconBlock::Full) {
                 db_blocks.push((root, Ok(Some(cached_block))));
                 continue;
             }
@@ -554,7 +551,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             "Using slower fallback method of eth_getBlockByHash()"
         );
         for root in block_roots {
-            let cached_block = self.check_early_attester_cache(root);
+            let cached_block = self.check_caches(root);
             let block_result = if cached_block.is_some() {
                 Ok(cached_block)
             } else {
@@ -682,7 +679,7 @@ impl From<Error> for BeaconChainError {
 
 #[cfg(test)]
 mod tests {
-    use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
+    use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
     use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
     use execution_layer::test_utils::{Block, DEFAULT_ENGINE_CAPABILITIES};
     use execution_layer::EngineCapabilities;
@@ -804,7 +801,7 @@ mod tests {
             let start = epoch * slots_per_epoch;
             let mut epoch_roots = vec![Hash256::zero(); slots_per_epoch];
             epoch_roots[..].clone_from_slice(&block_roots[start..(start + slots_per_epoch)]);
-            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckEarlyAttesterCache::No)
+            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckCaches::No)
                 .expect("should create streamer");
             let (block_tx, mut block_rx) = mpsc::unbounded_channel();
             streamer.stream(epoch_roots.clone(), block_tx).await;
@@ -945,7 +942,7 @@ mod tests {
             let start = epoch * slots_per_epoch;
             let mut epoch_roots = vec![Hash256::zero(); slots_per_epoch];
             epoch_roots[..].clone_from_slice(&block_roots[start..(start + slots_per_epoch)]);
-            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckEarlyAttesterCache::No)
+            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckCaches::No)
                 .expect("should create streamer");
             let (block_tx, mut block_rx) = mpsc::unbounded_channel();
             streamer.stream(epoch_roots.clone(), block_tx).await;

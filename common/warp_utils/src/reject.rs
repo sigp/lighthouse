@@ -83,6 +83,15 @@ pub fn custom_bad_request(msg: String) -> warp::reject::Rejection {
 }
 
 #[derive(Debug)]
+pub struct CustomDeserializeError(pub String);
+
+impl Reject for CustomDeserializeError {}
+
+pub fn custom_deserialize_error(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(CustomDeserializeError(msg))
+}
+
+#[derive(Debug)]
 pub struct CustomServerError(pub String);
 
 impl Reject for CustomServerError {}
@@ -161,6 +170,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     if err.is_not_found() {
         code = StatusCode::NOT_FOUND;
         message = "NOT_FOUND".to_string();
+    } else if let Some(e) = err.find::<crate::reject::CustomDeserializeError>() {
+        message = format!("BAD_REQUEST: body deserialize error: {}", e.0);
+        code = StatusCode::BAD_REQUEST;
     } else if let Some(e) = err.find::<warp::filters::body::BodyDeserializeError>() {
         message = format!("BAD_REQUEST: body deserialize error: {}", e);
         code = StatusCode::BAD_REQUEST;

@@ -48,7 +48,8 @@ enum Error {
     BeaconChain(BeaconChainError),
     BeaconState(BeaconStateError),
     Store(store::Error),
-    HeadMissingFromSnapshotCache(Hash256),
+    // We don't use the inner value directly, but it's used in the Debug impl.
+    HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
     MaxDistanceExceeded {
         current_slot: Slot,
         head_slot: Slot,

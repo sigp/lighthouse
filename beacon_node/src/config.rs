@@ -163,6 +163,10 @@ pub fn get_config<E: EthSpec>(
             cli_args.is_present("light-client-server");
     }
 
+    if cli_args.is_present("light-client-server") {
+        client_config.chain.enable_light_client_server = true;
+    }
+
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
     }
@@ -539,9 +543,10 @@ pub fn get_config<E: EthSpec>(
 
     client_config.genesis = if eth2_network_config.genesis_state_is_known() {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
-        if let (Some(initial_state_path), Some(initial_block_path)) = (
+        if let (Some(initial_state_path), Some(initial_block_path), opt_initial_blobs_path) = (
             cli_args.value_of("checkpoint-state"),
             cli_args.value_of("checkpoint-block"),
+            cli_args.value_of("checkpoint-blobs"),
         ) {
             let read = |path: &str| {
                 use std::fs::File;
@@ -557,10 +562,12 @@ pub fn get_config<E: EthSpec>(
 
             let anchor_state_bytes = read(initial_state_path)?;
             let anchor_block_bytes = read(initial_block_path)?;
+            let anchor_blobs_bytes = opt_initial_blobs_path.map(read).transpose()?;
 
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes,
                 anchor_block_bytes,
+                anchor_blobs_bytes,
             }
         } else if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
             let url = SensitiveUrl::parse(remote_bn_url)
@@ -1151,8 +1158,6 @@ pub fn set_network_config(
         config.target_peers = target_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
-    } else {
-        config.target_peers = 80; // default value
     }
 
     if let Some(value) = cli_args.value_of("network-load") {
@@ -1454,9 +1459,6 @@ pub fn set_network_config(
             Some(config_str.parse()?)
         }
     };
-
-    config.disable_duplicate_warn_logs = cli_args.is_present("disable-duplicate-warn-logs");
-
     Ok(())
 }
 

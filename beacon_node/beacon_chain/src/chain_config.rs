@@ -86,6 +86,8 @@ pub struct ChainConfig {
     pub epochs_per_migration: u64,
     /// Size of the promise cache for de-duplicating parallel state requests.
     pub parallel_state_cache_size: usize,
+    /// When set to true Light client server computes and caches state proofs for serving updates
+    pub enable_light_client_server: bool,
 }
 
 impl Default for ChainConfig {
@@ -117,6 +119,7 @@ impl Default for ChainConfig {
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             parallel_state_cache_size: DEFAULT_PARALLEL_STATE_CACHE_SIZE,
+            enable_light_client_server: false,
         }
     }
 }

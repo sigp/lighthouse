@@ -1056,7 +1056,7 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
 fn tcp_test_goodbye_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
-    let enable_logging = true;
+    let enable_logging = false;
     goodbye_test(log_level, enable_logging, Protocol::Tcp);
 }
 
@@ -1066,6 +1066,6 @@ fn tcp_test_goodbye_rpc() {
 fn quic_test_goodbye_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
-    let enable_logging = true;
+    let enable_logging = false;
     goodbye_test(log_level, enable_logging, Protocol::Quic);
 }

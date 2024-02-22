@@ -53,6 +53,12 @@ impl CommandLineTest {
     }
 
     fn run_with_zero_port(&mut self) -> CompletedTest<Config> {
+        // Required since Deneb was enabled on mainnet.
+        self.cmd.arg("--allow-insecure-genesis-sync");
+        self.run_with_zero_port_and_no_genesis_sync()
+    }
+
+    fn run_with_zero_port_and_no_genesis_sync(&mut self) -> CompletedTest<Config> {
         self.cmd.arg("-z");
         self.cmd.arg("--unsafe-and-dangerous-mode");
         self.run()
@@ -92,16 +98,16 @@ fn staking_flag() {
 }
 
 #[test]
-fn allow_insecure_genesis_sync() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.allow_insecure_genesis_sync, false);
-        });
+#[should_panic]
+fn allow_insecure_genesis_sync_default() {
+    CommandLineTest::new().run_with_zero_port_and_no_genesis_sync();
+}
 
+#[test]
+fn allow_insecure_genesis_sync_enabled() {
     CommandLineTest::new()
         .flag("allow-insecure-genesis-sync", None)
-        .run_with_zero_port()
+        .run_with_zero_port_and_no_genesis_sync()
         .with_config(|config| {
             assert_eq!(config.allow_insecure_genesis_sync, true);
         });
@@ -880,6 +886,7 @@ fn network_port_flag_over_ipv4() {
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .flag("unsafe-and-dangerous-mode", None)
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -897,6 +904,7 @@ fn network_port_flag_over_ipv4() {
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .flag("unsafe-and-dangerous-mode", None)
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -917,6 +925,7 @@ fn network_port_flag_over_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
         .flag("unsafe-and-dangerous-mode", None)
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -935,6 +944,7 @@ fn network_port_flag_over_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
         .flag("unsafe-and-dangerous-mode", None)
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -958,6 +968,7 @@ fn network_port_flag_over_ipv4_and_ipv6() {
         .flag("port", Some(port.to_string().as_str()))
         .flag("port6", Some(port6.to_string().as_str()))
         .flag("unsafe-and-dangerous-mode", None)
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -987,6 +998,7 @@ fn network_port_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
         .flag("port6", Some(port6.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1017,6 +1029,7 @@ fn network_port_and_discovery_port_flags_over_ipv4() {
     CommandLineTest::new()
         .flag("port", Some(tcp4_port.to_string().as_str()))
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1038,6 +1051,7 @@ fn network_port_and_discovery_port_flags_over_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port", Some(disc6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1064,6 +1078,7 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1104,6 +1119,7 @@ fn network_port_discovery_quic_port_flags_over_ipv4_and_ipv6() {
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
         .flag("quic-port6", Some(quic6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1331,6 +1347,7 @@ fn enr_match_flag_over_ipv4() {
         .flag("listen-address", Some("127.0.0.2"))
         .flag("discovery-port", Some(udp4_port.to_string().as_str()))
         .flag("port", Some(tcp4_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1363,6 +1380,7 @@ fn enr_match_flag_over_ipv6() {
         .flag("listen-address", Some(ADDR))
         .flag("discovery-port", Some(udp6_port.to_string().as_str()))
         .flag("port", Some(tcp6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1404,6 +1422,7 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some(IPV6_ADDR))
         .flag("discovery-port6", Some(udp6_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1531,6 +1550,7 @@ fn http_port_flag() {
         .flag("http", None)
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
@@ -1689,6 +1709,7 @@ fn metrics_port_flag() {
         .flag("metrics", None)
         .flag("metrics-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, port1));
@@ -2406,6 +2427,7 @@ fn light_client_server_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enable_light_client_server, false);
+            assert_eq!(config.chain.enable_light_client_server, false);
             assert_eq!(config.http_api.enable_light_client_server, false);
         });
 }
@@ -2417,6 +2439,7 @@ fn light_client_server_enabled() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enable_light_client_server, true);
+            assert_eq!(config.chain.enable_light_client_server, true);
         });
 }
 
@@ -2597,24 +2620,5 @@ fn genesis_state_url_value() {
                 Some("http://genesis.com")
             );
             assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
-        });
-}
-
-#[test]
-fn disable_duplicate_warn_logs_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.network.disable_duplicate_warn_logs, false);
-        });
-}
-
-#[test]
-fn disable_duplicate_warn_logs() {
-    CommandLineTest::new()
-        .flag("disable-duplicate-warn-logs", None)
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.network.disable_duplicate_warn_logs, true);
         });
 }
