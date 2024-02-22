@@ -105,7 +105,8 @@ pub fn cli_app() -> Command {
                     commonly used for submitting validator deposits via a web UI. \
                     Using this flag will save several seconds per validator if the \
                     user has an alternate strategy for submitting deposits.",
-                ),
+                )
+                .action(ArgAction::SetTrue)
         )
         .arg(
             Arg::new(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG)
@@ -116,7 +117,8 @@ pub fn cli_app() -> Command {
                     flag is not provided, a random password will be used. It is not \
                     necessary to keep backups of voting keystore passwords if the \
                     mnemonic is safely backed up.",
-                ),
+                )
+                .action(ArgAction::SetTrue)
         )
         .arg(
             Arg::new(ETH1_WITHDRAWAL_ADDRESS_FLAG)
@@ -208,6 +210,14 @@ pub fn cli_app() -> Command {
                 .required(false)
                 .value_parser(["true", "false"])
                 .action(ArgAction::Set),
+        )
+        .arg(
+            Arg::new("dump-config")
+                .long("dump-config")
+                .hide(true)
+                .help("Dumps the config to a desired location. Used for testing only.")
+                .action(ArgAction::Set)
+                .global(true)
         )
 }
 

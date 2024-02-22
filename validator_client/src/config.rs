@@ -408,8 +408,7 @@ impl Config {
 
         config.builder_boost_factor = parse_optional(cli_args, "builder-boost-factor")?;
 
-        config.enable_latency_measurement_service =
-            parse_optional(cli_args, "latency-measurement-service")?.unwrap_or(true);
+        config.enable_latency_measurement_service = cli_args.get_flag("latency-measurement-service");
 
         config.validator_registration_batch_size =
             parse_required(cli_args, "validator-registration-batch-size")?;

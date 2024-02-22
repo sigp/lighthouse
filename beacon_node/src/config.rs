@@ -1398,9 +1398,10 @@ pub fn set_network_config(
     // The self limiter is disabled by default.
     // This flag can be used both with or without a value. Try to parse it first with a value, if
     // no value is defined but the flag is present, use the default params.
-    config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
-    if cli_args.contains_id("self-limiter") && config.outbound_rate_limiter_config.is_none() {
+    if cli_args.try_get_one::<bool>("self_limiter").is_ok() {
         config.outbound_rate_limiter_config = Some(Default::default());
+    } else {
+        config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
     }
 
     // Proposer-only mode overrides a number of previous configuration parameters.

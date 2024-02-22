@@ -342,13 +342,13 @@ pub fn cli_app() -> Command {
                 .requires("builder-proposals"),
         )
         .arg(
+           // TODO take note here 
             Arg::new("latency-measurement-service")
                 .long("latency-measurement-service")
                 .value_name("BOOLEAN")
                 .help("Set to 'true' to enable a service that periodically attempts to measure latency to BNs. \
                     Set to 'false' to disable.")
-                .default_value("true")
-                .action(ArgAction::Set),
+                .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new("validator-registration-batch-size")

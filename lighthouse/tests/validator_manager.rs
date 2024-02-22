@@ -55,7 +55,12 @@ impl<T> CommandLineTest<T> {
     }
 
     fn run(mut cmd: Command, should_succeed: bool) {
-        let output = cmd.output().expect("process should complete");
+        let output = cmd
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("process should complete");
         if output.status.success() != should_succeed {
             let stdout = String::from_utf8(output.stdout).unwrap();
             let stderr = String::from_utf8(output.stderr).unwrap();
@@ -136,21 +141,21 @@ pub fn validator_create_defaults() {
 #[test]
 pub fn validator_create_misc_flags() {
     CommandLineTest::validators_create()
-        .flag("output-path", Some("./meow"))
-        .flag("deposit-gwei", Some("42"))
-        .flag("first-index", Some("12"))
-        .flag("count", Some("9"))
-        .flag("mnemonic-path", Some("./woof"))
-        .flag("stdin-inputs", None)
-        .flag("specify-voting-keystore-password", None)
-        .flag("eth1-withdrawal-address", Some(EXAMPLE_ETH1_ADDRESS))
-        .flag("builder-proposals", Some("true"))
-        .flag("prefer-builder-proposals", Some("true"))
-        .flag("builder-boost-factor", Some("150"))
-        .flag("suggested-fee-recipient", Some(EXAMPLE_ETH1_ADDRESS))
-        .flag("gas-limit", Some("1337"))
-        .flag("beacon-node", Some("http://localhost:1001"))
-        .flag("force-bls-withdrawal-credentials", None)
+        .flag("--output-path", Some("./meow"))
+        .flag("--deposit-gwei", Some("42"))
+        .flag("--first-index", Some("12"))
+        .flag("--count", Some("9"))
+        .flag("--mnemonic-path", Some("./woof"))
+        .flag("--stdin-inputs", None)
+        .flag("--specify-voting-keystore-password", None)
+        .flag("--eth1-withdrawal-address", Some(EXAMPLE_ETH1_ADDRESS))
+        .flag("--builder-proposals", Some("true"))
+        .flag("--prefer-builder-proposals", Some("true"))
+        .flag("--builder-boost-factor", Some("150"))
+        .flag("--suggested-fee-recipient", Some(EXAMPLE_ETH1_ADDRESS))
+        .flag("--gas-limit", Some("1337"))
+        .flag("--beacon-node", Some("http://localhost:1001"))
+        .flag("--force-bls-withdrawal-credentials", None)
         .assert_success(|config| {
             let expected = CreateConfig {
                 output_path: PathBuf::from("./meow"),

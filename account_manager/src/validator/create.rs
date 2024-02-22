@@ -82,7 +82,8 @@ pub fn cli_app() -> Command {
                     "If present, the withdrawal keystore will be stored alongside the voting \
                     keypair. It is generally recommended to *not* store the withdrawal key and \
                     instead generate them from the wallet seed when required.",
-                ),
+                )
+                .action(ArgAction::SetTrue)
         )
         .arg(
             Arg::new(COUNT_FLAG)

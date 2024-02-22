@@ -320,8 +320,10 @@ pub fn cli_app() -> Command {
                 present in the configuration, the quotas used for the inbound rate limiter will be \
                 used."
             )
-            .action(ArgAction::Set)
-            // .min_values(0)
+            .default_missing_value("true")
+            .require_equals(false)
+            // TODO this is dangerous without requires_equals = true
+            .num_args(0..1)
             .hide(true)
         )
         .arg(

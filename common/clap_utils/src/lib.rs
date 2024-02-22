@@ -123,7 +123,8 @@ where
     <T as FromStr>::Err: std::fmt::Display,
 {
     matches
-        .get_one::<String>(name)
+        .try_get_one::<String>(name)
+        .map_err(|e| format!("Unable to parse {}: {}", name, e))?
         .map(|val| {
             val.parse()
                 .map_err(|e| format!("Unable to parse {}: {}", name, e))

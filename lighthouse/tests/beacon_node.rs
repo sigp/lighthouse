@@ -2084,7 +2084,6 @@ fn slasher_broadcast_flag_no_args() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("1"))
-        .flag("slasher-broadcast", None)
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
