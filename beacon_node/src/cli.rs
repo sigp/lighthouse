@@ -939,6 +939,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("checkpoint-state")
         )
         .arg(
+            Arg::with_name("checkpoint-blobs")
+                .long("checkpoint-blobs")
+                .help("Set the checkpoint blobs to start syncing from. Must be aligned and match \
+                       --checkpoint-block. Using --checkpoint-sync-url instead is recommended.")
+                .value_name("BLOBS_SSZ")
+                .takes_value(true)
+                .requires("checkpoint-block")
+        )
+        .arg(
             Arg::with_name("checkpoint-sync-url")
                 .long("checkpoint-sync-url")
                 .help("Set the remote beacon node HTTP endpoint to use for checkpoint sync.")

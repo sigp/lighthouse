@@ -51,7 +51,7 @@ mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
 pub mod utils;
 /// The number of peers we target per subnet for discovery queries.
-pub const TARGET_SUBNET_PEERS: usize = 6;
+pub const TARGET_SUBNET_PEERS: usize = 3;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
@@ -1226,22 +1226,39 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                                 .publish(Topic::from(topic.clone()), data)
                             {
                                 Ok(_) => {
-                                    warn!(self.log, "Gossip message published on retry"; "topic" => topic_str);
-                                    if let Some(v) = metrics::get_int_counter(
+                                    debug!(
+                                        self.log,
+                                        "Gossip message published on retry";
+                                        "topic" => topic_str
+                                    );
+                                    metrics::inc_counter_vec(
                                         &metrics::GOSSIP_LATE_PUBLISH_PER_TOPIC_KIND,
                                         &[topic_str],
-                                    ) {
-                                        v.inc()
-                                    };
+                                    );
                                 }
-                                Err(e) => {
-                                    warn!(self.log, "Gossip message publish failed on retry"; "topic" => topic_str, "error" => %e);
-                                    if let Some(v) = metrics::get_int_counter(
+                                Err(PublishError::Duplicate) => {
+                                    debug!(
+                                        self.log,
+                                        "Gossip message publish ignored on retry";
+                                        "reason" => "duplicate",
+                                        "topic" => topic_str
+                                    );
+                                    metrics::inc_counter_vec(
                                         &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND,
                                         &[topic_str],
-                                    ) {
-                                        v.inc()
-                                    };
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        self.log,
+                                        "Gossip message publish failed on retry";
+                                        "topic" => topic_str,
+                                        "error" => %e
+                                    );
+                                    metrics::inc_counter_vec(
+                                        &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND,
+                                        &[topic_str],
+                                    );
                                 }
                             }
                         }

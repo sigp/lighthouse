@@ -9,7 +9,9 @@ use ethereum_hashing::hash;
 use ssz::Decode;
 use ssz::Encode;
 use state_processing::process_activations;
-use state_processing::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
+use state_processing::upgrade::{
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
+};
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -19,8 +21,8 @@ use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
     Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRefMut,
-    ForkName, Hash256, Keypair, PublicKey, Validator,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderMerge, ForkName, Hash256, Keypair,
+    PublicKey, Validator,
 };
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -302,26 +304,47 @@ fn initialize_state_with_validators<T: EthSpec>(
         state.fork_mut().previous_version = spec.bellatrix_fork_version;
 
         // Override latest execution payload header.
-        // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
+        // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/bellatrix/beacon-chain.md#testing
+        if let ExecutionPayloadHeader::Merge(ref header) = execution_payload_header {
+            *state
+                .latest_execution_payload_header_merge_mut()
+                .or(Err("mismatched fork".to_string()))? = header.clone();
+        }
+    }
 
-        // Currently, we only support starting from a bellatrix state
-        match state
-            .latest_execution_payload_header_mut()
-            .map_err(|e| format!("Failed to get execution payload header: {:?}", e))?
-        {
-            ExecutionPayloadHeaderRefMut::Merge(header_mut) => {
-                if let ExecutionPayloadHeader::Merge(eph) = execution_payload_header {
-                    *header_mut = eph;
-                } else {
-                    return Err("Execution payload header must be a bellatrix header".to_string());
-                }
-            }
-            ExecutionPayloadHeaderRefMut::Capella(_) => {
-                return Err("Cannot start genesis from a capella state".to_string())
-            }
-            ExecutionPayloadHeaderRefMut::Deneb(_) => {
-                return Err("Cannot start genesis from a deneb state".to_string())
-            }
+    if spec
+        .capella_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_capella(&mut state, spec).unwrap();
+
+        // Remove intermediate fork from `state.fork`.
+        state.fork_mut().previous_version = spec.capella_fork_version;
+
+        // Override latest execution payload header.
+        // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/bellatrix/beacon-chain.md#testing
+        if let ExecutionPayloadHeader::Capella(ref header) = execution_payload_header {
+            *state
+                .latest_execution_payload_header_capella_mut()
+                .or(Err("mismatched fork".to_string()))? = header.clone();
+        }
+    }
+
+    if spec
+        .deneb_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_deneb(&mut state, spec).unwrap();
+
+        // Remove intermediate fork from `state.fork`.
+        state.fork_mut().previous_version = spec.deneb_fork_version;
+
+        // Override latest execution payload header.
+        // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/bellatrix/beacon-chain.md#testing
+        if let ExecutionPayloadHeader::Deneb(ref header) = execution_payload_header {
+            *state
+                .latest_execution_payload_header_deneb_mut()
+                .or(Err("mismatched fork".to_string()))? = header.clone();
         }
     }
 
@@ -330,6 +353,11 @@ fn initialize_state_with_validators<T: EthSpec>(
 
     // Set genesis validators root for domain separation and chain versioning
     *state.genesis_validators_root_mut() = state.update_validators_tree_hash_cache().unwrap();
+
+    // Sanity check for state fork matching config fork.
+    state
+        .fork_name(spec)
+        .map_err(|e| format!("state fork mismatch: {e:?}"))?;
 
     Ok(state)
 }

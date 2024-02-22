@@ -52,6 +52,12 @@ impl CommandLineTest {
     }
 
     fn run_with_zero_port(&mut self) -> CompletedTest<Config> {
+        // Required since Deneb was enabled on mainnet.
+        self.cmd.arg("--allow-insecure-genesis-sync");
+        self.run_with_zero_port_and_no_genesis_sync()
+    }
+
+    fn run_with_zero_port_and_no_genesis_sync(&mut self) -> CompletedTest<Config> {
         self.cmd.arg("-z");
         self.run()
     }
@@ -90,16 +96,16 @@ fn staking_flag() {
 }
 
 #[test]
-fn allow_insecure_genesis_sync() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.allow_insecure_genesis_sync, false);
-        });
+#[should_panic]
+fn allow_insecure_genesis_sync_default() {
+    CommandLineTest::new().run_with_zero_port_and_no_genesis_sync();
+}
 
+#[test]
+fn allow_insecure_genesis_sync_enabled() {
     CommandLineTest::new()
         .flag("allow-insecure-genesis-sync", None)
-        .run_with_zero_port()
+        .run_with_zero_port_and_no_genesis_sync()
         .with_config(|config| {
             assert_eq!(config.allow_insecure_genesis_sync, true);
         });
@@ -848,6 +854,7 @@ fn network_port_flag_over_ipv4() {
     let port = 0;
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -864,6 +871,7 @@ fn network_port_flag_over_ipv4() {
     let port = 9000;
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -883,6 +891,7 @@ fn network_port_flag_over_ipv6() {
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -900,6 +909,7 @@ fn network_port_flag_over_ipv6() {
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -922,6 +932,7 @@ fn network_port_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
         .flag("port6", Some(port6.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -951,6 +962,7 @@ fn network_port_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
         .flag("port6", Some(port6.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -980,6 +992,7 @@ fn network_port_and_discovery_port_flags_over_ipv4() {
     CommandLineTest::new()
         .flag("port", Some(tcp4_port.to_string().as_str()))
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1000,6 +1013,7 @@ fn network_port_and_discovery_port_flags_over_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port", Some(disc6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1025,6 +1039,7 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1064,6 +1079,7 @@ fn network_port_discovery_quic_port_flags_over_ipv4_and_ipv6() {
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
         .flag("quic-port6", Some(quic6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1290,6 +1306,7 @@ fn enr_match_flag_over_ipv4() {
         .flag("listen-address", Some("127.0.0.2"))
         .flag("discovery-port", Some(udp4_port.to_string().as_str()))
         .flag("port", Some(tcp4_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1321,6 +1338,7 @@ fn enr_match_flag_over_ipv6() {
         .flag("listen-address", Some(ADDR))
         .flag("discovery-port", Some(udp6_port.to_string().as_str()))
         .flag("port", Some(tcp6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1361,6 +1379,7 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some(IPV6_ADDR))
         .flag("discovery-port6", Some(udp6_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1487,6 +1506,7 @@ fn http_port_flag() {
         .flag("http", None)
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
@@ -1644,6 +1664,7 @@ fn metrics_port_flag() {
         .flag("metrics", None)
         .flag("metrics-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, port1));
 }
