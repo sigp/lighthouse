@@ -46,9 +46,9 @@ const MAX_FORK_CHOICE_DISTANCE: u64 = 256;
 #[derive(Debug)]
 enum Error {
     BeaconChain(BeaconChainError),
-    BeaconState(BeaconStateError),
-    Store(store::Error),
     // We don't use the inner value directly, but it's used in the Debug impl.
+    BeaconState(#[allow(dead_code)] BeaconStateError),
+    Store(#[allow(dead_code)] store::Error),
     HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
     MaxDistanceExceeded {
         current_slot: Slot,
