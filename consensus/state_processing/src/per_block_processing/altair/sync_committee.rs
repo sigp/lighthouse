@@ -68,12 +68,10 @@ pub fn process_sync_aggregate<T: EthSpec>(
                 increase_balance(state, participant_index, participant_reward)?;
             }
             proposer_balance.safe_add_assign(proposer_reward)?;
+        } else if participant_index == proposer_index {
+            proposer_balance = proposer_balance.saturating_sub(participant_reward);
         } else {
-            if participant_index == proposer_index {
-                proposer_balance = proposer_balance.saturating_sub(participant_reward);
-            } else {
-                decrease_balance(state, participant_index, participant_reward)?;
-            }
+            decrease_balance(state, participant_index, participant_reward)?;
         }
     }
 

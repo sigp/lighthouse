@@ -110,7 +110,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     conf: SinglePassConfig,
 ) -> Result<ParticipationEpochSummary<E>, Error> {
     initialize_epoch_cache(state, spec)?;
-    initialize_progressive_balances_cache(state, None, spec)?;
+    initialize_progressive_balances_cache(state, spec)?;
     state.build_exit_cache(spec)?;
 
     let previous_epoch = state.previous_epoch();

@@ -121,7 +121,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
 
     // Build epoch cache if it hasn't already been built, or if it is no longer valid
     initialize_epoch_cache(state, spec)?;
-    initialize_progressive_balances_cache(state, None, spec)?;
+    initialize_progressive_balances_cache(state, spec)?;
     state.build_slashings_cache()?;
 
     let verify_signatures = match block_signature_strategy {

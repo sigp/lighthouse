@@ -110,7 +110,7 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => {
-                initialize_progressive_balances_cache(state, None, spec)?;
+                initialize_progressive_balances_cache(state, spec)?;
                 let justification_and_finalization_state =
                     altair::process_justification_and_finalization(state)?;
                 justification_and_finalization_state.apply_changes_to_state(state);

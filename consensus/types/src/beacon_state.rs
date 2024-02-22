@@ -115,7 +115,6 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
     NonLinearTreeHashCacheHistory,
-    ParticipationCacheError(String),
     ProgressiveBalancesCacheNotInitialized,
     ProgressiveBalancesCacheInconsistent,
     TreeHashCacheSkippedSlot {

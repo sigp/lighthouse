@@ -747,7 +747,11 @@ where
                     | BeaconBlockRef::Capella(_)
                     | BeaconBlockRef::Merge(_)
                     | BeaconBlockRef::Altair(_) => {
-                        // FIXME(sproul): initialize progressive balances
+                        // NOTE: Processing justification & finalization requires the progressive
+                        // balances cache, but we cannot initialize it here as we only have an
+                        // immutable reference. The state *should* have come straight from block
+                        // processing, which initialises the cache, but if we add other `on_block`
+                        // calls in future it could be worth passing a mutable reference.
                         per_epoch_processing::altair::process_justification_and_finalization(state)?
                     }
                     BeaconBlockRef::Base(_) => {

@@ -3,21 +3,16 @@ use crate::metrics::{
     PARTICIPATION_CURR_EPOCH_TARGET_ATTESTING_GWEI_PROGRESSIVE_TOTAL,
     PARTICIPATION_PREV_EPOCH_TARGET_ATTESTING_GWEI_PROGRESSIVE_TOTAL,
 };
-use crate::per_epoch_processing::altair::ParticipationCache;
 use crate::{BlockProcessingError, EpochProcessingError};
 use lighthouse_metrics::set_gauge;
-use std::borrow::Cow;
 use types::{
     is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, Epoch,
-    EpochTotalBalances, EthSpec, ProgressiveBalancesCache,
+    EpochTotalBalances, EthSpec, ParticipationFlags, ProgressiveBalancesCache, Validator,
 };
 
-/// Initializes the `ProgressiveBalancesCache` cache using balance values from the
-/// `ParticipationCache`. If the optional `&ParticipationCache` is not supplied, it will be computed
-/// from the `BeaconState`.
+/// Initializes the `ProgressiveBalancesCache` if it is unbuilt.
 pub fn initialize_progressive_balances_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
-    maybe_participation_cache: Option<&ParticipationCache>,
     spec: &ChainSpec,
 ) -> Result<(), BeaconStateError> {
     if !is_progressive_balances_enabled(state)
@@ -26,29 +21,37 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
         return Ok(());
     }
 
-    // FIXME(sproul): simplify the participation cache
-    let participation_cache = match maybe_participation_cache {
-        Some(cache) => Cow::Borrowed(cache),
-        None => {
-            state.build_total_active_balance_cache_at(state.current_epoch(), spec)?;
-            Cow::Owned(
-                ParticipationCache::new(state, spec)
-                    .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{e:?}")))?,
-            )
-        }
-    };
-
+    // Calculate the total flag balances for previous & current epoch in a single iteration.
+    // This calculates `get_total_balance(unslashed_participating_indices(..))` for each flag in
+    // the current and previous epoch.
     let current_epoch = state.current_epoch();
-    let previous_epoch_cache = EpochTotalBalances {
-        total_flag_balances: participation_cache
-            .previous_epoch_participation
-            .total_flag_balances,
-    };
-    let current_epoch_cache = EpochTotalBalances {
-        total_flag_balances: participation_cache
-            .current_epoch_participation
-            .total_flag_balances,
-    };
+    let previous_epoch = state.previous_epoch();
+    let mut previous_epoch_cache = EpochTotalBalances::new(spec);
+    let mut current_epoch_cache = EpochTotalBalances::new(spec);
+    for ((validator, current_epoch_flags), previous_epoch_flags) in state
+        .validators()
+        .iter()
+        .zip(state.current_epoch_participation()?)
+        .zip(state.previous_epoch_participation()?)
+    {
+        // Exclude slashed validators. We are calculating *unslashed* participating totals.
+        if validator.slashed {
+            continue;
+        }
+
+        // Update current epoch flag balances.
+        if validator.is_active_at(current_epoch) {
+            update_flag_total_balances(&mut current_epoch_cache, *current_epoch_flags, validator)?;
+        }
+        // Update previous epoch flag balances.
+        if validator.is_active_at(previous_epoch) {
+            update_flag_total_balances(
+                &mut previous_epoch_cache,
+                *previous_epoch_flags,
+                validator,
+            )?;
+        }
+    }
 
     state.progressive_balances_cache_mut().initialize(
         current_epoch,
@@ -58,6 +61,26 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
 
     update_progressive_balances_metrics(state.progressive_balances_cache())?;
 
+    Ok(())
+}
+
+/// During the initialization of the progressive balances for a single epoch, add
+/// `validator.effective_balance` to the flag total, for each flag present in `participation_flags`.
+///
+/// Pre-conditions:
+///
+/// - `validator` must not be slashed
+/// - the `participation_flags` must be for `validator` in the same epoch as the `total_balances`
+fn update_flag_total_balances(
+    total_balances: &mut EpochTotalBalances,
+    participation_flags: ParticipationFlags,
+    validator: &Validator,
+) -> Result<(), BeaconStateError> {
+    for (flag, balance) in total_balances.total_flag_balances.iter_mut().enumerate() {
+        if participation_flags.has_flag(flag)? {
+            balance.safe_add_assign(validator.effective_balance)?;
+        }
+    }
     Ok(())
 }
 

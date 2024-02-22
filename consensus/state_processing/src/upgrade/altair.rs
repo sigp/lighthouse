@@ -114,7 +114,7 @@ pub fn upgrade_to_altair<E: EthSpec>(
     // Fill in previous epoch participation from the pre state's pending attestations.
     translate_participation(&mut post, &pre.previous_epoch_attestations, spec)?;
 
-    initialize_progressive_balances_cache(&mut post, None, spec)?;
+    initialize_progressive_balances_cache(&mut post, spec)?;
 
     // Fill in sync committees
     // Note: A duplicate committee is assigned for the current and next committee at the fork
