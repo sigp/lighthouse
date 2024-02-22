@@ -35,7 +35,7 @@ lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 logging = { workspace = true }
 task_executor = { workspace = true }
-igd = "0.12.1"
+igd-next = "0.14.3"
 itertools = { workspace = true }
 num_cpus = { workspace = true }
 lru_cache = { workspace = true }

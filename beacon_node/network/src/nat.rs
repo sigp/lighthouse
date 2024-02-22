@@ -66,7 +66,7 @@ pub fn construct_upnp_mappings<T: EthSpec>(
     log: slog::Logger,
 ) {
     info!(log, "UPnP Attempting to initialise routes");
-    match igd::search_gateway(Default::default()) {
+    match igd_next::search_gateway(Default::default()) {
         Err(e) => info!(log, "UPnP not available"; "error" => %e),
         Ok(gateway) => {
             // Need to find the local listening address matched with the router subnet
@@ -109,12 +109,12 @@ pub fn construct_upnp_mappings<T: EthSpec>(
                     // router, they should ideally try to set different port numbers.
                     mappings.tcp_port = add_port_mapping(
                         &gateway,
-                        igd::PortMappingProtocol::TCP,
+                        igd_next::PortMappingProtocol::TCP,
                         libp2p_socket,
                         "tcp",
                         &log,
                     ).map(|_| {
-                        let external_socket = external_ip.as_ref().map(|ip| SocketAddr::new((*ip).into(), config.tcp_port)).map_err(|_| ());
+                        let external_socket = external_ip.as_ref().map(|ip| SocketAddr::new(*ip, config.tcp_port)).map_err(|_| ());
                         info!(log, "UPnP TCP route established"; "external_socket" => format!("{}:{}", external_socket.as_ref().map(|ip| ip.to_string()).unwrap_or_else(|_| "".into()), config.tcp_port));
                         config.tcp_port
                     }).ok();
@@ -123,7 +123,7 @@ pub fn construct_upnp_mappings<T: EthSpec>(
                         let udp_socket = SocketAddrV4::new(address, udp_port);
                         add_port_mapping(
                             &gateway,
-                            igd::PortMappingProtocol::UDP,
+                            igd_next::PortMappingProtocol::UDP,
                             udp_socket,
                             "udp",
                             &log,
@@ -156,8 +156,8 @@ pub fn construct_upnp_mappings<T: EthSpec>(
 
 /// Sets up a port mapping for a protocol returning the mapped port if successful.
 fn add_port_mapping(
-    gateway: &igd::Gateway,
-    protocol: igd::PortMappingProtocol,
+    gateway: &igd_next::Gateway,
+    protocol: igd_next::PortMappingProtocol,
     socket: SocketAddrV4,
     protocol_string: &'static str,
     log: &slog::Logger,
@@ -168,10 +168,16 @@ fn add_port_mapping(
     // router, they should ideally try to set different port numbers.
     let mapping_string = &format!("lighthouse-{}", protocol_string);
     for _ in 0..2 {
-        match gateway.add_port(protocol, socket.port(), socket, 0, mapping_string) {
+        match gateway.add_port(
+            protocol,
+            socket.port(),
+            SocketAddr::V4(socket),
+            0,
+            mapping_string,
+        ) {
             Err(e) => {
                 match e {
-                    igd::AddPortError::PortInUse => {
+                    igd_next::AddPortError::PortInUse => {
                         // Try and remove and re-create
                         debug!(log, "UPnP port in use, attempting to remap"; "protocol" => protocol_string, "port" => socket.port());
                         match gateway.remove_port(protocol, socket.port()) {
@@ -202,10 +208,10 @@ fn add_port_mapping(
 pub fn remove_mappings(mappings: &EstablishedUPnPMappings, log: &slog::Logger) {
     if mappings.is_some() {
         debug!(log, "Removing UPnP port mappings");
-        match igd::search_gateway(Default::default()) {
+        match igd_next::search_gateway(Default::default()) {
             Ok(gateway) => {
                 if let Some(tcp_port) = mappings.tcp_port {
-                    match gateway.remove_port(igd::PortMappingProtocol::TCP, tcp_port) {
+                    match gateway.remove_port(igd_next::PortMappingProtocol::TCP, tcp_port) {
                         Ok(()) => debug!(log, "UPnP Removed TCP port mapping"; "port" => tcp_port),
                         Err(e) => {
                             debug!(log, "UPnP Failed to remove TCP port mapping"; "port" => tcp_port, "error" => %e)
@@ -213,7 +219,7 @@ pub fn remove_mappings(mappings: &EstablishedUPnPMappings, log: &slog::Logger) {
                     }
                 }
                 for udp_port in mappings.udp_ports() {
-                    match gateway.remove_port(igd::PortMappingProtocol::UDP, *udp_port) {
+                    match gateway.remove_port(igd_next::PortMappingProtocol::UDP, *udp_port) {
                         Ok(()) => debug!(log, "UPnP Removed UDP port mapping"; "port" => udp_port),
                         Err(e) => {
                             debug!(log, "UPnP Failed to remove UDP port mapping"; "port" => udp_port, "error" => %e)

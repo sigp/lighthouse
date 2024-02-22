@@ -244,7 +244,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         // TODO: again consider forks
         let status = self
             .el
-            .notify_new_payload(payload.try_into().unwrap())
+            .notify_new_payload(payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);

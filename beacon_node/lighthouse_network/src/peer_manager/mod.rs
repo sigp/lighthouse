@@ -104,6 +104,8 @@ pub struct PeerManager<TSpec: EthSpec> {
     discovery_enabled: bool,
     /// Keeps track if the current instance is reporting metrics or not.
     metrics_enabled: bool,
+    /// Keeps track of whether the QUIC protocol is enabled or not.
+    quic_enabled: bool,
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
 }
@@ -149,6 +151,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             status_interval,
             ping_interval_inbound,
             ping_interval_outbound,
+            quic_enabled,
         } = cfg;
 
         // Set up the peer manager heartbeat interval
@@ -167,6 +170,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             heartbeat,
             discovery_enabled,
             metrics_enabled,
+            quic_enabled,
             log: log.clone(),
         })
     }

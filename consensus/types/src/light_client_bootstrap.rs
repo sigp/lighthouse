@@ -9,7 +9,7 @@ use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 
-/// A LightClientBootstrap is the initializer we send over to lightclient nodes
+/// A LightClientBootstrap is the initializer we send over to light_client nodes
 /// that are trying to generate their basic storage when booting up.
 #[derive(
     Debug,
