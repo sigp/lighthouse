@@ -25,8 +25,8 @@ use warp::{http::StatusCode, Filter, Rejection};
 
 use crate::EngineCapabilities;
 pub use execution_block_generator::{
-    generate_blobs, generate_genesis_block, generate_genesis_header, generate_pow_block, Block,
-    ExecutionBlockGenerator,
+    generate_blobs, generate_genesis_block, generate_genesis_header, generate_pow_block,
+    static_valid_tx, Block, ExecutionBlockGenerator,
 };
 pub use hook::Hook;
 pub use mock_builder::{MockBuilder, Operation};
@@ -599,8 +599,8 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
     let code;
     let message;
 
-    if let Some(e) = err.find::<AuthError>() {
-        message = format!("Authorization error: {:?}", e);
+    if let Some(AuthError(e)) = err.find::<AuthError>() {
+        message = format!("Authorization error: {}", e);
         code = StatusCode::UNAUTHORIZED;
     } else {
         message = "BAD_REQUEST".to_string();

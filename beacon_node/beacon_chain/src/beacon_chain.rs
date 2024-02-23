@@ -4,7 +4,7 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
-use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
+use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
@@ -38,6 +38,7 @@ use crate::light_client_finality_update_verification::{
 use crate::light_client_optimistic_update_verification::{
     Error as LightClientOptimisticUpdateError, VerifiedLightClientOptimisticUpdate,
 };
+use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
@@ -92,6 +93,7 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
     common::get_attesting_indices_from_state,
+    epoch_cache::initialize_epoch_cache,
     per_block_processing,
     per_block_processing::{
         errors::AttestationValidationError, get_expected_withdrawals,
@@ -330,6 +332,8 @@ struct PartialBeaconBlock<E: EthSpec> {
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
+pub type LightClientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
+
 pub type BeaconForkChoice<T> = ForkChoice<
     BeaconForkChoiceStore<
         <T as BeaconChainTypes>::EthSpec,
@@ -411,10 +415,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators we've seen BLS to execution changes for.
     pub(crate) observed_bls_to_execution_changes:
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
-    /// The most recently validated light client finality update received on gossip.
-    pub latest_seen_finality_update: Mutex<Option<LightClientFinalityUpdate<T::EthSpec>>>,
-    /// The most recently validated light client optimistic update received on gossip.
-    pub latest_seen_optimistic_update: Mutex<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Interfaces with the execution client.
@@ -453,6 +453,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
+    /// A cache used to produce light_client server messages
+    pub light_client_server_cache: LightClientServerCache<T>,
+    /// Sender to signal the light_client server to produce new updates
+    pub light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
@@ -1102,7 +1106,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn get_blocks_checking_early_attester_cache(
+    pub fn get_blocks_checking_caches(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
         executor: &TaskExecutor,
@@ -1115,10 +1119,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(
-            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::Yes)?
-                .launch_stream(block_roots, executor),
-        )
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?
+            .launch_stream(block_roots, executor))
     }
 
     pub fn get_blocks(
@@ -1134,10 +1136,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(
-            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::No)?
-                .launch_stream(block_roots, executor),
-        )
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?
+            .launch_stream(block_roots, executor))
     }
 
     pub fn get_blobs_checking_early_attester_cache(
@@ -1316,6 +1316,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         .start_slot(T::EthSpec::slots_per_epoch());
 
         self.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)
+    }
+
+    pub fn recompute_and_cache_light_client_updates(
+        &self,
+        (parent_root, slot, sync_aggregate): LightClientProducerEvent<T::EthSpec>,
+    ) -> Result<(), Error> {
+        self.light_client_server_cache.recompute_and_cache_updates(
+            &self.log,
+            self.store.clone(),
+            &parent_root,
+            slot,
+            &sync_aggregate,
+        )
     }
 
     /// Returns the current heads of the `BeaconChain`. For the canonical head, see `Self::head`.
@@ -2902,18 +2915,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        if let Ok(commitments) = unverified_block
-            .block()
-            .message()
-            .body()
-            .blob_kzg_commitments()
-        {
-            self.data_availability_checker.notify_block_commitments(
-                unverified_block.block().slot(),
-                block_root,
-                commitments.clone(),
-            );
-        };
+        self.data_availability_checker
+            .notify_block(block_root, unverified_block.block_cloned());
         let r = self
             .process_block(block_root, unverified_block, notify_execution_layer, || {
                 Ok(())
@@ -3238,7 +3241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_block: AvailableBlock<T::EthSpec>,
         block_root: Hash256,
-        state: BeaconState<T::EthSpec>,
+        mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
         payload_verification_status: PayloadVerificationStatus,
         parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
@@ -3309,9 +3312,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_delay,
                     &state,
                     payload_verification_status,
-                    self.config.progressive_balances_mode,
                     &self.spec,
-                    &self.log,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
@@ -3483,6 +3484,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             eth1_deposit_index: state.eth1_deposit_index(),
         };
         let current_finalized_checkpoint = state.finalized_checkpoint();
+
+        // compute state proofs for light client updates before inserting the state into the
+        // snapshot cache.
+        if self.config.enable_light_client_server {
+            self.light_client_server_cache
+                .cache_state_data(
+                    &self.spec, block, block_root,
+                    // mutable reference on the state is needed to compute merkle proofs
+                    &mut state,
+                )
+                .unwrap_or_else(|e| {
+                    error!(self.log, "error caching light_client data {:?}", e);
+                });
+        }
 
         self.head_tracker
             .register_block(block_root, parent_root, slot);
@@ -3831,6 +3846,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block: block_root,
                     execution_optimistic: payload_verification_status.is_optimistic(),
                 }));
+            }
+        }
+
+        // Do not trigger light_client server update producer for old blocks, to extra work
+        // during sync.
+        if self.config.enable_light_client_server
+            && block_delay_total < self.slot_clock.slot_duration() * 32
+        {
+            if let Some(mut light_client_server_tx) = self.light_client_server_tx.clone() {
+                if let Ok(sync_aggregate) = block.body().sync_aggregate() {
+                    if let Err(e) = light_client_server_tx.try_send((
+                        block.parent_root(),
+                        block.slot(),
+                        sync_aggregate.clone(),
+                    )) {
+                        warn!(
+                            self.log,
+                            "Failed to send light_client server event";
+                            "error" => ?e
+                        );
+                    }
+                }
             }
         }
     }
@@ -4755,7 +4792,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let attestation_packing_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
 
+        // Epoch cache and total balance cache are required for op pool packing.
         state.build_total_active_balance_cache_at(state.current_epoch(), &self.spec)?;
+        initialize_epoch_cache(&mut state, &self.spec)?;
+
         let mut prev_filter_cache = HashMap::new();
         let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
             self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)

@@ -12,7 +12,6 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
-use types::ProgressiveBalancesMode;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
@@ -73,7 +72,6 @@ pub enum Error<T> {
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ValidatorStatuses(BeaconStateError),
-    ProgressiveBalancesCacheCheckFailed(String),
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -637,7 +635,6 @@ where
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
     #[allow(clippy::too_many_arguments)]
-    // FIXME(sproul): remove progressive balances mode
     pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,
         system_time_current_slot: Slot,
@@ -646,9 +643,7 @@ where
         block_delay: Duration,
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
-        _progressive_balances_mode: ProgressiveBalancesMode,
         spec: &ChainSpec,
-        _log: &Logger,
     ) -> Result<(), Error<T::Error>> {
         // If this block has already been processed we do not need to reprocess it.
         // We check this immediately in case re-processing the block mutates some property of the

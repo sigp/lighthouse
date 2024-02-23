@@ -765,7 +765,7 @@ impl<T: EthSpec> BeaconState<T> {
         if self.slot() <= decision_slot {
             Ok(block_root)
         } else {
-            self.get_block_root(decision_slot).map(|root| *root)
+            self.get_block_root(decision_slot).copied()
         }
     }
 
@@ -781,7 +781,7 @@ impl<T: EthSpec> BeaconState<T> {
         if self.slot() == decision_slot {
             Ok(block_root)
         } else {
-            self.get_block_root(decision_slot).map(|root| *root)
+            self.get_block_root(decision_slot).copied()
         }
     }
 
@@ -807,7 +807,7 @@ impl<T: EthSpec> BeaconState<T> {
         if self.slot() == decision_slot {
             Ok(block_root)
         } else {
-            self.get_block_root(decision_slot).map(|root| *root)
+            self.get_block_root(decision_slot).copied()
         }
     }
 

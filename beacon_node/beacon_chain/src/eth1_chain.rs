@@ -967,7 +967,7 @@ mod test {
             let spec = &E::default_spec();
             let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
-            let blocks = vec![];
+            let blocks = [];
 
             assert_eq!(
                 get_votes_to_consider(
