@@ -42,6 +42,16 @@ sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clan
 
 After this, you are ready to [build Lighthouse](#build-lighthouse).
 
+#### Fedora/RHEL/CentOS
+
+Install the following packages:
+
+```bash
+yum -y install git make perl clang cmake
+```
+
+After this, you are ready to [build Lighthouse](#build-lighthouse).
+
 #### macOS
 
 1. Install the [Homebrew][] package manager.
