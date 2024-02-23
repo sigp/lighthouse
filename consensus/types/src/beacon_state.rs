@@ -105,6 +105,10 @@ pub enum Error {
     },
     RelativeEpochError(RelativeEpochError),
     ExitCacheUninitialized,
+    ExitCacheInvalidEpoch {
+        max_exit_epoch: Epoch,
+        request_epoch: Epoch,
+    },
     SlashingsCacheUninitialized {
         initialized_slot: Option<Slot>,
         latest_block_slot: Slot,
