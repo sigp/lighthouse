@@ -1,4 +1,5 @@
 use super::{BeaconStateError, ChainSpec, Epoch, Validator};
+use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
@@ -44,7 +45,7 @@ impl ExitCache {
         match exit_epoch.cmp(&self.max_exit_epoch) {
             // Update churn for the current maximum epoch.
             Ordering::Equal => {
-                self.max_exit_epoch_churn += 1;
+                self.max_exit_epoch_churn.safe_add_assign(1)?;
             }
             // Increase the max exit epoch, reset the churn to 1.
             Ordering::Greater => {
