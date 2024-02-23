@@ -45,7 +45,6 @@ lru = { workspace = true }
 merkle_proof = { workspace = true }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
-promise_cache = { path = "../../common/promise_cache" }
 proto_array = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }

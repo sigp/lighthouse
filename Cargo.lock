@@ -571,7 +571,6 @@ dependencies = [
  "merkle_proof",
  "operation_pool",
  "parking_lot 0.12.1",
- "promise_cache",
  "proto_array",
  "rand 0.8.5",
  "rayon",
@@ -6195,11 +6194,8 @@ dependencies = [
 name = "promise_cache"
 version = "0.1.0"
 dependencies = [
- "derivative",
- "itertools",
  "oneshot_broadcast",
  "parking_lot 0.12.1",
- "slog",
 ]
 
 [[package]]
