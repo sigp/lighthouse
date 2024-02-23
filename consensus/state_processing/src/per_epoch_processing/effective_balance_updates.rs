@@ -5,6 +5,7 @@ use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;
 use types::{BeaconStateError, EthSpec};
 
+/// This implementation is now only used in phase0. Later hard forks use single-pass.
 pub fn process_effective_balance_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -52,6 +53,7 @@ pub fn process_effective_balance_updates<T: EthSpec>(
     Ok(())
 }
 
+/// Only used to test the effective balance part of single-pass in isolation.
 pub fn process_effective_balance_updates_slow<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,

@@ -3,7 +3,7 @@ use safe_arith::{ArithError, SafeArith};
 use types::*;
 
 /// This type exists to avoid confusing `total_active_balance` with `sqrt_total_active_balance`,
-/// since they are used in close proximity and the same type (`u64`).
+/// since they are used in close proximity and have the same type (`u64`).
 #[derive(Copy, Clone)]
 pub struct SqrtTotalActiveBalance(u64);
 

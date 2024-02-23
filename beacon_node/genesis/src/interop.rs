@@ -178,14 +178,13 @@ mod test {
         }
 
         for v in state.validators() {
-            let creds = v.withdrawal_credentials;
+            let creds = v.withdrawal_credentials.as_bytes();
             assert_eq!(
-                creds.as_bytes()[0],
-                spec.bls_withdrawal_prefix_byte,
+                creds[0], spec.bls_withdrawal_prefix_byte,
                 "first byte of withdrawal creds should be bls prefix"
             );
             assert_eq!(
-                &creds.as_bytes()[1..],
+                &creds[1..],
                 &hash(&v.pubkey.as_ssz_bytes())[1..],
                 "rest of withdrawal creds should be pubkey hash"
             )
@@ -241,8 +240,7 @@ mod test {
         }
 
         for (index, v) in state.validators().iter().enumerate() {
-            let withdrawal_credientials = v.withdrawal_credentials;
-            let creds = withdrawal_credientials.as_bytes();
+            let creds = v.withdrawal_credentials.as_bytes();
             if index % 2 == 0 {
                 assert_eq!(
                     creds[0], spec.bls_withdrawal_prefix_byte,
