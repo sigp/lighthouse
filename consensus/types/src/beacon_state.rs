@@ -115,7 +115,6 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
     NonLinearTreeHashCacheHistory,
-    ParticipationCacheError(String),
     ProgressiveBalancesCacheNotInitialized,
     ProgressiveBalancesCacheInconsistent,
     TreeHashCacheSkippedSlot {
@@ -1593,7 +1592,7 @@ impl<T: EthSpec> BeaconState<T> {
         ))
     }
 
-    pub fn compute_total_active_balance(
+    pub fn compute_total_active_balance_slow(
         &self,
         epoch: Epoch,
         spec: &ChainSpec,
@@ -1661,7 +1660,7 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let total_active_balance = self.compute_total_active_balance(epoch, spec)?;
+        let total_active_balance = self.compute_total_active_balance_slow(epoch, spec)?;
         *self.total_active_balance_mut() = Some((epoch, total_active_balance));
         Ok(())
     }

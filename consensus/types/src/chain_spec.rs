@@ -326,12 +326,6 @@ impl ChainSpec {
         }
     }
 
-    /// For a given `BeaconState`, return the inactivity penalty quotient associated with its variant.
-    // FIXME(sproul): delete once unused
-    pub fn inactivity_penalty_quotient_for_state<T: EthSpec>(&self, state: &BeaconState<T>) -> u64 {
-        self.inactivity_penalty_quotient_for_fork(state.fork_name_unchecked())
-    }
-
     pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
         match fork_name {
             ForkName::Base => self.inactivity_penalty_quotient,

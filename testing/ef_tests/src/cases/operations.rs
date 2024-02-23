@@ -104,7 +104,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => {
-                initialize_progressive_balances_cache(state, None, spec)?;
+                initialize_progressive_balances_cache(state, spec)?;
                 altair_deneb::process_attestation(
                     state,
                     self,
@@ -134,7 +134,7 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        initialize_progressive_balances_cache(state, None, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         process_attester_slashings(
             state,
             &[self.clone()],
@@ -185,7 +185,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        initialize_progressive_balances_cache(state, None, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         process_proposer_slashings(
             state,
             &[self.clone()],

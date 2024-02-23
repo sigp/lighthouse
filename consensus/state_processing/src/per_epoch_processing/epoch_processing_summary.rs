@@ -100,10 +100,6 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             &metrics::PARTICIPATION_PREV_EPOCH_SOURCE_ATTESTING_GWEI_TOTAL,
             self.previous_epoch_source_attesting_balance()? as i64,
         );
-        metrics::set_gauge(
-            &metrics::PARTICIPATION_PREV_EPOCH_ACTIVE_GWEI_TOTAL,
-            self.previous_epoch_total_active_balance() as i64,
-        );
 
         Ok(())
     }
@@ -139,12 +135,6 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
                 ..
             } => progressive_balances.current_epoch_target_attesting_balance(),
         }
-    }
-
-    /// Returns the sum of the effective balance of all validators in the previous epoch.
-    pub fn previous_epoch_total_active_balance(&self) -> u64 {
-        // FIXME(sproul): this is not a useful concept and should be deleted
-        self.current_epoch_total_active_balance()
     }
 
     /// Returns `true` if `val_index` was included in the active validator indices in the current

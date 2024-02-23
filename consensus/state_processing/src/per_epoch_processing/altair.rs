@@ -11,7 +11,6 @@ use crate::per_epoch_processing::{
 };
 pub use inactivity_updates::process_inactivity_updates_slow;
 pub use justification_and_finalization::process_justification_and_finalization;
-pub use participation_cache::ParticipationCache;
 pub use participation_flag_updates::process_participation_flag_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties_slow;
 pub use sync_committee_updates::process_sync_committee_updates;
@@ -19,7 +18,6 @@ use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
 pub mod inactivity_updates;
 pub mod justification_and_finalization;
-pub mod participation_cache;
 pub mod participation_flag_updates;
 pub mod rewards_and_penalties;
 pub mod sync_committee_updates;
@@ -34,7 +32,7 @@ pub fn process_epoch<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
     state.build_total_active_balance_cache_at(state.current_epoch(), spec)?;
     initialize_epoch_cache(state, spec)?;
-    initialize_progressive_balances_cache::<T>(state, None, spec)?;
+    initialize_progressive_balances_cache::<T>(state, spec)?;
 
     let sync_committee = state.current_sync_committee()?.clone();
 
