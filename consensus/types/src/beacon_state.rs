@@ -1480,24 +1480,10 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(cache.get_attestation_duties(validator_index))
     }
 
-    /// Implementation of `get_total_balance`, matching the spec.
+    /// Build the total active balance cache from scratch.
     ///
-    /// Returns minimum `EFFECTIVE_BALANCE_INCREMENT`, to avoid div by 0.
-    pub fn get_total_balance<'a, I: IntoIterator<Item = &'a usize>>(
-        &'a self,
-        validator_indices: I,
-        spec: &ChainSpec,
-    ) -> Result<u64, Error> {
-        let total_balance = validator_indices.into_iter().try_fold(0_u64, |acc, i| {
-            self.get_effective_balance(*i)
-                .and_then(|bal| Ok(acc.safe_add(bal)?))
-        })?;
-        Ok(std::cmp::max(
-            total_balance,
-            spec.effective_balance_increment,
-        ))
-    }
-
+    /// This method should rarely be invoked because single-pass epoch processing keeps the total
+    /// active balance cache up to date.
     pub fn compute_total_active_balance_slow(
         &self,
         epoch: Epoch,
@@ -1530,6 +1516,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.get_total_active_balance_at_epoch(self.current_epoch())
     }
 
+    /// Get the cached total active balance while checking that it is for the correct `epoch`.
     pub fn get_total_active_balance_at_epoch(&self, epoch: Epoch) -> Result<u64, Error> {
         let (initialized_epoch, balance) = self
             .total_active_balance()
@@ -1545,6 +1532,10 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    /// Manually set the total active balance.
+    ///
+    /// This should only be called when the total active balance has been computed as part of
+    /// single-pass epoch processing (or `process_rewards_and_penalties` for phase0).
     pub fn set_total_active_balance(&mut self, epoch: Epoch, balance: u64) {
         *self.total_active_balance_mut() = Some((epoch, balance));
     }
@@ -1561,6 +1552,7 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
+    /// Build the total active balance cache, even if it is already built.
     pub fn force_build_total_active_balance_cache_at(
         &mut self,
         epoch: Epoch,

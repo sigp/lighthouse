@@ -193,8 +193,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         for &validator_index in &validators {
-            // Return 0s for unknown/inactive validator indices. This is a bit different from stable
-            // where we error for unknown pubkeys.
+            // Return 0s for unknown/inactive validator indices.
             let Ok(validator) = state.get_validator(validator_index) else {
                 debug!(
                     self.log,
