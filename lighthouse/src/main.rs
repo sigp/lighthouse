@@ -28,7 +28,7 @@ lazy_static! {
          Allocator: {}\n\
          Profile: {}\n\
          Specs: mainnet (true), minimal ({}), gnosis ({})",
-         SHORT_VERSION.as_str(),
+        SHORT_VERSION.as_str(),
         bls_library_name(),
         have_sha_extensions(),
         allocator_name(),

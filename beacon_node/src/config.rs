@@ -797,8 +797,7 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
 
-    client_config.chain.always_reset_payload_statuses =
-        cli_args.get_flag("reset-payload-statuses");
+    client_config.chain.always_reset_payload_statuses = cli_args.get_flag("reset-payload-statuses");
 
     client_config.chain.paranoid_block_proposal = cli_args.get_flag("paranoid-block-proposal");
 
@@ -959,7 +958,6 @@ pub fn parse_listening_addresses(
             format!("Failed to parse --quic6-port as an integer: {parse_error}")
         })?;
 
-
     // Now put everything together
     let listening_addresses = match (maybe_ipv4, maybe_ipv6) {
         (None, None) => {
@@ -1056,7 +1054,6 @@ pub fn parse_listening_addresses(
                 } else {
                     ipv4_tcp_port + 1
                 });
-
 
             // Defaults to 9090 when required
             let ipv6_tcp_port = use_zero_ports
@@ -1428,7 +1425,7 @@ pub fn set_network_config(
             if config_str.as_str() == "disabled" {
                 None
             } else {
-                Some(config_str.parse()?) 
+                Some(config_str.parse()?)
             }
             // Enabled with a custom configuration
             // Some(config_str.parse()?)

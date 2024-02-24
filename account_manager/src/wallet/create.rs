@@ -92,15 +92,27 @@ pub fn cli_app() -> Command {
                 .value_name("MNEMONIC_LENGTH")
                 .help("The number of words to use for the mnemonic phrase.")
                 .action(ArgAction::Set)
-                // TODO
-                // .value_parser(|len: &str| {
-                //     match len.parse::<usize>().ok().and_then(|words| MnemonicType::for_word_count(words).ok()) {
-                //         Some(_) => Ok(()),
-                //         None => Err(format!("Mnemonic length must be one of {}", MNEMONIC_TYPES.iter().map(|t| t.word_count().to_string()).collect::<Vec<_>>().join(", "))),
-                //     }
-                // })
+                .value_parser(check_mnemonic_length)
                 .default_value("24"),
         )
+}
+
+fn check_mnemonic_length(len: &str) -> Result<String, String> {
+    match len
+        .parse::<usize>()
+        .ok()
+        .and_then(|words| MnemonicType::for_word_count(words).ok())
+    {
+        Some(_) => Ok(len.to_string()),
+        None => Err(format!(
+            "Mnemonic length must be one of {}",
+            MNEMONIC_TYPES
+                .iter()
+                .map(|t| t.word_count().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
 }
 
 pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
