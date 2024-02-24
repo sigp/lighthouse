@@ -135,7 +135,9 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 leveldb_impl::LevelDB::iter_column_keys_from(txn, _column, from)
             }
             #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_keys_from(txn, _column, from),
+            BeaconNodeBackend::Redb(txn) => {
+                redb_impl::Redb::iter_column_keys_from(txn, _column, from)
+            }
         }
     }
 

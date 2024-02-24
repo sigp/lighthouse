@@ -117,7 +117,6 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         // reference to the lock guard across calls to `.next()`. This would be require a
         // struct with a field (the iterator) which references another field (the lock guard).
         let start_key = BytesKey::from_vec(get_key_for_col(column.as_str(), from));
-        let col = column.as_str();
         let keys = self
             .db
             .read()
@@ -126,10 +125,8 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             .filter_map(|(k, _)| k.remove_column_variable(column).map(|k| k.to_vec()))
             .collect::<Vec<_>>();
         Ok(Box::new(keys.into_iter().filter_map(move |key| {
-            self.get_bytes(col, &key).transpose().map(|res| {
-                let k = K::from_bytes(&key)?;
-                Ok(k)
-            })
+            let k = K::from_bytes(&key);
+            Some(k)
         })))
     }
 }

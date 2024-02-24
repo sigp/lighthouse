@@ -199,7 +199,7 @@ impl<E: EthSpec> Redb<E> {
 
     pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-        TableDefinition::new(column.into());
+            TableDefinition::new(column.into());
 
         let iter = {
             let open_db = self.db.read();

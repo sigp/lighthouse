@@ -1,7 +1,7 @@
 use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::Key;
 use crate::{
-    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp
+    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp,
 };
 use leveldb::{
     compaction::Compaction,
@@ -220,20 +220,15 @@ impl<E: EthSpec> LevelDB<E> {
     }
 
     pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
-        let start_key =
-            BytesKey::from_vec(get_key_for_col(column.into(), from));
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
 
         let iter = self.db.keys_iter(self.read_options());
         iter.seek(&start_key);
 
         Ok(Box::new(
-            iter.take_while(move |key| key.matches_column(column))
+            iter.take_while(move |key| key.key.starts_with(start_key.key.as_slice()))
                 .map(move |bytes_key| {
-                    let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
-                        HotColdDBError::IterationError {
-                            unexpected_key: bytes_key.clone(),
-                        }
-                    })?;
+                    let key = &bytes_key.key[column.as_bytes().len()..];
                     K::from_bytes(key)
                 }),
         ))
@@ -241,7 +236,7 @@ impl<E: EthSpec> LevelDB<E> {
 
     /// Iterate through all keys and values in a particular column.
     pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
-        self.iter_column_keys_from(column, &vec![0; column.key_size()])
+        self.iter_column_keys_from(column, &[])
     }
 
     /// Return an iterator over the state roots of all temporary states.
