@@ -25,6 +25,7 @@ pub use types::{
     Withdrawal, Withdrawals,
 };
 use types::{ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, KzgProofs};
+use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
 pub mod auth;
 pub mod http;
@@ -62,7 +63,6 @@ pub enum Error {
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
-    MethodNotSupported(String),
     InvalidClientVersion(String),
     RlpDecoderError(rlp::DecoderError),
 }
@@ -664,7 +664,7 @@ impl std::fmt::Display for ClientCode {
             ClientCode::Teku => "TK",
             ClientCode::Prysm => "PM",
             ClientCode::Reth => "RH",
-            ClientCode::Unknown(code) => &code,
+            ClientCode::Unknown(code) => code,
         };
         write!(f, "{}", s)
     }
@@ -705,14 +705,22 @@ impl TryFrom<String> for CommitPrefix {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        // Ensure length is exactly 8 characters
-        if value.len() != 8 {
-            return Err("Input must be exactly 8 characters long".to_string());
+        // Check if the input starts with '0x' and strip it if it does
+        let hex_str = value
+            .strip_prefix("0x")
+            .map(|stripped| stripped.to_string())
+            .unwrap_or(value);
+
+        // Ensure length is exactly 8 characters after '0x' removal
+        if hex_str.len() != 8 {
+            return Err(
+                "Input must be exactly 8 characters long (excluding any '0x' prefix)".to_string(),
+            );
         }
 
         // Ensure all characters are valid hex digits
-        if value.chars().all(|c| c.is_digit(16)) {
-            Ok(CommitPrefix(value.to_lowercase()))
+        if hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
+            Ok(CommitPrefix(hex_str.to_lowercase()))
         } else {
             Err("Input must contain only hexadecimal characters".to_string())
         }
@@ -731,4 +739,29 @@ pub struct ClientVersionV1 {
     pub name: String,
     pub version: String,
     pub commit: CommitPrefix,
+}
+
+impl ClientVersionV1 {
+    pub fn calculate_graffiti(&self, lighthouse_commit_prefix: CommitPrefix) -> Graffiti {
+        let graffiti_string = format!(
+            "{}{}LH{}",
+            self.code,
+            self.commit
+                .0
+                .get(..4)
+                .map_or_else(|| self.commit.0.as_str(), |s| s)
+                .to_uppercase(),
+            lighthouse_commit_prefix
+                .0
+                .get(..4)
+                .unwrap_or("0000")
+                .to_uppercase(),
+        );
+        let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
+        let bytes_to_copy = std::cmp::min(graffiti_string.len(), GRAFFITI_BYTES_LEN);
+        graffiti_bytes[..bytes_to_copy]
+            .copy_from_slice(&graffiti_string.as_bytes()[..bytes_to_copy]);
+
+        Graffiti::from(graffiti_bytes)
+    }
 }

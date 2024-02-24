@@ -879,6 +879,7 @@ version = "0.2.0"
 dependencies = [
  "bitvec 1.0.1",
  "bls",
+ "clap",
  "derivative",
  "environment",
  "eth1",
@@ -898,6 +899,7 @@ dependencies = [
  "kzg",
  "lazy_static",
  "lighthouse_metrics",
+ "lighthouse_version",
  "logging",
  "lru",
  "maplit",

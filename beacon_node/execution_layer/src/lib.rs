@@ -10,7 +10,7 @@ use auth::{strip_prefix, Auth, JwtKey};
 pub use block_hash::calculate_execution_block_hash;
 use builder_client::BuilderHttpClient;
 pub use engine_api::EngineCapabilities;
-use engine_api::Error as ApiError;
+pub use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
@@ -155,6 +155,24 @@ impl From<BeaconStateError> for Error {
 impl From<ApiError> for Error {
     fn from(e: ApiError) -> Self {
         Error::ApiError(e)
+    }
+}
+
+impl From<EngineError> for Error {
+    fn from(e: EngineError) -> Self {
+        match e {
+            // This removes an unnecessary layer of indirection.
+            // TODO (mark): consider refactoring these error enums
+            EngineError::Api { error } => Error::ApiError(error),
+            _ => Error::EngineError(Box::new(e)),
+        }
+    }
+}
+
+impl Error {
+    // returns true if this error is caused by the execution engine not supporting a method
+    pub fn is_method_unsupported(&self, method: &'static str) -> bool {
+        matches!(self, Error::ApiError(ApiError::RequiredMethodUnsupported(m)) if *m == method)
     }
 }
 
@@ -1519,8 +1537,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.engine()
             .request(|engine| engine.get_engine_capabilities(age_limit))
             .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
+            .map_err(Into::into)
     }
 
     /// Returns the execution engine version resulting from a call to
@@ -1539,8 +1556,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.engine()
             .request(|engine| engine.get_engine_version(age_limit))
             .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
+            .map_err(Into::into)
     }
 
     /// Used during block production to determine if the merge has been triggered.
