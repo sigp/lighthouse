@@ -1,8 +1,7 @@
 use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::Key;
 use crate::{
-    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp,
-    RawEntryIter, RawKeyIter,
+    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp
 };
 use leveldb::{
     compaction::Compaction,
@@ -185,9 +184,11 @@ impl<E: EthSpec> LevelDB<E> {
         ] {
             self.db.compact(&start_key, &end_key);
         }
+
+        Ok(())
     }
 
-    fn compact_column(&self, column: DBColumn) -> Result<(), Error> {
+    pub fn compact_column(&self, column: DBColumn) -> Result<(), Error> {
         // Use key-size-agnostic keys [] and 0xff..ff with a minimum of 32 bytes to account for
         // columns that may change size between sub-databases or schema versions.
         let start_key = BytesKey::from_vec(get_key_for_col(column.as_str(), &[]));
@@ -218,10 +219,9 @@ impl<E: EthSpec> LevelDB<E> {
         ))
     }
 
-    /// Iterate through all keys and values in a particular column.
-    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+    pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
         let start_key =
-            BytesKey::from_vec(get_key_for_col(column.into(), &vec![0; column.key_size()]));
+            BytesKey::from_vec(get_key_for_col(column.into(), from));
 
         let iter = self.db.keys_iter(self.read_options());
         iter.seek(&start_key);
@@ -237,6 +237,11 @@ impl<E: EthSpec> LevelDB<E> {
                     K::from_bytes(key)
                 }),
         ))
+    }
+
+    /// Iterate through all keys and values in a particular column.
+    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+        self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
     /// Return an iterator over the state roots of all temporary states.
@@ -260,36 +265,6 @@ impl<E: EthSpec> LevelDB<E> {
                     .into()
                 })
             }))
-    }
-
-    pub fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
-        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
-
-        let iter = self.db.iter(self.read_options());
-        iter.seek(&start_key);
-
-        Ok(Box::new(
-            iter.take_while(move |(key, _)| key.key.starts_with(start_key.key.as_slice()))
-                .map(move |(bytes_key, value)| {
-                    let subkey = &bytes_key.key[column.as_bytes().len()..];
-                    Ok((Vec::from(subkey), value))
-                }),
-        ))
-    }
-
-    pub fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
-        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
-
-        let iter = self.db.keys_iter(self.read_options());
-        iter.seek(&start_key);
-
-        Ok(Box::new(
-            iter.take_while(move |key| key.key.starts_with(start_key.key.as_slice()))
-                .map(move |bytes_key| {
-                    let subkey = &bytes_key.key[column.as_bytes().len()..];
-                    Ok(Vec::from(subkey))
-                }),
-        ))
     }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {

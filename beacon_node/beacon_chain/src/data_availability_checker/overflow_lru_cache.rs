@@ -220,7 +220,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         for res in self
             .0
             .hot_db
-            .iter_raw_entries(DBColumn::OverflowLRUCache, block_root.as_bytes())?
+            .iter_column_from::<Vec<u8>>(DBColumn::OverflowLRUCache, block_root.as_bytes())?
         {
             let (key_bytes, value_bytes) = res?;
             match OverflowKey::from_ssz_bytes(&key_bytes)? {
@@ -252,7 +252,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         for res in self
             .0
             .hot_db
-            .iter_raw_keys(DBColumn::OverflowLRUCache, &[])?
+            .iter_column_keys_from::<Vec<u8>>(DBColumn::OverflowLRUCache, &[])?
         {
             let key_bytes = res?;
             disk_keys.insert(*OverflowKey::from_ssz_bytes(&key_bytes)?.root());
@@ -643,7 +643,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             .overflow_store
             .0
             .hot_db
-            .iter_raw_entries(DBColumn::OverflowLRUCache, &[])?
+            .iter_column_from::<Vec<u8>>(DBColumn::OverflowLRUCache, &[])?
         {
             let (key_bytes, value_bytes) = res?;
             let overflow_key = OverflowKey::from_ssz_bytes(&key_bytes)?;

@@ -197,22 +197,26 @@ impl<E: EthSpec> Redb<E> {
         mut_db.compact().map_err(Into::into).map(|_| ())
     }
 
-    /// Iterate through all keys and values in a particular column.
-    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+    pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(column.into());
+        TableDefinition::new(column.into());
 
         let iter = {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
-            table.range(Hash256::zero().as_bytes()..)?.map(|res| {
+            table.range(from..)?.map(|res| {
                 let (k, _) = res?;
                 K::from_bytes(k.value())
             })
         };
 
         Ok(Box::new(iter))
+    }
+
+    /// Iterate through all keys and values in a particular column.
+    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+        self.iter_column_keys_from(column, Hash256::zero().as_bytes())
     }
 
     pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
@@ -234,24 +238,6 @@ impl<E: EthSpec> Redb<E> {
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
         self.iter_column_from(column, &vec![0; column.key_size()])
-    }
-
-    pub fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
-        println!("iter_raw_entries");
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(column.into());
-
-        let iter = {
-            let open_db = self.db.read();
-            let read_txn = open_db.begin_read()?;
-            let table = read_txn.open_table(table_definition)?;
-            table.range(prefix..)?.map(|res| {
-                let (k, v) = res?;
-                Ok((k.value().to_vec(), v.value().to_vec()))
-            })
-        };
-
-        Ok(Box::new(iter))
     }
 
     pub fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {

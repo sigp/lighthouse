@@ -128,6 +128,17 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         }
     }
 
+    fn iter_column_keys_from<K: Key>(&self, _column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => {
+                leveldb_impl::LevelDB::iter_column_keys_from(txn, _column, from)
+            }
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_keys_from(txn, _column, from),
+        }
+    }
+
     fn iter_column_keys<K: Key>(&self, _column: DBColumn) -> ColumnKeyIter<K> {
         match self {
             #[cfg(feature = "leveldb")]
@@ -147,28 +158,6 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             }
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_from(txn, column, from),
-        }
-    }
-
-    fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> crate::RawEntryIter {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::iter_raw_entries(txn, column, prefix)
-            }
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_raw_entries(txn, column, prefix),
-        }
-    }
-
-    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> crate::RawKeyIter {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::iter_raw_keys(txn, column, prefix)
-            }
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_raw_keys(txn, column, prefix),
         }
     }
 

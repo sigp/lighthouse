@@ -105,16 +105,13 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Iterate through all keys and values in a column from a given starting point.
     fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
 
-    fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
-        Ok(Box::new(std::iter::empty()))
-    }
-
-    fn iter_raw_keys(&self, _column: DBColumn, _prefix: &[u8]) -> RawKeyIter {
-        Ok(Box::new(std::iter::empty()))
+    /// Iterate through all keys in a particular column.
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+        self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
     /// Iterate through all keys in a particular column.
-    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
+    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K>;
 }
 
 pub trait Key: Sized + 'static {

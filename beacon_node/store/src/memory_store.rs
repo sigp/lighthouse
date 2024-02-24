@@ -104,18 +104,33 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         })))
     }
 
-    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
-        Ok(Box::new(
-            self.iter_column(column)?.map(|res| res.map(|(k, _)| k)),
-        ))
-    }
-
     fn begin_rw_transaction(&self) -> MutexGuard<()> {
         self.transaction_mutex.lock()
     }
 
     fn compact_column(&self, _column: DBColumn) -> Result<(), Error> {
         Ok(())
+    }
+
+    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
+        // We use this awkward pattern because we can't lock the `self.db` field *and* maintain a
+        // reference to the lock guard across calls to `.next()`. This would be require a
+        // struct with a field (the iterator) which references another field (the lock guard).
+        let start_key = BytesKey::from_vec(get_key_for_col(column.as_str(), from));
+        let col = column.as_str();
+        let keys = self
+            .db
+            .read()
+            .range(start_key..)
+            .take_while(|(k, _)| k.remove_column_variable(column).is_some())
+            .filter_map(|(k, _)| k.remove_column_variable(column).map(|k| k.to_vec()))
+            .collect::<Vec<_>>();
+        Ok(Box::new(keys.into_iter().filter_map(move |key| {
+            self.get_bytes(col, &key).transpose().map(|res| {
+                let k = K::from_bytes(&key)?;
+                Ok(k)
+            })
+        })))
     }
 }
 
