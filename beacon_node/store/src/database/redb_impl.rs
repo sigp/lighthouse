@@ -216,7 +216,7 @@ impl<E: EthSpec> Redb<E> {
 
     /// Iterate through all keys and values in a particular column.
     pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
-        self.iter_column_keys_from(column, Hash256::zero().as_bytes())
+        self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
     pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
@@ -227,8 +227,12 @@ impl<E: EthSpec> Redb<E> {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
+
+            println!("table entries {}", table.len()?);
             table.range(from..)?.map(|res| {
                 let (k, v) = res?;
+                println!("key {:?}", k.value());
+                println!("key len {}", k.value().len());
                 Ok((K::from_bytes(k.value())?, v.value().to_vec()))
             })
         };

@@ -206,14 +206,30 @@ impl<E: EthSpec> LevelDB<E> {
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
+        println!("{:?}", start_key.key.as_slice());
+        println!("{:?}", column.as_bytes());
+
         Ok(Box::new(
-            iter.take_while(move |(key, _)| key.matches_column(column))
+            iter.take_while(move |(key, _)| {
+                if !key.key.starts_with(start_key.key.as_slice()) {
+                    println!("key {:?}", key.key);
+                    println!("column {:?}", column.as_bytes());
+                    println!("key len {:?}", key.key.len());
+                    println!("start key len {:?}", start_key.key.as_slice().len());
+                    println!("matches: {}", key.matches_column(column));
+                }
+         
+                key.matches_column(column)
+                // key.key.starts_with(start_key.key.as_slice())
+            })
                 .map(move |(bytes_key, value)| {
                     let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
                         HotColdDBError::IterationError {
                             unexpected_key: bytes_key.clone(),
                         }
                     })?;
+                    // println!("key {:?}", key);
+                    // println!("key len {}", key.len());
                     Ok((K::from_bytes(key)?, value))
                 }),
         ))
@@ -226,7 +242,7 @@ impl<E: EthSpec> LevelDB<E> {
         iter.seek(&start_key);
 
         Ok(Box::new(
-            iter.take_while(move |key| key.key.starts_with(start_key.key.as_slice()))
+            iter.take_while(move |key| key.matches_column(column))
                 .map(move |bytes_key| {
                     let key = &bytes_key.key[column.as_bytes().len()..];
                     K::from_bytes(key)
@@ -236,7 +252,7 @@ impl<E: EthSpec> LevelDB<E> {
 
     /// Iterate through all keys and values in a particular column.
     pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
-        self.iter_column_keys_from(column, &[])
+        self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
     /// Return an iterator over the state roots of all temporary states.
@@ -263,6 +279,7 @@ impl<E: EthSpec> LevelDB<E> {
     }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+        println!("column key {}, size {:?}", column.as_str(), column.key_size());
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 }
