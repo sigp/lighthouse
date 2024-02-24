@@ -578,11 +578,7 @@ where
         // This prevents the database from restarting in an inconsistent state if the anchor
         // info or split point is written before the `PersistedBeaconChain`.
         let retain_historic_states = self.chain_config.reconstruct_historic_states;
-        self.pending_io_batch.push(
-            store
-                .store_split_in_batch()
-                .map_err(|e| format!("Failed to store split: {:?}", e))?,
-        );
+        self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
                 .init_anchor_info(weak_subj_block.message(), retain_historic_states)
@@ -875,19 +871,16 @@ where
         // This *must* be stored before constructing the `BeaconChain`, so that its `Drop` instance
         // doesn't write a `PersistedBeaconChain` without the rest of the batch.
         let head_tracker_reader = head_tracker.0.read();
-        self.pending_io_batch
-            .push(BeaconChain::<
-                Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
-            >::persist_head_in_batch_standalone(
-                genesis_block_root,
-                &head_tracker_reader,
-            )
-            .map_err(|e| format!("{e:?}"))?);
+        self.pending_io_batch.push(BeaconChain::<
+            Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
+        >::persist_head_in_batch_standalone(
+            genesis_block_root, &head_tracker_reader
+        ));
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
         >::persist_fork_choice_in_batch_standalone(
             &fork_choice
-        ).map_err(|e| format!("{e:?}"))?);
+        ));
         store
             .hot_db
             .do_atomically(self.pending_io_batch)
