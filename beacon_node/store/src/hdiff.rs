@@ -6,7 +6,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::io::{Read, Write};
 use std::str::FromStr;
-use types::{BeaconState, ChainSpec, EthSpec, Slot, VList};
+use types::{BeaconState, ChainSpec, EthSpec, List, Slot};
 use zstd::{Decoder, Encoder};
 
 #[derive(Debug)]
@@ -91,7 +91,7 @@ impl HDiffBuffer {
 
     pub fn into_state<E: EthSpec>(self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
         let mut state = BeaconState::from_ssz_bytes(&self.state, spec).unwrap();
-        *state.balances_mut() = VList::new(self.balances).unwrap();
+        *state.balances_mut() = List::new(self.balances).unwrap();
         Ok(state)
     }
 }

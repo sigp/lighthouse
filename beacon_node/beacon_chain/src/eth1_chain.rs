@@ -1021,7 +1021,7 @@ mod test {
 
     mod collect_valid_votes {
         use super::*;
-        use types::VList;
+        use types::List;
 
         fn get_eth1_data_vec(n: u64, block_number_offset: u64) -> Vec<(Eth1Data, BlockNumber)> {
             (0..n)
@@ -1069,7 +1069,7 @@ mod test {
 
             let votes_to_consider = get_eth1_data_vec(slots, 0);
 
-            *state.eth1_data_votes_mut() = VList::new(
+            *state.eth1_data_votes_mut() = List::new(
                 votes_to_consider[0..slots as usize / 4]
                     .iter()
                     .map(|(eth1_data, _)| eth1_data)
@@ -1100,7 +1100,7 @@ mod test {
                 .expect("should have some eth1 data")
                 .clone();
 
-            *state.eth1_data_votes_mut() = VList::new(
+            *state.eth1_data_votes_mut() = List::new(
                 vec![duplicate_eth1_data.clone(); 4]
                     .iter()
                     .map(|(eth1_data, _)| eth1_data)

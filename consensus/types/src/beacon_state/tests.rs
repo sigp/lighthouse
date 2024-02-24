@@ -4,7 +4,7 @@ use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
     test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateCapella,
     BeaconStateDeneb, BeaconStateError, BeaconStateMerge, ChainSpec, Domain, Epoch, EthSpec,
-    FixedVector, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot,
+    Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot, Vector,
 };
 use ssz::Encode;
 use std::ops::Mul;
@@ -250,7 +250,7 @@ mod committees {
 
         let distinct_hashes =
             (0..T::epochs_per_historical_vector()).map(|i| Hash256::from_low_u64_be(i as u64));
-        *new_head_state.randao_mixes_mut() = FixedVector::try_from_iter(distinct_hashes).unwrap();
+        *new_head_state.randao_mixes_mut() = Vector::try_from_iter(distinct_hashes).unwrap();
 
         new_head_state
             .force_build_committee_cache(RelativeEpoch::Previous, spec)
