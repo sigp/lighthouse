@@ -9,15 +9,13 @@
 //! are supported via compile-time flags. There are three backends supported via features:
 //!
 //! - `supranational`: the pure-assembly, highly optimized version from the `blst` crate.
-//! - `milagro`: the classic pure-Rust `milagro_bls` crate.
 //! - `fake_crypto`: an always-returns-valid implementation that is only useful for testing
 //!     scenarios which intend to *ignore* real cryptography.
 //!
 //! This crate uses traits to reduce code-duplication between the two implementations. For example,
 //! the `GenericPublicKey` struct exported from this crate is generic across the `TPublicKey` trait
 //! (i.e., `PublicKey<TPublicKey>`). `TPublicKey` is implemented by all three backends (see the
-//! `impls.rs` module). When compiling with the `milagro` feature, we export
-//! `type PublicKey = GenericPublicKey<milagro::PublicKey>`.
+//! `impls.rs` module).
 
 #[macro_use]
 mod macros;
@@ -43,16 +41,11 @@ pub use zeroize_hash::ZeroizeHash;
 
 #[cfg(feature = "supranational")]
 use blst::BLST_ERROR as BlstError;
-#[cfg(feature = "milagro")]
-use milagro_bls::AmclError;
 
 pub type Hash256 = ethereum_types::H256;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
-    /// An error was raised from the Milagro BLS library.
-    #[cfg(feature = "milagro")]
-    MilagroError(AmclError),
     /// An error was raised from the Supranational BLST BLS library.
     #[cfg(feature = "supranational")]
     BlstError(BlstError),
