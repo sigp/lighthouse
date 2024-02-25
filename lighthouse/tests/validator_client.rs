@@ -421,20 +421,6 @@ fn no_doppelganger_protection_flag() {
         .run()
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
-#[test]
-fn produce_block_v3_flag() {
-    CommandLineTest::new()
-        .flag("produce-block-v3", None)
-        .run()
-        .with_config(|config| assert!(config.produce_block_v3));
-}
-
-#[test]
-fn no_produce_block_v3_flag() {
-    CommandLineTest::new()
-        .run()
-        .with_config(|config| assert!(!config.produce_block_v3));
-}
 
 #[test]
 fn no_gas_limit_flag() {
