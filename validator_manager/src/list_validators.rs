@@ -11,7 +11,8 @@ pub const VC_TOKEN_FLAG: &str = "vc-token";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-        .about("List validators",
+        .about(
+            "List validators of a validator client using the HTTP API. The validators",
         )
         .arg(
             Arg::with_name(VC_URL_FLAG)
@@ -21,6 +22,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "A HTTP(S) address of a validator client using the keymanager-API."
                 )
                 .default_value("http://localhost:5062")
+                .required(true) // Not actually required but I want it to show up in Usage
                 .requires(VC_TOKEN_FLAG)
                 .takes_value(true),
         )
@@ -32,6 +34,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
 }
+
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct ListConfig {
