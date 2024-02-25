@@ -132,8 +132,6 @@ macro_rules! define_mod {
     };
 }
 
-#[cfg(feature = "milagro")]
-define_mod!(milagro_implementations, crate::impls::milagro::types);
 #[cfg(feature = "supranational")]
 define_mod!(blst_implementations, crate::impls::blst::types);
 #[cfg(feature = "fake_crypto")]
