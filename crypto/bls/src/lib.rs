@@ -136,7 +136,6 @@ define_mod!(
 #[cfg(all(
     feature = "supranational",
     not(feature = "fake_crypto"),
-    not(feature = "milagro")
 ))]
 pub use blst_implementations::*;
 
