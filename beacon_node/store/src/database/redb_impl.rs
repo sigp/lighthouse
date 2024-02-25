@@ -117,16 +117,18 @@ impl<E: EthSpec> Redb<E> {
 
         let result = table.get(key)?;
 
-        // TODO: clean this up
-        if let Some(access_guard) = result {
-            let value = access_guard.value().to_vec();
-            metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, value.len() as u64);
-            metrics::stop_timer(timer);
-            Ok(Some(value))
-        } else {
-            metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, 0_u64);
-            metrics::stop_timer(timer);
-            Ok(None)
+        match result {
+            Some(access_guard) => {
+                let value = access_guard.value().to_vec();
+                metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, value.len() as u64);
+                metrics::stop_timer(timer);
+                return Ok(Some(value));
+            },
+            None => {
+                metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, 0_u64);
+                metrics::stop_timer(timer);
+                return Ok(None);
+            },
         }
     }
 
@@ -223,14 +225,19 @@ impl<E: EthSpec> Redb<E> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
+        let mut to = from.to_vec();
+        to.push(u8::MAX);
+        
+
         let iter = {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
 
             println!("table entries {}", table.len()?);
-            table.range(from..)?.map(|res| {
+            table.range(from..to.as_slice())?.map(|res| {
                 let (k, v) = res?;
+                
                 println!("key {:?}", k.value());
                 println!("key len {}", k.value().len());
                 Ok((K::from_bytes(k.value())?, v.value().to_vec()))
@@ -244,23 +251,6 @@ impl<E: EthSpec> Redb<E> {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
-    pub fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(column.into());
-
-        let iter = {
-            let open_db = self.db.read();
-            let read_txn = open_db.begin_read()?;
-            let table = read_txn.open_table(table_definition)?;
-            table.range(prefix..)?.map(|res| {
-                let (k, _) = res?;
-                Ok(k.value().to_vec())
-            })
-        };
-
-        Ok(Box::new(iter))
-    }
-
     /// Return an iterator over the state roots of all temporary states.
     pub fn iter_temporary_state_roots(
         &self,
@@ -268,12 +258,13 @@ impl<E: EthSpec> Redb<E> {
     ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
+        let start: Vec<u8> = vec![0; column.key_size()];
 
         let iter = {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
-            table.range(Hash256::zero().as_bytes()..)?.map(|res| {
+            table.range(start.as_slice()..)?.map(|res| {
                 let (k, _) = res?;
                 Hash256::from_bytes(k.value())
             })

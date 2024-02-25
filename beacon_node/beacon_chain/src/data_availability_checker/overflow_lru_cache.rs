@@ -84,9 +84,7 @@ impl<T: EthSpec> PendingComponents<T> {
             verified_blobs,
             executed_block,
         } = self;
-        println!("A");
         let Some(diet_executed_block) = executed_block else {
-            println!("FAILURE POINT A");
             return Err(AvailabilityCheckError::Unexpected);
         };
         let num_blobs_expected = diet_executed_block.num_blobs_expected();
@@ -99,11 +97,9 @@ impl<T: EthSpec> PendingComponents<T> {
             .take(num_blobs_expected)
             .collect::<Option<Vec<_>>>()
         else {
-            println!("FAILURE POINT B");
             return Err(AvailabilityCheckError::Unexpected);
         };
         let verified_blobs = VariableList::new(verified_blobs)?;
-        println!("B");
         let executed_block = recover(diet_executed_block)?;
 
         let AvailabilityPendingExecutedBlock {
@@ -224,7 +220,8 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         {
             let (key_bytes, value_bytes) = res?;
             match OverflowKey::from_ssz_bytes(&key_bytes)? {
-                OverflowKey::Block(_) => {
+                OverflowKey::Block(b) => {
+                    println!("block {:?}", b);
                     maybe_pending_components
                         .get_or_insert_with(|| PendingComponents::empty(block_root))
                         .executed_block =
@@ -232,7 +229,8 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
                             value_bytes.as_slice(),
                         )?);
                 }
-                OverflowKey::Blob(_, index) => {
+                OverflowKey::Blob(b, index) => {
+                    println!("blob {:?}", b);
                     *maybe_pending_components
                         .get_or_insert_with(|| PendingComponents::empty(block_root))
                         .verified_blobs
@@ -457,7 +455,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         pending_components.merge_blobs(fixed_blobs);
 
         if pending_components.is_available() {
-            println!("IS AVAILABLE");
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(|diet_block| {
@@ -479,7 +476,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        println!("put_pending_executed_block");
         let mut write_lock = self.critical.write();
         let block_root = executed_block.import_data.block_root;
 
@@ -504,7 +500,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 self.state_cache.recover_pending_executed_block(diet_block)
             })
         } else {
-            println!("{}", block_root);
             write_lock.put_pending_components(
                 block_root,
                 pending_components,
@@ -1555,9 +1550,6 @@ mod test {
                 let availability = recovered_cache
                     .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                     .expect("should put blob");
-                println!("i counter {}", i);
-                println!("additional_blobs {}", additional_blobs - i);
-                println!("{:?}", availability);
                 if i == additional_blobs - 1 {
                     assert!(matches!(availability, Availability::Available(_)))
                 } else {

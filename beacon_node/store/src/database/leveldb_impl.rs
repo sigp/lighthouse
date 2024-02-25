@@ -211,16 +211,16 @@ impl<E: EthSpec> LevelDB<E> {
 
         Ok(Box::new(
             iter.take_while(move |(key, _)| {
-                if !key.key.starts_with(start_key.key.as_slice()) {
-                    println!("key {:?}", key.key);
-                    println!("column {:?}", column.as_bytes());
-                    println!("key len {:?}", key.key.len());
-                    println!("start key len {:?}", start_key.key.as_slice().len());
-                    println!("matches: {}", key.matches_column(column));
-                }
+                // if !key.key.starts_with(start_key.key.as_slice()) {
+                //     println!("key {:?}", key.key);
+                //     println!("column {:?}", column.as_bytes());
+                //     println!("key len {:?}", key.key.len());
+                //     println!("start key len {:?}", start_key.key.as_slice().len());
+                //     println!("matches: {}", key.matches_column(column));
+                // }
          
-                key.matches_column(column)
-                // key.key.starts_with(start_key.key.as_slice())
+                // key.matches_column(column)
+                key.key.starts_with(start_key.key.as_slice())
             })
                 .map(move |(bytes_key, value)| {
                     let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
@@ -228,8 +228,8 @@ impl<E: EthSpec> LevelDB<E> {
                             unexpected_key: bytes_key.clone(),
                         }
                     })?;
-                    // println!("key {:?}", key);
-                    // println!("key len {}", key.len());
+                    println!("key {:?}", key);
+                    println!("key len {}", key.len());
                     Ok((K::from_bytes(key)?, value))
                 }),
         ))
