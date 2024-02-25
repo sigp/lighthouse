@@ -78,8 +78,8 @@ async fn run<'a>(config: ListConfig) -> Result<(), String> {
             return Err(format!("Failed to list validators: {:?}", e));
         }
     };
-    for validator in response.data {
-        println!("{validator:?}");
+    for (i, validator) in response.data.into_iter().enumerate() {
+        println!("{i:3}: {validator:?}");
     }
 
     Ok(())
