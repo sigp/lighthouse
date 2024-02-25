@@ -1,7 +1,7 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
-    ENGINE_CLIENT_VERSION_V1, ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2,
-    ENGINE_FORKCHOICE_UPDATED_V3, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
+    ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
 };
@@ -585,7 +585,7 @@ pub struct EngineCapabilities {
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
-    pub client_version_v1: bool,
+    pub get_client_version_v1: bool,
 }
 
 impl EngineCapabilities {
@@ -624,8 +624,8 @@ impl EngineCapabilities {
         if self.get_payload_v3 {
             response.push(ENGINE_GET_PAYLOAD_V3);
         }
-        if self.client_version_v1 {
-            response.push(ENGINE_CLIENT_VERSION_V1);
+        if self.get_client_version_v1 {
+            response.push(ENGINE_GET_CLIENT_VERSION_V1);
         }
 
         response
@@ -706,21 +706,18 @@ impl TryFrom<String> for CommitPrefix {
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         // Check if the input starts with '0x' and strip it if it does
-        let hex_str = value
-            .strip_prefix("0x")
-            .map(|stripped| stripped.to_string())
-            .unwrap_or(value);
+        let commit_prefix = value.strip_prefix("0x").unwrap_or(&value);
 
         // Ensure length is exactly 8 characters after '0x' removal
-        if hex_str.len() != 8 {
+        if commit_prefix.len() != 8 {
             return Err(
                 "Input must be exactly 8 characters long (excluding any '0x' prefix)".to_string(),
             );
         }
 
         // Ensure all characters are valid hex digits
-        if hex_str.chars().all(|c| c.is_ascii_hexdigit()) {
-            Ok(CommitPrefix(hex_str.to_lowercase()))
+        if commit_prefix.chars().all(|c| c.is_ascii_hexdigit()) {
+            Ok(CommitPrefix(commit_prefix.to_lowercase()))
         } else {
             Err("Input must contain only hexadecimal characters".to_string())
         }
@@ -750,12 +747,12 @@ impl ClientVersionV1 {
                 .0
                 .get(..4)
                 .map_or_else(|| self.commit.0.as_str(), |s| s)
-                .to_uppercase(),
+                .to_lowercase(),
             lighthouse_commit_prefix
                 .0
                 .get(..4)
                 .unwrap_or("0000")
-                .to_uppercase(),
+                .to_lowercase(),
         );
         let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
         let bytes_to_copy = std::cmp::min(graffiti_string.len(), GRAFFITI_BYTES_LEN);

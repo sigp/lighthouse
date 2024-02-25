@@ -1,7 +1,7 @@
 use crate::BeaconChain;
 use crate::BeaconChainTypes;
 use clap::ArgMatches;
-use execution_layer::{http::ENGINE_CLIENT_VERSION_V1, CommitPrefix, ExecutionLayer};
+use execution_layer::{http::ENGINE_GET_CLIENT_VERSION_V1, CommitPrefix, ExecutionLayer};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
@@ -115,32 +115,25 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                 // The engine version cache refresh service ensures this will almost always retrieve this data from the
                 // cache instead of making a request to the execution engine. A cache miss would only occur if lighthouse
                 // has recently started or the EL recently went offline.
-                let engine_versions_response = execution_layer
+                let engine_versions = match execution_layer
                     .get_engine_version(Some(
                         self.epoch_duration * ENGINE_VERSION_AGE_LIMIT_EPOCH_MULTIPLE,
                     ))
-                    .await;
-                let engine_versions = match engine_versions_response {
+                    .await
+                {
+                    Ok(engine_versions) => engine_versions,
                     Err(el_error) => {
-                        if el_error.is_method_unsupported(ENGINE_CLIENT_VERSION_V1) {
-                            debug!(
-                                self.log,
-                                "Using default lighthouse graffiti: EL does not support {} method",
-                                ENGINE_CLIENT_VERSION_V1
-                            );
-                        } else {
-                            warn!(self.log, "Failed to determine execution engine version for graffiti"; "error" => format!("{:?}", el_error));
-                        }
+                        warn!(self.log, "Failed to determine execution engine version for graffiti"; "error" => ?el_error);
                         return default_graffiti;
                     }
-                    Ok(engine_versions) => engine_versions,
                 };
 
                 let Some(engine_version) = engine_versions.first() else {
-                    // Some kind of error occurred, return default graffiti.
-                    error!(
+                    // Got an empty array which indicates the EL doesn't support the method
+                    debug!(
                         self.log,
-                        "Got empty engine version response from execution layer"
+                        "Using default lighthouse graffiti: EL does not support {} method",
+                        ENGINE_GET_CLIENT_VERSION_V1;
                     );
                     return default_graffiti;
                 };
@@ -148,16 +141,19 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                     // More than one version implies lighthouse is connected to
                     // an EL multiplexer. We don't support modifying the graffiti
                     // with these configurations.
-                    warn!(self.log, "Multiplexer detected, using default graffiti");
+                    warn!(
+                        self.log,
+                        "Execution Engine multiplexer detected, using default graffiti"
+                    );
                     return default_graffiti;
                 }
 
                 let lighthouse_commit_prefix = CommitPrefix::try_from(lighthouse_version::COMMIT_PREFIX.to_string())
-                .unwrap_or_else(|error_message| {
-                    // This really shouldn't happen but we want to definitly log if it does
-                    crit!(self.log, "Failed to parse lighthouse commit prefix"; "error" => error_message);
-                    CommitPrefix("00000000".to_string())
-                });
+                    .unwrap_or_else(|error_message| {
+                        // This really shouldn't happen but we want to definitly log if it does
+                        crit!(self.log, "Failed to parse lighthouse commit prefix"; "error" => error_message);
+                        CommitPrefix("00000000".to_string())
+                    });
 
                 engine_version.calculate_graffiti(lighthouse_commit_prefix)
             }
@@ -224,19 +220,21 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
                     "Engine version cache refresh service firing";
                 );
 
-                if let Err(el_error) = execution_layer.get_engine_version(None).await {
-                    if el_error.is_method_unsupported(ENGINE_CLIENT_VERSION_V1) {
-                        debug!(
-                            log,
-                            "EL does not support {} method. Sleeping twice as long before retry",
-                            ENGINE_CLIENT_VERSION_V1
-                        );
-                        tokio::time::sleep(
-                            epoch_duration * ENGINE_VERSION_CACHE_REFRESH_EPOCH_MULTIPLE,
-                        )
-                        .await;
-                    } else {
-                        debug!(log, "Failed to populate engine version cache"; "error" => format!("{:?}", el_error));
+                match execution_layer.get_engine_version(None).await {
+                    Err(e) => warn!(log, "Failed to populate engine version cache"; "error" => ?e),
+                    Ok(versions) => {
+                        if versions.is_empty() {
+                            // Empty array indicates the EL doesn't support the method
+                            debug!(
+                                log,
+                                "EL does not support {} method. Sleeping twice as long before retry",
+                                ENGINE_GET_CLIENT_VERSION_V1
+                            );
+                            tokio::time::sleep(
+                                epoch_duration * ENGINE_VERSION_CACHE_REFRESH_EPOCH_MULTIPLE,
+                            )
+                            .await;
+                        }
                     }
                 }
             }
@@ -246,5 +244,146 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
                 tokio::time::sleep(slot_clock.slot_duration()).await;
             }
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
+    use crate::ChainConfig;
+    use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
+    use execution_layer::EngineCapabilities;
+    use lazy_static::lazy_static;
+    use slog::info;
+    use std::time::Duration;
+    use types::{ChainSpec, Graffiti, Keypair, MinimalEthSpec, GRAFFITI_BYTES_LEN};
+
+    const VALIDATOR_COUNT: usize = 48;
+    lazy_static! {
+        /// A cached set of keys.
+        static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
+    }
+
+    fn get_harness(
+        validator_count: usize,
+        spec: ChainSpec,
+        chain_config: Option<ChainConfig>,
+    ) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
+        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+            .spec(spec)
+            .chain_config(chain_config.unwrap_or_default())
+            .keypairs(KEYPAIRS[0..validator_count].to_vec())
+            .logger(logging::test_logger())
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+
+        harness.advance_slot();
+
+        harness
+    }
+
+    #[tokio::test]
+    async fn check_graffiti_without_el_version_support() {
+        let spec = test_spec::<MinimalEthSpec>();
+        let harness = get_harness(VALIDATOR_COUNT, spec, None);
+        // modify execution engine so it doesn't support engine_getClientVersionV1 method
+        let mock_execution_layer = harness.mock_execution_layer.as_ref().unwrap();
+        mock_execution_layer
+            .server
+            .set_engine_capabilities(EngineCapabilities {
+                get_client_version_v1: false,
+                ..DEFAULT_ENGINE_CAPABILITIES
+            });
+        // refresh capabilities cache
+        harness
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_engine_capabilities(Some(Duration::ZERO))
+            .await
+            .unwrap();
+
+        let version_bytes = std::cmp::min(
+            lighthouse_version::VERSION.as_bytes().len(),
+            GRAFFITI_BYTES_LEN,
+        );
+        // grab the slice of the graffiti that corresponds to the lighthouse version
+        let graffiti_slice =
+            &harness.chain.graffiti_calculator.get_graffiti(None).await.0[..version_bytes];
+
+        // convert graffiti bytes slice to ascii for easy debugging if this test should fail
+        let graffiti_str =
+            std::str::from_utf8(graffiti_slice).expect("bytes should convert nicely to ascii");
+
+        info!(harness.chain.log, "results"; "lighthouse_version" => lighthouse_version::VERSION, "graffiti_str" => graffiti_str);
+        println!("lighthouse_version: '{}'", lighthouse_version::VERSION);
+        println!("graffiti_str:       '{}'", graffiti_str);
+
+        assert!(lighthouse_version::VERSION.starts_with(graffiti_str));
+    }
+
+    #[tokio::test]
+    async fn check_graffiti_with_el_version_support() {
+        let spec = test_spec::<MinimalEthSpec>();
+        let harness = get_harness(VALIDATOR_COUNT, spec, None);
+
+        let found_graffiti_bytes = harness.chain.graffiti_calculator.get_graffiti(None).await.0;
+
+        let mock_commit = DEFAULT_CLIENT_VERSION.commit.clone();
+        let expected_graffiti_string = format!(
+            "{}{}{}{}",
+            DEFAULT_CLIENT_VERSION.code,
+            mock_commit
+                .strip_prefix("0x")
+                .unwrap_or(&mock_commit)
+                .get(0..4)
+                .expect("should get first 2 bytes in hex"),
+            "LH",
+            lighthouse_version::COMMIT_PREFIX
+                .get(0..4)
+                .expect("should get first 2 bytes in hex")
+        );
+
+        let expected_graffiti_prefix_bytes = expected_graffiti_string.as_bytes();
+        let expected_graffiti_prefix_len =
+            std::cmp::min(expected_graffiti_prefix_bytes.len(), GRAFFITI_BYTES_LEN);
+
+        let found_graffiti_string =
+            std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
+                .expect("bytes should convert nicely to ascii");
+
+        info!(harness.chain.log, "results"; "expected_graffiti_string" => &expected_graffiti_string, "found_graffiti_string" => &found_graffiti_string);
+        println!("expected_graffiti_string: '{}'", expected_graffiti_string);
+        println!("found_graffiti_string:    '{}'", found_graffiti_string);
+
+        assert_eq!(expected_graffiti_string, found_graffiti_string);
+
+        let mut expected_graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
+        expected_graffiti_bytes[..expected_graffiti_prefix_len]
+            .copy_from_slice(expected_graffiti_string.as_bytes());
+        assert_eq!(found_graffiti_bytes, expected_graffiti_bytes);
+    }
+
+    #[tokio::test]
+    async fn check_graffiti_with_validator_specified_value() {
+        let spec = test_spec::<MinimalEthSpec>();
+        let harness = get_harness(VALIDATOR_COUNT, spec, None);
+
+        let graffiti_str = "nice graffiti bro";
+        let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
+        graffiti_bytes[..graffiti_str.as_bytes().len()].copy_from_slice(graffiti_str.as_bytes());
+
+        let found_graffiti = harness
+            .chain
+            .graffiti_calculator
+            .get_graffiti(Some(Graffiti::from(graffiti_bytes)))
+            .await;
+
+        assert_eq!(
+            found_graffiti.to_string(),
+            "0x6e6963652067726166666974692062726f000000000000000000000000000000"
+        );
     }
 }

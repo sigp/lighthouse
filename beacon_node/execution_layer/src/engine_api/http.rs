@@ -53,8 +53,8 @@ pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
 pub const ENGINE_EXCHANGE_CAPABILITIES: &str = "engine_exchangeCapabilities";
 pub const ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT: Duration = Duration::from_secs(1);
 
-pub const ENGINE_CLIENT_VERSION_V1: &str = "engine_clientVersionV1";
-pub const ENGINE_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
+pub const ENGINE_GET_CLIENT_VERSION_V1: &str = "engine_getClientVersionV1";
+pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
@@ -74,7 +74,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-    ENGINE_CLIENT_VERSION_V1,
+    ENGINE_GET_CLIENT_VERSION_V1,
 ];
 
 lazy_static! {
@@ -1038,7 +1038,7 @@ impl HttpJsonRpc {
             get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
             get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
             get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
-            client_version_v1: capabilities.contains(ENGINE_CLIENT_VERSION_V1),
+            get_client_version_v1: capabilities.contains(ENGINE_GET_CLIENT_VERSION_V1),
         })
     }
 
@@ -1082,9 +1082,9 @@ impl HttpJsonRpc {
 
         let response: Vec<JsonClientVersionV1> = self
             .rpc_request(
-                ENGINE_CLIENT_VERSION_V1,
+                ENGINE_GET_CLIENT_VERSION_V1,
                 params,
-                ENGINE_CLIENT_VERSION_TIMEOUT * self.execution_timeout_multiplier,
+                ENGINE_GET_CLIENT_VERSION_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?;
 
@@ -1114,8 +1114,11 @@ impl HttpJsonRpc {
     ) -> Result<Vec<ClientVersionV1>, Error> {
         // check engine capabilities first (avoids holding two locks at once)
         let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if !engine_capabilities.client_version_v1 {
-            return Err(Error::RequiredMethodUnsupported(ENGINE_CLIENT_VERSION_V1));
+        if !engine_capabilities.get_client_version_v1 {
+            // We choose an empty vec to denote that this method is not
+            // supported instead of an error since this method is optional
+            // & we don't want to log a warning and concern the user
+            return Ok(vec![]);
         }
         let mut lock = self.engine_version_cache.lock().await;
         if let Some(lock) = lock

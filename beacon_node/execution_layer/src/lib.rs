@@ -10,7 +10,7 @@ use auth::{strip_prefix, Auth, JwtKey};
 pub use block_hash::calculate_execution_block_hash;
 use builder_client::BuilderHttpClient;
 pub use engine_api::EngineCapabilities;
-pub use engine_api::Error as ApiError;
+use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
@@ -166,13 +166,6 @@ impl From<EngineError> for Error {
             EngineError::Api { error } => Error::ApiError(error),
             _ => Error::EngineError(Box::new(e)),
         }
-    }
-}
-
-impl Error {
-    // returns true if this error is caused by the execution engine not supporting a method
-    pub fn is_method_unsupported(&self, method: &'static str) -> bool {
-        matches!(self, Error::ApiError(ApiError::RequiredMethodUnsupported(m)) if *m == method)
     }
 }
 
