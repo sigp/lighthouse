@@ -59,13 +59,6 @@ pub enum Error {
     InvalidZeroSecretKey,
 }
 
-#[cfg(feature = "milagro")]
-impl From<AmclError> for Error {
-    fn from(e: AmclError) -> Error {
-        Error::MilagroError(e)
-    }
-}
-
 #[cfg(feature = "supranational")]
 impl From<BlstError> for Error {
     fn from(e: BlstError) -> Error {
