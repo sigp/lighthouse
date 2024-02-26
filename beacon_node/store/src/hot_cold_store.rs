@@ -79,7 +79,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     ///
     /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
     state_cache: Mutex<StateCache<E>>,
-    hot_computation_cache: PromiseCache<Hash256, Option<BeaconState<E>>>,
+    state_promise_cache: PromiseCache<Hash256, Option<BeaconState<E>>>,
     /// Immutable validator cache.
     pub immutable_validators: Arc<RwLock<ValidatorPubkeyCache<E, Hot, Cold>>>,
     /// LRU cache of replayed states.
@@ -87,8 +87,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     #[allow(dead_code)]
     historic_state_cache: Mutex<LruCache<Slot, BeaconState<E>>>,
     /// Cache of hierarchical diff buffers.
-    diff_buffer_cache: Mutex<LruCache<Slot, HDiffBuffer>>,
-    diff_buffer_computation_cache: PromiseCache<Slot, (Slot, HDiffBuffer)>,
+    diff_buffer_cache: Mutex<LruCache<Slot, Arc<HDiffBuffer>>>,
+    diff_buffer_promise_cache: PromiseCache<Slot, (Slot, Arc<HDiffBuffer>)>,
     /// Chain spec.
     pub(crate) spec: ChainSpec,
     /// Logger.
@@ -214,11 +214,11 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(BlockCache::new(block_cache_size)),
             state_cache: Mutex::new(StateCache::new(state_cache_size)),
-            hot_computation_cache: PromiseCache::new(),
+            state_promise_cache: PromiseCache::new(),
             immutable_validators: Arc::new(RwLock::new(Default::default())),
             historic_state_cache: Mutex::new(LruCache::new(historic_state_cache_size)),
             diff_buffer_cache: Mutex::new(LruCache::new(diff_buffer_cache_size)),
-            diff_buffer_computation_cache: PromiseCache::new(),
+            diff_buffer_promise_cache: PromiseCache::new(),
             config,
             hierarchy,
             spec,
@@ -262,11 +262,11 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(BlockCache::new(block_cache_size)),
             state_cache: Mutex::new(StateCache::new(state_cache_size)),
-            hot_computation_cache: PromiseCache::new(),
+            state_promise_cache: PromiseCache::new(),
             immutable_validators: Arc::new(RwLock::new(Default::default())),
             historic_state_cache: Mutex::new(LruCache::new(historic_state_cache_size)),
             diff_buffer_cache: Mutex::new(LruCache::new(diff_buffer_cache_size)),
-            diff_buffer_computation_cache: PromiseCache::new(),
+            diff_buffer_promise_cache: PromiseCache::new(),
             config,
             hierarchy,
             spec,
@@ -1333,7 +1333,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "state_root" => ?state_root,
         );
 
-        Ok(self.hot_computation_cache.get_or_compute(state_root, || {
+        Ok(self.state_promise_cache.get_or_compute(state_root, || {
             let state_from_disk = self.load_hot_state(state_root)?;
 
             if let Some((state, block_root)) = state_from_disk {
@@ -1825,7 +1825,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Will reconstruct the state if it lies between restore points.
     pub fn load_cold_state_by_slot(&self, slot: Slot) -> Result<Option<BeaconState<E>>, Error> {
         let (base_slot, hdiff_buffer) = self.load_hdiff_buffer_for_slot(slot)?;
-        let base_state = hdiff_buffer.into_state(&self.spec)?;
+        let base_state = hdiff_buffer.as_state(&self.spec)?;
         debug_assert_eq!(base_slot, base_state.slot());
 
         if base_state.slot() == slot {
@@ -1857,7 +1857,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Returns `HDiffBuffer` for the specified slot, or `HDiffBuffer` for the `ReplayFrom` slot if
     /// the diff for the specified slot is not stored.
-    fn load_hdiff_buffer_for_slot(&self, slot: Slot) -> Result<(Slot, HDiffBuffer), Error> {
+    fn load_hdiff_buffer_for_slot(&self, slot: Slot) -> Result<(Slot, Arc<HDiffBuffer>), Error> {
         if let Some(buffer) = self.diff_buffer_cache.lock().get(&slot) {
             debug!(
                 self.log,
@@ -1867,51 +1867,47 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok((slot, buffer.clone()));
         }
 
-        Ok(self
-            .diff_buffer_computation_cache
-            .get_or_compute(&slot, || {
-                // Load buffer for the previous state.
-                // This amount of recursion (<10 levels) should be OK.
-                let t = std::time::Instant::now();
-                let (_buffer_slot, mut buffer) = match self.hierarchy.storage_strategy(slot)? {
-                    // Base case.
-                    StorageStrategy::Snapshot => {
-                        let state = self
-                            .load_cold_state_as_snapshot(slot)?
-                            .ok_or(Error::MissingSnapshot(slot))?;
-                        let buffer = HDiffBuffer::from_state(state);
+        Ok(self.diff_buffer_promise_cache.get_or_compute(&slot, || {
+            // Load buffer for the previous state.
+            // This amount of recursion (<10 levels) should be OK.
+            let t = std::time::Instant::now();
+            let (_buffer_slot, mut buffer) = match self.hierarchy.storage_strategy(slot)? {
+                // Base case.
+                StorageStrategy::Snapshot => {
+                    let state = self
+                        .load_cold_state_as_snapshot(slot)?
+                        .ok_or(Error::MissingSnapshot(slot))?;
+                    let buffer = Arc::new(HDiffBuffer::from_state(state));
 
-                        self.diff_buffer_cache.lock().put(slot, buffer.clone());
-                        debug!(
-                            self.log,
-                            "Added diff buffer to cache";
-                            "load_time_ms" => t.elapsed().as_millis(),
-                            "slot" => slot
-                        );
+                    self.diff_buffer_cache.lock().put(slot, buffer.clone());
+                    debug!(
+                        self.log,
+                        "Added diff buffer to cache";
+                        "load_time_ms" => t.elapsed().as_millis(),
+                        "slot" => slot
+                    );
 
-                        return Ok((slot, buffer));
-                    }
-                    // Recursive case.
-                    StorageStrategy::DiffFrom(from) => self.load_hdiff_buffer_for_slot(from)?,
-                    StorageStrategy::ReplayFrom(from) => {
-                        return self.load_hdiff_buffer_for_slot(from)
-                    }
-                };
+                    return Ok((slot, buffer));
+                }
+                // Recursive case.
+                StorageStrategy::DiffFrom(from) => self.load_hdiff_buffer_for_slot(from)?,
+                StorageStrategy::ReplayFrom(from) => return self.load_hdiff_buffer_for_slot(from),
+            };
 
-                // Load diff and apply it to buffer.
-                let diff = self.load_hdiff_for_slot(slot)?;
-                diff.apply(&mut buffer)?;
+            // Load diff and apply it to buffer.
+            let diff = self.load_hdiff_for_slot(slot)?;
+            diff.apply(Arc::make_mut(&mut buffer))?;
 
-                self.diff_buffer_cache.lock().put(slot, buffer.clone());
-                debug!(
-                    self.log,
-                    "Added diff buffer to cache";
-                    "load_time_ms" => t.elapsed().as_millis(),
-                    "slot" => slot
-                );
+            self.diff_buffer_cache.lock().put(slot, buffer.clone());
+            debug!(
+                self.log,
+                "Added diff buffer to cache";
+                "load_time_ms" => t.elapsed().as_millis(),
+                "slot" => slot
+            );
 
-                Ok((slot, buffer))
-            })?)
+            Ok((slot, buffer))
+        })?)
     }
 
     /// Load cold blocks between `start_slot` and `end_slot` inclusive.

@@ -94,6 +94,12 @@ impl HDiffBuffer {
         *state.balances_mut() = VList::new(self.balances).unwrap();
         Ok(state)
     }
+
+    pub fn as_state<E: EthSpec>(&self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
+        let mut state = BeaconState::from_ssz_bytes(&self.state, spec).unwrap();
+        *state.balances_mut() = VList::try_from_iter(self.balances.iter().copied()).unwrap();
+        Ok(state)
+    }
 }
 
 impl HDiff {
