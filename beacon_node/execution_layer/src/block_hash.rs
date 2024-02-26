@@ -62,12 +62,6 @@ pub fn calculate_execution_block_hash<T: EthSpec>(
 pub fn rlp_encode_withdrawal(withdrawal: &JsonWithdrawal) -> Vec<u8> {
     let mut out: Vec<u8> = vec![];
     EncodableJsonWithdrawal::from(withdrawal).encode(&mut out);
-    // rlp_stream.begin_list(4);
-    // rlp_stream.append(&withdrawal.index);
-    // rlp_stream.append(&withdrawal.validator_index);
-    // rlp_stream.append(&withdrawal.address);
-    // rlp_stream.append(&withdrawal.amount);
-    // rlp_stream.out().into()
     out
 }
 
