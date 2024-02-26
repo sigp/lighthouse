@@ -16,8 +16,7 @@ use hash_db::Hasher;
 use types::Hash256;
 
 pub fn keccak256(bytes: &[u8]) -> Hash256 {
-    let hash: [u8; 32] = alloy_primitives::utils::keccak256(bytes).into();
-    Hash256::from(hash)
+    Hash256::from(alloy_primitives::utils::keccak256(bytes).as_ref())
 }
 
 /// Keccak hasher.
