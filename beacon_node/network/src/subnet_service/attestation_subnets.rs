@@ -227,7 +227,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     warn!(self.log,
                         "Failed to compute subnet id for validator subscription";
                         "error" => ?e,
-                        "validator_index" => subscription.validator_index
                     );
                     continue;
                 }
@@ -257,13 +256,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     warn!(self.log,
                         "Subscription to subnet error";
                         "error" => e,
-                        "validator_index" => subscription.validator_index,
                     );
                 } else {
                     trace!(self.log,
                         "Subscribed to subnet for aggregator duties";
                         "exact_subnet" => ?exact_subnet,
-                        "validator_index" => subscription.validator_index
                     );
                 }
             }
