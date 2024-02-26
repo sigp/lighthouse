@@ -72,6 +72,8 @@ pub struct ChainConfig {
     pub optimistic_finalized_sync: bool,
     /// The size of the shuffling cache,
     pub shuffling_cache_size: usize,
+    /// The size of the snapshot cache.
+    pub snapshot_cache_size: usize,
     /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
     /// genesis.
     pub genesis_backfill: bool,
@@ -112,6 +114,7 @@ impl Default for ChainConfig {
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
+            snapshot_cache_size: crate::snapshot_cache::DEFAULT_SNAPSHOT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,
             progressive_balances_mode: ProgressiveBalancesMode::Fast,
