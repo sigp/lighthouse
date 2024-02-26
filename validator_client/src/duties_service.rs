@@ -818,24 +818,32 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         return Ok(());
     }
 
-    // Filter out validators which have already been requested.
-    let initial_duties = &response.data;
+    // Make a request for all `validators_to_update`, even if we already requested duties for them
+    // in the initial query. There was previously a bug here where we assumed the duties from the
+    // initial query were "new" and needed to be inserted into the map, which overrode information
+    // in the `subscription_slots` and caused expired subscriptions to be sent.
+    // Seeing as the initial batch is so small, the worst-case bandwidth wastage here is minimal,
+    // and in the happy case the validators from the initial batch are likely to not require new
+    // duties anyway.
     let indices_to_request = validators_to_update
         .iter()
-        .filter(|&&&pubkey| !initial_duties.iter().any(|duty| duty.pubkey == pubkey))
         .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
         .collect::<Vec<_>>();
 
-    let new_duties = if !indices_to_request.is_empty() {
+    if indices_to_request.is_empty() {
+        debug!(
+            log,
+            "Attester duties are up-to-date";
+            "dependent_root" => %dependent_root,
+            "epoch" => epoch,
+        );
+        return Ok(());
+    }
+
+    let new_duties =
         post_validator_duties_attester(duties_service, epoch, indices_to_request.as_slice())
             .await?
-            .data
-            .into_iter()
-            .chain(response.data)
-            .collect::<Vec<_>>()
-    } else {
-        response.data
-    };
+            .data;
 
     drop(fetch_timer);
 
@@ -862,18 +870,41 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         // duties are computed.
         let duty_and_proof = DutyAndProof::new_without_selection_proof(duty.clone());
 
-        if let Some((prior_dependent_root, _)) =
-            attester_map.insert(epoch, (dependent_root, duty_and_proof))
-        {
-            // Using `already_warned` avoids excessive logs.
-            if dependent_root != prior_dependent_root && already_warned.take().is_some() {
-                warn!(
-                    log,
-                    "Attester duties re-org";
-                    "prior_dependent_root" => %prior_dependent_root,
-                    "dependent_root" => %dependent_root,
-                    "msg" => "this may happen from time to time"
-                )
+        match attester_map.entry(epoch) {
+            hash_map::Entry::Occupied(mut occupied) => {
+                let mut_value = occupied.get_mut();
+                let (prior_dependent_root, prior_duty_and_proof) = &mut_value;
+
+                // Guard against overwriting an existing value for the same duty. If we did
+                // overwrite we could lose a selection proof of information from
+                // `subscription_slots`. Hitting this branch should be prevented by our logic for
+                // fetching duties only for unknown indices.
+                if dependent_root == *prior_dependent_root
+                    && prior_duty_and_proof.duty == duty_and_proof.duty
+                {
+                    warn!(
+                        log,
+                        "Redundant attester duty update";
+                        "dependent_root" => %dependent_root,
+                        "validator_index" => duty.validator_index,
+                    );
+                    continue;
+                }
+
+                // Using `already_warned` avoids excessive logs.
+                if dependent_root != *prior_dependent_root && already_warned.take().is_some() {
+                    warn!(
+                        log,
+                        "Attester duties re-org";
+                        "prior_dependent_root" => %prior_dependent_root,
+                        "dependent_root" => %dependent_root,
+                        "msg" => "this may happen from time to time"
+                    )
+                }
+                *mut_value = (dependent_root, duty_and_proof);
+            }
+            hash_map::Entry::Vacant(vacant) => {
+                vacant.insert((dependent_root, duty_and_proof));
             }
         }
     }
