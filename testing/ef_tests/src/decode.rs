@@ -72,7 +72,7 @@ where
         match e {
             // NOTE: this is a bit hacky, but seemingly better than the alternatives
             ssz::DecodeError::BytesInvalid(message)
-                if message.contains("Blst") || message.contains("Milagro") =>
+                if message.contains("Blst") =>
             {
                 Error::InvalidBLSInput(message)
             }
