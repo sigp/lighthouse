@@ -622,6 +622,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many states from the freezer database should cache in memory [default: 1]")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("state-cache-size")
+                .long("state-cache-size")
+                .value_name("STATE_CACHE_SIZE")
+                .help("Specifies the size of the snapshot cache [default: 3]")
+                .takes_value(true)
+        )
         /*
          * Execution Layer Integration
          */
