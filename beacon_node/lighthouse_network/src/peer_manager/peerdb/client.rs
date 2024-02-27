@@ -33,7 +33,7 @@ pub enum ClientKind {
     Prysm,
     /// A lodestar node.
     Lodestar,
-    /// A Capllin node.
+    /// A Caplin node.
     Caplin,
     /// An unknown client.
     Unknown,
