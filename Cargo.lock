@@ -894,7 +894,6 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "execution_layer",
- "exit-future",
  "fork_choice",
  "futures",
  "genesis",
@@ -2426,10 +2425,10 @@ dependencies = [
 name = "environment"
 version = "0.1.2"
 dependencies = [
+ "async-channel 1.9.0",
  "ctrlc",
  "eth2_config",
  "eth2_network_config",
- "exit-future",
  "futures",
  "logging",
  "serde",
@@ -2985,12 +2984,12 @@ dependencies = [
 name = "execution_engine_integration"
 version = "0.1.0"
 dependencies = [
+ "async-channel 1.9.0",
  "deposit_contract",
  "environment",
  "ethers-core",
  "ethers-providers",
  "execution_layer",
- "exit-future",
  "fork_choice",
  "futures",
  "hex",
@@ -3021,7 +3020,6 @@ dependencies = [
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethers-core",
- "exit-future",
  "fork_choice",
  "futures",
  "hash-db",
@@ -3056,15 +3054,6 @@ dependencies = [
  "types",
  "warp",
  "zeroize",
-]
-
-[[package]]
-name = "exit-future"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e43f2f1833d64e33f15592464d6fdd70f349dda7b1a53088eb83cd94014008c5"
-dependencies = [
- "futures",
 ]
 
 [[package]]
@@ -5168,7 +5157,6 @@ dependencies = [
  "error-chain",
  "ethereum_ssz",
  "ethereum_ssz_derive",
- "exit-future",
  "fnv",
  "futures",
  "futures-ticker",
@@ -5726,6 +5714,7 @@ dependencies = [
 name = "network"
 version = "0.2.0"
 dependencies = [
+ "async-channel 1.9.0",
  "beacon_chain",
  "beacon_processor",
  "delay_map",
@@ -5736,7 +5725,6 @@ dependencies = [
  "ethereum-types 0.14.1",
  "ethereum_ssz",
  "execution_layer",
- "exit-future",
  "fnv",
  "futures",
  "genesis",
@@ -8396,7 +8384,7 @@ checksum = "c63f48baada5c52e65a29eef93ab4f8982681b67f9e8d29c7b05abcfec2b9ffe"
 name = "task_executor"
 version = "0.1.0"
 dependencies = [
- "exit-future",
+ "async-channel 1.9.0",
  "futures",
  "lazy_static",
  "lighthouse_metrics",
@@ -9207,7 +9195,6 @@ dependencies = [
  "eth2",
  "eth2_keystore",
  "ethereum_serde_utils",
- "exit-future",
  "filesystem",
  "futures",
  "hex",
@@ -9560,10 +9547,10 @@ name = "web3signer_tests"
 version = "0.1.0"
 dependencies = [
  "account_utils",
+ "async-channel 1.9.0",
  "environment",
  "eth2_keystore",
  "eth2_network_config",
- "exit-future",
  "futures",
  "lazy_static",
  "parking_lot 0.12.1",
