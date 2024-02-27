@@ -983,6 +983,19 @@ pub struct SseLateHead {
     pub execution_optimistic: bool,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseProposerSlashing {
+    pub signed_header_1: SignedBeaconBlockHeader,
+    pub signed_header_2: SignedBeaconBlockHeader,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[serde(bound = "E: EthSpec")]
+pub struct SseAttesterSlashing<E: EthSpec> {
+    pub attestation_1: Attestation<E>,
+    pub attestation_2: Attestation<E>,
+}
+
 #[superstruct(
     variants(V1, V2, V3),
     variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize))
@@ -1078,6 +1091,8 @@ pub enum EventKind<T: EthSpec> {
     #[cfg(feature = "lighthouse")]
     BlockReward(BlockReward),
     PayloadAttributes(VersionedSsePayloadAttributes),
+    ProposerSlashing(SseProposerSlashing),
+    AttesterSlashing(SseAttesterSlashing<T>),
 }
 
 impl<T: EthSpec> EventKind<T> {
@@ -1097,6 +1112,8 @@ impl<T: EthSpec> EventKind<T> {
             EventKind::LightClientOptimisticUpdate(_) => "light_client_optimistic_update",
             #[cfg(feature = "lighthouse")]
             EventKind::BlockReward(_) => "block_reward",
+            EventKind::ProposerSlashing(_) => "proposer_slashing",
+            EventKind::AttesterSlashing(_) => "attester_slashing",
         }
     }
 

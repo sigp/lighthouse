@@ -20,6 +20,8 @@ pub struct ServerSentEventHandler<T: EthSpec> {
     light_client_finality_update_tx: Sender<EventKind<T>>,
     light_client_optimistic_update_tx: Sender<EventKind<T>>,
     block_reward_tx: Sender<EventKind<T>>,
+    proposer_slashing_tx: Sender<EventKind<T>>,
+    attester_slashing_tx: Sender<EventKind<T>>,
     log: Logger,
 }
 
@@ -45,6 +47,8 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         let (light_client_finality_update_tx, _) = broadcast::channel(capacity);
         let (light_client_optimistic_update_tx, _) = broadcast::channel(capacity);
         let (block_reward_tx, _) = broadcast::channel(capacity);
+        let (proposer_slashing_tx, _) = broadcast::channel(capacity);
+        let (attester_slashing_tx, _) = broadcast::channel(capacity);
 
         Self {
             attestation_tx,
@@ -60,6 +64,8 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
             light_client_finality_update_tx,
             light_client_optimistic_update_tx,
             block_reward_tx,
+            proposer_slashing_tx,
+            attester_slashing_tx,
             log,
         }
     }
@@ -126,6 +132,14 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
                 .block_reward_tx
                 .send(kind)
                 .map(|count| log_count("block reward", count)),
+            EventKind::ProposerSlashing(_) => self
+                .proposer_slashing_tx
+                .send(kind)
+                .map(|count| log_count("proposer slashing", count)),
+            EventKind::AttesterSlashing(_) => self
+                .attester_slashing_tx
+                .send(kind)
+                .map(|count| log_count("attester slashing", count)),
         };
         if let Err(SendError(event)) = result {
             trace!(self.log, "No receivers registered to listen for event"; "event" => ?event);
