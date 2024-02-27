@@ -1,12 +1,11 @@
 use super::{BeaconState, EthSpec, Hash256, SyncCommittee};
 use crate::{
-    light_client_update::*, test_utils::TestRandom, ForkName, ForkVersionDeserialize,
+    light_client_update::*, test_utils::TestRandom, FixedVector, ForkName, ForkVersionDeserialize,
     LightClientHeader,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
-use ssz_types::FixedVector;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 

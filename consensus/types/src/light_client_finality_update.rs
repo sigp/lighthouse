@@ -1,12 +1,11 @@
 use super::{EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot, SyncAggregate};
 use crate::{
-    light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, ForkName,
+    light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, FixedVector, ForkName,
     ForkVersionDeserialize, LightClientHeader,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
-use ssz_types::FixedVector;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
