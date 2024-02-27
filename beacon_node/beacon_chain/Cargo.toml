@@ -68,7 +68,6 @@ execution_layer = { workspace = true }
 sensitive_url = { workspace = true }
 superstruct = { workspace = true }
 hex = { workspace = true }
-exit-future = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 slog-term = { workspace = true }
 slog-async = { workspace = true }

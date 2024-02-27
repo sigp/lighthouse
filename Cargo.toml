@@ -96,6 +96,7 @@ edition = "2021"
 [workspace.dependencies]
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
+async-channel = "1.9.0"
 bincode = "1"
 bitvec = "1"
 byteorder = "1"

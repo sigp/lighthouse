@@ -8,12 +8,12 @@ edition = { workspace = true }
 sloggers = { workspace = true }
 genesis = { workspace = true }
 matches = "0.1.8"
-exit-future = { workspace = true }
 slog-term = { workspace = true }
 slog-async = { workspace = true }
 eth2 = { workspace = true }
 
 [dependencies]
+async-channel = { workspace = true }
 anyhow = { workspace = true }
 beacon_chain = { workspace = true }
 store = { workspace = true }
