@@ -15,7 +15,7 @@ use crate::metadata::{
     BLOB_INFO_KEY, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION,
     PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN,
 };
-use crate::metrics;
+use crate::{metrics, KeyValueStore};
 use crate::{
     ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp, PartialBeaconState,
     StoreItem, StoreOp,
@@ -335,7 +335,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
         &self,
     ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
         self.hot_db
-            .iter_temporary_state_roots(DBColumn::BeaconStateTemporary)
+            .iter_column_keys::<Hash256>(DBColumn::BeaconStateTemporary)
     }
 }
 

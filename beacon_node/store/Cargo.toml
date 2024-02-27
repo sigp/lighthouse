@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [features]
-default = ["redb"]
+default = ["leveldb"]
 leveldb = ["dep:leveldb"]
 redb = ["dep:redb"]
 

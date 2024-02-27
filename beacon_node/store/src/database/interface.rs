@@ -5,7 +5,7 @@ use crate::database::redb_impl;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
 use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
 use std::path::Path;
-use types::{EthSpec, Hash256};
+use types::EthSpec;
 
 pub enum BeaconNodeBackend<E: EthSpec> {
     #[cfg(feature = "leveldb")]
@@ -152,14 +152,21 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         }
     }
 
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    fn iter_column_from<K: Key>(
+        &self,
+        column: DBColumn,
+        from: &[u8],
+        predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
+    ) -> ColumnIter<K> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::iter_column_from(txn, column, from)
+                leveldb_impl::LevelDB::iter_column_from(txn, column, from, predicate)
             }
             #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_from(txn, column, from),
+            BeaconNodeBackend::Redb(txn) => {
+                redb_impl::Redb::iter_column_from(txn, column, from, predicate)
+            }
         }
     }
 
@@ -255,22 +262,6 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::iter_column(txn, column),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column(txn, column),
-        }
-    }
-
-    pub fn iter_temporary_state_roots(
-        &self,
-        column: DBColumn,
-    ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::iter_temporary_state_roots(txn, column)
-            }
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => {
-                redb_impl::Redb::iter_temporary_state_roots(txn, column)
-            }
         }
     }
 }

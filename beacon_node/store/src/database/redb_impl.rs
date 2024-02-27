@@ -1,10 +1,10 @@
-use crate::{metrics, ColumnIter, ColumnKeyIter, Key, RawEntryIter, RawKeyIter};
+use crate::{metrics, ColumnIter, ColumnKeyIter, Key};
 use crate::{DBColumn, Error, KeyValueStoreOp};
 use parking_lot::{Mutex, MutexGuard, RwLock};
 use redb::{ReadableTable, TableDefinition};
 use std::{borrow::BorrowMut, marker::PhantomData, path::Path};
 use strum::IntoEnumIterator;
-use types::{EthSpec, Hash256};
+use types::EthSpec;
 
 use super::interface::WriteOptions;
 
@@ -123,12 +123,12 @@ impl<E: EthSpec> Redb<E> {
                 metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, value.len() as u64);
                 metrics::stop_timer(timer);
                 return Ok(Some(value));
-            },
+            }
             None => {
                 metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, 0_u64);
                 metrics::stop_timer(timer);
                 return Ok(None);
-            },
+            }
         }
     }
 
@@ -221,55 +221,40 @@ impl<E: EthSpec> Redb<E> {
         self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
-    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    pub fn iter_column_from<K: Key>(
+        &self,
+        column: DBColumn,
+        from: &[u8],
+        predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
+    ) -> ColumnIter<K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
-        let mut to = from.to_vec();
-        to.push(u8::MAX);
-        
+        let prefix = from.to_vec();
 
         let iter = {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
 
-            println!("table entries {}", table.len()?);
-            table.range(from..to.as_slice())?.map(|res| {
-                let (k, v) = res?;
-                
-                println!("key {:?}", k.value());
-                println!("key len {}", k.value().len());
-                Ok((K::from_bytes(k.value())?, v.value().to_vec()))
-            })
+            table
+                .range(from..)?
+                .take_while(move |res| {
+                    match res.as_ref() {
+                        Ok((key, _)) => predicate(key.value(), prefix.as_slice()),
+                        Err(_) => false
+                    }
+                })
+                .map(|res| {
+                    let (k, v) = res?;
+                    Ok((K::from_bytes(k.value())?, v.value().to_vec()))
+                })
         };
 
         Ok(Box::new(iter))
     }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        self.iter_column_from(column, &vec![0; column.key_size()])
-    }
-
-    /// Return an iterator over the state roots of all temporary states.
-    pub fn iter_temporary_state_roots(
-        &self,
-        column: DBColumn,
-    ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(column.into());
-        let start: Vec<u8> = vec![0; column.key_size()];
-
-        let iter = {
-            let open_db = self.db.read();
-            let read_txn = open_db.begin_read()?;
-            let table = read_txn.open_table(table_definition)?;
-            table.range(start.as_slice()..)?.map(|res| {
-                let (k, _) = res?;
-                Hash256::from_bytes(k.value())
-            })
-        };
-
-        Ok(iter)
+        self.iter_column_from(column, &vec![0; column.key_size()], |_, _| true)
     }
 }

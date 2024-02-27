@@ -88,8 +88,6 @@ impl<T: EthSpec> PendingComponents<T> {
             return Err(AvailabilityCheckError::Unexpected);
         };
         let num_blobs_expected = diet_executed_block.num_blobs_expected();
-        println!("num blobs expected {}", num_blobs_expected);
-        println!("verified blobs {}", verified_blobs.len() - 1);
         let Some(verified_blobs) = verified_blobs
             .into_iter()
             .cloned()
@@ -213,15 +211,15 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
     ) -> Result<Option<PendingComponents<T::EthSpec>>, AvailabilityCheckError> {
         // read everything from disk and reconstruct
         let mut maybe_pending_components = None;
-        for res in self
-            .0
-            .hot_db
-            .iter_column_from::<Vec<u8>>(DBColumn::OverflowLRUCache, block_root.as_bytes())?
-        {
+        let predicate = move |from: &[u8], prefix: &[u8]| -> bool { from.starts_with(prefix) };
+        for res in self.0.hot_db.iter_column_from::<Vec<u8>>(
+            DBColumn::OverflowLRUCache,
+            block_root.as_bytes(),
+            predicate,
+        )? {
             let (key_bytes, value_bytes) = res?;
             match OverflowKey::from_ssz_bytes(&key_bytes)? {
-                OverflowKey::Block(b) => {
-                    println!("block {:?}", b);
+                OverflowKey::Block(_) => {
                     maybe_pending_components
                         .get_or_insert_with(|| PendingComponents::empty(block_root))
                         .executed_block =
@@ -229,8 +227,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
                             value_bytes.as_slice(),
                         )?);
                 }
-                OverflowKey::Blob(b, index) => {
-                    println!("blob {:?}", b);
+                OverflowKey::Blob(_, index) => {
                     *maybe_pending_components
                         .get_or_insert_with(|| PendingComponents::empty(block_root))
                         .verified_blobs

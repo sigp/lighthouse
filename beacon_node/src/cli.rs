@@ -1283,5 +1283,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("This flag is deprecated and has no effect.")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("beacon-node-backend")
+                .long("beacon-node-backend")
+                .value_name("DATABASE")
+                .help("Set the database backend to be used by the beacon node backend.")
+                .takes_value(true)
+                .possible_values(store::config::DatabaseBackend::VARIANTS)
+        )
         .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))
 }

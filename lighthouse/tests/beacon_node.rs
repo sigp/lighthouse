@@ -1,5 +1,4 @@
-use beacon_node::ClientConfig as Config;
-
+use beacon_node::{ClientConfig as Config, beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend};
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR,
@@ -2605,3 +2604,14 @@ fn genesis_state_url_value() {
             assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
         });
 }
+
+#[test]
+fn beacon_node_backend_override() {
+    CommandLineTest::new()
+        .flag("beacon-node-backend", Some("leveldb"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.database_backend, BeaconNodeBackend::LevelDb);
+        });
+}
+

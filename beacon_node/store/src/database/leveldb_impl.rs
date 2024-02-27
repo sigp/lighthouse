@@ -200,38 +200,30 @@ impl<E: EthSpec> LevelDB<E> {
         Ok(())
     }
 
-    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    pub fn iter_column_from<K: Key>(
+        &self,
+        column: DBColumn,
+        from: &[u8],
+        predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
+    ) -> ColumnIter<K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
 
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
-        println!("{:?}", start_key.key.as_slice());
-        println!("{:?}", column.as_bytes());
-
         Ok(Box::new(
             iter.take_while(move |(key, _)| {
-                // if !key.key.starts_with(start_key.key.as_slice()) {
-                //     println!("key {:?}", key.key);
-                //     println!("column {:?}", column.as_bytes());
-                //     println!("key len {:?}", key.key.len());
-                //     println!("start key len {:?}", start_key.key.as_slice().len());
-                //     println!("matches: {}", key.matches_column(column));
-                // }
-         
-                // key.matches_column(column)
-                key.key.starts_with(start_key.key.as_slice())
+                key.matches_column(column)
+                    && predicate(key.key.as_slice(), start_key.key.as_slice())
             })
-                .map(move |(bytes_key, value)| {
-                    let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
-                        HotColdDBError::IterationError {
-                            unexpected_key: bytes_key.clone(),
-                        }
-                    })?;
-                    println!("key {:?}", key);
-                    println!("key len {}", key.len());
-                    Ok((K::from_bytes(key)?, value))
-                }),
+            .map(move |(bytes_key, value)| {
+                let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
+                    HotColdDBError::IterationError {
+                        unexpected_key: bytes_key.clone(),
+                    }
+                })?;
+                Ok((K::from_bytes(key)?, value))
+            }),
         ))
     }
 
@@ -255,31 +247,9 @@ impl<E: EthSpec> LevelDB<E> {
         self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
-    /// Return an iterator over the state roots of all temporary states.
-    pub fn iter_temporary_state_roots(
-        &self,
-        column: DBColumn,
-    ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
-        let start_key =
-            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
-
-        let keys_iter = self.db.keys_iter(self.read_options());
-        keys_iter.seek(&start_key);
-
-        Ok(keys_iter
-            .take_while(move |key| key.matches_column(column))
-            .map(move |bytes_key| {
-                bytes_key.remove_column(column).ok_or_else(|| {
-                    HotColdDBError::IterationError {
-                        unexpected_key: bytes_key,
-                    }
-                    .into()
-                })
-            }))
-    }
-
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        println!("column key {}, size {:?}", column.as_str(), column.key_size());
-        self.iter_column_from(column, &vec![0; column.key_size()])
+        self.iter_column_from(column, &vec![0; column.key_size()], move |key, _| {
+            BytesKey::from_vec(key.to_vec()).matches_column(column)
+        })
     }
 }
