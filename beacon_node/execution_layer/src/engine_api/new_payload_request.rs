@@ -86,7 +86,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     ///
     /// https://github.com/ethereum/consensus-specs/blob/v1.4.0-beta.2/specs/deneb/beacon-chain.md#modified-verify_and_notify_new_payload
     pub fn perform_optimistic_sync_verifications(&self) -> Result<(), Error> {
-        self.verfiy_payload_block_hash()?;
+        self.verify_payload_block_hash()?;
         self.verify_versioned_hashes()?;
 
         Ok(())
@@ -98,7 +98,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     ///
     /// Equivalent to `is_valid_block_hash` in the spec:
     /// https://github.com/ethereum/consensus-specs/blob/v1.4.0-beta.2/specs/deneb/beacon-chain.md#is_valid_block_hash
-    pub fn verfiy_payload_block_hash(&self) -> Result<(), Error> {
+    pub fn verify_payload_block_hash(&self) -> Result<(), Error> {
         let payload = self.execution_payload_ref();
         let parent_beacon_block_root = self.parent_beacon_block_root().ok().cloned();
 
