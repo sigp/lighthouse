@@ -147,7 +147,9 @@ impl DutyAndProof {
                 }
             })?;
 
-        let subscription_slots = SubscriptionSlots::new(duty.slot);
+        // FIXME(sproul): these subscription slots aren't actually used, we could get rid of this
+        // with a refactor.
+        let subscription_slots = SubscriptionSlots::new(duty.slot, Slot::new(0));
 
         Ok(Self {
             duty,
@@ -157,8 +159,8 @@ impl DutyAndProof {
     }
 
     /// Create a new `DutyAndProof` with the selection proof waiting to be filled in.
-    pub fn new_without_selection_proof(duty: AttesterData) -> Self {
-        let subscription_slots = SubscriptionSlots::new(duty.slot);
+    pub fn new_without_selection_proof(duty: AttesterData, current_slot: Slot) -> Self {
+        let subscription_slots = SubscriptionSlots::new(duty.slot, current_slot);
         Self {
             duty,
             selection_proof: None,
@@ -168,10 +170,13 @@ impl DutyAndProof {
 }
 
 impl SubscriptionSlots {
-    fn new(duty_slot: Slot) -> Arc<Self> {
+    fn new(duty_slot: Slot, current_slot: Slot) -> Arc<Self> {
         let slots = ATTESTATION_SUBSCRIPTION_OFFSETS
             .into_iter()
             .filter_map(|offset| duty_slot.safe_sub(offset).ok())
+            // Keep only scheduled slots that haven't happened yet. This avoids sending expired
+            // subscriptions.
+            .filter(|scheduled_slot| *scheduled_slot > current_slot)
             .map(|scheduled_slot| (scheduled_slot, AtomicBool::new(false)))
             .collect();
         Arc::new(Self { slots })
@@ -859,13 +864,17 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     // Update the duties service with the new `DutyAndProof` messages.
     let mut attesters = duties_service.attesters.write();
     let mut already_warned = Some(());
+    let current_slot = duties_service
+        .slot_clock
+        .now_or_genesis()
+        .unwrap_or_default();
     for duty in &new_duties {
         let attester_map = attesters.entry(duty.pubkey).or_default();
 
         // Create initial entries in the map without selection proofs. We'll compute them in the
         // background later to avoid creating a thundering herd of signing threads whenever new
         // duties are computed.
-        let duty_and_proof = DutyAndProof::new_without_selection_proof(duty.clone());
+        let duty_and_proof = DutyAndProof::new_without_selection_proof(duty.clone(), current_slot);
 
         match attester_map.entry(epoch) {
             hash_map::Entry::Occupied(mut occupied) => {
@@ -1348,13 +1357,15 @@ mod test {
 
     #[test]
     fn subscription_slots_exact() {
+        // Set current slot in the past so no duties are considered expired.
+        let current_slot = Slot::new(0);
         for duty_slot in [
-            Slot::new(32),
+            Slot::new(33),
             Slot::new(47),
             Slot::new(99),
             Slot::new(1002003),
         ] {
-            let subscription_slots = SubscriptionSlots::new(duty_slot);
+            let subscription_slots = SubscriptionSlots::new(duty_slot, current_slot);
 
             // Run twice to check idempotence (subscription slots shouldn't be marked as done until
             // we mark them manually).
@@ -1388,8 +1399,9 @@ mod test {
     #[test]
     fn subscription_slots_mark_multiple() {
         for (i, offset) in ATTESTATION_SUBSCRIPTION_OFFSETS.into_iter().enumerate() {
+            let current_slot = Slot::new(0);
             let duty_slot = Slot::new(64);
-            let subscription_slots = SubscriptionSlots::new(duty_slot);
+            let subscription_slots = SubscriptionSlots::new(duty_slot, current_slot);
 
             subscription_slots.record_successful_subscription_at(duty_slot - offset);
 
