@@ -5132,6 +5132,7 @@ dependencies = [
  "slashing_protection",
  "slog",
  "sloggers",
+ "store",
  "task_executor",
  "tempfile",
  "tracing-subscriber",

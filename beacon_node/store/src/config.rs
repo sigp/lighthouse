@@ -7,6 +7,11 @@ use strum::{Display, EnumString, EnumVariantNames};
 use types::non_zero_usize::new_non_zero_usize;
 use types::{EthSpec, MinimalEthSpec};
 
+#[cfg(all(feature = "redb", not(feature = "leveldb")))]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Redb;
+#[cfg(feature = "leveldb")]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::LevelDb;
+
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
 pub const DEFAULT_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(5);
@@ -64,10 +69,7 @@ impl Default for StoreConfig {
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,
-            #[cfg(feature = "leveldb")]
-            backend: DatabaseBackend::LevelDb,
-            #[cfg(feature = "redb")]
-            backend: DatabaseBackend::Redb,
+            backend: DEFAULT_BACKEND,
             prune_blobs: true,
             epochs_per_blob_prune: DEFAULT_EPOCHS_PER_BLOB_PRUNE,
             blob_prune_margin_epochs: DEFAULT_BLOB_PUNE_MARGIN_EPOCHS,

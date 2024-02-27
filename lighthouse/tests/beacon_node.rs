@@ -1,8 +1,10 @@
-use beacon_node::{ClientConfig as Config, beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend};
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+};
+use beacon_node::{
+    beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend, ClientConfig as Config,
 };
 use beacon_processor::BeaconProcessorConfig;
 use eth1::Eth1Endpoint;
@@ -2614,4 +2616,3 @@ fn beacon_node_backend_override() {
             assert_eq!(config.database_backend, BeaconNodeBackend::LevelDb);
         });
 }
-

@@ -239,11 +239,9 @@ impl<E: EthSpec> Redb<E> {
 
             table
                 .range(from..)?
-                .take_while(move |res| {
-                    match res.as_ref() {
-                        Ok((key, _)) => predicate(key.value(), prefix.as_slice()),
-                        Err(_) => false
-                    }
+                .take_while(move |res| match res.as_ref() {
+                    Ok((key, _)) => predicate(key.value(), prefix.as_slice()),
+                    Err(_) => false,
                 })
                 .map(|res| {
                     let (k, v) = res?;
