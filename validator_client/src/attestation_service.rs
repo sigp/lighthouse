@@ -431,7 +431,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .unzip();
 
         if attestations.len() == 0 {
-            warn!("WARN: No attestations were published");
+            warn!(log, "WARN: No attestations were published");
             return Ok(None);
         }
 
