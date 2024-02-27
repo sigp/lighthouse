@@ -14,7 +14,7 @@ tempfile = { workspace = true }
 types = { workspace = true }
 rusqlite = { workspace = true }
 r2d2 = { workspace = true }
-r2d2_sqlite = "0.21.0"
+r2d2_sqlite = "0.22.0"
 serde = { workspace = true }
 serde_json = { workspace = true }
 ethereum_serde_utils = { workspace = true }
