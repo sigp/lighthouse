@@ -787,14 +787,14 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     // request for extra data unless necessary in order to save on network bandwidth.
     let uninitialized_validators =
         get_uninitialized_validators(duties_service, &epoch, local_pubkeys);
-    let indices_to_request = if !uninitialized_validators.is_empty() {
+    let initial_indices_to_request = if !uninitialized_validators.is_empty() {
         uninitialized_validators.as_slice()
     } else {
         &local_indices[0..min(INITIAL_DUTIES_QUERY_SIZE, local_indices.len())]
     };
 
     let response =
-        post_validator_duties_attester(duties_service, epoch, indices_to_request).await?;
+        post_validator_duties_attester(duties_service, epoch, initial_indices_to_request).await?;
     let dependent_root = response.dependent_root;
 
     // Find any validators which have conflicting (epoch, dependent_root) values or missing duties for the epoch.
@@ -818,32 +818,29 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         return Ok(());
     }
 
-    // Make a request for all `validators_to_update`, even if we already requested duties for them
-    // in the initial query. There was previously a bug here where we assumed the duties from the
-    // initial query were "new" and needed to be inserted into the map, which overrode information
-    // in the `subscription_slots` and caused expired subscriptions to be sent.
-    // Seeing as the initial batch is so small, the worst-case bandwidth wastage here is minimal,
-    // and in the happy case the validators from the initial batch are likely to not require new
-    // duties anyway.
+    // Make a request for all indices that require updating which we have not already made a request
+    // for.
     let indices_to_request = validators_to_update
         .iter()
         .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
+        .filter(|validator_index| !initial_indices_to_request.contains(validator_index))
         .collect::<Vec<_>>();
 
-    if indices_to_request.is_empty() {
-        debug!(
-            log,
-            "Attester duties are up-to-date";
-            "dependent_root" => %dependent_root,
-            "epoch" => epoch,
-        );
-        return Ok(());
-    }
+    // Filter the initial duties by their relevance so that we don't hit the warning below about
+    // overwriting duties. There was previously a bug here.
+    let new_initial_duties = response
+        .data
+        .into_iter()
+        .filter(|duty| validators_to_update.contains(&&duty.pubkey));
 
-    let new_duties =
+    let mut new_duties = if !indices_to_request.is_empty() {
         post_validator_duties_attester(duties_service, epoch, indices_to_request.as_slice())
             .await?
-            .data;
+            .data
+    } else {
+        vec![]
+    };
+    new_duties.extend(new_initial_duties);
 
     drop(fetch_timer);
 
@@ -876,7 +873,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
                 let (prior_dependent_root, prior_duty_and_proof) = &mut_value;
 
                 // Guard against overwriting an existing value for the same duty. If we did
-                // overwrite we could lose a selection proof of information from
+                // overwrite we could lose a selection proof or information from
                 // `subscription_slots`. Hitting this branch should be prevented by our logic for
                 // fetching duties only for unknown indices.
                 if dependent_root == *prior_dependent_root
