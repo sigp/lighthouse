@@ -803,10 +803,10 @@ impl HttpJsonRpc {
 
     pub async fn new_payload_v3<T: EthSpec>(
         &self,
-        new_payload_request_deneb: NewPayloadRequestDeneb<T>,
+        new_payload_request_deneb: NewPayloadRequestDeneb<'_, T>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.into()),
+            JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
             new_payload_request_deneb.versioned_hashes,
             new_payload_request_deneb.parent_beacon_block_root,
         ]);
@@ -1079,7 +1079,7 @@ impl HttpJsonRpc {
     // new_payload that the execution engine supports
     pub async fn new_payload<T: EthSpec>(
         &self,
-        new_payload_request: NewPayloadRequest<T>,
+        new_payload_request: NewPayloadRequest<'_, T>,
     ) -> Result<PayloadStatusV1, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match new_payload_request {

@@ -35,6 +35,7 @@ pub enum ClientGenesis {
     WeakSubjSszBytes {
         anchor_state_bytes: Vec<u8>,
         anchor_block_bytes: Vec<u8>,
+        anchor_blobs_bytes: Option<Vec<u8>>,
     },
     CheckpointSyncUrl {
         url: SensitiveUrl,

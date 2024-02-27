@@ -381,7 +381,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(valid_payload.clone().try_into().unwrap())
+            .notify_new_payload(valid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -435,7 +435,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(invalid_payload.try_into().unwrap())
+            .notify_new_payload(invalid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert!(matches!(
@@ -507,7 +507,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(second_payload.clone().try_into().unwrap())
+            .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -559,7 +559,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(second_payload.clone().try_into().unwrap())
+            .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert!(matches!(status, PayloadStatus::Syncing));
@@ -597,7 +597,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(valid_payload.clone().try_into().unwrap())
+            .notify_new_payload(valid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -611,7 +611,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(second_payload.clone().try_into().unwrap())
+            .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);

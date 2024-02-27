@@ -170,6 +170,9 @@ pub fn get_config<E: EthSpec>(
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
     }
+    if let Some(cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
+        client_config.chain.snapshot_cache_size = cache_size;
+    }
 
     /*
      * Prometheus metrics HTTP server
@@ -512,9 +515,10 @@ pub fn get_config<E: EthSpec>(
 
     client_config.genesis = if eth2_network_config.genesis_state_is_known() {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
-        if let (Some(initial_state_path), Some(initial_block_path)) = (
+        if let (Some(initial_state_path), Some(initial_block_path), opt_initial_blobs_path) = (
             cli_args.value_of("checkpoint-state"),
             cli_args.value_of("checkpoint-block"),
+            cli_args.value_of("checkpoint-blobs"),
         ) {
             let read = |path: &str| {
                 use std::fs::File;
@@ -530,10 +534,12 @@ pub fn get_config<E: EthSpec>(
 
             let anchor_state_bytes = read(initial_state_path)?;
             let anchor_block_bytes = read(initial_block_path)?;
+            let anchor_blobs_bytes = opt_initial_blobs_path.map(read).transpose()?;
 
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes,
                 anchor_block_bytes,
+                anchor_blobs_bytes,
             }
         } else if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
             let url = SensitiveUrl::parse(remote_bn_url)

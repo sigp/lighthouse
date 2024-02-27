@@ -7,6 +7,7 @@
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{strip_prefix, Auth, JwtKey};
+pub use block_hash::calculate_execution_block_hash;
 use builder_client::BuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
@@ -61,6 +62,7 @@ mod metrics;
 pub mod payload_cache;
 mod payload_status;
 pub mod test_utils;
+mod versioned_hashes;
 
 /// Indicates the default jwt authenticated execution endpoint.
 pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
@@ -141,6 +143,7 @@ pub enum Error {
     InvalidBlobConversion(String),
     BeaconStateError(BeaconStateError),
     PayloadTypeMismatch,
+    VerifyingVersionedHashes(versioned_hashes::Error),
 }
 
 impl From<BeaconStateError> for Error {
@@ -1321,7 +1324,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// Maps to the `engine_newPayload` JSON-RPC call.
     pub async fn notify_new_payload(
         &self,
-        new_payload_request: NewPayloadRequest<T>,
+        new_payload_request: NewPayloadRequest<'_, T>,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,

@@ -179,6 +179,9 @@ OPTIONS:
         --builder-user-agent <STRING>
             The HTTP user agent to send alongside requests to the builder URL. The default is Lighthouse's version
             string.
+        --checkpoint-blobs <BLOBS_SSZ>
+            Set the checkpoint blobs to start syncing from. Must be aligned and match --checkpoint-block. Using
+            --checkpoint-sync-url instead is recommended.
         --checkpoint-block <BLOCK_SSZ>
             Set a checkpoint block to start syncing from. Must be aligned and match --checkpoint-state. Using
             --checkpoint-sync-url instead is recommended.
@@ -458,6 +461,9 @@ OPTIONS:
         --slots-per-restore-point <SLOT_COUNT>
             Specifies how often a freezer DB restore point should be stored. Cannot be changed after initialization.
             [default: 8192 (mainnet) or 64 (minimal)]
+        --state-cache-size <STATE_CACHE_SIZE>
+            Specifies the size of the snapshot cache [default: 3]
+
         --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
             Emergency fallback fee recipient for use in case the validator client does not have one configured. You
             should set this flag on the validator client instead of (or in addition to) setting it here.
