@@ -430,6 +430,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .flatten()
             .unzip();
 
+        if attestations.len() == 0 {
+            warn!("WARN: No attestations were published");
+            return Ok(None);
+        }
+
         // Post the attestations to the BN.
         match self
             .beacon_nodes
