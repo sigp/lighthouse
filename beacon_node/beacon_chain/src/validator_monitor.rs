@@ -1751,7 +1751,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     fn register_proposer_slashing(&self, src: &str, slashing: &ProposerSlashing) {
-        // TODO add proposer slashing SSE event
         let proposer = slashing.signed_header_1.message.proposer_index;
         let slot = slashing.signed_header_1.message.slot;
         let epoch = slot.epoch(T::slots_per_epoch());
@@ -1838,7 +1837,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
                 validator.with_epoch_summary(epoch, |summary| summary.register_attester_slashing());
             })
-        // TODO add attester slashing event
     }
 
     /// Scrape `self` for metrics.
