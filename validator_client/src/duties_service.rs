@@ -122,42 +122,34 @@ pub struct SubscriptionSlots {
     slots: Vec<(Slot, AtomicBool)>,
 }
 
-impl DutyAndProof {
-    /// Instantiate `Self`, computing the selection proof as well.
-    pub async fn new_with_selection_proof<T: SlotClock + 'static, E: EthSpec>(
-        duty: AttesterData,
-        validator_store: &ValidatorStore<T, E>,
-        spec: &ChainSpec,
-    ) -> Result<Self, Error> {
-        let selection_proof = validator_store
-            .produce_selection_proof(duty.pubkey, duty.slot)
-            .await
-            .map_err(Error::FailedToProduceSelectionProof)?;
+/// Create a selection proof for `duty`.
+///
+/// Return `Ok(None)` if the attesting validator is not an aggregator.
+async fn make_selection_proof<T: SlotClock + 'static, E: EthSpec>(
+    duty: &AttesterData,
+    validator_store: &ValidatorStore<T, E>,
+    spec: &ChainSpec,
+) -> Result<Option<SelectionProof>, Error> {
+    let selection_proof = validator_store
+        .produce_selection_proof(duty.pubkey, duty.slot)
+        .await
+        .map_err(Error::FailedToProduceSelectionProof)?;
 
-        let selection_proof = selection_proof
-            .is_aggregator(duty.committee_length as usize, spec)
-            .map_err(Error::InvalidModulo)
-            .map(|is_aggregator| {
-                if is_aggregator {
-                    Some(selection_proof)
-                } else {
-                    // Don't bother storing the selection proof if the validator isn't an
-                    // aggregator, we won't need it.
-                    None
-                }
-            })?;
-
-        // FIXME(sproul): these subscription slots aren't actually used, we could get rid of this
-        // with a refactor.
-        let subscription_slots = SubscriptionSlots::new(duty.slot, Slot::new(0));
-
-        Ok(Self {
-            duty,
-            selection_proof,
-            subscription_slots,
+    selection_proof
+        .is_aggregator(duty.committee_length as usize, spec)
+        .map_err(Error::InvalidModulo)
+        .map(|is_aggregator| {
+            if is_aggregator {
+                Some(selection_proof)
+            } else {
+                // Don't bother storing the selection proof if the validator isn't an
+                // aggregator, we won't need it.
+                None
+            }
         })
-    }
+}
 
+impl DutyAndProof {
     /// Create a new `DutyAndProof` with the selection proof waiting to be filled in.
     pub fn new_without_selection_proof(duty: AttesterData, current_slot: Slot) -> Self {
         let subscription_slots = SubscriptionSlots::new(duty.slot, current_slot);
@@ -1067,12 +1059,13 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
             // Sign selection proofs (serially).
             let duty_and_proof_results = stream::iter(relevant_duties.into_values().flatten())
                 .then(|duty| async {
-                    DutyAndProof::new_with_selection_proof(
-                        duty,
+                    let opt_selection_proof = make_selection_proof(
+                        &duty,
                         &duties_service.validator_store,
                         &duties_service.spec,
                     )
-                    .await
+                    .await?;
+                    Ok((duty, opt_selection_proof))
                 })
                 .collect::<Vec<_>>()
                 .await;
@@ -1080,7 +1073,7 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
             // Add to attesters store.
             let mut attesters = duties_service.attesters.write();
             for result in duty_and_proof_results {
-                let duty_and_proof = match result {
+                let (duty, selection_proof) = match result {
                     Ok(duty_and_proof) => duty_and_proof,
                     Err(Error::FailedToProduceSelectionProof(
                         ValidatorStoreError::UnknownPubkey(pubkey),
@@ -1108,12 +1101,12 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                     }
                 };
 
-                let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
-                let epoch = duty_and_proof.duty.slot.epoch(E::slots_per_epoch());
+                let attester_map = attesters.entry(duty.pubkey).or_default();
+                let epoch = duty.slot.epoch(E::slots_per_epoch());
                 match attester_map.entry(epoch) {
                     hash_map::Entry::Occupied(mut entry) => {
                         // No need to update duties for which no proof was computed.
-                        let Some(selection_proof) = duty_and_proof.selection_proof else {
+                        let Some(selection_proof) = selection_proof else {
                             continue;
                         };
 
@@ -1134,6 +1127,14 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                         }
                     }
                     hash_map::Entry::Vacant(entry) => {
+                        // This probably shouldn't happen, but we have enough info to fill in the
+                        // entry so we may as well.
+                        let subscription_slots = SubscriptionSlots::new(duty.slot, current_slot);
+                        let duty_and_proof = DutyAndProof {
+                            duty,
+                            selection_proof,
+                            subscription_slots,
+                        };
                         entry.insert((dependent_root, duty_and_proof));
                     }
                 }
