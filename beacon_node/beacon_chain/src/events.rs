@@ -198,6 +198,14 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         self.block_reward_tx.subscribe()
     }
 
+    pub fn subscribe_attester_slashing(&self) -> Receiver<EventKind<T>> {
+        self.attester_slashing_tx.subscribe()
+    }
+
+    pub fn subscribe_proposer_slashing(&self) -> Receiver<EventKind<T>> {
+        self.proposer_slashing_tx.subscribe()
+    }
+
     pub fn has_attestation_subscribers(&self) -> bool {
         self.attestation_tx.receiver_count() > 0
     }
@@ -240,5 +248,13 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
 
     pub fn has_block_reward_subscribers(&self) -> bool {
         self.block_reward_tx.receiver_count() > 0
+    }
+
+    pub fn has_proposer_slashing_subscribers(&self) -> bool {
+        self.proposer_slashing_tx.receiver_count() > 0
+    }
+
+    pub fn has_attester_slashing_subscribers(&self) -> bool {
+        self.attester_slashing_tx.receiver_count() > 0
     }
 }

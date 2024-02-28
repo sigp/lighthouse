@@ -5168,6 +5168,8 @@ impl ApiTester {
             EventTopic::Block,
             EventTopic::Head,
             EventTopic::FinalizedCheckpoint,
+            EventTopic::AttesterSlashing,
+            EventTopic::ProposerSlashing,
         ];
         let mut events_future = self
             .client
@@ -5306,6 +5308,44 @@ impl ApiTester {
         )
         .await;
         assert_eq!(reorg_event.as_slice(), &[expected_reorg]);
+
+        let validator_indices = self.interesting_validator_indices();
+
+        // Test attester slashing event
+        let mut attester_slashing_event_future = self
+            .client
+            .get_events::<E>(&[EventTopic::AttesterSlashing])
+            .await
+            .unwrap();
+
+        self.harness.add_attester_slashing(vec![1, 2, 3]).unwrap();
+
+        let attester_slashing_event = poll_events(
+            &mut attester_slashing_event_future,
+            1,
+            Duration::from_millis(10000),
+        )
+        .await;
+
+        assert!(attester_slashing_event.len() > 0);
+
+        // Test proposer slashing event
+        let mut proposer_slashing_event_future = self
+            .client
+            .get_events::<E>(&[EventTopic::ProposerSlashing])
+            .await
+            .unwrap();
+
+        self.harness.add_proposer_slashing(1).unwrap();
+
+        let proposer_slashing_event = poll_events(
+            &mut proposer_slashing_event_future,
+            1,
+            Duration::from_millis(10000),
+        )
+        .await;
+
+        assert!(proposer_slashing_event.len() > 0);
 
         self
     }

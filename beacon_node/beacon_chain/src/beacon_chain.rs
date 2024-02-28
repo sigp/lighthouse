@@ -2440,6 +2440,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         proposer_slashing: ProposerSlashing,
     ) -> Result<ObservationOutcome<ProposerSlashing, T::EthSpec>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
+
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_proposer_slashing_subscribers() {
+                event_handler.register(EventKind::ProposerSlashing(Box::new(
+                    proposer_slashing.clone(),
+                )));
+            }
+        }
+
         Ok(self.observed_proposer_slashings.lock().verify_and_observe(
             proposer_slashing,
             &wall_clock_state,
@@ -2452,6 +2461,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         proposer_slashing: SigVerifiedOp<ProposerSlashing, T::EthSpec>,
     ) {
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_proposer_slashing_subscribers() {
+                event_handler.register(EventKind::ProposerSlashing(Box::new(
+                    proposer_slashing.clone().into_inner(),
+                )));
+            }
+        }
+
         if self.eth1_chain.is_some() {
             self.op_pool.insert_proposer_slashing(proposer_slashing)
         }
@@ -2463,6 +2480,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         attester_slashing: AttesterSlashing<T::EthSpec>,
     ) -> Result<ObservationOutcome<AttesterSlashing<T::EthSpec>, T::EthSpec>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
+
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_attester_slashing_subscribers() {
+                event_handler.register(EventKind::AttesterSlashing(Box::new(
+                    attester_slashing.clone(),
+                )));
+            }
+        }
+
         Ok(self.observed_attester_slashings.lock().verify_and_observe(
             attester_slashing,
             &wall_clock_state,
@@ -2482,6 +2508,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.canonical_head
             .fork_choice_write_lock()
             .on_attester_slashing(attester_slashing.as_inner());
+
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_attester_slashing_subscribers() {
+                event_handler.register(EventKind::AttesterSlashing(Box::new(
+                    attester_slashing.clone().into_inner(),
+                )));
+            }
+        }
 
         // Add to the op pool (if we have the ability to propose blocks).
         if self.eth1_chain.is_some() {

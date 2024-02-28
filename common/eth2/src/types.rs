@@ -983,19 +983,6 @@ pub struct SseLateHead {
     pub execution_optimistic: bool,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-pub struct SseProposerSlashing {
-    pub signed_header_1: SignedBeaconBlockHeader,
-    pub signed_header_2: SignedBeaconBlockHeader,
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-#[serde(bound = "E: EthSpec")]
-pub struct SseAttesterSlashing<E: EthSpec> {
-    pub attestation_1: Attestation<E>,
-    pub attestation_2: Attestation<E>,
-}
-
 #[superstruct(
     variants(V1, V2, V3),
     variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize))
@@ -1091,8 +1078,8 @@ pub enum EventKind<T: EthSpec> {
     #[cfg(feature = "lighthouse")]
     BlockReward(BlockReward),
     PayloadAttributes(VersionedSsePayloadAttributes),
-    ProposerSlashing(SseProposerSlashing),
-    AttesterSlashing(SseAttesterSlashing<T>),
+    ProposerSlashing(Box<ProposerSlashing>),
+    AttesterSlashing(Box<AttesterSlashing<T>>),
 }
 
 impl<T: EthSpec> EventKind<T> {
@@ -1125,6 +1112,7 @@ impl<T: EthSpec> EventKind<T> {
         let event = split
             .next()
             .ok_or_else(|| {
+                println!("{}", s);
                 ServerError::InvalidServerSentEvent("Could not parse event tag".to_string())
             })?
             .trim_start_matches("event:");
@@ -1194,6 +1182,16 @@ impl<T: EthSpec> EventKind<T> {
             "block_reward" => Ok(EventKind::BlockReward(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block Reward: {:?}", e)),
             )?)),
+            "attester_slashing" => Ok(EventKind::AttesterSlashing(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Attester Slashing: {:?}", e))
+                })?,
+            )),
+            "proposer_slashing" => Ok(EventKind::ProposerSlashing(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Proposer Slashing: {:?}", e))
+                })?,
+            )),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1225,6 +1223,8 @@ pub enum EventTopic {
     LightClientOptimisticUpdate,
     #[cfg(feature = "lighthouse")]
     BlockReward,
+    AttesterSlashing,
+    ProposerSlashing,
 }
 
 impl FromStr for EventTopic {
@@ -1246,6 +1246,8 @@ impl FromStr for EventTopic {
             "light_client_optimistic_update" => Ok(EventTopic::LightClientOptimisticUpdate),
             #[cfg(feature = "lighthouse")]
             "block_reward" => Ok(EventTopic::BlockReward),
+            "attester_slashing" => Ok(EventTopic::AttesterSlashing),
+            "proposer_slashing" => Ok(EventTopic::ProposerSlashing),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1268,6 +1270,8 @@ impl fmt::Display for EventTopic {
             EventTopic::LightClientOptimisticUpdate => write!(f, "light_client_optimistic_update"),
             #[cfg(feature = "lighthouse")]
             EventTopic::BlockReward => write!(f, "block_reward"),
+            EventTopic::AttesterSlashing => write!(f, "attester_slashing"),
+            EventTopic::ProposerSlashing => write!(f, "proposer_slashing"),
         }
     }
 }
