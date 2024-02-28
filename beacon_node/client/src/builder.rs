@@ -1,4 +1,3 @@
-use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::compute_light_client_updates::{
     compute_light_client_updates, LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
 };
@@ -918,25 +917,6 @@ where
                     // Spawn a routine that removes expired proposer preparations.
                     execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock>(
                         beacon_chain.slot_clock.clone(),
-                    );
-                }
-
-                // Spawn a service to publish BLS to execution changes at the Capella fork.
-                if let Some(network_senders) = self.network_senders.clone() {
-                    let inner_chain = beacon_chain.clone();
-                    let broadcast_context =
-                        runtime_context.service_context("addr_bcast".to_string());
-                    let log = broadcast_context.log().clone();
-                    broadcast_context.executor.spawn(
-                        async move {
-                            broadcast_address_changes_at_capella(
-                                &inner_chain,
-                                network_senders.network_send(),
-                                &log,
-                            )
-                            .await
-                        },
-                        "addr_broadcast",
                     );
                 }
             }
