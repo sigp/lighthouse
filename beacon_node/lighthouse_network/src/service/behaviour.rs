@@ -7,7 +7,6 @@ use crate::gossipsub;
 use libp2p::identify;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::upnp::tokio::Behaviour as Upnp;
-use slot_clock::SlotClock;
 use types::EthSpec;
 
 use super::api_types::RequestId;
