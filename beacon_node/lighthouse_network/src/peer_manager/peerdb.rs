@@ -1067,7 +1067,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 ScoreTransitionResult::Banned
             }
             (ScoreState::ForcedDisconnect, ScoreState::Banned | ScoreState::Healthy) => {
-                debug!(log, "Peer transitioned to disconnect state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
+                debug!(log, "Peer transitioned to forced disconnect score state"; "peer_id" => %peer_id, "score" => %info.score(), "past_score_state" => %previous_state);
                 // disconnect the peer if it's currently connected or dialing
                 if info.is_connected_or_dialing() {
                     ScoreTransitionResult::Disconnected
@@ -1080,11 +1080,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 }
             }
             (ScoreState::Healthy, ScoreState::ForcedDisconnect) => {
-                debug!(log, "Peer transitioned to healthy state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
+                debug!(log, "Peer transitioned to healthy score state"; "peer_id" => %peer_id, "score" => %info.score(), "past_score_state" => %previous_state);
                 ScoreTransitionResult::NoAction
             }
             (ScoreState::Healthy, ScoreState::Banned) => {
-                debug!(log, "Peer transitioned to healthy state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
+                debug!(log, "Peer transitioned to healthy score state"; "peer_id" => %peer_id, "score" => %info.score(), "past_score_state" => %previous_state);
                 // unban the peer if it was previously banned.
                 ScoreTransitionResult::Unbanned
             }
