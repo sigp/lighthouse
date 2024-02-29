@@ -14,7 +14,7 @@ this document. However, users with more complex needs may find this document
 useful.
 
 The [lighthouse validator-manager](./validator-manager.md) command can be used
-to create and import validators to a Lighthouse VC. It can also be used to move
+to list validators on a Lighthouse VC. Create and import validators to a Lighthouse VC. It can also be used to move
 validators between two Lighthouse VCs.
 
 ## Introducing the `validator_definitions.yml` file
