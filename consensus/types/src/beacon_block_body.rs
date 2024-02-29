@@ -184,6 +184,12 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
             }
         }
     }
+
+    /// Return `true` if this block body has a non-zero number of blobs.
+    pub fn has_blobs(self) -> bool {
+        self.blob_kzg_commitments()
+            .map_or(false, |blobs| !blobs.is_empty())
+    }
 }
 
 impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, Payload> {

@@ -1,6 +1,6 @@
 #![cfg(feature = "ef_tests")]
 
-use ef_tests::{KzgInclusionMerkleProofValidityHandler, *};
+use ef_tests::*;
 use types::{MainnetEthSpec, MinimalEthSpec, *};
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
@@ -605,6 +605,7 @@ fn merkle_proof_validity() {
 }
 
 #[test]
+#[cfg(feature = "fake_crypto")]
 fn kzg_inclusion_merkle_proof_validity() {
     KzgInclusionMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
     KzgInclusionMerkleProofValidityHandler::<MinimalEthSpec>::default().run();

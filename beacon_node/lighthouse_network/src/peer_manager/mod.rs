@@ -10,7 +10,7 @@ use delay_map::HashSetDelay;
 use discv5::Enr;
 use libp2p::identify::Info as IdentifyInfo;
 use lru_cache::LRUTimeCache;
-use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
+use peerdb::{BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
 use slog::{debug, error, trace, warn};
 use smallvec::SmallVec;
@@ -18,7 +18,6 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use strum::IntoEnumIterator;
 use types::{EthSpec, SyncSubnetId};
 
 pub use libp2p::core::Multiaddr;
@@ -716,46 +715,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         for (peer_id, score_action) in actions {
             self.handle_score_action(&peer_id, score_action, None);
-        }
-    }
-
-    // This function updates metrics for all connected peers.
-    fn update_connected_peer_metrics(&self) {
-        // Do nothing if we don't have metrics enabled.
-        if !self.metrics_enabled {
-            return;
-        }
-
-        let mut connected_peer_count = 0;
-        let mut inbound_connected_peers = 0;
-        let mut outbound_connected_peers = 0;
-        let mut clients_per_peer = HashMap::new();
-
-        for (_peer, peer_info) in self.network_globals.peers.read().connected_peers() {
-            connected_peer_count += 1;
-            if let PeerConnectionStatus::Connected { n_in, .. } = peer_info.connection_status() {
-                if *n_in > 0 {
-                    inbound_connected_peers += 1;
-                } else {
-                    outbound_connected_peers += 1;
-                }
-            }
-            *clients_per_peer
-                .entry(peer_info.client().kind.to_string())
-                .or_default() += 1;
-        }
-
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peer_count);
-        metrics::set_gauge(&metrics::NETWORK_INBOUND_PEERS, inbound_connected_peers);
-        metrics::set_gauge(&metrics::NETWORK_OUTBOUND_PEERS, outbound_connected_peers);
-
-        for client_kind in ClientKind::iter() {
-            let value = clients_per_peer.get(&client_kind.to_string()).unwrap_or(&0);
-            metrics::set_gauge_vec(
-                &metrics::PEERS_PER_CLIENT,
-                &[client_kind.as_ref()],
-                *value as i64,
-            );
         }
     }
 

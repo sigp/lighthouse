@@ -1,7 +1,7 @@
 use crate::beacon_block_body::NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES;
-use crate::ForkVersionDeserialize;
-use crate::ForkName;
 use crate::BeaconBlockHeader;
+use crate::ForkName;
+use crate::ForkVersionDeserialize;
 use crate::{light_client_update::*, BeaconBlockBody};
 use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
@@ -9,12 +9,12 @@ use crate::{
 };
 use merkle_proof::verify_merkle_proof;
 use serde::{Deserialize, Serialize};
+use serde_json;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use serde_json;
 
 #[superstruct(
     variants(Altair, Capella, Deneb),

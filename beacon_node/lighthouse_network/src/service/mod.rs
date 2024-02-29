@@ -28,10 +28,9 @@ use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
-use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
+use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{Swarm, SwarmEvent};
-use libp2p::PeerId;
-use libp2p::{identify, SwarmBuilder};
+use libp2p::{identify, PeerId, SwarmBuilder};
 use slog::{crit, debug, info, o, trace, warn};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -51,7 +50,7 @@ mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
 pub mod utils;
 /// The number of peers we target per subnet for discovery queries.
-pub const TARGET_SUBNET_PEERS: usize = 6;
+pub const TARGET_SUBNET_PEERS: usize = 3;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
@@ -127,8 +126,6 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
     gossip_cache: GossipCache,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
-    /// Flag to disable warning logs for duplicate gossip messages and log at DEBUG level instead.
-    pub disable_duplicate_warn_logs: bool,
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
@@ -365,6 +362,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 identify,
                 peer_manager,
                 connection_limits,
+                upnp: Default::default(),
             }
         };
 
@@ -427,7 +425,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             update_gossipsub_scores,
             gossip_cache,
             local_peer_id,
-            disable_duplicate_warn_logs: config.disable_duplicate_warn_logs,
             log,
         };
 
@@ -746,21 +743,23 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     .gossipsub_mut()
                     .publish(Topic::from(topic.clone()), message_data.clone())
                 {
-                    if self.disable_duplicate_warn_logs && matches!(e, PublishError::Duplicate) {
-                        debug!(
-                            self.log,
-                            "Could not publish message";
-                            "error" => ?e,
-                            "kind" => %topic.kind(),
-                        );
-                    } else {
-                        warn!(
-                            self.log,
-                            "Could not publish message";
-                            "error" => ?e,
-                            "kind" => %topic.kind(),
-                        );
-                    };
+                    match e {
+                        PublishError::Duplicate => {
+                            debug!(
+                                self.log,
+                                "Attempted to publish duplicate message";
+                                "kind" => %topic.kind(),
+                            );
+                        }
+                        ref e => {
+                            warn!(
+                                self.log,
+                                "Could not publish message";
+                                "error" => ?e,
+                                "kind" => %topic.kind(),
+                            );
+                        }
+                    }
 
                     // add to metrics
                     match topic.kind() {
@@ -1227,22 +1226,39 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                                 .publish(Topic::from(topic.clone()), data)
                             {
                                 Ok(_) => {
-                                    warn!(self.log, "Gossip message published on retry"; "topic" => topic_str);
-                                    if let Some(v) = metrics::get_int_counter(
+                                    debug!(
+                                        self.log,
+                                        "Gossip message published on retry";
+                                        "topic" => topic_str
+                                    );
+                                    metrics::inc_counter_vec(
                                         &metrics::GOSSIP_LATE_PUBLISH_PER_TOPIC_KIND,
                                         &[topic_str],
-                                    ) {
-                                        v.inc()
-                                    };
+                                    );
                                 }
-                                Err(e) => {
-                                    warn!(self.log, "Gossip message publish failed on retry"; "topic" => topic_str, "error" => %e);
-                                    if let Some(v) = metrics::get_int_counter(
+                                Err(PublishError::Duplicate) => {
+                                    debug!(
+                                        self.log,
+                                        "Gossip message publish ignored on retry";
+                                        "reason" => "duplicate",
+                                        "topic" => topic_str
+                                    );
+                                    metrics::inc_counter_vec(
                                         &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND,
                                         &[topic_str],
-                                    ) {
-                                        v.inc()
-                                    };
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        self.log,
+                                        "Gossip message publish failed on retry";
+                                        "topic" => topic_str,
+                                        "error" => %e
+                                    );
+                                    metrics::inc_counter_vec(
+                                        &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND,
+                                        &[topic_str],
+                                    );
                                 }
                             }
                         }
@@ -1585,6 +1601,47 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
+    fn inject_upnp_event(&mut self, event: libp2p::upnp::Event) {
+        match event {
+            libp2p::upnp::Event::NewExternalAddr(addr) => {
+                info!(self.log, "UPnP route established"; "addr" => %addr);
+                let mut iter = addr.iter();
+                // Skip Ip address.
+                iter.next();
+                match iter.next() {
+                    Some(multiaddr::Protocol::Udp(udp_port)) => match iter.next() {
+                        Some(multiaddr::Protocol::QuicV1) => {
+                            if let Err(e) = self.discovery_mut().update_enr_quic_port(udp_port) {
+                                warn!(self.log, "Failed to update ENR"; "error" => e);
+                            }
+                        }
+                        _ => {
+                            trace!(self.log, "UPnP address mapped multiaddr from unknown transport"; "addr" => %addr)
+                        }
+                    },
+                    Some(multiaddr::Protocol::Tcp(tcp_port)) => {
+                        if let Err(e) = self.discovery_mut().update_enr_tcp_port(tcp_port) {
+                            warn!(self.log, "Failed to update ENR"; "error" => e);
+                        }
+                    }
+                    _ => {
+                        trace!(self.log, "UPnP address mapped multiaddr from unknown transport"; "addr" => %addr);
+                    }
+                }
+            }
+            libp2p::upnp::Event::ExpiredExternalAddr(_) => {}
+            libp2p::upnp::Event::GatewayNotFound => {
+                info!(self.log, "UPnP not available");
+            }
+            libp2p::upnp::Event::NonRoutableGateway => {
+                info!(
+                    self.log,
+                    "UPnP is available but gateway is not exposed to public network"
+                );
+            }
+        }
+    }
+
     /* Networking polling */
 
     /// Poll the p2p networking stack.
@@ -1607,6 +1664,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                     BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
                     BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
+                    BehaviourEvent::Upnp(e) => {
+                        self.inject_upnp_event(e);
+                        None
+                    }
                     BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
                 },
                 SwarmEvent::ConnectionEstablished { .. } => None,

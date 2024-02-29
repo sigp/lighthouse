@@ -6,7 +6,7 @@
 //! The `DutiesService` is also responsible for sending events to the `BlockService` which trigger
 //! block production.
 
-mod sync;
+pub mod sync;
 
 use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
 use crate::http_metrics::metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};
@@ -41,6 +41,9 @@ const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
 ///
 /// At start-up selection proofs will be computed with less lookahead out of necessity.
 const SELECTION_PROOF_SLOT_LOOKAHEAD: u64 = 8;
+
+/// The attestation selection proof lookahead for those running with the --distributed flag.
+const SELECTION_PROOF_SLOT_LOOKAHEAD_DVT: u64 = 1;
 
 /// Fraction of a slot at which selection proof signing should happen (2 means half way).
 const SELECTION_PROOF_SCHEDULE_DENOM: u32 = 2;
@@ -211,16 +214,21 @@ pub struct DutiesService<T, E: EthSpec> {
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
     /// Map from validator index to sync committee duties.
-    pub sync_duties: SyncDutiesMap,
+    pub sync_duties: SyncDutiesMap<E>,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<ValidatorStore<T, E>>,
     /// Tracks the current slot.
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.
     pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    pub enable_high_validator_count_metrics: bool,
+    /// The runtime for spawning tasks.
     pub context: RuntimeContext<E>,
+    /// The current chain spec.
     pub spec: ChainSpec,
+    //// Whether we permit large validator counts in the metrics.
+    pub enable_high_validator_count_metrics: bool,
+    /// If this validator is running in distributed mode.
+    pub distributed: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
@@ -997,7 +1005,13 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                 continue;
             };
 
-            let lookahead_slot = current_slot + SELECTION_PROOF_SLOT_LOOKAHEAD;
+            let selection_lookahead = if duties_service.distributed {
+                SELECTION_PROOF_SLOT_LOOKAHEAD_DVT
+            } else {
+                SELECTION_PROOF_SLOT_LOOKAHEAD
+            };
+
+            let lookahead_slot = current_slot + selection_lookahead;
 
             let mut relevant_duties = duties_by_slot.split_off(&lookahead_slot);
             std::mem::swap(&mut relevant_duties, &mut duties_by_slot);

@@ -157,10 +157,6 @@ pub struct Config {
 
     /// Configuration for the inbound rate limiter (requests received by this node).
     pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
-
-    /// Whether to disable logging duplicate gossip messages as WARN. If set to true, duplicate
-    /// errors will be logged at DEBUG level.
-    pub disable_duplicate_warn_logs: bool,
 }
 
 impl Config {
@@ -354,7 +350,7 @@ impl Default for Config {
             enr_udp6_port: None,
             enr_quic6_port: None,
             enr_tcp6_port: None,
-            target_peers: 50,
+            target_peers: 100,
             gs_config,
             discv5_config,
             boot_nodes_enr: vec![],
@@ -378,7 +374,6 @@ impl Default for Config {
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
-            disable_duplicate_warn_logs: false,
         }
     }
 }
