@@ -1191,6 +1191,20 @@ pub fn set_network_config(
         }
     }
 
+    if let Some(explicit_peers_str) = cli_args.value_of("explicit-peers") {
+        config.explicit_peers = explicit_peers_str
+            .split(',')
+            .map(|peer_id| {
+                peer_id
+                    .parse()
+                    .map_err(|_| format!("Invalid explicit peer id: {}", peer_id))
+            })
+            .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
+        if config.explicit_peers.len() >= config.target_peers {
+            slog::warn!(log, "More explicit peers than the target peer limit. This will prevent efficient peer selection criteria."; "target_peers" => config.target_peers, "explicit_peers" => config.explicit_peers.len());
+        }
+    }
+
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
         config.enr_udp4_port = Some(
             enr_udp_port_str

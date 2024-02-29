@@ -293,6 +293,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("explicit-peers")
+                .long("explicit-peers")
+                .value_name("EXPLICIT_PEERS")
+                .help("One or more comma-delimited explicit peer ids which are exempt from any peer scoring and other defensive measures. \
+                    Explicit peering agreements are established out of band and reciprocal.")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("genesis-backfill")
                 .long("genesis-backfill")
                 .help("Attempts to download blocks all the way back to genesis when checkpoint syncing.")
