@@ -1,4 +1,6 @@
 use crate::beacon_block_body::NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES;
+use crate::ForkVersionDeserialize;
+use crate::ForkName;
 use crate::BeaconBlockHeader;
 use crate::{light_client_update::*, BeaconBlockBody};
 use crate::{
@@ -12,6 +14,7 @@ use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
+use serde_json;
 
 #[superstruct(
     variants(Altair, Capella, Deneb),
@@ -179,5 +182,27 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
             field_index,
             self.beacon.body_root,
         ))
+    }
+}
+
+impl<T: EthSpec> ForkVersionDeserialize for LightClientHeader<T> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        match fork_name {
+            ForkName::Altair => serde_json::from_value(value)
+                .map(|light_client_header| Self::Altair(light_client_header))
+                .map_err(serde::de::Error::custom),
+            ForkName::Capella => serde_json::from_value(value)
+                .map(|light_client_header| Self::Capella(light_client_header))
+                .map_err(serde::de::Error::custom),
+            ForkName::Deneb => serde_json::from_value(value)
+                .map(|light_client_header| Self::Deneb(light_client_header))
+                .map_err(serde::de::Error::custom),
+            ForkName::Base | ForkName::Merge => Err(serde::de::Error::custom(format!(
+                "LightClientHeader deserialization for {fork_name} not implemented"
+            ))),
+        }
     }
 }
