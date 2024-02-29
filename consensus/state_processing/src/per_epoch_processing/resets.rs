@@ -2,7 +2,7 @@ use super::errors::EpochProcessingError;
 use safe_arith::SafeArith;
 use types::beacon_state::BeaconState;
 use types::eth_spec::EthSpec;
-use types::{Unsigned, VList};
+use types::{List, Unsigned};
 
 pub fn process_eth1_data_reset<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -13,7 +13,7 @@ pub fn process_eth1_data_reset<T: EthSpec>(
         .safe_rem(T::SlotsPerEth1VotingPeriod::to_u64())?
         == 0
     {
-        *state.eth1_data_votes_mut() = VList::empty();
+        *state.eth1_data_votes_mut() = List::empty();
     }
     Ok(())
 }

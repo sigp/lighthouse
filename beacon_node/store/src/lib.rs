@@ -156,7 +156,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let column = I::db_column().into();
         let key = key.as_bytes();
 
-        self.put_bytes(column, key, &item.as_store_bytes()?)
+        self.put_bytes(column, key, &item.as_store_bytes())
             .map_err(Into::into)
     }
 
@@ -164,7 +164,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let column = I::db_column().into();
         let key = key.as_bytes();
 
-        self.put_bytes_sync(column, key, &item.as_store_bytes()?)
+        self.put_bytes_sync(column, key, &item.as_store_bytes())
             .map_err(Into::into)
     }
 
@@ -339,16 +339,16 @@ pub trait StoreItem: Sized {
     fn db_column() -> DBColumn;
 
     /// Serialize `self` as bytes.
-    fn as_store_bytes(&self) -> Result<Vec<u8>, Error>;
+    fn as_store_bytes(&self) -> Vec<u8>;
 
     /// De-serialize `self` from bytes.
     ///
     /// Return an instance of the type and the number of bytes that were read.
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
 
-    fn as_kv_store_op(&self, key: Hash256) -> Result<KeyValueStoreOp, Error> {
+    fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
         let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
-        Ok(KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes()?))
+        KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
     }
 }
 
@@ -370,8 +370,8 @@ mod tests {
             DBColumn::BeaconBlock
         }
 
-        fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
-            Ok(self.as_ssz_bytes())
+        fn as_store_bytes(&self) -> Vec<u8> {
+            self.as_ssz_bytes()
         }
 
         fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {

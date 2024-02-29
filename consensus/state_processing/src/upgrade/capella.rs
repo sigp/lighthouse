@@ -1,7 +1,7 @@
 use std::mem;
 use types::{
     BeaconState, BeaconStateCapella, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
-    Fork, VList,
+    Fork, List,
 };
 
 /// Transform a `Merge` state into an `Capella` state.
@@ -61,7 +61,7 @@ pub fn upgrade_to_capella<E: EthSpec>(
         // Capella
         next_withdrawal_index: 0,
         next_withdrawal_validator_index: 0,
-        historical_summaries: VList::default(),
+        historical_summaries: List::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),

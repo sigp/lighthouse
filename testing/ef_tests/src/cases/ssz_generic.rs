@@ -9,7 +9,7 @@ use ssz_derive::{Decode, Encode};
 use std::path::{Path, PathBuf};
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
-use types::{BitList, BitVector, FixedVector, ForkName, VariableList};
+use types::{BitList, BitVector, ForkName, VariableList, Vector};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
@@ -135,7 +135,7 @@ impl Case for SszGeneric {
                 type_dispatch!(
                     ssz_generic_test,
                     (&self.path),
-                    FixedVector,
+                    Vector,
                     <>,
                     [elem_ty => primitive_type]
                     [length => typenum]
@@ -270,8 +270,8 @@ struct ComplexTestStruct {
     #[serde(deserialize_with = "byte_list_from_hex_str")]
     D: VariableList<u8, U256>,
     E: VarTestStruct,
-    F: FixedVector<FixedTestStruct, U4>,
-    G: FixedVector<VarTestStruct, U2>,
+    F: Vector<FixedTestStruct, U4>,
+    G: Vector<VarTestStruct, U2>,
 }
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]

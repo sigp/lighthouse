@@ -8,8 +8,6 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use BeaconStateError;
 
-use ssz_types::{FixedVector, VariableList};
-
 #[superstruct(
     variants(Merge, Capella, Deneb),
     variant_attributes(

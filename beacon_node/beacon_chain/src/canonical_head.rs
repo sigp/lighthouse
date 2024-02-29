@@ -987,14 +987,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Return a database operation for writing fork choice to disk.
-    pub fn persist_fork_choice_in_batch(&self) -> Result<KeyValueStoreOp, store::Error> {
+    pub fn persist_fork_choice_in_batch(&self) -> KeyValueStoreOp {
         Self::persist_fork_choice_in_batch_standalone(&self.canonical_head.fork_choice_read_lock())
     }
 
     /// Return a database operation for writing fork choice to disk.
     pub fn persist_fork_choice_in_batch_standalone(
         fork_choice: &BeaconForkChoice<T>,
-    ) -> Result<KeyValueStoreOp, store::Error> {
+    ) -> KeyValueStoreOp {
         let persisted_fork_choice = PersistedForkChoice {
             fork_choice: fork_choice.to_persisted(),
             fork_choice_store: fork_choice.fc_store().to_persisted(),

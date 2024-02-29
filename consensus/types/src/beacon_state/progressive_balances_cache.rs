@@ -283,7 +283,7 @@ impl ProgressiveBalancesCache {
     }
 }
 
-/// `ProgressiveBalancesCache` is only enabled from `Altair` as it requires `ParticipationCache`.
+/// `ProgressiveBalancesCache` is only enabled from `Altair` as it uses Altair-specific logic.
 pub fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bool {
     match state {
         BeaconState::Base(_) => false,

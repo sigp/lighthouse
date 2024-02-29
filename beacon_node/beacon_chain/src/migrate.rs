@@ -741,7 +741,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         };
         drop(head_tracker_lock);
         batch.push(StoreOp::KeyValueOp(
-            persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY)?,
+            persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY),
         ));
 
         store.do_atomically_with_block_and_blobs_cache(batch)?;

@@ -1,10 +1,9 @@
 use crate::test_utils::TestRandom;
-use crate::{EthSpec, SyncSubnetId};
+use crate::{EthSpec, FixedVector, SyncSubnetId};
 use bls::PublicKeyBytes;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::FixedVector;
 use std::collections::HashMap;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;

@@ -602,10 +602,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // but absent in the DB. This inconsistency halts pruning and dramastically increases disk
         // size. Ref: https://github.com/sigp/lighthouse/issues/4773
         let head_tracker = self.head_tracker.0.read();
-        batch.push(self.persist_head_in_batch(&head_tracker)?);
+        batch.push(self.persist_head_in_batch(&head_tracker));
 
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
-        batch.push(self.persist_fork_choice_in_batch()?);
+        batch.push(self.persist_fork_choice_in_batch());
 
         self.store.hot_db.do_atomically(batch)?;
         drop(head_tracker);
@@ -629,14 +629,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn persist_head_in_batch(
         &self,
         head_tracker_reader: &HeadTrackerReader,
-    ) -> Result<KeyValueStoreOp, DBError> {
+    ) -> KeyValueStoreOp {
         Self::persist_head_in_batch_standalone(self.genesis_block_root, head_tracker_reader)
     }
 
     pub fn persist_head_in_batch_standalone(
         genesis_block_root: Hash256,
         head_tracker_reader: &HeadTrackerReader,
-    ) -> Result<KeyValueStoreOp, DBError> {
+    ) -> KeyValueStoreOp {
         Self::make_persisted_head(genesis_block_root, head_tracker_reader)
             .as_kv_store_op(BEACON_CHAIN_DB_KEY)
     }
