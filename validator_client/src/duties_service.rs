@@ -1417,4 +1417,22 @@ mod test {
             }
         }
     }
+
+    /// Test the boundary condition where all subscription slots are *just* expired.
+    #[test]
+    fn subscription_slots_expired() {
+        let current_slot = Slot::new(100);
+        let duty_slot = current_slot + ATTESTATION_SUBSCRIPTION_OFFSETS[0];
+        let subscription_slots = SubscriptionSlots::new(duty_slot, current_slot);
+        for offset in ATTESTATION_SUBSCRIPTION_OFFSETS.into_iter() {
+            let slot = duty_slot - offset;
+            assert!(!subscription_slots.should_send_subscription_at(slot));
+        }
+        assert!(subscription_slots.slots.is_empty());
+
+        // If the duty slot is 1 later, we get a non-empty set of duties.
+        let subscription_slots = SubscriptionSlots::new(duty_slot + 1, current_slot);
+        assert_eq!(subscription_slots.slots.len(), 1);
+        assert!(subscription_slots.should_send_subscription_at(current_slot + 1),);
+    }
 }
