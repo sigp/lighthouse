@@ -1871,7 +1871,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             // Load buffer for the previous state.
             // This amount of recursion (<10 levels) should be OK.
             let t = std::time::Instant::now();
-            let (_buffer_slot, mut buffer) = match self.hierarchy.storage_strategy(slot)? {
+            let (_buffer_slot, buffer) = match self.hierarchy.storage_strategy(slot)? {
                 // Base case.
                 StorageStrategy::Snapshot => {
                     let state = self
@@ -1896,7 +1896,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             // Load diff and apply it to buffer.
             let diff = self.load_hdiff_for_slot(slot)?;
-            diff.apply(Arc::make_mut(&mut buffer))?;
+            let buffer = Arc::new(diff.apply_to_parts(buffer.state(), buffer.balances().to_vec())?);
 
             self.diff_buffer_cache.lock().put(slot, buffer.clone());
             debug!(

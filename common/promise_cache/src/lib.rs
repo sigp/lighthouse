@@ -81,29 +81,10 @@ where
                 let (sender, receiver) = oneshot();
                 cache.insert(key.clone(), receiver);
                 drop(cache);
-                match computation() {
-                    Ok(value) => {
-                        sender.send(Ok(value));
-                        Ok(self
-                            .cache
-                            .lock()
-                            .remove(key)
-                            // PANIC: should not happen, as the insert and remove is guarded so that
-                            // no two threads will end up removing the same key.
-                            .expect("value has vanished")
-                            .recv()
-                            // PANIC: can not happen, as we just above sent the value instead of
-                            // dropping the sender without sending one.
-                            .expect("we sent the value")
-                            // PANIC: can not happen: the result is `Ok`, as you can see above.
-                            .expect("we sent a success"))
-                    }
-                    Err(err) => {
-                        sender.send(Err(()));
-                        self.cache.lock().remove(key);
-                        Err(PromiseCacheError::Error(Some(err)))
-                    }
-                }
+                let result = computation();
+                sender.send(result.as_ref().cloned().map_err(|_| ()));
+                self.cache.lock().remove(key);
+                result.map_err(|e| PromiseCacheError::Error(Some(e)))
             }
         }
     }
