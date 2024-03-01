@@ -148,6 +148,7 @@ impl<E: EthSpec> RpcBlock<E> {
         Self::new(Some(block_root), block, blobs)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn deconstruct(
         self,
     ) -> (
