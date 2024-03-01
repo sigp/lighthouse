@@ -132,10 +132,7 @@ define_mod!(
     crate::impls::fake_crypto::types
 );
 
-#[cfg(all(
-    feature = "supranational",
-    not(feature = "fake_crypto"),
-))]
+#[cfg(all(feature = "supranational", not(feature = "fake_crypto"),))]
 pub use blst_implementations::*;
 
 #[cfg(feature = "fake_crypto")]
