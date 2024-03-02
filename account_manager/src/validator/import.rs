@@ -169,7 +169,15 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         let password_opt = loop {
             if let Some(password) = previous_password.clone() {
                 eprintln!("Reuse previous password.");
-                break Some(password);
+                if check_password_on_keystore(&keystore, &password)? {
+                    break Some(password);
+                } else {
+                    eprintln!("Reused password incorrect. Retry!");
+                    if let Some(password) = get_password(stdin_inputs) {
+                        previous_password = Some(password.clone());
+                        break Some(password);
+                    }
+                }
             }
             eprintln!();
             eprintln!("{}", PASSWORD_PROMPT);
@@ -192,20 +200,12 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
                 }
             };
 
-            match keystore.decrypt_keypair(password.as_ref()) {
-                Ok(_) => {
-                    eprintln!("Password is correct.");
-                    eprintln!();
-                    sleep(Duration::from_secs(1)); // Provides nicer UX.
-                    if reuse_password {
-                        previous_password = Some(password.clone());
-                    }
-                    break Some(password);
+            // Check if the password unlocks the keystore
+            if check_password_on_keystore(&keystore, &password)? {
+                if reuse_password {
+                    previous_password = Some(password.clone());
                 }
-                Err(eth2_keystore::Error::InvalidPassword) => {
-                    eprintln!("Invalid password");
-                }
-                Err(e) => return Err(format!("Error whilst decrypting keypair: {:?}", e)),
+                break Some(password);
             }
         };
 
@@ -307,4 +307,43 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     eprintln!("WARNING: {}", KEYSTORE_REUSE_WARNING);
 
     Ok(())
+}
+
+/// Checks if the given password unlocks the keystore.
+///
+/// Returns `Ok(true)` if password unlocks the keystore successfully.
+/// Returns `Ok(false` if password is incorrect.
+/// Otherwise, returns the keystore error.
+fn check_password_on_keystore(
+    keystore: &Keystore,
+    password: &ZeroizeString,
+) -> Result<bool, String> {
+    match keystore.decrypt_keypair(password.as_ref()) {
+        Ok(_) => {
+            eprintln!("Password is correct.");
+            eprintln!();
+            sleep(Duration::from_secs(1)); // Provides nicer UX.
+            Ok(true)
+        }
+        Err(eth2_keystore::Error::InvalidPassword) => {
+            eprintln!("Invalid password");
+            Ok(false)
+        }
+        Err(e) => Err(format!("Error whilst decrypting keypair: {:?}", e)),
+    }
+}
+
+/// Prompts the user for a password and returns the user input.
+/// Returns `None` if the user returns an empty password.
+fn get_password(stdin_inputs: bool) -> Option<ZeroizeString> {
+    eprintln!();
+    eprintln!("{}", PASSWORD_PROMPT);
+
+    let password_from_user = read_password_from_user(stdin_inputs).ok()?;
+    if password_from_user.as_ref().is_empty() {
+        eprintln!("Continuing without password.");
+        sleep(Duration::from_secs(1)); // Provides nicer UX.
+        return None;
+    }
+    Some(password_from_user)
 }
