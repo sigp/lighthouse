@@ -1348,12 +1348,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         (parent_root, slot, sync_aggregate): LightClientProducerEvent<T::EthSpec>,
     ) -> Result<(), Error> {
         self.light_client_server_cache.recompute_and_cache_updates(
-            &self.log,
-            &self.spec,
             self.store.clone(),
             &parent_root,
             slot,
             &sync_aggregate,
+            &self.log,
+            &self.spec,
         )
     }
 
@@ -6636,7 +6636,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match fork_name {
             ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
-                LightClientBootstrap::from_beacon_state(&self.spec, &mut state, &block)
+                LightClientBootstrap::from_beacon_state(&mut state, &block, &self.spec)
                     .map(|bootstrap| Some((bootstrap, fork_name)))
                     .map_err(Error::LightClientError)
             }

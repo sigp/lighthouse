@@ -75,12 +75,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     /// results are cached either on disk or memory to be served via p2p and rest API
     pub fn recompute_and_cache_updates(
         &self,
-        log: &Logger,
-        chain_spec: &ChainSpec,
         store: BeaconStore<T>,
         block_parent_root: &Hash256,
         block_slot: Slot,
         sync_aggregate: &SyncAggregate<T::EthSpec>,
+        log: &Logger,
+        chain_spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
         let _timer =
             metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES);
@@ -105,8 +105,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         let attested_slot = attested_block.slot();
 
-        let fork_name =
-            chain_spec.fork_name_at_epoch(attested_slot.epoch(T::EthSpec::slots_per_epoch()));
+        let fork_name = attested_block.fork_name(chain_spec)?;
 
         // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice

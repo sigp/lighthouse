@@ -39,9 +39,9 @@ pub struct LightClientBootstrap<T: EthSpec> {
 
 impl<T: EthSpec> LightClientBootstrap<T> {
     pub fn from_beacon_state(
-        chain_spec: &ChainSpec,
         beacon_state: &mut BeaconState<T>,
         block: &SignedBeaconBlock<T>,
+        chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let mut header = beacon_state.latest_block_header().clone();
         header.state_root = beacon_state.update_tree_hash_cache()?;
