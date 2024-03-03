@@ -10,6 +10,7 @@ use state_processing::per_epoch_processing::altair::ParticipationCache;
 use state_processing::per_epoch_processing::{
     weigh_justification_and_finalization, JustificationAndFinalizationState,
 };
+use state_processing::per_slot_processing;
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
 };
@@ -241,6 +242,16 @@ pub fn compute_slots_since_epoch_start<E: EthSpec>(slot: Slot) -> Slot {
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#compute_start_slot_at_epoch
 fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
+}
+
+/// Return the epoch number at `slot`
+///
+/// ## Specification
+/// Equivalent to:
+///
+/// TODO
+fn compute_epoch_at_slot<E: EthSpec>(slot: Slot) -> Epoch {
+    return Epoch::new(slot.as_u64() / E::slots_per_epoch());
 }
 
 /// Used for queuing attestations from the current slot. Only contains the minimum necessary
@@ -720,11 +731,15 @@ where
             }));
         }
 
-        // Add proposer score boost if the block is timely.
+        // Add block timeliness to the store
         let is_before_attesting_interval =
-            block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
+            block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);        
+        let is_timely = current_slot == block.slot() && is_before_attesting_interval;
+        self.fc_store.set_block_timeliness(is_timely);
+        
+        // Add proposer score boost if the block is timely and not conflicting with an existing block
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
-        if current_slot == block.slot() && is_before_attesting_interval && is_first_block {
+        if is_timely && is_first_block {
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
@@ -1555,6 +1570,78 @@ where
             proto_array_bytes: self.proto_array().as_bytes(),
             queued_attestations: self.queued_attestations().to_vec(),
         }
+    }
+
+    fn should_override_forkchoice_update(&self, head_root: Hash256, parent_state: &BeaconState<E>, spec: &ChainSpec) -> Result<(), Error<T::Error>> {
+        // TODO unwrap
+        // TODO maybe use proto_aray
+        let head_block = self.get_block(&head_root).unwrap();
+        let parent_root = head_block.parent_root.unwrap();
+
+        let parent_block = self
+            .proto_array
+            .get_block(&parent_root)
+            .ok_or_else(|| Error::InvalidBlock(InvalidBlock::UnknownParent(parent_root)))?;
+
+        let current_slot = self.fc_store.get_current_slot();
+        let proposal_slot = head_block.slot + Slot::new(1);
+
+        // Only re-org the `head_block` block if it arrived later than the attestation deadline.
+        let head_late = self.is_head_late();
+
+        // Shuffling stable.
+        let shuffling_stable = self.is_shuffling_stable(proposal_slot);
+
+        // FFG information of the new `head_block` will be competitive with the current head.
+        let ffg_competitive = self.is_ffg_competitive(&head_block, &parent_block);
+        
+        // Do not re-org if the chain is not finalizing with acceptable frequency.
+        let finalization_ok = self.is_finalization_ok(proposal_slot, spec);
+
+        // Only suppress the fork choice update if we are confident that we will propose the next block.
+        // let parent_state_advanced = chain.get_state(parent_block.state_root);
+        let proposer_index = parent_state.get_beacon_proposer_index(parent_block.slot, spec);
+
+        // TODO 
+        // process_slots(parent_state_advanced, proposal_slot)
+       
+        Ok(())
+
+    }
+
+    fn is_head_late(&self) {
+        todo!()
+    }
+
+    fn is_shuffling_stable(&self, slot: Slot) -> bool {
+        return slot % E::slots_per_epoch() != 0;
+    }
+
+    fn is_ffg_competitive(&self, head_block: &ProtoBlock, parent_block: &ProtoBlock) -> bool {
+        head_block.unrealized_justified_checkpoint == parent_block.unrealized_justified_checkpoint
+    }
+
+    fn is_finalization_ok(&self, slot: Slot, spec: &ChainSpec) -> bool {
+        let epoch_since_finalization = compute_epoch_at_slot::<E>(slot) - self.fc_store.finalized_checkpoint().epoch;
+        
+        // TODO unwrap
+        epoch_since_finalization <= spec.reorg_max_epochs_since_finalization.unwrap()
+    }
+
+    fn process_slots(state: &mut BeaconState<E>, slot: Slot, spec: &ChainSpec) -> Result<(), Error<T::Error>> {
+        if state.slot() < slot {
+            return Err(Error::BeaconStateError(BeaconStateError::SlotOutOfBounds))
+        }
+
+        while state.slot() < slot {
+            per_slot_processing(state, state.get_state_root(slot).ok().copied(), spec).unwrap();
+        }
+
+        Ok(())
+    }
+
+    fn process_slot(state: &BeaconState<E>) {
+
     }
 }
 

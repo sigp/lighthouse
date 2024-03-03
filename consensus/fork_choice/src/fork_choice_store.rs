@@ -79,4 +79,8 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
 
     /// Adds to the set of equivocating indices.
     fn extend_equivocating_indices(&mut self, indices: impl IntoIterator<Item = u64>);
+
+    fn block_timeliness(&self) -> bool;
+
+    fn set_block_timeliness(&mut self, timeliness: bool);
 }
