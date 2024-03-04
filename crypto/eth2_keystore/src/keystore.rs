@@ -327,6 +327,11 @@ impl Keystore {
         serde_json::from_reader(reader).map_err(|e| Error::ReadError(format!("{}", e)))
     }
 
+    /// Instantiates `self` from a `JsonKeystore`.
+    pub fn from_json_keystore(json_keystore: JsonKeystore) -> Result<Self, Error> {
+        Ok(Keystore { json: json_keystore })
+    }
+
     /// Instantiates `self` by reading a JSON file at `path`.
     pub fn from_json_file<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         File::options()
