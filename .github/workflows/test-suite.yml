@@ -309,12 +309,8 @@ jobs:
       run: |
           make
     - name: Install lcli
-<<<<<<< HEAD
-=======
-      # TODO: uncomment after the version of lcli in https://github.com/sigp/lighthouse/pull/5137 
-      # is installed on the runners
+      # TODO: uncomment once merged.
       # if: env.SELF_HOSTED_RUNNERS == 'false'
->>>>>>> unstable
       run: make install-lcli
     - name: Run the doppelganger protection failure test script
       run: |
