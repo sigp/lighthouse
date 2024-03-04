@@ -28,6 +28,7 @@ vc_cli=$($CMD vc --help)
 vm_cli=$($CMD vm --help)
 vm_cli_create=$($CMD vm create --help)
 vm_cli_import=$($CMD vm import --help)
+vm_cli_list=$($CMD vm list --help)
 vm_cli_move=$($CMD vm move --help)
 
 general=./help_general.md
@@ -37,6 +38,7 @@ am=./help_am.md
 vm=./help_vm.md
 vm_create=./help_vm_create.md
 vm_import=./help_vm_import.md
+vm_list=./help_vm_list.md
 vm_move=./help_vm_move.md
 
 # create .md files
@@ -46,6 +48,7 @@ write_to_file "$vc_cli" "$vc" "Validator Client"
 write_to_file "$vm_cli" "$vm" "Validator Manager"
 write_to_file "$vm_cli_create" "$vm_create" "Validator Manager Create"
 write_to_file "$vm_cli_import" "$vm_import" "Validator Manager Import"
+write_to_file "$vm_cli_list" "$vm_list" "Validator Manager List"
 write_to_file "$vm_cli_move" "$vm_move" "Validator Manager Move"
 
 #input 1 = $1 = files; input 2 = $2 = new files

@@ -1,10 +1,10 @@
-# Validator Manager
+# Validator Manager List
 
 ```
-Utilities for managing a Lighthouse validator client via the HTTP API.
+List validators of a validator client using the HTTP API. The validators
 
 USAGE:
-    lighthouse validator_manager [FLAGS] [OPTIONS] [SUBCOMMAND]
+    lighthouse validator_manager list [FLAGS] [OPTIONS] --vc-token <PATH> --vc-url <HTTP_ADDRESS>
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.
@@ -82,17 +82,9 @@ OPTIONS:
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
+        --vc-token <PATH>
+            The file containing a token required by the validator client.
 
-SUBCOMMANDS:
-    create    Creates new validators from BIP-39 mnemonic. A JSON file will be created which contains all the
-              validator keystores and other validator data. This file can then be imported to a validator client
-              using the "import-validators" command. Another, optional JSON file is created which contains a list of
-              validator deposits in the same format as the "ethereum/staking-deposit-cli" tool.
-    help      Prints this message or the help of the given subcommand(s)
-    import    Uploads validators to a validator client using the HTTP API. The validators are defined in a JSON file
-              which can be generated using the "create-validators" command.
-    list      List validators of a validator client using the HTTP API. The validators
-    move      Uploads validators to a validator client using the HTTP API. The validators are defined in a JSON file
-              which can be generated using the "create-validators" command. This command only supports validators
-              signing via a keystore on the local file system (i.e., not Web3Signer validators).
+        --vc-url <HTTP_ADDRESS>
+            A HTTP(S) address of a validator client using the keymanager-API. [default: http://localhost:5062]
 ```
