@@ -1128,6 +1128,47 @@ lazy_static! {
         // Create a custom bucket list for greater granularity in block delay
         Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
     );
+
+
+    /*
+    * Data Availability cache metrics
+    */
+    pub static ref DATA_AVAILABILITY_PROCESSING_CACHE_SIZE: Result<IntGauge> =
+        try_create_int_gauge(
+            "data_availability_processing_cache_size",
+            "Number of entries in the data availability processing cache."
+        );
+    pub static ref DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE: Result<IntGauge> =
+        try_create_int_gauge(
+            "data_availability_overflow_memory_block_cache_size",
+            "Number of entries in the data availability overflow block memory cache."
+        );
+    pub static ref DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE: Result<IntGauge> =
+        try_create_int_gauge(
+            "data_availability_overflow_memory_state_cache_size",
+            "Number of entries in the data availability overflow state memory cache."
+        );
+    pub static ref DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE: Result<IntGauge> =
+        try_create_int_gauge(
+            "data_availability_overflow_store_cache_size",
+            "Number of entries in the data availability overflow store cache."
+        );
+
+    /*
+    * light_client server metrics
+    */
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_STATE_DATA_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_light_client_server_cache_state_data_seconds",
+        "Time taken to produce and cache state data",
+    );
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_light_client_server_cache_recompute_updates_seconds",
+        "Time taken to recompute and cache updates",
+    );
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_PREV_BLOCK_CACHE_MISS: Result<IntCounter> = try_create_int_counter(
+        "beacon_light_client_server_cache_prev_block_cache_miss",
+        "Count of prev block cache misses",
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
@@ -1154,6 +1195,24 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
             snapshot_cache.len() as i64,
         )
     }
+
+    let da_checker_metrics = beacon_chain.data_availability_checker.metrics();
+    set_gauge_by_usize(
+        &DATA_AVAILABILITY_PROCESSING_CACHE_SIZE,
+        da_checker_metrics.processing_cache_size,
+    );
+    set_gauge_by_usize(
+        &DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE,
+        da_checker_metrics.block_cache_size,
+    );
+    set_gauge_by_usize(
+        &DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE,
+        da_checker_metrics.state_cache_size,
+    );
+    set_gauge_by_usize(
+        &DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE,
+        da_checker_metrics.num_store_entries,
+    );
 
     if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {
         set_gauge_by_usize(&PRE_FINALIZATION_BLOCK_CACHE_SIZE, size);

@@ -1,92 +1,61 @@
 use crate::{
     json_structures::JsonWithdrawal,
     keccak::{keccak256, KeccakHasher},
-    metrics, Error, ExecutionLayer,
 };
 use ethers_core::utils::rlp::RlpStream;
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
-    map_execution_block_header_fields_base, Address, BeaconBlockRef, EthSpec, ExecutionBlockHash,
+    map_execution_block_header_fields_base, Address, EthSpec, ExecutionBlockHash,
     ExecutionBlockHeader, ExecutionPayloadRef, Hash256, Hash64, Uint256,
 };
 
-impl<T: EthSpec> ExecutionLayer<T> {
-    /// Calculate the block hash of an execution block.
-    ///
-    /// Return `(block_hash, transactions_root)`, where `transactions_root` is the root of the RLP
-    /// transactions.
-    pub fn calculate_execution_block_hash(
-        payload: ExecutionPayloadRef<T>,
-        parent_beacon_block_root: Hash256,
-    ) -> (ExecutionBlockHash, Hash256) {
-        // Calculate the transactions root.
-        // We're currently using a deprecated Parity library for this. We should move to a
-        // better alternative when one appears, possibly following Reth.
-        let rlp_transactions_root = ordered_trie_root::<KeccakHasher, _>(
-            payload.transactions().iter().map(|txn_bytes| &**txn_bytes),
-        );
+/// Calculate the block hash of an execution block.
+///
+/// Return `(block_hash, transactions_root)`, where `transactions_root` is the root of the RLP
+/// transactions.
+pub fn calculate_execution_block_hash<T: EthSpec>(
+    payload: ExecutionPayloadRef<T>,
+    parent_beacon_block_root: Option<Hash256>,
+) -> (ExecutionBlockHash, Hash256) {
+    // Calculate the transactions root.
+    // We're currently using a deprecated Parity library for this. We should move to a
+    // better alternative when one appears, possibly following Reth.
+    let rlp_transactions_root = ordered_trie_root::<KeccakHasher, _>(
+        payload.transactions().iter().map(|txn_bytes| &**txn_bytes),
+    );
 
-        // Calculate withdrawals root (post-Capella).
-        let rlp_withdrawals_root = if let Ok(withdrawals) = payload.withdrawals() {
-            Some(ordered_trie_root::<KeccakHasher, _>(
-                withdrawals.iter().map(|withdrawal| {
-                    rlp_encode_withdrawal(&JsonWithdrawal::from(withdrawal.clone()))
-                }),
-            ))
-        } else {
-            None
-        };
+    // Calculate withdrawals root (post-Capella).
+    let rlp_withdrawals_root = if let Ok(withdrawals) = payload.withdrawals() {
+        Some(ordered_trie_root::<KeccakHasher, _>(
+            withdrawals
+                .iter()
+                .map(|withdrawal| rlp_encode_withdrawal(&JsonWithdrawal::from(withdrawal.clone()))),
+        ))
+    } else {
+        None
+    };
 
-        let rlp_blob_gas_used = payload.blob_gas_used().ok();
-        let rlp_excess_blob_gas = payload.excess_blob_gas().ok();
+    let rlp_blob_gas_used = payload.blob_gas_used().ok();
+    let rlp_excess_blob_gas = payload.excess_blob_gas().ok();
 
-        // Calculate parent beacon block root (post-Deneb).
-        let rlp_parent_beacon_block_root = rlp_excess_blob_gas
-            .as_ref()
-            .map(|_| parent_beacon_block_root);
+    // Construct the block header.
+    let exec_block_header = ExecutionBlockHeader::from_payload(
+        payload,
+        KECCAK_EMPTY_LIST_RLP.as_fixed_bytes().into(),
+        rlp_transactions_root,
+        rlp_withdrawals_root,
+        rlp_blob_gas_used,
+        rlp_excess_blob_gas,
+        parent_beacon_block_root,
+    );
 
-        // Construct the block header.
-        let exec_block_header = ExecutionBlockHeader::from_payload(
-            payload,
-            KECCAK_EMPTY_LIST_RLP.as_fixed_bytes().into(),
-            rlp_transactions_root,
-            rlp_withdrawals_root,
-            rlp_blob_gas_used,
-            rlp_excess_blob_gas,
-            rlp_parent_beacon_block_root,
-        );
-
-        // Hash the RLP encoding of the block header.
-        let rlp_block_header = rlp_encode_block_header(&exec_block_header);
-        (
-            ExecutionBlockHash::from_root(keccak256(&rlp_block_header)),
-            rlp_transactions_root,
-        )
-    }
-
-    /// Verify `payload.block_hash` locally within Lighthouse.
-    ///
-    /// No remote calls to the execution client will be made, so this is quite a cheap check.
-    pub fn verify_payload_block_hash(&self, block: BeaconBlockRef<T>) -> Result<(), Error> {
-        let payload = block.execution_payload()?.execution_payload_ref();
-        let parent_beacon_block_root = block.parent_root();
-
-        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_VERIFY_BLOCK_HASH);
-
-        let (header_hash, rlp_transactions_root) =
-            Self::calculate_execution_block_hash(payload, parent_beacon_block_root);
-
-        if header_hash != payload.block_hash() {
-            return Err(Error::BlockHashMismatch {
-                computed: header_hash,
-                payload: payload.block_hash(),
-                transactions_root: rlp_transactions_root,
-            });
-        }
-
-        Ok(())
-    }
+    // Hash the RLP encoding of the block header.
+    let rlp_block_header = rlp_encode_block_header(&exec_block_header);
+    (
+        ExecutionBlockHash::from_root(keccak256(&rlp_block_header)),
+        rlp_transactions_root,
+    )
 }
 
 /// RLP encode a withdrawal.

@@ -81,14 +81,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
-                    // Verify the block hash here in Lighthouse and immediately mark the block as
-                    // optimistically imported. This saves a lot of roundtrips to the EL.
-                    let execution_layer = chain
-                        .execution_layer
-                        .as_ref()
-                        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-
-                    if let Err(e) = execution_layer.verify_payload_block_hash(block_message) {
+                    // Create a NewPayloadRequest (no clones required) and check optimistic sync verifications
+                    let new_payload_request: NewPayloadRequest<T::EthSpec> =
+                        block_message.try_into()?;
+                    if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
                             chain.log,
                             "Falling back to slow block hash verification";
@@ -143,11 +139,8 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
-    let new_payload_request: NewPayloadRequest<T::EthSpec> = block.try_into()?;
-    let execution_block_hash = new_payload_request.block_hash();
-    let new_payload_response = execution_layer
-        .notify_new_payload(new_payload_request)
-        .await;
+    let execution_block_hash = block.execution_payload()?.block_hash();
+    let new_payload_response = execution_layer.notify_new_payload(block.try_into()?).await;
 
     match new_payload_response {
         Ok(status) => match status {

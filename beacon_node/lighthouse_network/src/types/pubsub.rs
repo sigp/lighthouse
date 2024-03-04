@@ -1,8 +1,8 @@
 //! Handles the encoding and decoding of pubsub messages.
 
+use crate::gossipsub;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::TopicHash;
-use libp2p::gossipsub;
 use snap::raw::{decompress_len, Decoder, Encoder};
 use ssz::{Decode, Encode};
 use std::boxed::Box;

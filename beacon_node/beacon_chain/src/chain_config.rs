@@ -72,6 +72,8 @@ pub struct ChainConfig {
     pub optimistic_finalized_sync: bool,
     /// The size of the shuffling cache,
     pub shuffling_cache_size: usize,
+    /// The size of the snapshot cache.
+    pub snapshot_cache_size: usize,
     /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
     /// genesis.
     pub genesis_backfill: bool,
@@ -83,6 +85,8 @@ pub struct ChainConfig {
     pub progressive_balances_mode: ProgressiveBalancesMode,
     /// Number of epochs between each migration of data from the hot database to the freezer.
     pub epochs_per_migration: u64,
+    /// When set to true Light client server computes and caches state proofs for serving updates
+    pub enable_light_client_server: bool,
 }
 
 impl Default for ChainConfig {
@@ -110,10 +114,12 @@ impl Default for ChainConfig {
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
+            snapshot_cache_size: crate::snapshot_cache::DEFAULT_SNAPSHOT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,
             progressive_balances_mode: ProgressiveBalancesMode::Fast,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
+            enable_light_client_server: false,
         }
     }
 }

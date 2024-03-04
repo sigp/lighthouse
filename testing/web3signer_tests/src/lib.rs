@@ -45,7 +45,7 @@ mod tests {
         initialized_validators::{
             load_pem_certificate, load_pkcs12_identity, InitializedValidators,
         },
-        validator_store::ValidatorStore,
+        validator_store::{Error as ValidatorStoreError, ValidatorStore},
         SlashingDatabase, SLASHING_PROTECTION_FILENAME,
     };
 
@@ -157,6 +157,18 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy)]
+    struct SlashingProtectionConfig {
+        /// Whether to enable slashing protection for web3signer keys locally within Lighthouse.
+        local: bool,
+    }
+
+    impl Default for SlashingProtectionConfig {
+        fn default() -> Self {
+            SlashingProtectionConfig { local: true }
+        }
+    }
+
     impl Web3SignerRig {
         pub async fn new(network: &str, listen_address: &str, listen_port: u16) -> Self {
             GET_WEB3SIGNER_BIN
@@ -231,6 +243,8 @@ mod tests {
                 ))
                 .arg("eth2")
                 .arg(format!("--network={}", network))
+                // Can't *easily* test `--slashing-protection-enabled=true` because web3signer
+                // requires a Postgres instance.
                 .arg("--slashing-protection-enabled=false")
                 .stdout(stdio())
                 .stderr(stdio())
@@ -294,17 +308,25 @@ mod tests {
         _validator_dir: TempDir,
         runtime: Arc<tokio::runtime::Runtime>,
         _runtime_shutdown: exit_future::Signal,
+        using_web3signer: bool,
     }
 
     impl ValidatorStoreRig {
-        pub async fn new(validator_definitions: Vec<ValidatorDefinition>, spec: ChainSpec) -> Self {
+        pub async fn new(
+            validator_definitions: Vec<ValidatorDefinition>,
+            slashing_protection_config: SlashingProtectionConfig,
+            using_web3signer: bool,
+            spec: ChainSpec,
+        ) -> Self {
             let log = environment::null_logger().unwrap();
             let validator_dir = TempDir::new().unwrap();
 
+            let config = validator_client::Config::default();
             let validator_definitions = ValidatorDefinitions::from(validator_definitions);
             let initialized_validators = InitializedValidators::from_definitions(
                 validator_definitions,
                 validator_dir.path().into(),
+                config.clone(),
                 log.clone(),
             )
             .await
@@ -331,7 +353,10 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let config = validator_client::Config::default();
+            let config = validator_client::Config {
+                enable_web3signer_slashing_protection: slashing_protection_config.local,
+                ..Default::default()
+            };
 
             let validator_store = ValidatorStore::<_, E>::new(
                 initialized_validators,
@@ -350,6 +375,7 @@ mod tests {
                 _validator_dir: validator_dir,
                 runtime,
                 _runtime_shutdown: runtime_shutdown,
+                using_web3signer,
             }
         }
 
@@ -378,7 +404,12 @@ mod tests {
     }
 
     impl TestingRig {
-        pub async fn new(network: &str, spec: ChainSpec, listen_port: u16) -> Self {
+        pub async fn new(
+            network: &str,
+            slashing_protection_config: SlashingProtectionConfig,
+            spec: ChainSpec,
+            listen_port: u16,
+        ) -> Self {
             let signer_rig =
                 Web3SignerRig::new(network, WEB3SIGNER_LISTEN_ADDRESS, listen_port).await;
             let validator_pubkey = signer_rig.keypair.pk.clone();
@@ -391,6 +422,8 @@ mod tests {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path: signer_rig.keystore_path.clone(),
@@ -398,7 +431,13 @@ mod tests {
                         voting_keystore_password: Some(KEYSTORE_PASSWORD.to_string().into()),
                     },
                 };
-                ValidatorStoreRig::new(vec![validator_definition], spec.clone()).await
+                ValidatorStoreRig::new(
+                    vec![validator_definition],
+                    slashing_protection_config,
+                    false,
+                    spec.clone(),
+                )
+                .await
             };
 
             let remote_signer_validator_store = {
@@ -409,6 +448,8 @@ mod tests {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::Web3Signer(Web3SignerDefinition {
                         url: signer_rig.url.to_string(),
@@ -418,7 +459,13 @@ mod tests {
                         client_identity_password: Some(client_identity_password()),
                     }),
                 };
-                ValidatorStoreRig::new(vec![validator_definition], spec).await
+                ValidatorStoreRig::new(
+                    vec![validator_definition],
+                    slashing_protection_config,
+                    true,
+                    spec,
+                )
+                .await
             };
 
             Self {
@@ -461,6 +508,36 @@ mod tests {
             assert!(prev_signature.is_some(), "sanity check");
             self
         }
+
+        /// Assert that a slashable message fails to be signed locally and is either signed or not
+        /// by the web3signer rig depending on the value of `web3signer_should_sign`.
+        pub async fn assert_slashable_message_should_sign<F, R>(
+            self,
+            case_name: &str,
+            generate_sig: F,
+            web3signer_should_sign: bool,
+        ) -> Self
+        where
+            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
+            R: Future<Output = Result<(), ValidatorStoreError>>,
+        {
+            for validator_rig in &self.validator_rigs {
+                let result =
+                    generate_sig(self.validator_pubkey, validator_rig.validator_store.clone())
+                        .await;
+
+                if !validator_rig.using_web3signer || !web3signer_should_sign {
+                    let err = result.unwrap_err();
+                    assert!(
+                        matches!(err, ValidatorStoreError::Slashable(_)),
+                        "should not sign slashable {case_name}"
+                    );
+                } else {
+                    assert_eq!(result, Ok(()), "should sign slashable {case_name}");
+                }
+            }
+            self
+        }
     }
 
     /// Get a generic, arbitrary attestation for signing.
@@ -499,64 +576,69 @@ mod tests {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
         let spec = &network_config.chain_spec::<E>().unwrap();
 
-        TestingRig::new(network, spec.clone(), listen_port)
-            .await
-            .assert_signatures_match("randao_reveal", |pubkey, validator_store| async move {
+        TestingRig::new(
+            network,
+            SlashingProtectionConfig::default(),
+            spec.clone(),
+            listen_port,
+        )
+        .await
+        .assert_signatures_match("randao_reveal", |pubkey, validator_store| async move {
+            validator_store
+                .randao_reveal(pubkey, Epoch::new(0))
+                .await
+                .unwrap()
+        })
+        .await
+        .assert_signatures_match("beacon_block_base", |pubkey, validator_store| async move {
+            let block = BeaconBlock::Base(BeaconBlockBase::empty(spec));
+            let block_slot = block.slot();
+            validator_store
+                .sign_block(pubkey, block, block_slot)
+                .await
+                .unwrap()
+        })
+        .await
+        .assert_signatures_match("attestation", |pubkey, validator_store| async move {
+            let mut attestation = get_attestation();
+            validator_store
+                .sign_attestation(pubkey, 0, &mut attestation, Epoch::new(0))
+                .await
+                .unwrap();
+            attestation
+        })
+        .await
+        .assert_signatures_match("signed_aggregate", |pubkey, validator_store| async move {
+            let attestation = get_attestation();
+            validator_store
+                .produce_signed_aggregate_and_proof(
+                    pubkey,
+                    0,
+                    attestation,
+                    SelectionProof::from(Signature::empty()),
+                )
+                .await
+                .unwrap()
+        })
+        .await
+        .assert_signatures_match("selection_proof", |pubkey, validator_store| async move {
+            validator_store
+                .produce_selection_proof(pubkey, Slot::new(0))
+                .await
+                .unwrap()
+        })
+        .await
+        .assert_signatures_match(
+            "validator_registration",
+            |pubkey, validator_store| async move {
+                let val_reg_data = get_validator_registration(pubkey);
                 validator_store
-                    .randao_reveal(pubkey, Epoch::new(0))
+                    .sign_validator_registration_data(val_reg_data)
                     .await
                     .unwrap()
-            })
-            .await
-            .assert_signatures_match("beacon_block_base", |pubkey, validator_store| async move {
-                let block = BeaconBlock::Base(BeaconBlockBase::empty(spec));
-                let block_slot = block.slot();
-                validator_store
-                    .sign_block(pubkey, block, block_slot)
-                    .await
-                    .unwrap()
-            })
-            .await
-            .assert_signatures_match("attestation", |pubkey, validator_store| async move {
-                let mut attestation = get_attestation();
-                validator_store
-                    .sign_attestation(pubkey, 0, &mut attestation, Epoch::new(0))
-                    .await
-                    .unwrap();
-                attestation
-            })
-            .await
-            .assert_signatures_match("signed_aggregate", |pubkey, validator_store| async move {
-                let attestation = get_attestation();
-                validator_store
-                    .produce_signed_aggregate_and_proof(
-                        pubkey,
-                        0,
-                        attestation,
-                        SelectionProof::from(Signature::empty()),
-                    )
-                    .await
-                    .unwrap()
-            })
-            .await
-            .assert_signatures_match("selection_proof", |pubkey, validator_store| async move {
-                validator_store
-                    .produce_selection_proof(pubkey, Slot::new(0))
-                    .await
-                    .unwrap()
-            })
-            .await
-            .assert_signatures_match(
-                "validator_registration",
-                |pubkey, validator_store| async move {
-                    let val_reg_data = get_validator_registration(pubkey);
-                    validator_store
-                        .sign_validator_registration_data(val_reg_data)
-                        .await
-                        .unwrap()
-                },
-            )
-            .await;
+            },
+        )
+        .await;
     }
 
     /// Test all the Altair types.
@@ -568,82 +650,78 @@ mod tests {
             .unwrap()
             .start_slot(E::slots_per_epoch());
 
-        TestingRig::new(network, spec.clone(), listen_port)
-            .await
-            .assert_signatures_match(
-                "beacon_block_altair",
-                |pubkey, validator_store| async move {
-                    let mut altair_block = BeaconBlockAltair::empty(spec);
-                    altair_block.slot = altair_fork_slot;
-                    validator_store
-                        .sign_block(pubkey, BeaconBlock::Altair(altair_block), altair_fork_slot)
-                        .await
-                        .unwrap()
-                },
-            )
-            .await
-            .assert_signatures_match(
-                "sync_selection_proof",
-                |pubkey, validator_store| async move {
-                    validator_store
-                        .produce_sync_selection_proof(
-                            &pubkey,
-                            altair_fork_slot,
-                            SyncSubnetId::from(0),
-                        )
-                        .await
-                        .unwrap()
-                },
-            )
-            .await
-            .assert_signatures_match(
-                "sync_committee_signature",
-                |pubkey, validator_store| async move {
-                    validator_store
-                        .produce_sync_committee_signature(
-                            altair_fork_slot,
-                            Hash256::zero(),
-                            0,
-                            &pubkey,
-                        )
-                        .await
-                        .unwrap()
-                },
-            )
-            .await
-            .assert_signatures_match(
-                "signed_contribution_and_proof",
-                |pubkey, validator_store| async move {
-                    let contribution = SyncCommitteeContribution {
-                        slot: altair_fork_slot,
-                        beacon_block_root: <_>::default(),
-                        subcommittee_index: <_>::default(),
-                        aggregation_bits: <_>::default(),
-                        signature: AggregateSignature::empty(),
-                    };
-                    validator_store
-                        .produce_signed_contribution_and_proof(
-                            0,
-                            pubkey,
-                            contribution,
-                            SyncSelectionProof::from(Signature::empty()),
-                        )
-                        .await
-                        .unwrap()
-                },
-            )
-            .await
-            .assert_signatures_match(
-                "validator_registration",
-                |pubkey, validator_store| async move {
-                    let val_reg_data = get_validator_registration(pubkey);
-                    validator_store
-                        .sign_validator_registration_data(val_reg_data)
-                        .await
-                        .unwrap()
-                },
-            )
-            .await;
+        TestingRig::new(
+            network,
+            SlashingProtectionConfig::default(),
+            spec.clone(),
+            listen_port,
+        )
+        .await
+        .assert_signatures_match(
+            "beacon_block_altair",
+            |pubkey, validator_store| async move {
+                let mut altair_block = BeaconBlockAltair::empty(spec);
+                altair_block.slot = altair_fork_slot;
+                validator_store
+                    .sign_block(pubkey, BeaconBlock::Altair(altair_block), altair_fork_slot)
+                    .await
+                    .unwrap()
+            },
+        )
+        .await
+        .assert_signatures_match(
+            "sync_selection_proof",
+            |pubkey, validator_store| async move {
+                validator_store
+                    .produce_sync_selection_proof(&pubkey, altair_fork_slot, SyncSubnetId::from(0))
+                    .await
+                    .unwrap()
+            },
+        )
+        .await
+        .assert_signatures_match(
+            "sync_committee_signature",
+            |pubkey, validator_store| async move {
+                validator_store
+                    .produce_sync_committee_signature(altair_fork_slot, Hash256::zero(), 0, &pubkey)
+                    .await
+                    .unwrap()
+            },
+        )
+        .await
+        .assert_signatures_match(
+            "signed_contribution_and_proof",
+            |pubkey, validator_store| async move {
+                let contribution = SyncCommitteeContribution {
+                    slot: altair_fork_slot,
+                    beacon_block_root: <_>::default(),
+                    subcommittee_index: <_>::default(),
+                    aggregation_bits: <_>::default(),
+                    signature: AggregateSignature::empty(),
+                };
+                validator_store
+                    .produce_signed_contribution_and_proof(
+                        0,
+                        pubkey,
+                        contribution,
+                        SyncSelectionProof::from(Signature::empty()),
+                    )
+                    .await
+                    .unwrap()
+            },
+        )
+        .await
+        .assert_signatures_match(
+            "validator_registration",
+            |pubkey, validator_store| async move {
+                let val_reg_data = get_validator_registration(pubkey);
+                validator_store
+                    .sign_validator_registration_data(val_reg_data)
+                    .await
+                    .unwrap()
+            },
+        )
+        .await;
     }
 
     /// Test all the Merge types.
@@ -655,17 +733,154 @@ mod tests {
             .unwrap()
             .start_slot(E::slots_per_epoch());
 
-        TestingRig::new(network, spec.clone(), listen_port)
-            .await
-            .assert_signatures_match("beacon_block_merge", |pubkey, validator_store| async move {
-                let mut merge_block = BeaconBlockMerge::empty(spec);
-                merge_block.slot = merge_fork_slot;
+        TestingRig::new(
+            network,
+            SlashingProtectionConfig::default(),
+            spec.clone(),
+            listen_port,
+        )
+        .await
+        .assert_signatures_match("beacon_block_merge", |pubkey, validator_store| async move {
+            let mut merge_block = BeaconBlockMerge::empty(spec);
+            merge_block.slot = merge_fork_slot;
+            validator_store
+                .sign_block(pubkey, BeaconBlock::Merge(merge_block), merge_fork_slot)
+                .await
+                .unwrap()
+        })
+        .await;
+    }
+
+    async fn test_lighthouse_slashing_protection(
+        slashing_protection_config: SlashingProtectionConfig,
+        listen_port: u16,
+    ) {
+        // Run these tests on mainnet.
+        let network = "mainnet";
+
+        let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
+        let spec = &network_config.chain_spec::<E>().unwrap();
+        let merge_fork_slot = spec
+            .bellatrix_fork_epoch
+            .unwrap()
+            .start_slot(E::slots_per_epoch());
+
+        // The slashable message should only be signed by the web3signer validator if slashing
+        // protection is disabled in Lighthouse.
+        let slashable_message_should_sign = !slashing_protection_config.local;
+
+        let first_attestation = || {
+            let mut attestation = get_attestation();
+            attestation.data.source.epoch = Epoch::new(1);
+            attestation.data.target.epoch = Epoch::new(4);
+            attestation
+        };
+
+        let double_vote_attestation = || {
+            let mut attestation = first_attestation();
+            attestation.data.beacon_block_root = Hash256::from_low_u64_be(1);
+            attestation
+        };
+
+        let surrounding_attestation = || {
+            let mut attestation = first_attestation();
+            attestation.data.source.epoch = Epoch::new(0);
+            attestation.data.target.epoch = Epoch::new(5);
+            attestation
+        };
+
+        let surrounded_attestation = || {
+            let mut attestation = first_attestation();
+            attestation.data.source.epoch = Epoch::new(2);
+            attestation.data.target.epoch = Epoch::new(3);
+            attestation
+        };
+
+        let first_block = || {
+            let mut merge_block = BeaconBlockMerge::empty(spec);
+            merge_block.slot = merge_fork_slot;
+            BeaconBlock::Merge(merge_block)
+        };
+
+        let double_vote_block = || {
+            let mut block = first_block();
+            *block.state_root_mut() = Hash256::repeat_byte(0xff);
+            block
+        };
+
+        let current_epoch = Epoch::new(5);
+
+        TestingRig::new(
+            network,
+            slashing_protection_config,
+            spec.clone(),
+            listen_port,
+        )
+        .await
+        .assert_signatures_match("first_attestation", |pubkey, validator_store| async move {
+            let mut attestation = first_attestation();
+            validator_store
+                .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                .await
+                .unwrap();
+            attestation
+        })
+        .await
+        .assert_slashable_message_should_sign(
+            "double_vote_attestation",
+            move |pubkey, validator_store| async move {
+                let mut attestation = double_vote_attestation();
                 validator_store
-                    .sign_block(pubkey, BeaconBlock::Merge(merge_block), merge_fork_slot)
+                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
                     .await
-                    .unwrap()
-            })
-            .await;
+            },
+            slashable_message_should_sign,
+        )
+        .await
+        .assert_slashable_message_should_sign(
+            "surrounding_attestation",
+            move |pubkey, validator_store| async move {
+                let mut attestation = surrounding_attestation();
+                validator_store
+                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .await
+            },
+            slashable_message_should_sign,
+        )
+        .await
+        .assert_slashable_message_should_sign(
+            "surrounded_attestation",
+            move |pubkey, validator_store| async move {
+                let mut attestation = surrounded_attestation();
+                validator_store
+                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .await
+            },
+            slashable_message_should_sign,
+        )
+        .await
+        .assert_signatures_match("first_block", |pubkey, validator_store| async move {
+            let block = first_block();
+            let slot = block.slot();
+            validator_store
+                .sign_block(pubkey, block, slot)
+                .await
+                .unwrap()
+        })
+        .await
+        .assert_slashable_message_should_sign(
+            "double_vote_block",
+            move |pubkey, validator_store| async move {
+                let block = double_vote_block();
+                let slot = block.slot();
+                validator_store
+                    .sign_block(pubkey, block, slot)
+                    .await
+                    .map(|_| ())
+            },
+            slashable_message_should_sign,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -701,5 +916,15 @@ mod tests {
     #[tokio::test]
     async fn sepolia_merge_types() {
         test_merge_types("sepolia", 4252).await
+    }
+
+    #[tokio::test]
+    async fn slashing_protection_disabled_locally() {
+        test_lighthouse_slashing_protection(SlashingProtectionConfig { local: false }, 4253).await
+    }
+
+    #[tokio::test]
+    async fn slashing_protection_enabled_locally() {
+        test_lighthouse_slashing_protection(SlashingProtectionConfig { local: true }, 4254).await
     }
 }

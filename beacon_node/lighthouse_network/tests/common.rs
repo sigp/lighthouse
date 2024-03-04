@@ -1,5 +1,5 @@
 #![cfg(test)]
-use libp2p::gossipsub;
+use lighthouse_network::gossipsub;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
@@ -45,7 +45,12 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
     ForkContext::new::<E>(current_slot, Hash256::zero(), &chain_spec)
 }
 
-pub struct Libp2pInstance(LibP2PService<ReqId, E>, exit_future::Signal);
+pub struct Libp2pInstance(
+    LibP2PService<ReqId, E>,
+    #[allow(dead_code)]
+    // This field is managed for lifetime purposes may not be used directly, hence the `#[allow(dead_code)]` attribute.
+    exit_future::Signal,
+);
 
 impl std::ops::Deref for Libp2pInstance {
     type Target = LibP2PService<ReqId, E>;

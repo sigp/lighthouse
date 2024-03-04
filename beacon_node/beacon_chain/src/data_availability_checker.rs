@@ -20,7 +20,7 @@ use std::fmt::Debug;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
+use types::beacon_block_body::KzgCommitmentOpts;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -192,6 +192,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.peek_blob(blob_id)
     }
 
+    /// Get a block from the availability cache. Includes any blocks we are currently processing.
+    pub fn get_block(&self, block_root: &Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+        self.processing_cache
+            .read()
+            .get(block_root)
+            .and_then(|cached| cached.block.clone())
+    }
+
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
     pub fn put_rpc_blobs(
@@ -344,20 +352,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block.num_expected_blobs() > 0 && self.da_check_required_for_epoch(block.epoch())
     }
 
-    /// Adds block commitments to the processing cache. These commitments are unverified but caching
+    /// Adds a block to the processing cache. This block's commitments are unverified but caching
     /// them here is useful to avoid duplicate downloads of blocks, as well as understanding
-    /// our blob download requirements.
-    pub fn notify_block_commitments(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        commitments: KzgCommitments<T::EthSpec>,
-    ) {
+    /// our blob download requirements. We will also serve this over RPC.
+    pub fn notify_block(&self, block_root: Hash256, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
+        let slot = block.slot();
         self.processing_cache
             .write()
             .entry(block_root)
             .or_insert_with(|| ProcessingComponents::new(slot))
-            .merge_block(commitments);
+            .merge_block(block);
     }
 
     /// Add a single blob commitment to the processing cache. This commitment is unverified but caching
@@ -450,6 +454,24 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn persist_all(&self) -> Result<(), AvailabilityCheckError> {
         self.availability_cache.write_all_to_disk()
     }
+
+    /// Collects metrics from the data availability checker.
+    pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
+        DataAvailabilityCheckerMetrics {
+            processing_cache_size: self.processing_cache.read().len(),
+            num_store_entries: self.availability_cache.num_store_entries(),
+            state_cache_size: self.availability_cache.state_cache_size(),
+            block_cache_size: self.availability_cache.block_cache_size(),
+        }
+    }
+}
+
+/// Helper struct to group data availability checker metrics.
+pub struct DataAvailabilityCheckerMetrics {
+    pub processing_cache_size: usize,
+    pub num_store_entries: usize,
+    pub state_cache_size: usize,
+    pub block_cache_size: usize,
 }
 
 pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
@@ -545,6 +567,18 @@ pub struct AvailableBlock<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
+    pub fn __new_for_testing(
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: Option<BlobSidecarList<E>>,
+    ) -> Self {
+        Self {
+            block_root,
+            block,
+            blobs,
+        }
+    }
+
     pub fn block(&self) -> &SignedBeaconBlock<E> {
         &self.block
     }
@@ -583,6 +617,15 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
     },
+}
+
+impl<E: EthSpec> MaybeAvailableBlock<E> {
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        match self {
+            Self::Available(block) => block.block_cloned(),
+            Self::AvailabilityPending { block, .. } => block.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

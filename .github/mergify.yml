@@ -4,6 +4,12 @@ queue_rules:
     batch_max_wait_time: 60 s
     checks_timeout: 10800 s
     merge_method: squash
+    commit_message_template: |
+      {{ title }} (#{{ number }})
+      
+      {% for commit in commits %}
+      * {{ commit.commit_message }}
+      {% endfor %}
     queue_conditions:
       - "#approved-reviews-by >= 1"
       - "check-success=license/cla"

@@ -86,7 +86,7 @@ jobs:
 #    - uses: KyleMayes/install-llvm-action@v1
 #         if: env.SELF_HOSTED_RUNNERS == 'false'
 #      with:
-#        version: "15.0"
+#        version: "16.0"
 #        directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
@@ -309,6 +309,12 @@ jobs:
       run: |
           make
     - name: Install lcli
+<<<<<<< HEAD
+=======
+      # TODO: uncomment after the version of lcli in https://github.com/sigp/lighthouse/pull/5137 
+      # is installed on the runners
+      # if: env.SELF_HOSTED_RUNNERS == 'false'
+>>>>>>> unstable
       run: make install-lcli
     - name: Run the doppelganger protection failure test script
       run: |
@@ -405,7 +411,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install dependencies
-      run: sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
+      run: sudo apt update && sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
     - name: Use Rust beta
       run: rustup override set beta
     - name: Run make

@@ -1,4 +1,6 @@
-use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
+use crate::beacon_chain::{
+    CanonicalHead, LightClientProducerEvent, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY,
+};
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
@@ -6,10 +8,11 @@ use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
+use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
+use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -36,8 +39,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256, Signature,
-    SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti,
+    Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -87,6 +90,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
+    light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
     head_tracker: Option<HeadTracker>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
@@ -129,6 +133,7 @@ where
             event_handler: None,
             slot_clock: None,
             shutdown_sender: None,
+            light_client_server_tx: None,
             head_tracker: None,
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
@@ -427,6 +432,7 @@ where
         mut self,
         mut weak_subj_state: BeaconState<TEthSpec>,
         weak_subj_block: SignedBeaconBlock<TEthSpec>,
+        weak_subj_blobs: Option<BlobSidecarList<TEthSpec>>,
         genesis_state: BeaconState<TEthSpec>,
     ) -> Result<Self, String> {
         let store = self
@@ -485,6 +491,29 @@ where
             ));
         }
 
+        // Verify that blobs (if provided) match the block.
+        if let Some(blobs) = &weak_subj_blobs {
+            let commitments = weak_subj_block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .map_err(|e| format!("Blobs provided but block does not reference them: {e:?}"))?;
+            if blobs.len() != commitments.len() {
+                return Err(format!(
+                    "Wrong number of blobs, expected: {}, got: {}",
+                    commitments.len(),
+                    blobs.len()
+                ));
+            }
+            if commitments
+                .iter()
+                .zip(blobs.iter())
+                .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
+            {
+                return Err("Checkpoint blob does not match block commitment".into());
+            }
+        }
+
         // Set the store's split point *before* storing genesis so that genesis is stored
         // immediately in the freezer DB.
         store.set_split(weak_subj_slot, weak_subj_state_root, weak_subj_block_root);
@@ -506,14 +535,19 @@ where
             .do_atomically(block_root_batch)
             .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
 
-        // Write the state and block non-atomically, it doesn't matter if they're forgotten
+        // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
         store
             .put_state(&weak_subj_state_root, &weak_subj_state)
-            .map_err(|e| format!("Failed to store weak subjectivity state: {:?}", e))?;
+            .map_err(|e| format!("Failed to store weak subjectivity state: {e:?}"))?;
         store
             .put_block(&weak_subj_block_root, weak_subj_block.clone())
-            .map_err(|e| format!("Failed to store weak subjectivity block: {:?}", e))?;
+            .map_err(|e| format!("Failed to store weak subjectivity block: {e:?}"))?;
+        if let Some(blobs) = weak_subj_blobs {
+            store
+                .put_blobs(&weak_subj_block_root, blobs)
+                .map_err(|e| format!("Failed to store weak subjectivity blobs: {e:?}"))?;
+        }
 
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
@@ -600,6 +634,15 @@ where
     /// Sets a `Sender` to allow the beacon chain to send shutdown signals.
     pub fn shutdown_sender(mut self, sender: Sender<ShutdownReason>) -> Self {
         self.shutdown_sender = Some(sender);
+        self
+    }
+
+    /// Sets a `Sender` to allow the beacon chain to trigger light_client update production.
+    pub fn light_client_server_tx(
+        mut self,
+        sender: Sender<LightClientProducerEvent<TEthSpec>>,
+    ) -> Self {
+        self.light_client_server_tx = Some(sender);
         self
     }
 
@@ -827,15 +870,20 @@ where
         let head_for_snapshot_cache = head_snapshot.clone();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
+        let snapshot_cache_size = self.chain_config.snapshot_cache_size;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
             Slot::new(0)
         } else {
-            let backfill_epoch_range = (self.spec.min_validator_withdrawability_delay
-                + self.spec.churn_limit_quotient)
-                .as_u64()
-                / 2;
+            let backfill_epoch_range = if cfg!(feature = "test_backfill") {
+                3
+            } else {
+                (self.spec.min_validator_withdrawability_delay + self.spec.churn_limit_quotient)
+                    .as_u64()
+                    / 2
+            };
+
             match slot_clock.now() {
                 Some(current_slot) => {
                     let genesis_backfill_epoch = current_slot
@@ -887,8 +935,6 @@ where
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
-            latest_seen_finality_update: <_>::default(),
-            latest_seen_optimistic_update: <_>::default(),
             eth1_chain: self.eth1_chain,
             execution_layer: self.execution_layer,
             genesis_validators_root,
@@ -901,7 +947,7 @@ where
             event_handler: self.event_handler,
             head_tracker,
             snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
-                DEFAULT_SNAPSHOT_CACHE_SIZE,
+                snapshot_cache_size,
                 head_for_snapshot_cache,
             )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
@@ -916,6 +962,8 @@ where
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
+            light_client_server_cache: LightClientServerCache::new(),
+            light_client_server_tx: self.light_client_server_tx,
             shutdown_sender: self
                 .shutdown_sender
                 .ok_or("Cannot build without a shutdown sender.")?,

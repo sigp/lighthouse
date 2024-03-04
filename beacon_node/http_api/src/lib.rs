@@ -16,6 +16,7 @@ mod database;
 mod metrics;
 mod produce_block;
 mod proposer_duties;
+mod publish_attestations;
 mod publish_blocks;
 mod standard_block_rewards;
 mod state_id;
@@ -35,7 +36,7 @@ use beacon_chain::{
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
     BeaconChainTypes, WhenSlotSkipped,
 };
-use beacon_processor::BeaconProcessorSend;
+use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
 use bytes::Bytes;
@@ -129,6 +130,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub network_senders: Option<NetworkSenders<T::EthSpec>>,
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     pub beacon_processor_send: Option<BeaconProcessorSend<T::EthSpec>>,
+    pub beacon_processor_reprocess_send: Option<Sender<ReprocessQueueMessage>>,
     pub eth1_service: Option<eth1::Service>,
     pub sse_logging_components: Option<SSELoggingComponents>,
     pub log: Logger,
@@ -534,6 +536,11 @@ pub fn serve<T: BeaconChainTypes>(
         .filter(|_| config.enable_beacon_processor);
     let task_spawner_filter =
         warp::any().map(move || TaskSpawner::new(beacon_processor_send.clone()));
+    let beacon_processor_reprocess_send = ctx
+        .beacon_processor_reprocess_send
+        .clone()
+        .filter(|_| config.enable_beacon_processor);
+    let reprocess_send_filter = warp::any().map(move || beacon_processor_reprocess_send.clone());
 
     let duplicate_block_status_code = ctx.config.duplicate_block_status_code;
 
@@ -682,7 +689,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("validator_balances"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -726,7 +733,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("validators"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1019,7 +1026,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 Ok((
                                     state
                                         .get_built_sync_committee(epoch, &chain.spec)
-                                        .map(|committee| committee.clone())
+                                        .cloned()
                                         .map_err(|e| match e {
                                             BeaconStateError::SyncCommitteeNotKnown { .. } => {
                                                 warp_utils::reject::custom_bad_request(format!(
@@ -1257,7 +1264,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
@@ -1327,7 +1334,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
@@ -1404,7 +1411,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
@@ -1472,7 +1479,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("blinded_blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
@@ -1754,142 +1761,28 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
+        .and(reprocess_send_filter)
         .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              attestations: Vec<Attestation<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
-                    let seen_timestamp = timestamp_now();
-                    let mut failures = Vec::new();
-                    let mut num_already_known = 0;
-
-                    for (index, attestation) in attestations.as_slice().iter().enumerate() {
-                        let attestation = match chain
-                            .verify_unaggregated_attestation_for_gossip(attestation, None)
-                        {
-                            Ok(attestation) => attestation,
-                            Err(AttnError::PriorAttestationKnown { .. }) => {
-                                num_already_known += 1;
-
-                                // Skip to the next attestation since an attestation for this
-                                // validator is already known in this epoch.
-                                //
-                                // There's little value for the network in validating a second
-                                // attestation for another validator since it is either:
-                                //
-                                // 1. A duplicate.
-                                // 2. Slashable.
-                                // 3. Invalid.
-                                //
-                                // We are likely to get duplicates in the case where a VC is using
-                                // fallback BNs. If the first BN actually publishes some/all of a
-                                // batch of attestations but fails to respond in a timely fashion,
-                                // the VC is likely to try publishing the attestations on another
-                                // BN. That second BN may have already seen the attestations from
-                                // the first BN and therefore indicate that the attestations are
-                                // "already seen". An attestation that has already been seen has
-                                // been published on the network so there's no actual error from
-                                // the perspective of the user.
-                                //
-                                // It's better to prevent slashable attestations from ever
-                                // appearing on the network than trying to slash validators,
-                                // especially those validators connected to the local API.
-                                //
-                                // There might be *some* value in determining that this attestation
-                                // is invalid, but since a valid attestation already it exists it
-                                // appears that this validator is capable of producing valid
-                                // attestations and there's no immediate cause for concern.
-                                continue;
-                            }
-                            Err(e) => {
-                                error!(log,
-                                    "Failure verifying attestation for gossip";
-                                    "error" => ?e,
-                                    "request_index" => index,
-                                    "committee_index" => attestation.data.index,
-                                    "attestation_slot" => attestation.data.slot,
-                                );
-                                failures.push(api_types::Failure::new(
-                                    index,
-                                    format!("Verification: {:?}", e),
-                                ));
-                                // skip to the next attestation so we do not publish this one to gossip
-                                continue;
-                            }
-                        };
-
-                        // Notify the validator monitor.
-                        chain
-                            .validator_monitor
-                            .read()
-                            .register_api_unaggregated_attestation(
-                                seen_timestamp,
-                                attestation.indexed_attestation(),
-                                &chain.slot_clock,
-                            );
-
-                        publish_pubsub_message(
-                            &network_tx,
-                            PubsubMessage::Attestation(Box::new((
-                                attestation.subnet_id(),
-                                attestation.attestation().clone(),
-                            ))),
-                        )?;
-
-                        let committee_index = attestation.attestation().data.index;
-                        let slot = attestation.attestation().data.slot;
-
-                        if let Err(e) = chain.apply_attestation_to_fork_choice(&attestation) {
-                            error!(log,
-                                "Failure applying verified attestation to fork choice";
-                                "error" => ?e,
-                                "request_index" => index,
-                                "committee_index" => committee_index,
-                                "slot" => slot,
-                            );
-                            failures.push(api_types::Failure::new(
-                                index,
-                                format!("Fork choice: {:?}", e),
-                            ));
-                        };
-
-                        if let Err(e) = chain.add_to_naive_aggregation_pool(&attestation) {
-                            error!(log,
-                                "Failure adding verified attestation to the naive aggregation pool";
-                                "error" => ?e,
-                                "request_index" => index,
-                                "committee_index" => committee_index,
-                                "slot" => slot,
-                            );
-                            failures.push(api_types::Failure::new(
-                                index,
-                                format!("Naive aggregation pool: {:?}", e),
-                            ));
-                        }
-                    }
-
-                    if num_already_known > 0 {
-                        debug!(
-                            log,
-                            "Some unagg attestations already known";
-                            "count" => num_already_known
-                        );
-                    }
-
-                    if failures.is_empty() {
-                        Ok(())
-                    } else {
-                        Err(warp_utils::reject::indexed_bad_request(
-                            "error processing attestations".to_string(),
-                            failures,
-                        ))
-                    }
-                })
+             reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
+             log: Logger| async move {
+                let result = crate::publish_attestations::publish_attestations(
+                    task_spawner,
+                    chain,
+                    attestations,
+                    network_tx,
+                    reprocess_tx,
+                    log,
+                )
+                .await
+                .map(|()| warp::reply::json(&()));
+                task_spawner::convert_rejection(result).await
             },
         );
 
@@ -1930,7 +1823,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("attester_slashings"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
@@ -1988,7 +1881,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("proposer_slashings"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
@@ -2046,7 +1939,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("voluntary_exits"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
@@ -2102,7 +1995,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("sync_committees"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
@@ -2139,7 +2032,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("bls_to_execution_changes"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
@@ -2434,9 +2327,8 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let update = chain
-                        .latest_seen_optimistic_update
-                        .lock()
-                        .clone()
+                        .light_client_server_cache
+                        .get_latest_optimistic_update()
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(
                                 "No LightClientOptimisticUpdate is available".to_string(),
@@ -2482,9 +2374,8 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let update = chain
-                        .latest_seen_finality_update
-                        .lock()
-                        .clone()
+                        .light_client_server_cache
+                        .get_latest_finality_update()
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(
                                 "No LightClientFinalityUpdate is available".to_string(),
@@ -2533,7 +2424,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("attestations"))
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -2583,7 +2474,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("sync_committee"))
         .and(block_id_or_err)
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
@@ -2860,7 +2751,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 hex::encode(
                                     meta_data
                                         .syncnets()
-                                        .map(|x| x.clone())
+                                        .cloned()
                                         .unwrap_or_default()
                                         .into_bytes()
                                 )
@@ -3326,7 +3217,7 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
@@ -3352,7 +3243,7 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
@@ -3406,7 +3297,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
@@ -3519,7 +3410,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(network_tx_filter)
         .and(log_filter.clone())
         .then(
@@ -3545,7 +3436,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("beacon_committee_subscriptions"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(validator_subscription_tx_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
@@ -3601,7 +3492,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(log_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -3652,7 +3543,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(log_filter.clone())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -3826,7 +3717,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("sync_committee_subscriptions"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(validator_subscription_tx_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
@@ -3866,18 +3757,18 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST vaidator/liveness/{epoch}
+    // POST validator/liveness/{epoch}
     let post_validator_liveness_epoch = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("liveness"))
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
             |epoch: Epoch,
-             indices: Vec<u64>,
+             indices: api_types::ValidatorIndexData,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
@@ -3896,6 +3787,7 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     let liveness: Vec<api_types::StandardLivenessResponseData> = indices
+                        .0
                         .iter()
                         .cloned()
                         .map(|index| {
@@ -3913,7 +3805,7 @@ pub fn serve<T: BeaconChainTypes>(
     let post_lighthouse_liveness = warp::path("lighthouse")
         .and(warp::path("liveness"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
@@ -4016,7 +3908,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("ui"))
         .and(warp::path("validator_metrics"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
@@ -4035,7 +3927,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("ui"))
         .and(warp::path("validator_info"))
         .and(warp::path::end())
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
@@ -4267,36 +4159,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/beacon/states/{state_id}/ssz
-    let get_lighthouse_beacon_states_ssz = warp::path("lighthouse")
-        .and(warp::path("beacon"))
-        .and(warp::path("states"))
-        .and(warp::path::param::<StateId>())
-        .and(warp::path("ssz"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |state_id: StateId,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_response_task(Priority::P1, move || {
-                    // This debug endpoint provides no indication of optimistic status.
-                    let (state, _execution_optimistic, _finalized) = state_id.state(&chain)?;
-                    Response::builder()
-                        .status(200)
-                        .body(state.as_ssz_bytes().into())
-                        .map(|res: Response<Body>| add_ssz_content_type_header(res))
-                        .map_err(|e| {
-                            warp_utils::reject::custom_server_error(format!(
-                                "failed to create response: {}",
-                                e
-                            ))
-                        })
-                })
-            },
-        );
-
     // GET lighthouse/staking
     let get_lighthouse_staking = warp::path("lighthouse")
         .and(warp::path("staking"))
@@ -4368,7 +4230,7 @@ pub fn serve<T: BeaconChainTypes>(
     let post_lighthouse_block_rewards = warp::path("lighthouse")
         .and(warp::path("analysis"))
         .and(warp::path("block_rewards"))
-        .and(warp::body::json())
+        .and(warp_utils::json::json())
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
@@ -4631,7 +4493,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_eth1_syncing)
                 .uor(get_lighthouse_eth1_block_cache)
                 .uor(get_lighthouse_eth1_deposit_cache)
-                .uor(get_lighthouse_beacon_states_ssz)
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
                 .uor(get_lighthouse_block_rewards)

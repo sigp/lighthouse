@@ -11,7 +11,7 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
-/// A LightClientFinalityUpdate is the update lightclient request or received by a gossip that
+/// A LightClientFinalityUpdate is the update light_client request or received by a gossip that
 /// signal a new finalized beacon block header for the light client sync protocol.
 #[derive(
     Debug,

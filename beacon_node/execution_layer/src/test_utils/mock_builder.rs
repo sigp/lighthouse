@@ -55,7 +55,8 @@ impl Operation {
 }
 
 #[derive(Debug)]
-struct Custom(String);
+// We don't use the string value directly, but it's used in the Debug impl which is required by `warp::reject::Reject`.
+struct Custom(#[allow(dead_code)] String);
 
 impl warp::reject::Reject for Custom {}
 

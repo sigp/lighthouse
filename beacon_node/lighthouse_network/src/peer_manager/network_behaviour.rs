@@ -96,10 +96,16 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         if let Some(enr) = self.peers_to_dial.pop() {
             let peer_id = enr.peer_id();
             self.inject_peer_connection(&peer_id, ConnectingType::Dialing, Some(enr.clone()));
-            let quic_multiaddrs = enr.multiaddr_quic();
-            if !quic_multiaddrs.is_empty() {
-                debug!(self.log, "Dialing QUIC supported peer"; "peer_id"=> %peer_id, "quic_multiaddrs" => ?quic_multiaddrs);
-            }
+
+            let quic_multiaddrs = if self.quic_enabled {
+                let quic_multiaddrs = enr.multiaddr_quic();
+                if !quic_multiaddrs.is_empty() {
+                    debug!(self.log, "Dialing QUIC supported peer"; "peer_id"=> %peer_id, "quic_multiaddrs" => ?quic_multiaddrs);
+                }
+                quic_multiaddrs
+            } else {
+                Vec::new()
+            };
 
             // Prioritize Quic connections over Tcp ones.
             let multiaddrs = quic_multiaddrs
