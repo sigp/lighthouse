@@ -3225,6 +3225,7 @@ dependencies = [
  "ethereum_ssz_derive",
  "proto_array",
  "slog",
+ "slot_clock",
  "state_processing",
  "store",
  "tokio",
