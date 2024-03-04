@@ -7,6 +7,7 @@ use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
 use types::blob_sidecar::BlobSidecarList;
+use types::data_column_sidecar::DataColumnSidecarList;
 use types::*;
 
 pub struct CacheItem<E: EthSpec> {
@@ -23,6 +24,7 @@ pub struct CacheItem<E: EthSpec> {
      */
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
+    data_columns: Option<DataColumnSidecarList<E>>,
     proto_block: ProtoBlock,
 }
 
@@ -70,7 +72,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             },
         };
 
-        let (_, block, blobs) = block.deconstruct();
+        let (_, block, blobs, data_columns) = block.deconstruct();
         let item = CacheItem {
             epoch,
             committee_lengths,
@@ -79,6 +81,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             target,
             block,
             blobs,
+            data_columns,
             proto_block,
         };
 
@@ -165,6 +168,15 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
             .and_then(|item| item.blobs.clone())
+    }
+
+    /// Returns the data columns, if `block_root` matches the cached item.
+    pub fn get_data_columns(&self, block_root: Hash256) -> Option<DataColumnSidecarList<E>> {
+        self.item
+            .read()
+            .as_ref()
+            .filter(|item| item.beacon_block_root == block_root)
+            .and_then(|item| item.data_columns.clone())
     }
 
     /// Returns the proto-array block, if `block_root` matches the cached item.
