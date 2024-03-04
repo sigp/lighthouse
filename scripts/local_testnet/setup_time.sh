@@ -17,8 +17,6 @@ get_spec_preset_value() {
 SLOT_PER_EPOCH=$(get_spec_preset_value $SPEC_PRESET)
 echo "slot_per_epoch=$SLOT_PER_EPOCH"
 
-echo $1
-
 genesis_file=$1
 
 # Update future hardforks time in the EL genesis file based on the CL genesis time
