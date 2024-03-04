@@ -61,6 +61,8 @@ pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 /// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
 /// dialing priority peers we need for validator duties.
 pub const PRIORITY_PEER_EXCESS: f32 = 0.2;
+/// The number of inbound peers that are connected that indicate this node is not behind a NAT.
+pub const INBOUND_PEERS_NAT: usize = 5;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
@@ -878,10 +880,25 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if self.discovery_enabled {
             let peer_count = self.network_globals.connected_or_dialing_peers();
             let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+            let inbound_peer_count = self
+                .network_globals
+                .connected_peers()
+                .saturating_sub(outbound_only_peer_count);
             let wanted_peers = if peer_count < self.target_peers.saturating_sub(dialing_peers) {
                 // We need more peers in general.
                 // Note: The maximum discovery query is bounded by `Discovery`.
-                self.target_peers.saturating_sub(dialing_peers) - peer_count
+
+                // If we are behind a NAT, we are likely to have little to no inbound peers. Having
+                // an excess amount of peers helps with peer management via pruning. We search for
+                // these extra peers in this case.
+                if inbound_peer_count < INBOUND_PEERS_NAT {
+                    self.max_peers()
+                        .saturating_sub(dialing_peers)
+                        .saturating_sub(peer_count)
+                } else {
+                    // Normal operation, search up to the target
+                    self.target_peers.saturating_sub(dialing_peers) - peer_count
+                }
             } else if outbound_only_peer_count < self.min_outbound_only_peers()
                 && peer_count < self.max_outbound_dialing_peers()
             {
@@ -894,7 +911,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             if wanted_peers != 0 {
                 // We need more peers, re-queue a discovery lookup.
-                debug!(self.log, "Starting a new peer discovery query"; "connected" => peer_count, "target" => self.target_peers, "outbound" => outbound_only_peer_count, "wanted" => wanted_peers);
+                debug!(self.log, "Starting a new peer discovery query"; "connected" => peer_count, "target" => self.target_peers, "outbound" => outbound_only_peer_count, "wanted" => wanted_peers, "inbound" => inbound_peer_count);
                 self.events
                     .push(PeerManagerEvent::DiscoverPeers(wanted_peers));
             }
