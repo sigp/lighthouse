@@ -41,6 +41,7 @@ use std::{
 use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
+    SyncSubnetId, Unsigned,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
@@ -274,6 +275,30 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             gossipsub
                 .with_peer_score(params, thresholds)
                 .expect("Valid score params and thresholds");
+
+            // If we are using metrics, then register which topics we want to make sure to keep
+            // track of
+            if ctx.libp2p_registry.is_some() {
+                let topics_to_keep_metrics_for = (0..TSpec::SubnetBitfieldLength::to_usize())
+                    .map(|subnet_id| GossipKind::Attestation(SubnetId::new(subnet_id as u64)))
+                    .chain((0..TSpec::SyncCommitteeSubnetCount::to_usize()).map(
+                        |sync_committee_id| {
+                            GossipKind::SyncCommitteeMessage(SyncSubnetId::new(
+                                sync_committee_id as u64,
+                            ))
+                        },
+                    ))
+                    .map(|gossip_kind| {
+                        Topic::from(GossipTopic::new(
+                            gossip_kind,
+                            GossipEncoding::default(),
+                            enr_fork_id.fork_digest,
+                        ))
+                        .into()
+                    })
+                    .collect::<Vec<TopicHash>>();
+                gossipsub.register_topics_for_metrics(topics_to_keep_metrics_for);
+            }
 
             (gossipsub, update_gossipsub_scores)
         };
