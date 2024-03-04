@@ -176,14 +176,11 @@ impl<T: EthSpec> DataColumnSidecar<T> {
                 .unwrap(),
             kzg_commitments: VariableList::new(vec![
                 KzgCommitment::empty_for_testing();
-                T::MaxBlobCommitmentsPerBlock::to_usize()
+                T::MaxBlobsPerBlock::to_usize()
             ])
             .unwrap(),
-            kzg_proofs: VariableList::new(vec![
-                KzgProof::empty();
-                T::MaxBlobCommitmentsPerBlock::to_usize()
-            ])
-            .unwrap(),
+            kzg_proofs: VariableList::new(vec![KzgProof::empty(); T::MaxBlobsPerBlock::to_usize()])
+                .unwrap(),
             signed_block_header: SignedBeaconBlockHeader {
                 message: BeaconBlockHeader::empty(),
                 signature: Signature::empty(),
