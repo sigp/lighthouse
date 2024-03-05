@@ -4,7 +4,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitmentOpts;
-use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// This cache is used only for gossip blocks/blobs and single block/blob lookups, to give req/resp
 /// a view of what we have and what we require. This cache serves a slightly different purpose than
@@ -54,9 +54,8 @@ pub struct ProcessingComponents<E: EthSpec> {
     /// `KzgCommitments` for blobs are always known, even if we haven't seen the block. See
     /// `AvailabilityView`'s trait definition for more details.
     pub blob_commitments: KzgCommitmentOpts<E>,
-    // TODO(das): `KzgCommitments` are available in every data column sidecar, hence it may not be useful to store them
-    // again here and a `()` may be sufficient to indicate what we have.
-    pub data_column_opts: FixedVector<Option<()>, E::DataColumnCount>,
+    /// TODO(das): figure out if we actually need this
+    pub data_columns: FixedVector<Option<Arc<DataColumnSidecar<E>>>, E::DataColumnCount>,
 }
 
 impl<E: EthSpec> ProcessingComponents<E> {
@@ -65,7 +64,7 @@ impl<E: EthSpec> ProcessingComponents<E> {
             slot,
             block: None,
             blob_commitments: KzgCommitmentOpts::<E>::default(),
-            data_column_opts: FixedVector::default(),
+            data_columns: FixedVector::default(),
         }
     }
 }
@@ -78,7 +77,7 @@ impl<E: EthSpec> ProcessingComponents<E> {
             slot: Slot::new(0),
             block: None,
             blob_commitments: KzgCommitmentOpts::<E>::default(),
-            data_column_opts: FixedVector::default(),
+            data_columns: FixedVector::default(),
         }
     }
 }

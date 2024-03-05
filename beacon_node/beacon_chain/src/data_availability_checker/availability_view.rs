@@ -28,7 +28,7 @@ pub trait AvailabilityView<E: EthSpec> {
     type BlobType: Clone + GetCommitment<E>;
 
     /// The type representing a data column in the implementation.
-    type DataColumnType: Clone;
+    type DataColumnType: Clone + GetCommitments<E>;
 
     /// Returns an immutable reference to the cached block.
     fn get_cached_block(&self) -> &Option<Self::BlockType>;
@@ -145,10 +145,7 @@ pub trait AvailabilityView<E: EthSpec> {
             let Some(data_column) = data_column else {
                 continue;
             };
-            // TODO(das): Add equivalent checks for data columns if necessary
-            if !self.data_column_exists(index) {
-                self.insert_data_column_at_index(index, data_column)
-            }
+            self.merge_single_data_column(index, data_column);
         }
     }
 
@@ -180,6 +177,23 @@ pub trait AvailabilityView<E: EthSpec> {
             }
         } else if !self.blob_exists(index) {
             self.insert_blob_at_index(index, blob)
+        }
+    }
+
+    /// Merges a single data column into the cache.
+    ///
+    /// Data columns are only inserted if:
+    /// 1. The data column entry at the index is empty and no block exists, or
+    /// 2. The block exists and its commitments matches the data column's commitments.
+    fn merge_single_data_column(&mut self, index: usize, data_column: Self::DataColumnType) {
+        let commitments = data_column.get_commitments();
+        if let Some(cached_block) = self.get_cached_block() {
+            let block_commitments = cached_block.get_commitments();
+            if block_commitments == commitments {
+                self.insert_data_column_at_index(index, data_column)
+            }
+        } else if !self.data_column_exists(index) {
+            self.insert_data_column_at_index(index, data_column)
         }
     }
 
@@ -260,10 +274,10 @@ impl_availability_view!(
     ProcessingComponents,
     Arc<SignedBeaconBlock<E>>,
     KzgCommitment,
-    (),
+    Arc<DataColumnSidecar<E>>,
     block,
     blob_commitments,
-    data_column_opts
+    data_columns
 );
 
 impl_availability_view!(
@@ -327,6 +341,20 @@ impl<E: EthSpec> GetCommitments<E> for Arc<SignedBeaconBlock<E>> {
             .ok()
             .cloned()
             .unwrap_or_default()
+    }
+}
+
+// These implementations are required to implement `AvailabilityView` for `ChildComponents`.
+impl<E: EthSpec> GetCommitments<E> for Arc<DataColumnSidecar<E>> {
+    fn get_commitments(&self) -> KzgCommitments<E> {
+        self.kzg_commitments.clone()
+    }
+}
+
+// These implementations are required to implement `AvailabilityView` for `PendingComponents`.
+impl<E: EthSpec> GetCommitments<E> for KzgVerifiedDataColumn<E> {
+    fn get_commitments(&self) -> KzgCommitments<E> {
+        self.as_data_column().kzg_commitments.clone()
     }
 }
 

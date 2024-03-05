@@ -33,6 +33,7 @@ use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::data_column_sidecar::FixedDataColumnSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -479,6 +480,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcBlobs { process_fn },
+        })
+    }
+
+    /// Create a new `Work` event for some data columns, where the result from computation (if any) is
+    /// sent to the other side of `result_tx`.
+    pub fn send_rpc_data_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        data_columns: FixedDataColumnSidecarList<T::EthSpec>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let data_column_count = data_columns.iter().filter(|b| b.is_some()).count();
+        if data_column_count == 0 {
+            return Ok(());
+        }
+        let process_fn = self.clone().generate_rpc_data_columns_process_fn(
+            block_root,
+            data_columns,
+            seen_timestamp,
+            process_type,
+        );
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcDataColumns { process_fn },
         })
     }
 

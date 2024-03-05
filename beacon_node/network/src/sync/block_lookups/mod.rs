@@ -24,7 +24,7 @@ use fnv::FnvHashMap;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-pub use single_block_lookup::{BlobRequestState, BlockRequestState};
+pub use single_block_lookup::{BlobRequestState, BlockRequestState, DataColumnRequestState};
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::collections::{HashMap, VecDeque};
@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::data_column_sidecar::FixedDataColumnSidecarList;
 use types::Slot;
 
 pub mod common;
@@ -541,6 +542,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             | ParentVerifyError::NotEnoughBlobsReturned
             | ParentVerifyError::ExtraBlocksReturned
             | ParentVerifyError::UnrequestedBlobId
+            | ParentVerifyError::UnrequestedDataColumnId
             | ParentVerifyError::ExtraBlobsReturned
             | ParentVerifyError::InvalidIndex(_) => {
                 let e = e.into();
@@ -1279,6 +1281,44 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             None => {
                 trace!(self.log, "Dropping blobs ready for processing. Beacon processor not available"; "block_root" => %block_root);
+                Err(LookupRequestError::SendFailed(
+                    "beacon processor unavailable",
+                ))
+            }
+        }
+    }
+
+    fn send_data_columns_for_processing(
+        &self,
+        block_root: Hash256,
+        data_columns: FixedDataColumnSidecarList<T::EthSpec>,
+        duration: Duration,
+        process_type: BlockProcessType,
+        cx: &SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        match cx.beacon_processor_if_enabled() {
+            Some(beacon_processor) => {
+                trace!(self.log, "Sending data columns for processing"; "block" => ?block_root, "process_type" => ?process_type);
+                if let Err(e) = beacon_processor.send_rpc_data_columns(
+                    block_root,
+                    data_columns,
+                    duration,
+                    process_type,
+                ) {
+                    error!(
+                        self.log,
+                        "Failed to send sync data columns to processor";
+                        "error" => ?e
+                    );
+                    Err(LookupRequestError::SendFailed(
+                        "beacon processor send failure",
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            None => {
+                trace!(self.log, "Dropping data columns ready for processing. Beacon processor not available"; "block_root" => %block_root);
                 Err(LookupRequestError::SendFailed(
                     "beacon processor unavailable",
                 ))

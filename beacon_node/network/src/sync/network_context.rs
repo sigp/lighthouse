@@ -12,7 +12,9 @@ use crate::sync::manager::SingleLookupReqId;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRootRequest,
+};
 use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
@@ -500,6 +502,50 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id: blob_peer_id,
                 request: Request::BlobsByRoot(blob_request),
+                request_id,
+            })?;
+        }
+        Ok(())
+    }
+
+    pub fn data_column_lookup_request(
+        &self,
+        id: SingleLookupReqId,
+        data_column_peer_id: PeerId,
+        data_column_request: DataColumnsByRootRequest,
+        lookup_type: LookupType,
+    ) -> Result<(), &'static str> {
+        let sync_id = match lookup_type {
+            LookupType::Current => SyncRequestId::SingleDataColumn { id },
+            LookupType::Parent => SyncRequestId::ParentLookupDataColumn { id },
+        };
+        let request_id = RequestId::Sync(sync_id);
+
+        if let Some(block_root) = data_column_request
+            .data_column_ids
+            .as_slice()
+            .first()
+            .map(|id| id.block_root)
+        {
+            let indices = data_column_request
+                .data_column_ids
+                .as_slice()
+                .iter()
+                .map(|id| id.index)
+                .collect::<Vec<_>>();
+            debug!(
+                self.log,
+                "Sending DataColumnsByRoot Request";
+                "method" => "DataColumnsByRoot",
+                "block_root" => ?block_root,
+                "data_column_indices" => ?indices,
+                "peer" => %data_column_peer_id,
+                "lookup_type" => ?lookup_type
+            );
+
+            self.send_network_msg(NetworkMessage::SendRequest {
+                peer_id: data_column_peer_id,
+                request: Request::DataColumnsByRoot(data_column_request),
                 request_id,
             })?;
         }

@@ -4,7 +4,7 @@ use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::{
-    AvailabilityCheckError, DataAvailabilityChecker, MissingBlobs,
+    AvailabilityCheckError, DataAvailabilityChecker, MissingBlobs, MissingDataColumns,
 };
 use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponents};
 use beacon_chain::BeaconChainTypes;
@@ -17,6 +17,7 @@ use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::data_column_sidecar::FixedDataColumnSidecarList;
 use types::EthSpec;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -33,6 +34,7 @@ pub enum LookupVerifyError {
     ExtraBlocksReturned,
     UnrequestedBlobId,
     ExtraBlobsReturned,
+    UnrequestedDataColumnId,
     NotEnoughBlobsReturned,
     InvalidIndex(u64),
 }
@@ -52,6 +54,7 @@ pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {
     pub id: Id,
     pub block_request_state: BlockRequestState<L>,
     pub blob_request_state: BlobRequestState<L, T::EthSpec>,
+    pub data_column_request_state: DataColumnRequestState<L, T::EthSpec>,
     pub da_checker: Arc<DataAvailabilityChecker<T>>,
     /// Only necessary for requests triggered by an `UnknownBlockParent` or `UnknownBlockParent`
     /// because any blocks or blobs without parents won't hit the data availability cache.
@@ -71,6 +74,11 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
             id,
             block_request_state: BlockRequestState::new(requested_block_root, peers),
             blob_request_state: BlobRequestState::new(requested_block_root, peers, is_deneb),
+            data_column_request_state: DataColumnRequestState::new(
+                requested_block_root,
+                peers,
+                is_deneb,
+            ),
             da_checker,
             child_components,
         }
@@ -336,6 +344,30 @@ impl<L: Lookup, E: EthSpec> BlobRequestState<L, E> {
         Self {
             requested_ids: default_ids,
             blob_download_queue: <_>::default(),
+            state: SingleLookupRequestState::new(peer_source),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+/// The state of the data column request component of a `SingleBlockLookup`.
+pub struct DataColumnRequestState<L: Lookup, T: EthSpec> {
+    /// The latest picture of which data columns still need to be requested. This includes information
+    /// from both block/data columns downloaded in the network layer and any blocks/data columns that exist in
+    /// the data availability checker.
+    pub requested_ids: MissingDataColumns,
+    /// Where we store data columns until we receive the stream terminator.
+    pub data_column_download_queue: FixedDataColumnSidecarList<T>,
+    pub state: SingleLookupRequestState,
+    _phantom: PhantomData<L>,
+}
+
+impl<L: Lookup, E: EthSpec> DataColumnRequestState<L, E> {
+    pub fn new(block_root: Hash256, peer_source: &[PeerId], is_deneb: bool) -> Self {
+        let default_ids = MissingDataColumns::new_without_block(block_root, is_deneb);
+        Self {
+            requested_ids: default_ids,
+            data_column_download_queue: <_>::default(),
             state: SingleLookupRequestState::new(peer_source),
             _phantom: PhantomData,
         }

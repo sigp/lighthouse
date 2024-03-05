@@ -42,7 +42,7 @@ use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::common::{Current, Parent};
-use crate::sync::block_lookups::{BlobRequestState, BlockRequestState};
+use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, DataColumnRequestState};
 use crate::sync::network_context::BlocksAndBlobsByRangeRequest;
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
@@ -90,12 +90,17 @@ pub enum RequestId {
     SingleBlock { id: SingleLookupReqId },
     /// Request searching for a set of blobs given a hash.
     SingleBlob { id: SingleLookupReqId },
+    /// Request searching for a set of data columns given a hash.
+    SingleDataColumn { id: SingleLookupReqId },
     /// Request searching for a block's parent. The id is the chain, share with the corresponding
     /// blob id.
     ParentLookup { id: SingleLookupReqId },
     /// Request searching for a block's parent blobs. The id is the chain, shared with the corresponding
     /// block id.
     ParentLookupBlob { id: SingleLookupReqId },
+    /// Request searching for a block's parent data columns. The id is the chain, shared with the corresponding
+    /// block id.
+    ParentLookupDataColumn { id: SingleLookupReqId },
     /// Request was from the backfill sync algorithm.
     BackFillBlocks { id: Id },
     /// Backfill request that is composed by both a block range request and a blob range request.
@@ -166,6 +171,7 @@ pub enum SyncMessage<T: EthSpec> {
 pub enum BlockProcessType {
     SingleBlock { id: Id },
     SingleBlob { id: Id },
+    SingleDataColumn { id: Id },
     ParentLookup { chain_hash: Hash256 },
 }
 
@@ -319,6 +325,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         error,
                     );
             }
+            RequestId::SingleDataColumn { id } => {
+                self.block_lookups
+                    .single_block_lookup_failed::<DataColumnRequestState<Current, T::EthSpec>>(
+                        id,
+                        &peer_id,
+                        &self.network,
+                        error,
+                    );
+            }
             RequestId::ParentLookup { id } => {
                 self.block_lookups
                     .parent_lookup_failed::<BlockRequestState<Parent>>(
@@ -331,6 +346,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::ParentLookupBlob { id } => {
                 self.block_lookups
                     .parent_lookup_failed::<BlobRequestState<Parent, T::EthSpec>>(
+                        id,
+                        peer_id,
+                        &self.network,
+                        error,
+                    );
+            }
+            RequestId::ParentLookupDataColumn { id } => {
+                self.block_lookups
+                    .parent_lookup_failed::<DataColumnRequestState<Parent, T::EthSpec>>(
                         id,
                         peer_id,
                         &self.network,
@@ -680,6 +704,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         result,
                         &mut self.network,
                     ),
+                BlockProcessType::SingleDataColumn { id } => self
+                    .block_lookups
+                    .single_block_component_processed::<DataColumnRequestState<
+                    Current,
+                    T::EthSpec,
+                >>(
+                    id, result, &mut self.network
+                ),
                 BlockProcessType::ParentLookup { chain_hash } => self
                     .block_lookups
                     .parent_block_processed(chain_hash, result, &mut self.network),
@@ -844,6 +876,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlob { .. } => {
                 crit!(self.log, "Block received during blob request"; "peer_id" => %peer_id  );
             }
+            RequestId::SingleDataColumn { .. } => {
+                crit!(self.log, "Block received during data column request"; "peer_id" => %peer_id  );
+            }
             RequestId::ParentLookup { id } => self
                 .block_lookups
                 .parent_lookup_response::<BlockRequestState<Parent>>(
@@ -855,6 +890,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 ),
             RequestId::ParentLookupBlob { id: _ } => {
                 crit!(self.log, "Block received during parent blob request"; "peer_id" => %peer_id  );
+            }
+            RequestId::ParentLookupDataColumn { id: _ } => {
+                crit!(self.log, "Block received during parent data column request"; "peer_id" => %peer_id  );
             }
             RequestId::BackFillBlocks { id } => {
                 let is_stream_terminator = block.is_none();
@@ -916,6 +954,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { .. } => {
                 crit!(self.log, "Single blob received during block request"; "peer_id" => %peer_id  );
             }
+            RequestId::SingleDataColumn { .. } => {
+                crit!(self.log, "Single blob received during data column request"; "peer_id" => %peer_id  );
+            }
             RequestId::SingleBlob { id } => {
                 if let Some(blob) = blob.as_ref() {
                     debug!(self.log,
@@ -936,6 +977,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
             RequestId::ParentLookup { id: _ } => {
                 crit!(self.log, "Single blob received during parent block request"; "peer_id" => %peer_id  );
+            }
+            RequestId::ParentLookupDataColumn { id: _ } => {
+                crit!(self.log, "Single blob received during parent data column request"; "peer_id" => %peer_id  );
             }
             RequestId::ParentLookupBlob { id } => {
                 if let Some(blob) = blob.as_ref() {

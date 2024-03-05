@@ -33,6 +33,19 @@ pub struct DataColumnIdentifier {
     pub index: ColumnIndex,
 }
 
+impl DataColumnIdentifier {
+    pub fn get_all_data_column_ids<E: EthSpec>(block_root: Hash256) -> Vec<DataColumnIdentifier> {
+        let mut data_column_ids = Vec::with_capacity(E::number_of_columns());
+        for i in 0..E::number_of_columns() {
+            data_column_ids.push(DataColumnIdentifier {
+                block_root,
+                index: i as u64,
+            });
+        }
+        data_column_ids
+    }
+}
+
 #[derive(
     Debug,
     Clone,
@@ -150,6 +163,10 @@ impl<T: EthSpec> DataColumnSidecar<T> {
 
     pub fn block_root(&self) -> Hash256 {
         self.signed_block_header.message.tree_hash_root()
+    }
+
+    pub fn block_parent_root(&self) -> Hash256 {
+        self.signed_block_header.message.parent_root
     }
 
     pub fn min_size() -> usize {
