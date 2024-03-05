@@ -4,11 +4,12 @@ use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::AsBlock;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
 use crate::data_availability_checker::ProcessingComponents;
+use crate::data_column_verification::KzgVerifiedDataColumn;
 use kzg::KzgCommitment;
 use ssz_types::FixedVector;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
 
 /// Defines an interface for managing data availability with two key invariants:
 ///
@@ -26,11 +27,19 @@ pub trait AvailabilityView<E: EthSpec> {
     /// The type representing a blob in the implementation. Must implement `Clone`.
     type BlobType: Clone + GetCommitment<E>;
 
+    /// The type representing a data column in the implementation.
+    type DataColumnType: Clone;
+
     /// Returns an immutable reference to the cached block.
     fn get_cached_block(&self) -> &Option<Self::BlockType>;
 
     /// Returns an immutable reference to the fixed vector of cached blobs.
     fn get_cached_blobs(&self) -> &FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock>;
+
+    /// Returns an immutable reference to the fixed vector of cached data columns.
+    fn get_cached_data_columns(
+        &self,
+    ) -> &FixedVector<Option<Self::DataColumnType>, E::DataColumnCount>;
 
     /// Returns a mutable reference to the cached block.
     fn get_cached_block_mut(&mut self) -> &mut Option<Self::BlockType>;
@@ -39,6 +48,11 @@ pub trait AvailabilityView<E: EthSpec> {
     fn get_cached_blobs_mut(
         &mut self,
     ) -> &mut FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock>;
+
+    /// Returns a mutable reference to the fixed vector of cached data columns.
+    fn get_cached_data_columns_mut(
+        &mut self,
+    ) -> &mut FixedVector<Option<Self::DataColumnType>, E::DataColumnCount>;
 
     /// Checks if a block exists in the cache.
     ///
@@ -58,6 +72,18 @@ pub trait AvailabilityView<E: EthSpec> {
         self.get_cached_blobs()
             .get(blob_index)
             .map(|b| b.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Checks if a data column exists at the given index in the cache.
+    ///
+    /// Returns:
+    /// - `true` if a data column exists at the given index.
+    /// - `false` otherwise.
+    fn data_column_exists(&self, data_colum_index: usize) -> bool {
+        self.get_cached_data_columns()
+            .get(data_colum_index)
+            .map(|d| d.is_some())
             .unwrap_or(false)
     }
 
@@ -87,6 +113,42 @@ pub trait AvailabilityView<E: EthSpec> {
     fn insert_blob_at_index(&mut self, blob_index: usize, blob: Self::BlobType) {
         if let Some(b) = self.get_cached_blobs_mut().get_mut(blob_index) {
             *b = Some(blob);
+        }
+    }
+
+    /// Inserts a data column at a specific index in the cache.
+    ///
+    /// Existing data column at the index will be replaced.
+    fn insert_data_column_at_index(
+        &mut self,
+        data_column_index: usize,
+        data_column: Self::DataColumnType,
+    ) {
+        if let Some(b) = self
+            .get_cached_data_columns_mut()
+            .get_mut(data_column_index)
+        {
+            *b = Some(data_column);
+        }
+    }
+
+    /// Merges a given set of data columns into the cache.
+    ///
+    /// Data columns are only inserted if:
+    /// 1. The data column entry at the index is empty and no block exists.
+    /// 2. The block exists and its commitments matches the data column's commitments.
+    fn merge_data_columns(
+        &mut self,
+        data_columns: FixedVector<Option<Self::DataColumnType>, E::DataColumnCount>,
+    ) {
+        for (index, data_column) in data_columns.iter().cloned().enumerate() {
+            let Some(data_column) = data_column else {
+                continue;
+            };
+            // TODO(das): Add equivalent checks for data columns if necessary
+            if !self.data_column_exists(index) {
+                self.insert_data_column_at_index(index, data_column)
+            }
         }
     }
 
@@ -148,14 +210,16 @@ pub trait AvailabilityView<E: EthSpec> {
 /// - `$struct_name`: The name of the struct for which to implement `AvailabilityView`.
 /// - `$block_type`: The type to use for `BlockType` in the `AvailabilityView` trait.
 /// - `$blob_type`: The type to use for `BlobType` in the `AvailabilityView` trait.
+/// - `$data_column_type`: The type to use for `DataColumnType` in the `AvailabilityView` trait.
 /// - `$block_field`: The field name in the struct that holds the cached block.
-/// - `$blob_field`: The field name in the struct that holds the cached blobs.
+/// - `$data_column_field`: The field name in the struct that holds the cached data columns.
 #[macro_export]
 macro_rules! impl_availability_view {
-    ($struct_name:ident, $block_type:ty, $blob_type:ty, $block_field:ident, $blob_field:ident) => {
+    ($struct_name:ident, $block_type:ty, $blob_type:ty, $data_column_type:ty, $block_field:ident, $blob_field:ident, $data_column_field:ident) => {
         impl<E: EthSpec> AvailabilityView<E> for $struct_name<E> {
             type BlockType = $block_type;
             type BlobType = $blob_type;
+            type DataColumnType = $data_column_type;
 
             fn get_cached_block(&self) -> &Option<Self::BlockType> {
                 &self.$block_field
@@ -167,6 +231,12 @@ macro_rules! impl_availability_view {
                 &self.$blob_field
             }
 
+            fn get_cached_data_columns(
+                &self,
+            ) -> &FixedVector<Option<Self::DataColumnType>, E::DataColumnCount> {
+                &self.$data_column_field
+            }
+
             fn get_cached_block_mut(&mut self) -> &mut Option<Self::BlockType> {
                 &mut self.$block_field
             }
@@ -176,32 +246,44 @@ macro_rules! impl_availability_view {
             ) -> &mut FixedVector<Option<Self::BlobType>, E::MaxBlobsPerBlock> {
                 &mut self.$blob_field
             }
+
+            fn get_cached_data_columns_mut(
+                &mut self,
+            ) -> &mut FixedVector<Option<Self::DataColumnType>, E::DataColumnCount> {
+                &mut self.$data_column_field
+            }
         }
     };
 }
 
 impl_availability_view!(
     ProcessingComponents,
-    KzgCommitments<E>,
+    Arc<SignedBeaconBlock<E>>,
     KzgCommitment,
-    block_commitments,
-    blob_commitments
+    (),
+    block,
+    blob_commitments,
+    data_column_opts
 );
 
 impl_availability_view!(
     PendingComponents,
     DietAvailabilityPendingExecutedBlock<E>,
     KzgVerifiedBlob<E>,
+    KzgVerifiedDataColumn<E>,
     executed_block,
-    verified_blobs
+    verified_blobs,
+    verified_data_columns
 );
 
 impl_availability_view!(
     ChildComponents,
     Arc<SignedBeaconBlock<E>>,
     Arc<BlobSidecar<E>>,
+    Arc<DataColumnSidecar<E>>,
     downloaded_block,
-    downloaded_blobs
+    downloaded_blobs,
+    downloaded_data_columns
 );
 
 pub trait GetCommitments<E: EthSpec> {
@@ -212,12 +294,6 @@ pub trait GetCommitment<E: EthSpec> {
     fn get_commitment(&self) -> &KzgCommitment;
 }
 
-// These implementations are required to implement `AvailabilityView` for `ProcessingView`.
-impl<E: EthSpec> GetCommitments<E> for KzgCommitments<E> {
-    fn get_commitments(&self) -> KzgCommitments<E> {
-        self.clone()
-    }
-}
 impl<E: EthSpec> GetCommitment<E> for KzgCommitment {
     fn get_commitment(&self) -> &KzgCommitment {
         self
@@ -253,6 +329,7 @@ impl<E: EthSpec> GetCommitments<E> for Arc<SignedBeaconBlock<E>> {
             .unwrap_or_default()
     }
 }
+
 impl<E: EthSpec> GetCommitment<E> for Arc<BlobSidecar<E>> {
     fn get_commitment(&self) -> &KzgCommitment {
         &self.kzg_commitment
@@ -310,7 +387,7 @@ pub mod tests {
     }
 
     type ProcessingViewSetup<E> = (
-        KzgCommitments<E>,
+        Arc<SignedBeaconBlock<E>>,
         FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
         FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
     );
@@ -320,12 +397,6 @@ pub mod tests {
         valid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
         invalid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
     ) -> ProcessingViewSetup<E> {
-        let commitments = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .unwrap()
-            .clone();
         let blobs = FixedVector::from(
             valid_blobs
                 .iter()
@@ -338,7 +409,7 @@ pub mod tests {
                 .map(|blob_opt| blob_opt.as_ref().map(|blob| blob.kzg_commitment))
                 .collect::<Vec<_>>(),
         );
-        (commitments, blobs, invalid_blobs)
+        (Arc::new(block), blobs, invalid_blobs)
     }
 
     type PendingComponentsSetup<E> = (

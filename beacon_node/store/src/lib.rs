@@ -42,6 +42,7 @@ pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
 use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
+use types::data_column_sidecar::DataColumnSidecarList;
 pub use types::*;
 
 pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
@@ -80,8 +81,22 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// this method. In future we may implement a safer mandatory locking scheme.
     fn begin_rw_transaction(&self) -> MutexGuard<()>;
 
-    /// Compact the database, freeing space used by deleted items.
-    fn compact(&self) -> Result<(), Error>;
+    /// Compact a single column in the database, freeing space used by deleted items.
+    fn compact_column(&self, column: DBColumn) -> Result<(), Error>;
+
+    /// Compact a default set of columns that are likely to free substantial space.
+    fn compact(&self) -> Result<(), Error> {
+        // Compact state and block related columns as they are likely to have the most churn,
+        // i.e. entries being created and deleted.
+        for column in [
+            DBColumn::BeaconState,
+            DBColumn::BeaconStateSummary,
+            DBColumn::BeaconBlock,
+        ] {
+            self.compact_column(column)?;
+        }
+        Ok(())
+    }
 
     /// Iterate through all keys and values in a particular column.
     fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
@@ -189,11 +204,13 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
+    PutDataColumns(Hash256, DataColumnSidecarList<E>),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
+    DeleteDataColumns(Hash256),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
     KeyValueOp(KeyValueStoreOp),
@@ -209,6 +226,8 @@ pub enum DBColumn {
     BeaconBlock,
     #[strum(serialize = "blb")]
     BeaconBlob,
+    #[strum(serialize = "bdc")]
+    BeaconDataColumn,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
     BeaconState,
@@ -280,6 +299,7 @@ impl DBColumn {
             | Self::BeaconBlock
             | Self::BeaconState
             | Self::BeaconBlob
+            | Self::BeaconDataColumn
             | Self::BeaconStateSummary
             | Self::BeaconStateTemporary
             | Self::ExecPayload

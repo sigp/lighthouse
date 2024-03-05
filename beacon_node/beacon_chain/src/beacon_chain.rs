@@ -4,12 +4,10 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
-use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
+use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::blob_verification::{
-    GossipBlobError, GossipVerifiedBlob, GossipVerifiedDataColumnSidecar,
-};
+use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -25,6 +23,7 @@ use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
 };
+use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -124,6 +123,7 @@ use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
+use types::data_column_sidecar::DataColumnSidecarList;
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -1133,7 +1133,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn get_blocks_checking_early_attester_cache(
+    pub fn get_blocks_checking_caches(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
         executor: &TaskExecutor,
@@ -1146,10 +1146,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(
-            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::Yes)?
-                .launch_stream(block_roots, executor),
-        )
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?
+            .launch_stream(block_roots, executor))
     }
 
     pub fn get_blocks(
@@ -1165,10 +1163,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(
-            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::No)?
-                .launch_stream(block_roots, executor),
-        )
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?
+            .launch_stream(block_roots, executor))
     }
 
     pub fn get_blobs_checking_early_attester_cache(
@@ -1178,6 +1174,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.early_attester_cache
             .get_blobs(*block_root)
             .map_or_else(|| self.get_blobs(block_root), Ok)
+    }
+
+    pub fn get_data_columns_checking_early_attester_cache(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
+        self.early_attester_cache
+            .get_data_columns(*block_root)
+            .map_or_else(|| self.get_data_columns(block_root), Ok)
     }
 
     /// Returns the block at the given root, if any.
@@ -1252,6 +1257,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(blobs),
             None => Ok(BlobSidecarList::default()),
+        }
+    }
+
+    /// Returns the data columns at the given root, if any.
+    ///
+    /// ## Errors
+    /// May return a database error.
+    pub fn get_data_columns(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
+        match self.store.get_data_columns(block_root)? {
+            Some(data_columns) => Ok(data_columns),
+            None => Ok(DataColumnSidecarList::default()),
         }
     }
 
@@ -2092,10 +2111,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedDataColumnSidecar<T>, GossipBlobError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError<T::EthSpec>> {
         metrics::inc_counter(&metrics::BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedDataColumnSidecar::new(data_column_sidecar, subnet_id, self).map(|v| {
+        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).map(|v| {
             metrics::inc_counter(&metrics::DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES);
             v
         })
@@ -2916,18 +2935,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.remove_notified(&block_root, r)
     }
 
-    pub fn process_gossip_data_column(
+    /// Cache the data column in the processing cache, process it, then evict it from the cache if it was
+    /// imported or errors.
+    pub async fn process_gossip_data_column(
         self: &Arc<Self>,
-        gossip_verified_data_column: GossipVerifiedDataColumnSidecar<T>,
-    ) {
-        let data_column = gossip_verified_data_column.as_data_column();
-        // TODO(das) send to DA checker
-        info!(
-            self.log,
-            "Processed gossip data column";
-            "index" => data_column.index,
-            "slot" => data_column.slot().as_u64()
-        );
+        data_column: GossipVerifiedDataColumn<T>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let block_root = data_column.block_root();
+
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its samples again.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::BlockIsAlreadyKnown);
+        }
+
+        let r = self
+            .check_gossip_data_column_availability_and_import(data_column)
+            .await;
+        self.remove_notified(&block_root, r)
     }
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
@@ -2989,18 +3018,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        if let Ok(commitments) = unverified_block
-            .block()
-            .message()
-            .body()
-            .blob_kzg_commitments()
-        {
-            self.data_availability_checker.notify_block_commitments(
-                unverified_block.block().slot(),
-                block_root,
-                commitments.clone(),
-            );
-        };
+        self.data_availability_checker
+            .notify_block(block_root, unverified_block.block_cloned());
         let r = self
             .process_block(block_root, unverified_block, notify_execution_layer, || {
                 Ok(())
@@ -3208,6 +3227,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slasher.accept_block_header(blob.signed_block_header());
         }
         let availability = self.data_availability_checker.put_gossip_blob(blob)?;
+
+        self.process_availability(slot, availability).await
+    }
+
+    /// Checks if the provided data column can make any cached blocks available, and imports immediately
+    /// if so, otherwise caches the data column in the data availability checker.
+    async fn check_gossip_data_column_availability_and_import(
+        self: &Arc<Self>,
+        data_column: GossipVerifiedDataColumn<T>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let slot = data_column.slot();
+        if let Some(slasher) = self.slasher.as_ref() {
+            slasher.accept_block_header(data_column.signed_block_header());
+        }
+        let availability = self
+            .data_availability_checker
+            .put_gossip_data_column(data_column)?;
 
         self.process_availability(slot, availability).await
     }
@@ -3489,7 +3525,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let (_, signed_block, blobs) = signed_block.deconstruct();
+        let (_, signed_block, blobs, data_columns) = signed_block.deconstruct();
         let block = signed_block.message();
         ops.extend(
             confirmed_state_roots
@@ -3507,6 +3543,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "count" => blobs.len(),
                 );
                 ops.push(StoreOp::PutBlobs(block_root, blobs));
+            }
+        }
+
+        if let Some(data_columns) = data_columns {
+            if !data_columns.is_empty() {
+                debug!(
+                    self.log, "Writing data_columns to store";
+                    "block_root" => %block_root,
+                    "count" => data_columns.len(),
+                );
+                ops.push(StoreOp::PutDataColumns(block_root, data_columns));
             }
         }
 

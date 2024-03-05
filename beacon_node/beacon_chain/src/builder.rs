@@ -39,8 +39,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256, Signature,
-    SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti,
+    Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -407,6 +407,11 @@ where
                 .init_blob_info(genesis.beacon_block.slot())
                 .map_err(|e| format!("Failed to initialize genesis blob info: {:?}", e))?,
         );
+        self.pending_io_batch.push(
+            store
+                .init_data_column_info(genesis.beacon_block.slot())
+                .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
+        );
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
@@ -432,6 +437,7 @@ where
         mut self,
         mut weak_subj_state: BeaconState<TEthSpec>,
         weak_subj_block: SignedBeaconBlock<TEthSpec>,
+        weak_subj_blobs: Option<BlobSidecarList<TEthSpec>>,
         genesis_state: BeaconState<TEthSpec>,
     ) -> Result<Self, String> {
         let store = self
@@ -490,6 +496,29 @@ where
             ));
         }
 
+        // Verify that blobs (if provided) match the block.
+        if let Some(blobs) = &weak_subj_blobs {
+            let commitments = weak_subj_block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .map_err(|e| format!("Blobs provided but block does not reference them: {e:?}"))?;
+            if blobs.len() != commitments.len() {
+                return Err(format!(
+                    "Wrong number of blobs, expected: {}, got: {}",
+                    commitments.len(),
+                    blobs.len()
+                ));
+            }
+            if commitments
+                .iter()
+                .zip(blobs.iter())
+                .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
+            {
+                return Err("Checkpoint blob does not match block commitment".into());
+            }
+        }
+
         // Set the store's split point *before* storing genesis so that genesis is stored
         // immediately in the freezer DB.
         store.set_split(weak_subj_slot, weak_subj_state_root, weak_subj_block_root);
@@ -511,14 +540,19 @@ where
             .do_atomically(block_root_batch)
             .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
 
-        // Write the state and block non-atomically, it doesn't matter if they're forgotten
+        // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
         store
             .put_state(&weak_subj_state_root, &weak_subj_state)
-            .map_err(|e| format!("Failed to store weak subjectivity state: {:?}", e))?;
+            .map_err(|e| format!("Failed to store weak subjectivity state: {e:?}"))?;
         store
             .put_block(&weak_subj_block_root, weak_subj_block.clone())
-            .map_err(|e| format!("Failed to store weak subjectivity block: {:?}", e))?;
+            .map_err(|e| format!("Failed to store weak subjectivity block: {e:?}"))?;
+        if let Some(blobs) = weak_subj_blobs {
+            store
+                .put_blobs(&weak_subj_block_root, blobs)
+                .map_err(|e| format!("Failed to store weak subjectivity blobs: {e:?}"))?;
+        }
 
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
@@ -534,6 +568,11 @@ where
             store
                 .init_blob_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
+        );
+        self.pending_io_batch.push(
+            store
+                .init_data_column_info(weak_subj_block.slot())
+                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.

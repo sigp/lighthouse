@@ -51,7 +51,7 @@ mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
 pub mod utils;
 /// The number of peers we target per subnet for discovery queries.
-pub const TARGET_SUBNET_PEERS: usize = 6;
+pub const TARGET_SUBNET_PEERS: usize = 3;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
@@ -127,8 +127,6 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
     gossip_cache: GossipCache,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
-    /// Flag to disable warning logs for duplicate gossip messages and log at DEBUG level instead.
-    pub disable_duplicate_warn_logs: bool,
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
@@ -429,7 +427,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             update_gossipsub_scores,
             gossip_cache,
             local_peer_id,
-            disable_duplicate_warn_logs: config.disable_duplicate_warn_logs,
             log,
         };
 
@@ -748,21 +745,23 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     .gossipsub_mut()
                     .publish(Topic::from(topic.clone()), message_data.clone())
                 {
-                    if self.disable_duplicate_warn_logs && matches!(e, PublishError::Duplicate) {
-                        debug!(
-                            self.log,
-                            "Could not publish message";
-                            "error" => ?e,
-                            "kind" => %topic.kind(),
-                        );
-                    } else {
-                        warn!(
-                            self.log,
-                            "Could not publish message";
-                            "error" => ?e,
-                            "kind" => %topic.kind(),
-                        );
-                    };
+                    match e {
+                        PublishError::Duplicate => {
+                            debug!(
+                                self.log,
+                                "Attempted to publish duplicate message";
+                                "kind" => %topic.kind(),
+                            );
+                        }
+                        ref e => {
+                            warn!(
+                                self.log,
+                                "Could not publish message";
+                                "error" => ?e,
+                                "kind" => %topic.kind(),
+                            );
+                        }
+                    }
 
                     // add to metrics
                     match topic.kind() {
@@ -1138,6 +1137,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::BlobsByRoot { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"])
             }
+            Request::DataColumnsByRoot { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["data_columns_by_root"])
+            }
         }
         NetworkEvent::RequestReceived {
             peer_id,
@@ -1229,22 +1231,39 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                                 .publish(Topic::from(topic.clone()), data)
                             {
                                 Ok(_) => {
-                                    warn!(self.log, "Gossip message published on retry"; "topic" => topic_str);
-                                    if let Some(v) = metrics::get_int_counter(
+                                    debug!(
+                                        self.log,
+                                        "Gossip message published on retry";
+                                        "topic" => topic_str
+                                    );
+                                    metrics::inc_counter_vec(
                                         &metrics::GOSSIP_LATE_PUBLISH_PER_TOPIC_KIND,
                                         &[topic_str],
-                                    ) {
-                                        v.inc()
-                                    };
+                                    );
                                 }
-                                Err(e) => {
-                                    warn!(self.log, "Gossip message publish failed on retry"; "topic" => topic_str, "error" => %e);
-                                    if let Some(v) = metrics::get_int_counter(
+                                Err(PublishError::Duplicate) => {
+                                    debug!(
+                                        self.log,
+                                        "Gossip message publish ignored on retry";
+                                        "reason" => "duplicate",
+                                        "topic" => topic_str
+                                    );
+                                    metrics::inc_counter_vec(
                                         &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND,
                                         &[topic_str],
-                                    ) {
-                                        v.inc()
-                                    };
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        self.log,
+                                        "Gossip message publish failed on retry";
+                                        "topic" => topic_str,
+                                        "error" => %e
+                                    );
+                                    metrics::inc_counter_vec(
+                                        &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND,
+                                        &[topic_str],
+                                    );
                                 }
                             }
                         }
@@ -1442,6 +1461,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             self.build_request(peer_request_id, peer_id, Request::BlobsByRoot(req));
                         Some(event)
                     }
+                    InboundRequest::DataColumnsByRoot(req) => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::DataColumnsByRoot(req),
+                        );
+                        Some(event)
+                    }
                     InboundRequest::LightClientBootstrap(req) => {
                         let event = self.build_request(
                             peer_request_id,
@@ -1483,6 +1510,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlobsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
+                    RPCResponse::DataColumnsByRoot(resp) => {
+                        self.build_response(id, peer_id, Response::DataColumnsByRoot(Some(resp)))
+                    }
                     // Should never be reached
                     RPCResponse::LightClientBootstrap(bootstrap) => {
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
@@ -1495,6 +1525,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
                     ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
+                    ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),
                 };
                 self.build_response(id, peer_id, response)
             }

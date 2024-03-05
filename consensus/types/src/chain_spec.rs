@@ -1,5 +1,6 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
+use crate::data_column_sidecar::DataColumnIdentifier;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde::Deserialize;
@@ -202,6 +203,7 @@ pub struct ChainSpec {
      */
     pub max_request_blocks_deneb: u64,
     pub max_request_blob_sidecars: u64,
+    pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
     pub blob_sidecar_subnet_count: u64,
     pub data_column_sidecar_subnet_count: u64,
@@ -214,6 +216,7 @@ pub struct ChainSpec {
     pub max_blocks_by_root_request: usize,
     pub max_blocks_by_root_request_deneb: usize,
     pub max_blobs_by_root_request: usize,
+    pub max_data_columns_by_root_request: usize,
 
     /*
      * Application params
@@ -687,7 +690,7 @@ impl ChainSpec {
              * Deneb hard fork params
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x00],
-            deneb_fork_epoch: None,
+            deneb_fork_epoch: Some(Epoch::new(269568)),
 
             /*
              * DAS params
@@ -723,6 +726,7 @@ impl ChainSpec {
              */
             max_request_blocks_deneb: default_max_request_blocks_deneb(),
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
+            max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
             data_column_sidecar_subnet_count: default_data_column_sidecar_subnet_count(),
@@ -733,6 +737,7 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
+            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Application specific
@@ -821,7 +826,7 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
-            max_per_epoch_activation_churn_limit: 8,
+            max_per_epoch_activation_churn_limit: 2,
             churn_limit_quotient: 4_096,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 4_096,
@@ -956,7 +961,7 @@ impl ChainSpec {
              * Deneb hard fork params
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x64],
-            deneb_fork_epoch: None,
+            deneb_fork_epoch: Some(Epoch::new(889856)),
             /*
              * DAS params
              */
@@ -973,7 +978,7 @@ impl ChainSpec {
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
-            min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
+            min_epochs_for_block_requests: 33024,
             max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
@@ -990,7 +995,8 @@ impl ChainSpec {
              */
             max_request_blocks_deneb: default_max_request_blocks_deneb(),
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
-            min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
+            min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
             data_column_sidecar_subnet_count: default_data_column_sidecar_subnet_count(),
 
@@ -1000,6 +1006,7 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
+            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Application specific
@@ -1170,6 +1177,9 @@ pub struct Config {
     #[serde(default = "default_max_request_blob_sidecars")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blob_sidecars: u64,
+    #[serde(default = "default_max_request_data_column_sidecars")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_data_column_sidecars: u64,
     #[serde(default = "default_min_epochs_for_blob_sidecars_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_blob_sidecars_requests: u64,
@@ -1280,6 +1290,10 @@ const fn default_max_request_blob_sidecars() -> u64 {
     768
 }
 
+const fn default_max_request_data_column_sidecars() -> u64 {
+    16384
+}
+
 const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
     4096
 }
@@ -1329,6 +1343,20 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     .len()
 }
 
+fn max_data_columns_by_root_request_common(max_request_data_column_sidecars: u64) -> usize {
+    let max_request_data_column_sidecars = max_request_data_column_sidecars as usize;
+    let empty_data_column_id = DataColumnIdentifier {
+        block_root: Hash256::zero(),
+        index: 0,
+    };
+    RuntimeVariableList::from_vec(
+        vec![empty_data_column_id; max_request_data_column_sidecars],
+        max_request_data_column_sidecars,
+    )
+    .as_ssz_bytes()
+    .len()
+}
+
 fn default_max_blocks_by_root_request() -> usize {
     max_blocks_by_root_request_common(default_max_request_blocks())
 }
@@ -1339,6 +1367,10 @@ fn default_max_blocks_by_root_request_deneb() -> usize {
 
 fn default_max_blobs_by_root_request() -> usize {
     max_blobs_by_root_request_common(default_max_request_blob_sidecars())
+}
+
+fn default_data_columns_by_root_request() -> usize {
+    max_data_columns_by_root_request_common(default_max_request_data_column_sidecars())
 }
 
 impl Default for Config {
@@ -1458,6 +1490,7 @@ impl Config {
             attestation_subnet_shuffling_prefix_bits: spec.attestation_subnet_shuffling_prefix_bits,
             max_request_blocks_deneb: spec.max_request_blocks_deneb,
             max_request_blob_sidecars: spec.max_request_blob_sidecars,
+            max_request_data_column_sidecars: spec.max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
@@ -1524,6 +1557,7 @@ impl Config {
             maximum_gossip_clock_disparity_millis,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
+            max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
             data_column_sidecar_subnet_count,
@@ -1583,6 +1617,7 @@ impl Config {
             maximum_gossip_clock_disparity_millis,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
+            max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
             data_column_sidecar_subnet_count,
@@ -1593,6 +1628,9 @@ impl Config {
                 max_request_blocks_deneb,
             ),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
+            max_data_columns_by_root_request: max_data_columns_by_root_request_common(
+                max_request_data_column_sidecars,
+            ),
 
             ..chain_spec.clone()
         })

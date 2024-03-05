@@ -14,6 +14,7 @@ pub enum Error {
     SszTypes(ssz_types::Error),
     MissingBlobs,
     BlobIndexInvalid(u64),
+    DataColumnIndexInvalid(u64),
     StoreError(store::Error),
     DecodeError(ssz::DecodeError),
     ParentStateMissing(Hash256),
@@ -42,6 +43,7 @@ impl Error {
             | Error::RebuildingStateCaches(_) => ErrorCategory::Internal,
             Error::Kzg(_)
             | Error::BlobIndexInvalid(_)
+            | Error::DataColumnIndexInvalid(_)
             | Error::KzgCommitmentMismatch { .. }
             | Error::KzgVerificationFailed => ErrorCategory::Malicious,
         }

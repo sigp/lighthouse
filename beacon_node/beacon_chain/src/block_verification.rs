@@ -53,6 +53,7 @@ use crate::block_verification_types::{
     AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
+use crate::data_column_verification::GossipDataColumnError;
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
@@ -528,6 +529,20 @@ impl<E: EthSpec> BlockSlashInfo<GossipBlobError<E>> {
     }
 }
 
+impl<E: EthSpec> BlockSlashInfo<GossipDataColumnError<E>> {
+    pub fn from_early_error_data_column(
+        header: SignedBeaconBlockHeader,
+        e: GossipDataColumnError<E>,
+    ) -> Self {
+        match e {
+            GossipDataColumnError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
+            // `InvalidSignature` could indicate any signature in the block, so we want
+            // to recheck the proposer signature alone.
+            _ => BlockSlashInfo::SignatureNotChecked(header, e),
+        }
+    }
+}
+
 /// Process invalid blocks to see if they are suitable for the slasher.
 ///
 /// If no slasher is configured, this is a no-op.
@@ -764,6 +779,7 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>>;
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
@@ -1017,6 +1033,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for GossipVerifiedBlock<T
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.block.as_block()
     }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block.clone()
+    }
 }
 
 impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
@@ -1168,6 +1188,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.block.as_block()
     }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block.block_cloned()
+    }
 }
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
@@ -1198,6 +1222,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self
     }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.clone()
+    }
 }
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> {
@@ -1227,6 +1255,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.as_block()
+    }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block_cloned()
     }
 }
 
@@ -1982,6 +2014,23 @@ impl<E: EthSpec> BlockBlobError for GossipBlobError<E> {
 
     fn proposer_signature_invalid() -> Self {
         GossipBlobError::ProposalSignatureInvalid
+    }
+}
+
+impl<E: EthSpec> BlockBlobError for GossipDataColumnError<E> {
+    fn not_later_than_parent_error(data_column_slot: Slot, parent_slot: Slot) -> Self {
+        GossipDataColumnError::DataColumnIsNotLaterThanParent {
+            data_column_slot,
+            parent_slot,
+        }
+    }
+
+    fn unknown_validator_error(validator_index: u64) -> Self {
+        GossipDataColumnError::UnknownValidator(validator_index)
+    }
+
+    fn proposer_signature_invalid() -> Self {
+        GossipDataColumnError::ProposalSignatureInvalid
     }
 }
 

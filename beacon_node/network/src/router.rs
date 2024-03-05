@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -216,6 +216,10 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.network_beacon_processor
                     .send_blobs_by_roots_request(peer_id, request_id, request),
             ),
+            Request::DataColumnsByRoot(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_data_columns_by_roots_request(peer_id, request_id, request),
+            ),
             Request::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_light_client_bootstrap_request(peer_id, request_id, request),
@@ -249,6 +253,9 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             Response::BlobsByRoot(blob) => {
                 self.on_blobs_by_root_response(peer_id, request_id, blob);
+            }
+            Response::DataColumnsByRoot(data_column) => {
+                self.on_data_columns_by_root_response(peer_id, request_id, data_column);
             }
             Response::LightClientBootstrap(_) => unreachable!(),
         }
@@ -635,6 +642,16 @@ impl<T: BeaconChainTypes> Router<T> {
             blob_sidecar,
             seen_timestamp: timestamp_now(),
         });
+    }
+
+    /// Handle a `DataColumnsByRoot` response from the peer.
+    pub fn on_data_columns_by_root_response(
+        &mut self,
+        _peer_id: PeerId,
+        _request_id: RequestId,
+        _data_column_sidecar: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) {
+        // TODO(das) implement `DataColumnsByRoot` response handling
     }
 
     fn handle_beacon_processor_send_result(

@@ -40,7 +40,7 @@ drastically and use the (recommended) default.
 
 ### NAT Traversal (Port Forwarding)
 
-Lighthouse, by default, uses port 9000 for both TCP and UDP. Lighthouse will
+Lighthouse, by default, uses port 9000 for both TCP and UDP. Since v4.5.0, Lighthouse will also attempt to make QUIC connections via UDP port 9001 by default. Lighthouse will
 still function if it is behind a NAT without any port mappings. Although
 Lighthouse still functions, we recommend that some mechanism is used to ensure
 that your Lighthouse node is publicly accessible. This will typically improve
@@ -50,8 +50,8 @@ peers for your node and overall improve the Ethereum consensus network.
 Lighthouse currently supports UPnP. If UPnP is enabled on your router,
 Lighthouse will automatically establish the port mappings for you (the beacon
 node will inform you of established routes in this case). If UPnP is not
-enabled, we recommend you to manually set up port mappings to both of Lighthouse's
-TCP and UDP ports (9000 by default).
+enabled, we recommend you to manually set up port mappings to Lighthouse's
+TCP and UDP ports (9000 TCP/UDP, and 9001 UDP by default).
 
 > Note: Lighthouse needs to advertise its publicly accessible ports in
 > order to inform its peers that it is contactable and how to connect to it.
@@ -66,7 +66,7 @@ TCP and UDP ports (9000 by default).
 
 The steps to do port forwarding depends on the router, but the general steps are given below:
 1. Determine the default gateway IP:
-- On Linux: open a terminal and run `ip route | grep default`, the result should look something similar to `default via 192.168.50.1 dev wlp2s0 proto dhcp metric 600`. The `192.168.50.1` is your router management default gateway IP. 
+- On Linux: open a terminal and run `ip route | grep default`, the result should look something similar to `default via 192.168.50.1 dev wlp2s0 proto dhcp metric 600`. The `192.168.50.1` is your router management default gateway IP.
 - On MacOS: open a terminal and run `netstat -nr|grep default` and it should return the default gateway IP.
 - On Windows: open a command prompt and run `ipconfig` and look for the `Default Gateway` which will show you the gateway IP.
 
@@ -74,16 +74,22 @@ The steps to do port forwarding depends on the router, but the general steps are
 
 2. Login to the router management page. The login credentials are usually available in the manual or the router, or it can be found on a sticker underneath the router. You can also try the login credentials for some common router brands listed [here](https://www.noip.com/support/knowledgebase/general-port-forwarding-guide/).
 
-3. Navigate to the port forward settings in your router. The exact step depends on the router, but typically it will fall under the "Advanced" section, under the name "port forwarding" or "virtual server". 
+3. Navigate to the port forward settings in your router. The exact step depends on the router, but typically it will fall under the "Advanced" section, under the name "port forwarding" or "virtual server".
 
 4. Configure a port forwarding rule as below:
 - Protocol: select `TCP/UDP` or `BOTH`
 - External port: `9000`
 - Internal port: `9000`
-- IP address: Usually there is a dropdown list for you to select the device. Choose the device that is running Lighthouse
+- IP address: Usually there is a dropdown list for you to select the device. Choose the device that is running Lighthouse.
 
-5. To check that you have successfully open the ports, go to [yougetsignal](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. 
+Since V4.5.0 port 9001/UDP is also used for QUIC support.
 
+- Protocol: select `UDP`
+- External port: `9001`
+- Internal port: `9001`
+- IP address: Choose the device that is running Lighthouse.
+
+5. To check that you have successfully opened the ports, go to [yougetsignal](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. Note: this will only confirm if port 9000/TCP is open. You will need to ensure you have correctly setup port forwarding for the UDP ports (`9000` and `9001` by default).
 
 ### ENR Configuration
 
@@ -125,6 +131,9 @@ IPv4 only:
 TCP and UDP.
 - `--listen-address :: --port 9909 --discovery-port 9999` will listen over
   IPv6 using port `9909` for TCP and port `9999` for UDP.
+- By default, QUIC listens for UDP connections using a port number that is one greater than the specified port.
+  If the specified port is 9909, QUIC will use port 9910 for IPv6 UDP connections.
+  This can be configured with `--quic-port`.
 
 To listen over both IPv4 and IPv6:
 - Set two listening addresses using the `--listen-address` flag twice ensuring
@@ -133,18 +142,38 @@ To listen over both IPv4 and IPv6:
   that this behaviour differs from the Ipv6 only case described above.
 - If necessary, set the `--port6` flag to configure the port used for TCP and
   UDP over IPv6. This flag has no effect when listening over IPv6 only.
-- If necessary, set the `--discovery-port6` flag to configure the IPv6  UDP
+- If necessary, set the `--discovery-port6` flag to configure the IPv6 UDP
   port. This will default to the value given to `--port6` if not set. This flag
+  has no effect when listening over IPv6 only.
+- If necessary, set the `--quic-port6` flag to configure the port used by QUIC for
+  UDP over IPv6. This will default to the value given to `--port6` + 1. This flag
   has no effect when listening over IPv6 only.
 
 ##### Configuration Examples
 
-- `--listen-address :: --listen-address 0.0.0.0 --port 9909` will listen
-  over IPv4 using port `9909` for TCP and UDP. It will also listen over IPv6 but
-  using the default value for `--port6` for UDP and TCP (`9090`).
-- `--listen-address :: --listen-address --port 9909 --discovery-port6 9999`
-  will have the same configuration as before except for the IPv6 UDP socket,
-  which will use port `9999`.
+> When using `--listen-address :: --listen-address 0.0.0.0 --port 9909`, listening will be set up as follows:
+>
+> **IPv4**:
+>
+> It listens on port `9909` for both TCP and UDP.
+> QUIC will use the next sequential port `9910` for UDP.
+>
+> **IPv6**:
+>
+> It listens on the default value of --port6 (`9090`) for both UDP and TCP.
+> QUIC will use port `9091` for UDP, which is the default `--port6` value (`9090`) + 1.
+
+> When using `--listen-address :: --listen-address --port 9909 --discovery-port6 9999`, listening will be set up as follows:
+>
+> **IPv4**:
+>
+> It listens on port `9909` for both TCP and UDP.
+> QUIC will use the next sequential port `9910` for UDP.
+>
+> **IPv6**:
+>
+> It listens on the default value of `--port6` (`9090`) for TCP, and port `9999` for UDP.
+> QUIC will use port `9091` for UDP, which is the default `--port6` value (`9090`) + 1.
 
 #### Configuring Lighthouse to advertise IPv6 reachable addresses
 Lighthouse supports IPv6 to connect to other nodes both over IPv6 exclusively,

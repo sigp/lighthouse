@@ -20,9 +20,11 @@ use std::fmt::Debug;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
+use types::beacon_block_body::KzgCommitmentOpts;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
-use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    BlobSidecarList, ChainSpec, DataColumnSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+};
 
 mod availability_view;
 mod child_components;
@@ -31,7 +33,9 @@ mod overflow_lru_cache;
 mod processing_cache;
 mod state_lru_cache;
 
+use crate::data_column_verification::{verify_kzg_for_data_column_list, GossipVerifiedDataColumn};
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
+use types::data_column_sidecar::{DataColumnIdentifier, DataColumnSidecarList};
 use types::non_zero_usize::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
@@ -192,6 +196,22 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.peek_blob(blob_id)
     }
 
+    /// Get a block from the availability cache. Includes any blocks we are currently processing.
+    pub fn get_block(&self, block_root: &Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+        self.processing_cache
+            .read()
+            .get(block_root)
+            .and_then(|cached| cached.block.clone())
+    }
+
+    /// Get a data column from the availability cache.
+    pub fn get_data_column(
+        &self,
+        data_column_id: &DataColumnIdentifier,
+    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+        self.availability_cache.peek_data_column(data_column_id)
+    }
+
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
     pub fn put_rpc_blobs(
@@ -223,6 +243,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
     }
 
+    /// Check if we've cached other data columns for this block. If it satisfies the custody requirement and we also
+    /// have a block cached, return the `Availability` variant triggering block import.
+    /// Otherwise cache the data column sidecar.
+    ///
+    /// This should only accept gossip verified data columns, so we should not have to worry about dupes.
+    pub fn put_gossip_data_column(
+        &self,
+        gossip_data_column: GossipVerifiedDataColumn<T>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        self.availability_cache.put_kzg_verified_data_columns(
+            gossip_data_column.block_root(),
+            vec![gossip_data_column.into_inner()],
+        )
+    }
+
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
     /// about whether all components have been received or more are required.
     pub fn put_pending_executed_block(
@@ -242,9 +277,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
-        let (block_root, block, blobs) = block.deconstruct();
-        match blobs {
-            None => {
+        let (block_root, block, blobs, data_columns) = block.deconstruct();
+        match (blobs, data_columns) {
+            (None, None) => {
                 if self.blobs_required_for_block(&block) {
                     Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
                 } else {
@@ -252,25 +287,35 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block_root,
                         block,
                         blobs: None,
+                        data_columns: None,
                     }))
                 }
             }
-            Some(blob_list) => {
-                let verified_blobs = if self.blobs_required_for_block(&block) {
-                    let kzg = self
-                        .kzg
-                        .as_ref()
-                        .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                    verify_kzg_for_blob_list(blob_list.iter(), kzg)
-                        .map_err(AvailabilityCheckError::Kzg)?;
-                    Some(blob_list)
-                } else {
-                    None
-                };
+            (maybe_blob_list, maybe_data_column_list) => {
+                let (verified_blobs, verified_data_column) =
+                    if self.blobs_required_for_block(&block) {
+                        let kzg = self
+                            .kzg
+                            .as_ref()
+                            .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
+
+                        if let Some(blob_list) = maybe_blob_list.as_ref() {
+                            verify_kzg_for_blob_list(blob_list.iter(), kzg)
+                                .map_err(AvailabilityCheckError::Kzg)?;
+                        }
+                        if let Some(data_column_list) = maybe_data_column_list.as_ref() {
+                            verify_kzg_for_data_column_list(data_column_list.iter(), kzg)
+                                .map_err(AvailabilityCheckError::Kzg)?;
+                        }
+                        (maybe_blob_list, maybe_data_column_list)
+                    } else {
+                        (None, None)
+                    };
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
                     blobs: verified_blobs,
+                    data_columns: verified_data_column,
                 }))
             }
         }
@@ -306,9 +351,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         for block in blocks {
-            let (block_root, block, blobs) = block.deconstruct();
-            match blobs {
-                None => {
+            let (block_root, block, blobs, data_columns) = block.deconstruct();
+            match (blobs, data_columns) {
+                (None, None) => {
                     if self.blobs_required_for_block(&block) {
                         results.push(MaybeAvailableBlock::AvailabilityPending { block_root, block })
                     } else {
@@ -316,20 +361,23 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                             block_root,
                             block,
                             blobs: None,
+                            data_columns: None,
                         }))
                     }
                 }
-                Some(blob_list) => {
-                    let verified_blobs = if self.blobs_required_for_block(&block) {
-                        Some(blob_list)
-                    } else {
-                        None
-                    };
+                (maybe_blob_list, maybe_data_column_list) => {
+                    let (verified_blobs, verified_data_columns) =
+                        if self.blobs_required_for_block(&block) {
+                            (maybe_blob_list, maybe_data_column_list)
+                        } else {
+                            (None, None)
+                        };
                     // already verified kzg for all blobs
                     results.push(MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
                         blobs: verified_blobs,
+                        data_columns: verified_data_columns,
                     }))
                 }
             }
@@ -344,20 +392,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block.num_expected_blobs() > 0 && self.da_check_required_for_epoch(block.epoch())
     }
 
-    /// Adds block commitments to the processing cache. These commitments are unverified but caching
+    /// Adds a block to the processing cache. This block's commitments are unverified but caching
     /// them here is useful to avoid duplicate downloads of blocks, as well as understanding
-    /// our blob download requirements.
-    pub fn notify_block_commitments(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        commitments: KzgCommitments<T::EthSpec>,
-    ) {
+    /// our blob download requirements. We will also serve this over RPC.
+    pub fn notify_block(&self, block_root: Hash256, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
+        let slot = block.slot();
         self.processing_cache
             .write()
             .entry(block_root)
             .or_insert_with(|| ProcessingComponents::new(slot))
-            .merge_block(commitments);
+            .merge_block(block);
     }
 
     /// Add a single blob commitment to the processing cache. This commitment is unverified but caching
@@ -450,6 +494,24 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn persist_all(&self) -> Result<(), AvailabilityCheckError> {
         self.availability_cache.write_all_to_disk()
     }
+
+    /// Collects metrics from the data availability checker.
+    pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
+        DataAvailabilityCheckerMetrics {
+            processing_cache_size: self.processing_cache.read().len(),
+            num_store_entries: self.availability_cache.num_store_entries(),
+            state_cache_size: self.availability_cache.state_cache_size(),
+            block_cache_size: self.availability_cache.block_cache_size(),
+        }
+    }
+}
+
+/// Helper struct to group data availability checker metrics.
+pub struct DataAvailabilityCheckerMetrics {
+    pub processing_cache_size: usize,
+    pub num_store_entries: usize,
+    pub state_cache_size: usize,
+    pub block_cache_size: usize,
 }
 
 pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
@@ -542,6 +604,7 @@ pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
+    data_columns: Option<DataColumnSidecarList<E>>,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
@@ -549,11 +612,13 @@ impl<E: EthSpec> AvailableBlock<E> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
+        data_columns: Option<DataColumnSidecarList<E>>,
     ) -> Self {
         Self {
             block_root,
             block,
             blobs,
+            data_columns,
         }
     }
 
@@ -568,19 +633,26 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs.as_ref()
     }
 
+    pub fn data_columns(&self) -> Option<&DataColumnSidecarList<E>> {
+        self.data_columns.as_ref()
+    }
+
+    #[allow(clippy::type_complexity)]
     pub fn deconstruct(
         self,
     ) -> (
         Hash256,
         Arc<SignedBeaconBlock<E>>,
         Option<BlobSidecarList<E>>,
+        Option<DataColumnSidecarList<E>>,
     ) {
         let AvailableBlock {
             block_root,
             block,
             blobs,
+            data_columns,
         } = self;
-        (block_root, block, blobs)
+        (block_root, block, blobs, data_columns)
     }
 }
 
@@ -595,6 +667,15 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
     },
+}
+
+impl<E: EthSpec> MaybeAvailableBlock<E> {
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        match self {
+            Self::Available(block) => block.block_cloned(),
+            Self::AvailabilityPending { block, .. } => block.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

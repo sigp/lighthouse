@@ -144,6 +144,7 @@ impl Kzg {
     }
 
     /// Computes the cells and associated proofs for a given `blob` at index `index`.
+    #[allow(clippy::type_complexity)]
     pub fn compute_cells_and_proofs(
         &self,
         blob: &Blob,

@@ -177,7 +177,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     "unable to publish".into(),
                 ))?;
 
-            DataColumnSidecar::build_sidecars(blobs, &block, &kzg)
+            DataColumnSidecar::build_sidecars(blobs, &block, kzg)
                 .map_err(|_err| warp_utils::reject::custom_server_error("unable to publish".into()))
         })
         .transpose()?;

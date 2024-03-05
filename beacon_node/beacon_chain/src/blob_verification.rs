@@ -17,8 +17,7 @@ use ssz_types::VariableList;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconStateError, BlobSidecar, CloneConfig, DataColumnSidecar, EthSpec, Hash256,
-    SignedBeaconBlockHeader, Slot,
+    BeaconStateError, BlobSidecar, CloneConfig, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip blob.
@@ -184,33 +183,6 @@ pub type GossipVerifiedBlobList<T> = VariableList<
     GossipVerifiedBlob<T>,
     <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
 >;
-
-#[derive(Debug)]
-pub struct GossipVerifiedDataColumnSidecar<T: BeaconChainTypes> {
-    data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
-}
-
-impl<T: BeaconChainTypes> GossipVerifiedDataColumnSidecar<T> {
-    pub fn new(
-        column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
-        subnet_id: u64,
-        chain: &BeaconChain<T>,
-    ) -> Result<Self, GossipBlobError<T::EthSpec>> {
-        let header = column_sidecar.signed_block_header.clone();
-        // We only process slashing info if the gossip verification failed
-        // since we do not process the blob any further in that case.
-        validate_data_column_sidecar_for_gossip(column_sidecar, subnet_id, chain).map_err(|e| {
-            process_block_slash_info::<_, GossipBlobError<T::EthSpec>>(
-                chain,
-                BlockSlashInfo::from_early_error_blob(header, e),
-            )
-        })
-    }
-
-    pub fn as_data_column(&self) -> &Arc<DataColumnSidecar<T::EthSpec>> {
-        &self.data_column_sidecar
-    }
-}
 
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
@@ -672,17 +644,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     Ok(GossipVerifiedBlob {
         block_root,
         blob: kzg_verified_blob,
-    })
-}
-
-pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
-    data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
-    _subnet: u64,
-    _chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedDataColumnSidecar<T>, GossipBlobError<T::EthSpec>> {
-    // TODO(das): validate kzg commitments, cell proofs etc
-    Ok(GossipVerifiedDataColumnSidecar {
-        data_column_sidecar: data_column_sidecar.clone(),
     })
 }
 

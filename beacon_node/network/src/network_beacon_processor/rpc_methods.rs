@@ -5,7 +5,9 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use beacon_processor::SendOnDrop;
 use itertools::process_results;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRootRequest,
+};
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
@@ -16,6 +18,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
+use types::data_column_sidecar::DataColumnIdentifier;
 use types::{Epoch, EthSpec, ForkName, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
@@ -140,7 +143,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let requested_blocks = request.block_roots().len();
         let mut block_stream = match self
             .chain
-            .get_blocks_checking_early_attester_cache(request.block_roots().to_vec(), &executor)
+            .get_blocks_checking_caches(request.block_roots().to_vec(), &executor)
         {
             Ok(block_stream) => block_stream,
             Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
@@ -292,6 +295,94 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         if send_response {
             self.send_response(peer_id, Response::BlobsByRoot(None), request_id);
         }
+    }
+
+    /// Handle a `DataColumnsByRoot` request from the peer.
+    pub fn handle_data_columns_by_root_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: DataColumnsByRootRequest,
+    ) {
+        let Some(requested_root) = request
+            .data_column_ids
+            .as_slice()
+            .first()
+            .map(|id| id.block_root)
+        else {
+            // No data column ids requested.
+            return;
+        };
+        let requested_indices = request
+            .data_column_ids
+            .as_slice()
+            .iter()
+            .map(|id| id.index)
+            .collect::<Vec<_>>();
+        let mut send_data_column_count = 0;
+
+        let mut data_column_list_results = HashMap::new();
+        for id in request.data_column_ids.as_slice() {
+            // Attempt to get the data columns from the RPC cache.
+            if let Ok(Some(data_column)) = self.chain.data_availability_checker.get_data_column(id)
+            {
+                self.send_response(
+                    peer_id,
+                    Response::DataColumnsByRoot(Some(data_column)),
+                    request_id,
+                );
+                send_data_column_count += 1;
+            } else {
+                let DataColumnIdentifier {
+                    block_root: root,
+                    index,
+                } = id;
+
+                let data_column_list_result = match data_column_list_results.entry(root) {
+                    Entry::Vacant(entry) => entry.insert(
+                        self.chain
+                            .get_data_columns_checking_early_attester_cache(root),
+                    ),
+                    Entry::Occupied(entry) => entry.into_mut(),
+                };
+
+                match data_column_list_result.as_ref() {
+                    Ok(data_columns_sidecar_list) => {
+                        'inner: for data_column_sidecar in data_columns_sidecar_list.iter() {
+                            if data_column_sidecar.index == *index {
+                                self.send_response(
+                                    peer_id,
+                                    Response::DataColumnsByRoot(Some(data_column_sidecar.clone())),
+                                    request_id,
+                                );
+                                send_data_column_count += 1;
+                                break 'inner;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!(
+                            self.log,
+                            "Error fetching data column for peer";
+                            "peer" => %peer_id,
+                            "request_root" => ?root,
+                            "error" => ?e,
+                        );
+                    }
+                }
+            }
+        }
+        debug!(
+            self.log,
+            "Received DataColumnsByRoot Request";
+            "peer" => %peer_id,
+            "request_root" => %requested_root,
+            "request_indices" => ?requested_indices,
+            "returned" => send_data_column_count
+        );
+
+        // send stream termination
+        self.send_response(peer_id, Response::DataColumnsByRoot(None), request_id);
     }
 
     /// Handle a `BlocksByRoot` request from the peer.

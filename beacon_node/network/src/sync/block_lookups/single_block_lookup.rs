@@ -179,11 +179,13 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
                 block_root: _,
                 downloaded_block,
                 downloaded_blobs,
+                downloaded_data_columns,
             } = components;
             if let Some(block) = downloaded_block {
                 existing_components.merge_block(block);
             }
             existing_components.merge_blobs(downloaded_blobs);
+            existing_components.merge_data_columns(downloaded_data_columns);
         } else {
             self.child_components = Some(components);
         }

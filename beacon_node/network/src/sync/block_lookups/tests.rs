@@ -1249,7 +1249,7 @@ mod deneb_only {
                     RequestTrigger::GossipUnknownParentBlock { .. } => {
                         bl.search_child_block(
                             block_root,
-                            ChildComponents::new(block_root, Some(block.clone()), None),
+                            ChildComponents::new(block_root, Some(block.clone()), None, None),
                             &[peer_id],
                             &mut cx,
                         );
@@ -1274,7 +1274,7 @@ mod deneb_only {
                         *lookup_blobs.index_mut(0) = Some(single_blob);
                         bl.search_child_block(
                             child_root,
-                            ChildComponents::new(child_root, None, Some(lookup_blobs)),
+                            ChildComponents::new(child_root, None, Some(lookup_blobs), None),
                             &[peer_id],
                             &mut cx,
                         );
