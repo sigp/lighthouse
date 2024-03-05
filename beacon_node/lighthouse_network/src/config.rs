@@ -101,11 +101,8 @@ pub struct Config {
     /// List of libp2p nodes to initially connect to.
     pub libp2p_nodes: Vec<Multiaddr>,
 
-    /// List of trusted libp2p nodes which are not scored.
+    /// List of trusted libp2p nodes which are not scored and marked as explicit.
     pub trusted_peers: Vec<PeerIdSerialized>,
-
-    /// List of explicit peers which are not scored. https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md#explicit-peering-agreements
-    pub explicit_peers: Vec<PeerIdSerialized>,
 
     /// Disables peer scoring altogether.
     pub disable_peer_scoring: bool,
@@ -360,7 +357,6 @@ impl Default for Config {
             boot_nodes_multiaddr: vec![],
             libp2p_nodes: vec![],
             trusted_peers: vec![],
-            explicit_peers: vec![],
             disable_peer_scoring: false,
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
