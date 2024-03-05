@@ -335,7 +335,7 @@ If you would like to still use Lighthouse to submit the message, you will need t
 
 ### <a name="vc-resource"></a> Does increasing the number of validators increase the CPU and other computer resources used?
 
-A computer with hardware specifications stated in the [Recommended System Requirements](./installation.md#recommended-system-requirements) can run hundreds validators with only marginal increase in cpu usage. When validators are active, there is a bit of an increase in resources used from validators 0-64, because you end up subscribed to more subnets. After that, the increase in resources plateaus when the number of validators go from 64 to ~500.
+A computer with hardware specifications stated in the [Recommended System Requirements](./installation.md#recommended-system-requirements) can run hundreds validators with only marginal increase in cpu usage. 
 
 ### <a name="vc-reimport"></a> I want to add new validators. Do I have to reimport the existing keys?
 
@@ -564,8 +564,6 @@ The reason why Lighthouse logs in UTC is due to the dependency on an upstream li
 ### <a name="misc-full"></a> My hard disk is full and my validator is down. What should I do? 
 
 A quick way to get the validator back online is by removing the Lighthouse beacon node database and resync Lighthouse using checkpoint sync. A guide to do this can be found in the [Lighthouse Discord server](https://discord.com/channels/605577013327167508/605577013331361793/1019755522985050142). With some free space left, you will then be able to prune the execution client database to free up more space.
-
-For a relatively long term solution, if you are using Geth and Nethermind as the execution client, you can consider setup the online pruning feature. Refer to [Geth](https://blog.ethereum.org/2023/09/12/geth-v1-13-0) and [Nethermind](https://gist.github.com/yorickdowne/67be09b3ba0a9ff85ed6f83315b5f7e0) for details. 
 
 
 
