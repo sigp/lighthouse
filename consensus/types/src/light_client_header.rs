@@ -1,4 +1,3 @@
-use crate::beacon_block_body::NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES;
 use crate::BeaconBlockHeader;
 use crate::ForkName;
 use crate::ForkVersionDeserialize;
@@ -7,14 +6,12 @@ use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
     FixedVector, Hash256, SignedBeaconBlock,
 };
-use merkle_proof::verify_merkle_proof;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 
 #[superstruct(
     variants(Altair, Capella, Deneb),
@@ -63,16 +60,6 @@ impl<E: EthSpec> LightClientHeaderAltair<E> {
             phantom_data: PhantomData,
         })
     }
-
-    #[allow(dead_code)]
-    fn get_lc_execution_root(&self) -> Option<Hash256> {
-        None
-    }
-
-    #[allow(dead_code)]
-    fn is_valid_light_client_header(&self) -> Result<bool, Error> {
-        Ok(true)
-    }
 }
 
 impl<E: EthSpec> LightClientHeaderCapella<E> {
@@ -101,32 +88,6 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
             execution_branch: FixedVector::new(execution_branch)?,
             phantom_data: PhantomData,
         });
-    }
-
-    #[allow(dead_code)]
-    fn get_lc_execution_root(&self) -> Option<Hash256> {
-        Some(self.execution.tree_hash_root())
-    }
-
-    #[allow(dead_code)]
-    fn is_valid_light_client_header(&self) -> Result<bool, Error> {
-        let Some(execution_root) = self.get_lc_execution_root() else {
-            return Ok(false);
-        };
-
-        let Some(field_index) =
-            EXECUTION_PAYLOAD_INDEX.checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
-        else {
-            return Ok(false);
-        };
-
-        Ok(verify_merkle_proof(
-            execution_root,
-            &self.execution_branch,
-            EXECUTION_PAYLOAD_PROOF_LEN,
-            field_index,
-            self.beacon.body_root,
-        ))
     }
 }
 
@@ -157,32 +118,6 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
             phantom_data: PhantomData,
         })
     }
-
-    #[allow(dead_code)]
-    fn get_lc_execution_root(&self) -> Option<Hash256> {
-        Some(self.execution.tree_hash_root())
-    }
-
-    #[allow(dead_code)]
-    fn is_valid_light_client_header(&self) -> Result<bool, Error> {
-        let Some(execution_root) = self.get_lc_execution_root() else {
-            return Ok(false);
-        };
-
-        let Some(field_index) =
-            EXECUTION_PAYLOAD_INDEX.checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
-        else {
-            return Ok(false);
-        };
-
-        Ok(verify_merkle_proof(
-            execution_root,
-            &self.execution_branch,
-            EXECUTION_PAYLOAD_PROOF_LEN,
-            field_index,
-            self.beacon.body_root,
-        ))
-    }
 }
 
 impl<T: EthSpec> ForkVersionDeserialize for LightClientHeader<T> {
@@ -191,7 +126,7 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientHeader<T> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair => serde_json::from_value(value)
+            ForkName::Altair | ForkName::Merge => serde_json::from_value(value)
                 .map(|light_client_header| Self::Altair(light_client_header))
                 .map_err(serde::de::Error::custom),
             ForkName::Capella => serde_json::from_value(value)
@@ -200,7 +135,7 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientHeader<T> {
             ForkName::Deneb => serde_json::from_value(value)
                 .map(|light_client_header| Self::Deneb(light_client_header))
                 .map_err(serde::de::Error::custom),
-            ForkName::Base | ForkName::Merge => Err(serde::de::Error::custom(format!(
+            ForkName::Base  => Err(serde::de::Error::custom(format!(
                 "LightClientHeader deserialization for {fork_name} not implemented"
             ))),
         }
