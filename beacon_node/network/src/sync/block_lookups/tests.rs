@@ -118,6 +118,16 @@ impl TestRig {
                     panic!("Expected blob request, found {:?}", other);
                 }
             },
+            ResponseType::DataColumn => match self.network_rx.try_recv() {
+                Ok(NetworkMessage::SendRequest {
+                    peer_id: _,
+                    request: Request::DataColumnsByRoot(_request),
+                    request_id: RequestId::Sync(SyncId::SingleDataColumn { id }),
+                }) => id,
+                other => {
+                    panic!("Expected data column request, found {:?}", other);
+                }
+            },
         }
     }
 
@@ -140,6 +150,14 @@ impl TestRig {
                 }) => id,
                 other => panic!("Expected parent blobs request, found {:?}", other),
             },
+            ResponseType::DataColumn => match self.network_rx.try_recv() {
+                Ok(NetworkMessage::SendRequest {
+                    peer_id: _,
+                    request: Request::DataColumnsByRoot(_request),
+                    request_id: RequestId::Sync(SyncId::ParentLookupDataColumn { id }),
+                }) => id,
+                other => panic!("Expected parent data columns request, found {:?}", other),
+            },
         }
     }
 
@@ -157,6 +175,12 @@ impl TestRig {
                     assert_eq!(work.work_type(), beacon_processor::RPC_BLOBS);
                 }
                 other => panic!("Expected blob process, found {:?}", other),
+            },
+            ResponseType::DataColumn => match self.beacon_processor_rx.try_recv() {
+                Ok(work) => {
+                    assert_eq!(work.work_type(), beacon_processor::RPC_DATA_COLUMNS);
+                }
+                other => panic!("Expected data column process, found {:?}", other),
             },
         }
     }

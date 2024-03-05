@@ -3,26 +3,29 @@ use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, LookupVerifyError, SingleBlockLookup, SingleLookupRequestState, State,
 };
 use crate::sync::block_lookups::{
-    BlobRequestState, BlockLookups, BlockRequestState, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
+    BlobRequestState, BlockLookups, BlockRequestState, DataColumnRequestState, PeerId,
+    SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
 };
 use crate::sync::manager::{BlockProcessType, Id, SingleLookupReqId};
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponents};
 use beacon_chain::{get_block_root, BeaconChainTypes};
-use lighthouse_network::rpc::methods::BlobsByRootRequest;
+use lighthouse_network::rpc::methods::{BlobsByRootRequest, DataColumnsByRootRequest};
 use lighthouse_network::rpc::BlocksByRootRequest;
 use rand::prelude::IteratorRandom;
 use std::ops::IndexMut;
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
-use types::{BlobSidecar, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
+use types::data_column_sidecar::{DataColumnIdentifier, FixedDataColumnSidecarList};
+use types::{BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {
     Block,
     Blob,
+    DataColumn,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -445,6 +448,116 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
     }
     fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self {
         &mut request.blob_request_state
+    }
+    fn get_state(&self) -> &SingleLookupRequestState {
+        &self.state
+    }
+    fn get_state_mut(&mut self) -> &mut SingleLookupRequestState {
+        &mut self.state
+    }
+}
+
+impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for DataColumnRequestState<L, T::EthSpec> {
+    type RequestType = DataColumnsByRootRequest;
+    type ResponseType = Arc<DataColumnSidecar<T::EthSpec>>;
+    type VerifiedResponseType = FixedDataColumnSidecarList<T::EthSpec>;
+    type ReconstructedResponseType = FixedDataColumnSidecarList<T::EthSpec>;
+
+    fn new_request(&self, spec: &ChainSpec) -> DataColumnsByRootRequest {
+        let data_columnid_vec: Vec<DataColumnIdentifier> = self.requested_ids.clone().into();
+        DataColumnsByRootRequest::new(data_columnid_vec, spec)
+    }
+
+    fn make_request(
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        request: Self::RequestType,
+        cx: &SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        cx.data_column_lookup_request(id, peer_id, request, L::lookup_type())
+            .map_err(LookupRequestError::SendFailed)
+    }
+
+    fn verify_response_inner(
+        &mut self,
+        _expected_block_root: Hash256,
+        data_column: Option<Self::ResponseType>,
+        peer_id: PeerId,
+    ) -> Result<Option<FixedDataColumnSidecarList<T::EthSpec>>, LookupVerifyError> {
+        match data_column {
+            Some(data_column) => {
+                let received_id = data_column.id();
+                if !self.requested_ids.contains(&received_id) {
+                    self.state.register_failure_downloading();
+                    Err(LookupVerifyError::UnrequestedDataColumnId)
+                } else {
+                    // State should remain downloading until we receive the stream terminator.
+                    self.requested_ids.remove(&received_id);
+                    let data_column_index = data_column.index;
+
+                    if data_column_index >= T::EthSpec::number_of_columns() as u64 {
+                        return Err(LookupVerifyError::InvalidIndex(data_column.index));
+                    }
+                    *self
+                        .data_column_download_queue
+                        .index_mut(data_column_index as usize) = Some(data_column);
+                    Ok(None)
+                }
+            }
+            None => {
+                self.state.state = State::Processing { peer_id };
+                let data_columns = std::mem::take(&mut self.data_column_download_queue);
+                Ok(Some(data_columns))
+            }
+        }
+    }
+
+    fn get_parent_root(
+        verified_response: &FixedDataColumnSidecarList<T::EthSpec>,
+    ) -> Option<Hash256> {
+        verified_response
+            .into_iter()
+            .filter_map(|data_column| data_column.as_ref())
+            .map(|data_column| data_column.block_parent_root())
+            .next()
+    }
+
+    fn add_to_child_components(
+        verified_response: FixedDataColumnSidecarList<T::EthSpec>,
+        components: &mut ChildComponents<T::EthSpec>,
+    ) {
+        components.merge_data_columns(verified_response);
+    }
+
+    fn verified_to_reconstructed(
+        _block_root: Hash256,
+        data_columns: FixedDataColumnSidecarList<T::EthSpec>,
+    ) -> FixedDataColumnSidecarList<T::EthSpec> {
+        data_columns
+    }
+
+    fn send_reconstructed_for_processing(
+        id: Id,
+        bl: &BlockLookups<T>,
+        block_root: Hash256,
+        verified: FixedDataColumnSidecarList<T::EthSpec>,
+        duration: Duration,
+        cx: &SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        bl.send_data_columns_for_processing(
+            block_root,
+            verified,
+            duration,
+            BlockProcessType::SingleDataColumn { id },
+            cx,
+        )
+    }
+
+    fn response_type() -> ResponseType {
+        ResponseType::DataColumn
+    }
+    fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self {
+        &mut request.data_column_request_state
     }
     fn get_state(&self) -> &SingleLookupRequestState {
         &self.state

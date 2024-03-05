@@ -123,7 +123,7 @@ use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
-use types::data_column_sidecar::DataColumnSidecarList;
+use types::data_column_sidecar::{DataColumnSidecarList, FixedDataColumnSidecarList};
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -2953,6 +2953,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::BlockIsAlreadyKnown);
         }
 
+        self.data_availability_checker.notify_gossip_data_column(
+            data_column.slot(),
+            block_root,
+            &data_column,
+        );
         let r = self
             .check_gossip_data_column_availability_and_import(data_column)
             .await;
@@ -2991,6 +2996,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .notify_rpc_blobs(slot, block_root, &blobs);
         let r = self
             .check_rpc_blob_availability_and_import(slot, block_root, blobs)
+            .await;
+        self.remove_notified(&block_root, r)
+    }
+
+    /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
+    /// imported or errors.
+    pub async fn process_rpc_data_columns(
+        self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
+        data_columns: FixedDataColumnSidecarList<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its data columns again.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::BlockIsAlreadyKnown);
+        }
+
+        self.data_availability_checker
+            .notify_rpc_data_columns(slot, block_root, &data_columns);
+        let r = self
+            .check_rpc_data_column_availability_and_import(slot, block_root, data_columns)
             .await;
         self.remove_notified(&block_root, r)
     }
@@ -3282,6 +3313,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let availability = self
             .data_availability_checker
             .put_rpc_blobs(block_root, blobs)?;
+
+        self.process_availability(slot, availability).await
+    }
+
+    /// Checks if the provided data columns can make any cached blocks available, and imports immediately
+    /// if so, otherwise caches the data column in the data availability checker.
+    async fn check_rpc_data_column_availability_and_import(
+        self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
+        data_columns: FixedDataColumnSidecarList<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        // Need to scope this to ensure the lock is dropped before calling `process_availability`
+        // Even an explicit drop is not enough to convince the borrow checker.
+        {
+            let mut slashable_cache = self.observed_slashable.write();
+            for header in data_columns
+                .into_iter()
+                .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
+                .unique()
+            {
+                if verify_header_signature::<T, BlockError<T::EthSpec>>(self, &header).is_ok() {
+                    slashable_cache
+                        .observe_slashable(
+                            header.message.slot,
+                            header.message.proposer_index,
+                            block_root,
+                        )
+                        .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                    if let Some(slasher) = self.slasher.as_ref() {
+                        slasher.accept_block_header(header);
+                    }
+                }
+            }
+        }
+        let availability = self
+            .data_availability_checker
+            .put_rpc_data_columns(block_root, data_columns)?;
 
         self.process_availability(slot, availability).await
     }

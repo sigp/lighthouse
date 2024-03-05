@@ -15,6 +15,7 @@ pub use processing_cache::ProcessingComponents;
 use slasher::test_utils::E;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
+use ssz_types::FixedVector;
 use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
@@ -33,9 +34,13 @@ mod overflow_lru_cache;
 mod processing_cache;
 mod state_lru_cache;
 
-use crate::data_column_verification::{verify_kzg_for_data_column_list, GossipVerifiedDataColumn};
+use crate::data_column_verification::{
+    verify_kzg_for_data_column_list, GossipVerifiedDataColumn, KzgVerifiedDataColumnList,
+};
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
-use types::data_column_sidecar::{DataColumnIdentifier, DataColumnSidecarList};
+use types::data_column_sidecar::{
+    DataColumnIdentifier, DataColumnSidecarList, FixedDataColumnSidecarList,
+};
 use types::non_zero_usize::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
@@ -230,6 +235,25 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_blobs(block_root, verified_blobs)
     }
 
+    /// Put a list of data columns received via RPC into the availability cache. This performs KZG
+    /// verification on the data columns in the list.
+    pub fn put_rpc_data_columns(
+        &self,
+        block_root: Hash256,
+        data_columns: FixedDataColumnSidecarList<T::EthSpec>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let Some(kzg) = self.kzg.as_ref() else {
+            return Err(AvailabilityCheckError::KzgNotInitialized);
+        };
+
+        let verified_data_columns =
+            KzgVerifiedDataColumnList::new(Vec::from(data_columns).into_iter().flatten(), kzg)
+                .map_err(AvailabilityCheckError::Kzg)?;
+
+        self.availability_cache
+            .put_kzg_verified_data_columns(block_root, verified_data_columns)
+    }
+
     /// Check if we've cached other blobs for this block. If it completes a set and we also
     /// have a block cached, return the `Availability` variant triggering block import.
     /// Otherwise cache the blob sidecar.
@@ -422,6 +446,23 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .merge_single_blob(index as usize, commitment);
     }
 
+    /// Add a single data column commitment to the processing cache. This commitment is unverified but caching
+    /// them here is useful to avoid duplicate downloads of data columns, as well as understanding
+    /// our block and data column download requirements.
+    pub fn notify_gossip_data_column(
+        &self,
+        slot: Slot,
+        block_root: Hash256,
+        data_column: &GossipVerifiedDataColumn<T>,
+    ) {
+        let index = data_column.index();
+        self.processing_cache
+            .write()
+            .entry(block_root)
+            .or_insert_with(|| ProcessingComponents::new(slot))
+            .merge_single_data_column(index as usize, data_column.clone_data_column());
+    }
+
     /// Adds blob commitments to the processing cache. These commitments are unverified but caching
     /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
     /// our block and blob download requirements.
@@ -442,6 +483,28 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .entry(block_root)
             .or_insert_with(|| ProcessingComponents::new(slot))
             .merge_blobs(commitments);
+    }
+
+    /// Updates the processing cache with data columns that we received from RPC. This is useful to
+    /// avoid duplicate downloads of data_columns, as well as understanding our block and
+    /// data_column download requirements.
+    pub fn notify_rpc_data_columns(
+        &self,
+        slot: Slot,
+        block_root: Hash256,
+        data_columns: &FixedDataColumnSidecarList<T::EthSpec>,
+    ) {
+        let mut data_column_opts = FixedVector::default();
+        for data_column in data_columns.iter().flatten() {
+            if let Some(data_column_opt) = data_column_opts.get_mut(data_column.index as usize) {
+                *data_column_opt = Some(data_column.clone());
+            }
+        }
+        self.processing_cache
+            .write()
+            .entry(block_root)
+            .or_insert_with(|| ProcessingComponents::new(slot))
+            .merge_data_columns(data_column_opts);
     }
 
     /// Clears the block and all blobs from the processing cache for a give root if they exist.
@@ -732,6 +795,67 @@ impl Into<Vec<BlobIdentifier>> for MissingBlobs {
             MissingBlobs::KnownMissing(v) => v,
             MissingBlobs::PossibleMissing(v) => v,
             MissingBlobs::BlobsNotRequired => vec![],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum MissingDataColumns {
+    /// We know for certain these data columns are missing.
+    KnownMissing(Vec<DataColumnIdentifier>),
+    /// We think these data columns might be missing.
+    PossibleMissing(Vec<DataColumnIdentifier>),
+    /// DataColumns are not required.
+    DataColumnsNotRequired,
+}
+
+impl MissingDataColumns {
+    pub fn new_without_block(block_root: Hash256, is_deneb: bool) -> Self {
+        // TODO(das): update to EIP-7594
+        if is_deneb {
+            MissingDataColumns::PossibleMissing(DataColumnIdentifier::get_all_data_column_ids::<E>(
+                block_root,
+            ))
+        } else {
+            MissingDataColumns::DataColumnsNotRequired
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        match self {
+            MissingDataColumns::KnownMissing(v) => v.is_empty(),
+            MissingDataColumns::PossibleMissing(v) => v.is_empty(),
+            MissingDataColumns::DataColumnsNotRequired => true,
+        }
+    }
+    pub fn contains(&self, data_column_id: &DataColumnIdentifier) -> bool {
+        match self {
+            MissingDataColumns::KnownMissing(v) => v.contains(data_column_id),
+            MissingDataColumns::PossibleMissing(v) => v.contains(data_column_id),
+            MissingDataColumns::DataColumnsNotRequired => false,
+        }
+    }
+    pub fn remove(&mut self, data_column_id: &DataColumnIdentifier) {
+        match self {
+            MissingDataColumns::KnownMissing(v) => v.retain(|id| id != data_column_id),
+            MissingDataColumns::PossibleMissing(v) => v.retain(|id| id != data_column_id),
+            MissingDataColumns::DataColumnsNotRequired => {}
+        }
+    }
+    pub fn indices(&self) -> Vec<u64> {
+        match self {
+            MissingDataColumns::KnownMissing(v) => v.iter().map(|id| id.index).collect(),
+            MissingDataColumns::PossibleMissing(v) => v.iter().map(|id| id.index).collect(),
+            MissingDataColumns::DataColumnsNotRequired => vec![],
+        }
+    }
+}
+
+impl Into<Vec<DataColumnIdentifier>> for MissingDataColumns {
+    fn into(self) -> Vec<DataColumnIdentifier> {
+        match self {
+            MissingDataColumns::KnownMissing(v) => v,
+            MissingDataColumns::PossibleMissing(v) => v,
+            MissingDataColumns::DataColumnsNotRequired => vec![],
         }
     }
 }

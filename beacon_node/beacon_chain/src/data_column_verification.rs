@@ -113,6 +113,11 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
         self.data_column.as_data_column()
     }
 
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_data_column(&self) -> Arc<DataColumnSidecar<T::EthSpec>> {
+        self.data_column.clone_data_column()
+    }
+
     pub fn block_root(&self) -> Hash256 {
         self.block_root
     }
@@ -177,6 +182,35 @@ pub fn verify_kzg_for_data_column<T: EthSpec>(
     //     data_column.kzg_proof,
     // )?;
     Ok(KzgVerifiedDataColumn { data_column })
+}
+
+pub struct KzgVerifiedDataColumnList<E: EthSpec> {
+    verified_data_columns: Vec<KzgVerifiedDataColumn<E>>,
+}
+
+impl<E: EthSpec> KzgVerifiedDataColumnList<E> {
+    pub fn new<I: IntoIterator<Item = Arc<DataColumnSidecar<E>>>>(
+        data_column_list: I,
+        kzg: &Kzg,
+    ) -> Result<Self, KzgError> {
+        let data_columns = data_column_list.into_iter().collect::<Vec<_>>();
+        verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
+        Ok(Self {
+            verified_data_columns: data_columns
+                .into_iter()
+                .map(|data_column| KzgVerifiedDataColumn { data_column })
+                .collect(),
+        })
+    }
+}
+
+impl<E: EthSpec> IntoIterator for KzgVerifiedDataColumnList<E> {
+    type Item = KzgVerifiedDataColumn<E>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.verified_data_columns.into_iter()
+    }
 }
 
 /// Complete kzg verification for a list of `DataColumnSidecar`s.

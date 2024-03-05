@@ -24,6 +24,7 @@ use store::KzgCommitment;
 use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::data_column_sidecar::FixedDataColumnSidecarList;
 use types::{Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -211,6 +212,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Box::pin(process_fn)
     }
 
+    /// Returns an async closure which processes a list of data columns received via RPC.
+    ///
+    /// This separate function was required to prevent a cycle during compiler
+    /// type checking.
+    pub fn generate_rpc_data_columns_process_fn(
+        self: Arc<Self>,
+        block_root: Hash256,
+        data_columns: FixedDataColumnSidecarList<T::EthSpec>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> AsyncFn {
+        let process_fn = async move {
+            self.clone()
+                .process_rpc_data_columns(block_root, data_columns, seen_timestamp, process_type)
+                .await;
+        };
+        Box::pin(process_fn)
+    }
+
     /// Attempt to process a list of blobs received from a direct RPC request.
     pub async fn process_rpc_blobs(
         self: Arc<NetworkBeaconProcessor<T>>,
@@ -288,6 +308,98 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 warn!(
                     self.log,
                     "Error when importing rpc blobs";
+                    "error" => ?e,
+                    "block_hash" => %block_root,
+                    "slot" => %slot,
+                );
+            }
+        }
+
+        // Sync handles these results
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result: result.into(),
+        });
+    }
+
+    /// Attempt to process a list of data columns received from a direct RPC request.
+    pub async fn process_rpc_data_columns(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        block_root: Hash256,
+        data_columns: FixedDataColumnSidecarList<T::EthSpec>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        let Some(slot) = data_columns
+            .iter()
+            .find_map(|data_column| data_column.as_ref().map(|data_column| data_column.slot()))
+        else {
+            return;
+        };
+
+        let indices: Vec<u64> = data_columns
+            .iter()
+            .filter_map(|data_column_opt| {
+                data_column_opt
+                    .as_ref()
+                    .map(|data_column| data_column.index)
+            })
+            .collect();
+
+        debug!(
+            self.log,
+            "RPC data_columns received";
+            "indices" => ?indices,
+            "block_root" => %block_root,
+            "slot" => %slot,
+        );
+
+        if let Ok(current_slot) = self.chain.slot() {
+            if current_slot == slot {
+                // Note: this metric is useful to gauge how long it takes to receive data_columns requested
+                // over rpc. Since we always send the request for block components at `slot_clock.single_lookup_delay()`
+                // we can use that as a baseline to measure against.
+                let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
+
+                metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
+            }
+        }
+
+        let result = self
+            .chain
+            .process_rpc_data_columns(slot, block_root, data_columns)
+            .await;
+
+        match &result {
+            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+                debug!(
+                    self.log,
+                    "Block components retrieved";
+                    "result" => "imported block and data_columns",
+                    "slot" => %slot,
+                    "block_hash" => %hash,
+                );
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+                debug!(
+                    self.log,
+                    "Missing components over rpc";
+                    "block_hash" => %block_root,
+                    "slot" => %slot,
+                );
+            }
+            Err(BlockError::BlockIsAlreadyKnown) => {
+                debug!(
+                    self.log,
+                    "DataColumns have already been imported";
+                    "block_hash" => %block_root,
+                    "slot" => %slot,
+                );
+            }
+            Err(e) => {
+                warn!(
+                    self.log,
+                    "Error when importing rpc data_columns";
                     "error" => ?e,
                     "block_hash" => %block_root,
                     "slot" => %slot,
