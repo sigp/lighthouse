@@ -647,7 +647,10 @@ where
                         // and publish to them.
 
                         let explicit_peers = &self.explicit_peers;
-                        let scores = self.peer_score.as_ref().map(|(score, ..)| score);
+                        let scores = self
+                            .peer_score
+                            .as_ref()
+                            .map(|(score, thresholds, ..)| (score, thresholds));
                         // Get a random set of peers that are appropriate to send messages too.
                         let peer_list = get_random_peers(
                             &self.connected_peers,
@@ -656,7 +659,11 @@ where
                             |peer| {
                                 !mesh_peers.contains(peer)
                                     && !explicit_peers.contains(peer)
-                                    && scores.map(|score| score.score(peer)).unwrap_or(0.0) >= 0.0
+                                    && scores
+                                        .map(|(score, thresholds)| {
+                                            score.score(peer) > thresholds.publish_threshold
+                                        })
+                                        .unwrap_or(true)
                             },
                         );
                         recipient_peers.extend(peer_list);
@@ -753,8 +760,12 @@ where
             }
         }
 
-        if publish_failed {
+        if recipient_peers.is_empty() {
             return Err(PublishError::InsufficientPeers);
+        }
+
+        if publish_failed {
+            return Err(PublishError::AllQueuesFull(recipient_peers.len()));
         }
 
         tracing::debug!(message=%msg_id, "Published message");
