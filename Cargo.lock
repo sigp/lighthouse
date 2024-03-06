@@ -269,11 +269,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "amcl"
-version = "0.3.0"
-source = "git+https://github.com/sigp/milagro_bls?tag=v1.5.1#d3fc0a40cfe8b72ccda46ba050ee6786a59ce753"
-
-[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1162,7 +1157,6 @@ dependencies = [
  "ethereum_serde_utils",
  "ethereum_ssz",
  "hex",
- "milagro_bls",
  "rand",
  "serde",
  "tree_hash",
@@ -5466,18 +5460,6 @@ dependencies = [
  "migrations_internals",
  "proc-macro2",
  "quote",
-]
-
-[[package]]
-name = "milagro_bls"
-version = "1.5.1"
-source = "git+https://github.com/sigp/milagro_bls?tag=v1.5.1#d3fc0a40cfe8b72ccda46ba050ee6786a59ce753"
-dependencies = [
- "amcl",
- "hex",
- "lazy_static",
- "rand",
- "zeroize",
 ]
 
 [[package]]
