@@ -61,8 +61,6 @@ pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 /// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
 /// dialing priority peers we need for validator duties.
 pub const PRIORITY_PEER_EXCESS: f32 = 0.2;
-/// The number of inbound peers that are connected that indicate this node is not behind a NAT.
-pub const INBOUND_PEERS_NAT: usize = 5;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
@@ -886,19 +884,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 .saturating_sub(outbound_only_peer_count);
             let wanted_peers = if peer_count < self.target_peers.saturating_sub(dialing_peers) {
                 // We need more peers in general.
-                // Note: The maximum discovery query is bounded by `Discovery`.
-
-                // If we are behind a NAT, we are likely to have little to no inbound peers. Having
-                // an excess amount of peers helps with peer management via pruning. We search for
-                // these extra peers in this case.
-                if inbound_peer_count < INBOUND_PEERS_NAT {
-                    self.max_peers()
-                        .saturating_sub(dialing_peers)
-                        .saturating_sub(peer_count)
-                } else {
-                    // Normal operation, search up to the target
-                    self.target_peers.saturating_sub(dialing_peers) - peer_count
-                }
+                self.max_peers().saturating_sub(dialing_peers) - peer_count
             } else if outbound_only_peer_count < self.min_outbound_only_peers()
                 && peer_count < self.max_outbound_dialing_peers()
             {
