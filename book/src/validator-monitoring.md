@@ -100,11 +100,11 @@ dashboard contains most of the metrics exposed via the validator monitor.
 
 ### Attestation Simulator Metrics
 
-Lighthouse v4.6.0 introduces a new feature to track the performance of a beacon node. This feature internally simulates an attestation for each slot, and outputs a hit or miss for the head, target and source votes. The attestation simulator is turned on automatically (even when there are no validators) and prints the logs in the debug level.
+Lighthouse v4.6.0 introduces a new feature to track the performance of a beacon node. This feature internally simulates an attestation for each slot, and outputs a hit or miss for the head, target and source votes. The attestation simulator is turned on automatically (even when there are no validators) and prints logs in the debug level.
 
-> Note: The simulated attestations are never published to the network, so the simulator tells nothing about the attestation performance of a validator. 
+> Note: The simulated attestations are never published to the network, so the simulator does not reflect the attestation performance of a validator. 
 
-The attestation simulation prints the following log when simulating an attestation:
+The attestation simulation prints the following logs when simulating an attestation:
 
 ```
 DEBG Simulating unagg. attestation production, service: beacon, module: beacon_chain::attestation_simulator:39
@@ -162,11 +162,19 @@ Similarly, to query the metrics for `validator_monitor_attestation_simulator_hea
 validator_monitor_attestation_simulator_head_attester_miss_total 2668
 ```
 
-The attestation simulator provides an insight into the attestation performance of a beacon node. The attestation simulator can be used as an indication of how expediently the beacon node has completed importing blocks within the 4s time frame for an attestation to be made. Assuming the latency between the beacon node and validator client is negligible:
+The attestation simulator provides an insight into the attestation performance of a beacon node. It can be used as an indication of how expediently the beacon node has completed importing blocks within the 4s time frame for an attestation to be made. 
 
-1. If the attestation simulator says that all votes are hit, it means that if the beacon node were to publish the attestation for this slot, the validator should receive the rewards for head, target and source votes. 
+The attestation simulator *does not* consider:
+- the latency between the beacon node and the validator client
+- the potential delays when publishing the attestation to the network
 
-1. If the attestation simulator says that the head vote is missed, it means that there is a delay in importing the block. The delay could be due to slowness in processing the block (e.g., due to a slow CPU) or that the block is arriving late (e.g., the proposer publishes the block late). If the beacon node were to publish the attestation for this slot, the validator will miss the head vote.
+which are critical factors to consider when evaluating the attestation performance of a validator.
+
+Assuming the above factors are ignored (no delays between beacon node and validator client, and no delays in publishing the attestation to the network):
+
+1. If the attestation simulator says that all votes are hit, it means that if the beacon node were to publish the attestation for this slot, the validator should receive the rewards for the head, target and source votes. 
+
+1. If the attestation simulator says that the one or more votes are missed, it means that there is a delay in importing the block. The delay could be due to slowness in processing the block (e.g., due to a slow CPU) or that the block is arriving late (e.g., the proposer publishes the block late). If the beacon node were to publish the attestation for this slot, the validator will miss one or more votes (e.g., the head vote).
 
 A grafana dashboard to view the metrics for attestation simulator is available [here](https://github.com/sigp/lighthouse-metrics/blob/master/dashboards/AttestationSimulator.json). 
 
