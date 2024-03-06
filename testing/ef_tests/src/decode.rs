@@ -71,9 +71,7 @@ where
     f(&bytes).map_err(|e| {
         match e {
             // NOTE: this is a bit hacky, but seemingly better than the alternatives
-            ssz::DecodeError::BytesInvalid(message)
-                if message.contains("Blst") || message.contains("Milagro") =>
-            {
+            ssz::DecodeError::BytesInvalid(message) if message.contains("Blst") => {
                 Error::InvalidBLSInput(message)
             }
             e => Error::FailedToParseTest(format!(
