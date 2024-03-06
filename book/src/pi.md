@@ -1,6 +1,6 @@
 # Raspberry Pi 4 Installation
 
-> Note: This page is left here for archival purposes. As the number of validators on mainnet has increased significantly, so does the requirement for hardware (RAM). Running Ethereum mainnet on a Raspberry Pi 4 is no longer recommended.
+> Note: This page is left here for archival purposes. As the number of validators on mainnet has increased significantly, so does the requirement for hardware (e.g., RAM). Running Ethereum mainnet on a Raspberry Pi 4 is no longer recommended.
 
 Tested on:
 
