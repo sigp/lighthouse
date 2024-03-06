@@ -170,7 +170,7 @@ The attestation simulator *does not* consider:
 
 which are critical factors to consider when evaluating the attestation performance of a validator.
 
-Assuming the above factors are ignored (no delays between beacon node and validator client, and no delays in publishing the attestation to the network):
+Assuming the above factors are ignored (no delays between beacon node and validator client, and in publishing the attestation to the network):
 
 1. If the attestation simulator says that all votes are hit, it means that if the beacon node were to publish the attestation for this slot, the validator should receive the rewards for the head, target and source votes. 
 
