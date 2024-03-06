@@ -3,6 +3,7 @@
 ## [Beacon Node](#beacon-node-1)
 - [I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?](#bn-deposit-contract)
 - [I see beacon logs showing `WARN: Execution engine called failed`, what should I do?](#bn-ee)
+- [I see beacon logs showing `Error during execution engine upcheck`, what should I do?](#bn-upcheck)
 - [My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?](#bn-download-historical)
 - [I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?](#bn-duplicate)
 - [I see beacon node logs `Head is optimistic` and I am missing attestations. What should I do?](#bn-optimistic)
@@ -12,6 +13,8 @@
 - [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#bn-http)
 - [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice)
 - [My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?](#bn-queue-full)
+- [My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?]
+(#bn-deposit-cache)
 
 ## [Validator](#validator-1)
 - [Why does it take so long for a validator to be activated?](#vc-activation)
@@ -46,8 +49,6 @@
 
 ## Beacon Node
 
-
-
 ### <a name="bn-deposit-contract"></a> I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?
 
 The error can be a warning:
@@ -77,7 +78,7 @@ If this log continues appearing during operation, it means your execution client
 
 The `WARN Execution engine called failed` log is shown when the beacon node cannot reach the execution engine. When this warning occurs, it will be followed by a detailed message. A frequently encountered example of the error message is:
 
-`error: Reqwest(reqwest::Error { kind: Request, url: Url { scheme: "http", cannot_be_a_base: false, username: "", password: None, host: Some(Ipv4(127.0.0.1)), port: Some(8551), path: "/", query: None, fragment: None }, source: TimedOut }), service: exec`
+`error: HttpClient(url: http://127.0.0.1:8551/, kind: timeout, detail: operation timed out), service: exec`
 
 which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flags `--execution-timeout-multiplier 3` and `--disable-lock-timeouts` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
 1. The execution engine is not synced. Check the log of the execution engine to make sure that it is synced. If it is syncing, wait until it is synced and the error will disappear. You will see the beacon node logs `INFO Execution engine online` when it is synced.
@@ -87,7 +88,17 @@ which says `TimedOut` at the end of the message. This means that the execution e
 If the reason for the error message is caused by no. 1 above, you may want to look further. If the execution engine is out of sync suddenly, it is usually caused by ungraceful shutdown. The common causes for ungraceful shutdown are:
 - Power outage. If power outages are an issue at your place, consider getting a UPS to avoid ungraceful shutdown of services.
 - The service file is not stopped properly. To overcome this, make sure that the process is stopped properly, e.g., during client updates.
-- Out of memory (oom) error. This can happen when the system memory usage has reached its maximum and causes the execution engine to be killed. When this occurs, the log file will show `Main process exited, code=killed, status=9/KILL`.  You can also run `sudo journalctl -a --since "18 hours ago" | grep -i "killed process` to confirm that the execution client has been killed due to oom. If you are using geth as the execution client, a short term solution is to reduce the resources used. For example, you can reduce the cache by adding the flag `--cache 2048`. If the oom occurs rather frequently, a long term solution is to increase the memory capacity of the computer.
+- Out of memory (oom) error. This can happen when the system memory usage has reached its maximum and causes the execution engine to be killed. To confirm that the error is due to oom, run `sudo dmesg -T | grep killed` to look for killed processes. If you are using geth as the execution client, a short term solution is to reduce the resources used. For example, you can reduce the cache by adding the flag `--cache 2048`. If the oom occurs rather frequently, a long term solution is to increase the memory capacity of the computer.
+
+### <a name="bn-upcheck"></a> I see beacon logs showing `Error during execution engine upcheck`, what should I do?
+
+An example of the full error is:
+
+`ERRO Error during execution engine upcheck   error: HttpClient(url: http://127.0.0.1:8551/, kind: request, detail: error trying to connect: tcp connect error: Connection refused (os error 111)), service: exec`
+
+Connection refused means the beacon node cannot reach the execution client. This could be due to the execution client is offline or the configuration is wrong. If the execution client is offline, run the execution engine and the error will disappear. 
+
+If it is a configuration issue, ensure that the execution engine can be reached. The standard endpoint to connect to the execution client is `--execution-endpoint http://localhost:8551`. However, if the execution client is not on the same host, or if it is using another port, the endpoint link needs to be changed accordingly. In some cases, additional flags may be required to be set in the execution client. Once the execution client/beacon node is configured correctly, the error will disappear.
 
 ### <a name="bn-download-historical"></a> My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?
 
@@ -195,6 +206,9 @@ ERRO Aggregate attestation queue full, queue_len: 4096, msg: the system has insu
 
 This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear when the resources used return to normal or when the node is synced.
 
+### <a name="bn-deposit-cache"></a> My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?
+
+This is a known [bug](https://github.com/sigp/lighthouse/issues/3707) that will fix by itself. 
 
 ## Validator
 
@@ -268,19 +282,19 @@ repeats until the queue is cleared. The churn limit is summarised in the table b
 
 <div align="center" style="text-align: center;">
 
-| Number of active validators           | Validators activated per epoch     | Validators activated per day |
-|-------------------|--------------------------------------------|----|
-| 327679 or less     | 4    | 900  |
-| 327680-393215            |  5   | 1125 |
-| 393216-458751 | 6 | 1350
-| 458752-524287 | 7  | 1575
-| 524288-589823 | 8| 1800 |
-| 589824-655359 | 9| 2025 |
-| 655360-720895 | 10 | 2250|
-| 720896-786431 | 11 | 2475 |
-| 786432-851967 | 12 | 2700 |
-| 851968-917503 | 13 | 2925 |
-| 917504-983039 | 14 | 3150 |
+| Number of active validators | Validators activated per epoch | Validators activated per day |
+|----------------|----|------|
+| 327679 or less | 4  | 900  |
+| 327680-393215  | 5  | 1125 |
+| 393216-458751  | 6  | 1350 |
+| 458752-524287  | 7  | 1575 |
+| 524288-589823  | 8  | 1800 |
+| 589824-655359  | 9  | 2025 |
+| 655360-720895  | 10 | 2250 |
+| 720896-786431  | 11 | 2475 |
+| 786432-851967  | 12 | 2700 |
+| 851968-917503  | 13 | 2925 |
+| 917504-983039  | 14 | 3150 |
 | 983040-1048575 | 15 | 3375 |
 
 </div>
@@ -551,7 +565,7 @@ which says that the version is v4.1.0.
 
 ### <a name="misc-prune"></a> Does Lighthouse have pruning function like the execution client to save disk space?
 
-There is no pruning of Lighthouse database for now. However, since v4.2.0, a feature to only sync back to the weak subjectivity point (approximately 5 months) when syncing via a checkpoint sync was added. This will help to save disk space since the previous behaviour will sync back to the genesis by default.
+Yes, Lighthouse supports [state pruning](./database-migrations.md#how-to-prune-historic-states) which can help to save disk space. 
 
 ### <a name="misc-freezer"></a> Can I use a HDD for the freezer database and only have the hot db on SSD?
 
