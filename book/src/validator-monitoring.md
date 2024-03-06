@@ -168,8 +168,6 @@ The attestation simulator provides an insight into the attestation performance o
 
 1. If the attestation simulator says that the head vote is missed, it means that there is a delay in importing the block. The delay could be due to slowness in processing the block (e.g., due to a slow CPU) or that the block is arriving late (e.g., the proposer publishes the block late). If the beacon node were to publish the attestation for this slot, the validator will miss the head vote.
 
-- if the hardware used is sufficient (CPU). For example, if the simulated attestation has a high number of miss for the head vote, it could indicate a slowness in importing blocks or the block arriving late to the node.
-
-Agrafana dashboard for the attestation simulator is available [here](https://github.com/sigp/lighthouse-metrics/blob/master/dashboards/AttestationSimulator.json). 
+A grafana dashboard to view the metrics for attestation simulator is available [here](https://github.com/sigp/lighthouse-metrics/blob/master/dashboards/AttestationSimulator.json). 
 
 
