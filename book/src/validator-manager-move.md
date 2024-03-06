@@ -186,8 +186,7 @@ lighthouse \
 ```
 INFO Previous epoch attestation(s) success   validators: ["validator_index"], epoch: 100000, service: val_mon, service: beacon
 ```
-
-    This is fine as the validator monitor does not know that the validators have been moved (it *does not* mean that the validators have attested twice for the same slot). A restart of the beacon node will resolve this. 
+> This is fine as the validator monitor does not know that the validators have been moved (it *does not* mean that the validators have attested twice for the same slot). A restart of the beacon node will resolve this. 
 
 
 Any errors encountered during the operation should include information on how to
