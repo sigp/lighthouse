@@ -13,8 +13,7 @@
 - [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#bn-http)
 - [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice)
 - [My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?](#bn-queue-full)
-- [My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?]
-(#bn-deposit-cache)
+- [My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?](#bn-deposit-cache)
 
 ## [Validator](#validator-1)
 - [Why does it take so long for a validator to be activated?](#vc-activation)
@@ -98,7 +97,7 @@ An example of the full error is:
 
 Connection refused means the beacon node cannot reach the execution client. This could be due to the execution client is offline or the configuration is wrong. If the execution client is offline, run the execution engine and the error will disappear. 
 
-If it is a configuration issue, ensure that the execution engine can be reached. The standard endpoint to connect to the execution client is `--execution-endpoint http://localhost:8551`. However, if the execution client is not on the same host, or if it is using another port, the endpoint link needs to be changed accordingly. In some cases, additional flags may be required to be set in the execution client. Once the execution client/beacon node is configured correctly, the error will disappear.
+If it is a configuration issue, ensure that the execution engine can be reached. The standard endpoint to connect to the execution client is `--execution-endpoint http://localhost:8551`. If the execution client is on a different host, the endpoint to connect to it will change, e.g., `--execution-endpoint http://IP_address:8551` where `IP_address` is the IP of the execution client node (you may also need additional flags to be set). If it is using another port, the endpoint link needs to be changed accordingly. Once the execution client/beacon node is configured correctly, the error will disappear.
 
 ### <a name="bn-download-historical"></a> My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?
 
