@@ -1,12 +1,8 @@
-use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
+use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{
     beacon_state,
-    light_client_header::{
-        LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
-    },
     test_utils::TestRandom,
-    BeaconBlock, BeaconState, ChainSpec, ForkName, ForkVersionDeserialize, LightClientHeader,
-    SignedBeaconBlock,
+    ForkName, ForkVersionDeserialize, LightClientHeader,
 };
 use safe_arith::ArithError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -15,7 +11,6 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::{U4, U5, U6};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 
 pub const FINALIZED_ROOT_INDEX: usize = 105;
 pub const CURRENT_SYNC_COMMITTEE_INDEX: usize = 54;
@@ -94,75 +89,6 @@ pub struct LightClientUpdate<T: EthSpec> {
     pub sync_aggregate: SyncAggregate<T>,
     /// Slot of the sync aggregated singature
     pub signature_slot: Slot,
-}
-
-impl<T: EthSpec> LightClientUpdate<T> {
-    pub fn new(
-        chain_spec: ChainSpec,
-        beacon_state: BeaconState<T>,
-        block: BeaconBlock<T>,
-        attested_state: &mut BeaconState<T>,
-        attested_block: &SignedBeaconBlock<T>,
-        finalized_block: &SignedBeaconBlock<T>,
-    ) -> Result<Self, Error> {
-        let sync_aggregate = block.body().sync_aggregate()?;
-        if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
-            return Err(Error::NotEnoughSyncCommitteeParticipants);
-        }
-
-        let signature_period = block.epoch().sync_committee_period(&chain_spec)?;
-        // Compute and validate attested header.
-        let mut attested_header = attested_state.latest_block_header().clone();
-        attested_header.state_root = attested_state.tree_hash_root();
-        let attested_period = attested_header
-            .slot
-            .epoch(T::slots_per_epoch())
-            .sync_committee_period(&chain_spec)?;
-        if attested_period != signature_period {
-            return Err(Error::MismatchingPeriods);
-        }
-        // Build finalized header from finalized block
-        let finalized_header = BeaconBlockHeader {
-            slot: finalized_block.slot(),
-            proposer_index: finalized_block.message().proposer_index(),
-            parent_root: finalized_block.parent_root(),
-            state_root: finalized_block.state_root(),
-            body_root: finalized_block.message().body_root(),
-        };
-        if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
-            return Err(Error::InvalidFinalizedBlock);
-        }
-        let next_sync_committee_branch =
-            attested_state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?;
-        let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
-
-        let (attested_header, finalized_header) =
-            match chain_spec.fork_name_at_epoch(beacon_state.slot().epoch(T::slots_per_epoch())) {
-                ForkName::Base => return Err(Error::AltairForkNotActive),
-                ForkName::Merge | ForkName::Altair => (
-                    LightClientHeaderAltair::block_to_light_client_header(attested_block)?.into(),
-                    LightClientHeaderAltair::block_to_light_client_header(finalized_block)?.into(),
-                ),
-                ForkName::Capella => (
-                    LightClientHeaderCapella::block_to_light_client_header(attested_block)?.into(),
-                    LightClientHeaderCapella::block_to_light_client_header(finalized_block)?.into(),
-                ),
-                ForkName::Deneb => (
-                    LightClientHeaderDeneb::block_to_light_client_header(attested_block)?.into(),
-                    LightClientHeaderDeneb::block_to_light_client_header(finalized_block)?.into(),
-                ),
-            };
-
-        Ok(Self {
-            attested_header,
-            next_sync_committee: attested_state.next_sync_committee()?.clone(),
-            next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
-            finalized_header,
-            finality_branch: FixedVector::new(finality_branch)?,
-            sync_aggregate: sync_aggregate.clone(),
-            signature_slot: block.slot(),
-        })
-    }
 }
 
 impl<T: EthSpec> ForkVersionDeserialize for LightClientUpdate<T> {

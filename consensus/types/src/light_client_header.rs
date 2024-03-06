@@ -17,7 +17,6 @@ use test_random_derive::TestRandom;
     variants(Altair, Capella, Deneb),
     variant_attributes(
         derive(
-            Default,
             Debug,
             Clone,
             PartialEq,
@@ -32,7 +31,7 @@ use test_random_derive::TestRandom;
         arbitrary(bound = "E: EthSpec"),
     )
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, arbitrary::Arbitrary, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Decode, Encode, arbitrary::Arbitrary, PartialEq)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[ssz(enum_behaviour = "union")]
@@ -49,6 +48,7 @@ pub struct LightClientHeader<E: EthSpec> {
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_header_deneb"))]
     pub execution: ExecutionPayloadHeaderDeneb<E>,
 
+    #[serde(skip)]
     #[ssz(skip_serializing, skip_deserializing)]
     pub phantom_data: PhantomData<E>,
 }
