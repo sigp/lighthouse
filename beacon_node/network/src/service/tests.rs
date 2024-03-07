@@ -62,7 +62,7 @@ mod tests {
 
         let runtime = Arc::new(Runtime::new().unwrap());
 
-        let (signal, exit) = exit_future::signal();
+        let (signal, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = task_executor::TaskExecutor::new(
             Arc::downgrade(&runtime),
@@ -139,7 +139,7 @@ mod tests {
 
         // Build network service.
         let (mut network_service, network_globals, _network_senders) = runtime.block_on(async {
-            let (_, exit) = exit_future::signal();
+            let (_, exit) = async_channel::bounded(1);
             let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
             let executor = task_executor::TaskExecutor::new(
                 Arc::downgrade(&runtime),
