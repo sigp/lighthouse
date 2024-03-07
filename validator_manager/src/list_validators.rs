@@ -11,16 +11,12 @@ pub const VC_TOKEN_FLAG: &str = "vc-token";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-        .about(
-            "List validators of a validator client using the HTTP API. The validators",
-        )
+        .about("List validators of a validator client using the HTTP API. The validators")
         .arg(
             Arg::with_name(VC_URL_FLAG)
                 .long(VC_URL_FLAG)
                 .value_name("HTTP_ADDRESS")
-                .help(
-                    "A HTTP(S) address of a validator client using the keymanager-API."
-                )
+                .help("A HTTP(S) address of a validator client using the keymanager-API.")
                 .default_value("http://localhost:5062")
                 .required(true) // Not actually required but I want it to show up in Usage
                 .requires(VC_TOKEN_FLAG)
@@ -34,7 +30,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
 }
-
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct ListConfig {
@@ -92,6 +87,5 @@ pub mod tests {
     //use super::*;
 
     #[tokio::test]
-    async fn test_nothing_atm() {
-    }
+    async fn test_nothing_atm() {}
 }
