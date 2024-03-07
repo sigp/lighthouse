@@ -86,7 +86,7 @@ jobs:
 #    - uses: KyleMayes/install-llvm-action@v1
 #         if: env.SELF_HOSTED_RUNNERS == 'false'
 #      with:
-#        version: "15.0"
+#        version: "16.0"
 #        directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
@@ -309,7 +309,9 @@ jobs:
       run: |
           make
     - name: Install lcli
-      if: env.SELF_HOSTED_RUNNERS == 'false'
+      # TODO: uncomment after the version of lcli in https://github.com/sigp/lighthouse/pull/5137 
+      # is installed on the runners
+      # if: env.SELF_HOSTED_RUNNERS == 'false'
       run: make install-lcli
     - name: Run the doppelganger protection failure test script
       run: |
@@ -406,8 +408,53 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install dependencies
-      run: sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
+      run: sudo apt update && sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
     - name: Use Rust beta
       run: rustup override set beta
     - name: Run make
       run: make
+  cli-check:
+    name: cli-check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+        cache-target: release
+    - name: Run Makefile to trigger the bash script
+      run: make cli
+  # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
+  # a PR is safe to merge. New jobs should be added here.
+  test-suite-success:
+    name: test-suite-success
+    runs-on: ubuntu-latest
+    needs: [
+      'target-branch-check',
+      'release-tests-ubuntu',
+      'release-tests-windows',
+      'beacon-chain-tests',
+      'op-pool-tests',
+      'network-tests',
+      'slasher-tests',
+      'debug-tests-ubuntu',
+      'state-transition-vectors-ubuntu',
+      'ef-tests-ubuntu',
+      'dockerfile-ubuntu',
+      'eth1-simulator-ubuntu',
+      'merge-transition-ubuntu',
+      'no-eth1-simulator-ubuntu',
+      'syncing-simulator-ubuntu',
+      'doppelganger-protection-test',
+      'execution-engine-integration-ubuntu',
+      'check-code',
+      'check-msrv',
+      'cargo-udeps',
+      'compile-with-beta-compiler',
+      'cli-check',
+    ]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check that success job is dependent on all others
+        run: ./scripts/ci/check-success-job.sh ./.github/workflows/test-suite.yml test-suite-success

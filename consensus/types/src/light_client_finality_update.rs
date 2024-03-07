@@ -1,38 +1,26 @@
-use super::{
-    EthSpec, FixedVector, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot, SyncAggregate,
-};
+use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate};
 use crate::{
-    light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, ForkName,
-    ForkVersionDeserialize, LightClientHeader,
+    light_client_update::*, test_utils::TestRandom, ForkName, ForkVersionDeserialize,
+    LightClientHeader,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz_derive::{Decode, Encode};
+use ssz::Decode;
+use ssz_derive::Encode;
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
-use tree_hash_derive::TreeHash;
 
-/// A LightClientFinalityUpdate is the update lightclient request or received by a gossip that
+/// A LightClientFinalityUpdate is the update light_client request or received by a gossip that
 /// signal a new finalized beacon block header for the light client sync protocol.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    arbitrary::Arbitrary,
+    Debug, Clone, PartialEq, Serialize, Deserialize, Encode, arbitrary::Arbitrary, TestRandom,
 )]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientFinalityUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
-    pub attested_header: LightClientHeader,
+    pub attested_header: LightClientHeader<T>,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
-    pub finalized_header: LightClientHeader,
+    pub finalized_header: LightClientHeader<T>,
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
@@ -41,43 +29,30 @@ pub struct LightClientFinalityUpdate<T: EthSpec> {
     pub signature_slot: Slot,
 }
 
-impl<T: EthSpec> LightClientFinalityUpdate<T> {
-    pub fn new(
-        chain_spec: &ChainSpec,
-        beacon_state: &BeaconState<T>,
-        block: &SignedBeaconBlock<T>,
-        attested_state: &mut BeaconState<T>,
-        finalized_block: &SignedBlindedBeaconBlock<T>,
-    ) -> Result<Self, Error> {
-        let altair_fork_epoch = chain_spec
-            .altair_fork_epoch
-            .ok_or(Error::AltairForkNotActive)?;
-        if beacon_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
-            return Err(Error::AltairForkNotActive);
-        }
+impl<E: EthSpec> LightClientFinalityUpdate<E> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<FixedVector<Hash256, FinalizedRootProofLen>>()?;
+        builder.register_type::<SyncAggregate<E>>()?;
+        builder.register_type::<Slot>()?;
+        let mut decoder = builder.build()?;
 
-        let sync_aggregate = block.message().body().sync_aggregate()?;
-        if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
-            return Err(Error::NotEnoughSyncCommitteeParticipants);
-        }
+        let attested_header = decoder
+            .decode_next_with(|bytes| LightClientHeader::from_ssz_bytes(bytes, fork_name))?;
+        let finalized_header = decoder
+            .decode_next_with(|bytes| LightClientHeader::from_ssz_bytes(bytes, fork_name))?;
+        let finality_branch = decoder.decode_next_with(FixedVector::from_ssz_bytes)?;
+        let sync_aggregate = decoder.decode_next_with(SyncAggregate::from_ssz_bytes)?;
+        let signature_slot = decoder.decode_next_with(Slot::from_ssz_bytes)?;
 
-        // Compute and validate attested header.
-        let mut attested_header = attested_state.latest_block_header().clone();
-        attested_header.state_root = attested_state.update_tree_hash_cache()?;
-        // Build finalized header from finalized block
-        let finalized_header = finalized_block.message().block_header();
-
-        if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
-            return Err(Error::InvalidFinalizedBlock);
-        }
-
-        let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
         Ok(Self {
-            attested_header: attested_header.into(),
-            finalized_header: finalized_header.into(),
-            finality_branch: FixedVector::new(finality_branch)?,
-            sync_aggregate: sync_aggregate.clone(),
-            signature_slot: block.slot(),
+            attested_header,
+            finalized_header,
+            finality_branch,
+            sync_aggregate,
+            signature_slot,
         })
     }
 }
@@ -88,16 +63,14 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<T> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair | ForkName::Merge => Ok(serde_json::from_value::<
-                LightClientFinalityUpdate<T>,
-            >(value)
-            .map_err(serde::de::Error::custom))?,
-            ForkName::Base | ForkName::Capella | ForkName::Deneb => {
-                Err(serde::de::Error::custom(format!(
-                    "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
-                    fork_name
-                )))
-            }
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => Ok(
+                serde_json::from_value::<LightClientFinalityUpdate<T>>(value)
+                    .map_err(serde::de::Error::custom),
+            )?,
+            ForkName::Base => Err(serde::de::Error::custom(format!(
+                "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
+                fork_name
+            ))),
         }
     }
 }
@@ -107,5 +80,5 @@ mod tests {
     use super::*;
     use crate::MainnetEthSpec;
 
-    ssz_tests!(LightClientFinalityUpdate<MainnetEthSpec>);
+    ssz_tests_by_fork!(LightClientFinalityUpdate<MainnetEthSpec>, ForkName::Deneb);
 }

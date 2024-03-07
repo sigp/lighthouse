@@ -37,7 +37,6 @@ pub enum Error {
 pub enum SignableMessage<'a, T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     RandaoReveal(Epoch),
     BeaconBlock(&'a BeaconBlock<T, Payload>),
-    BlobSidecar(&'a Payload::Sidecar),
     AttestationData(&'a AttestationData),
     SignedAggregateAndProof(&'a AggregateAndProof<T>),
     SelectionProof(Slot),
@@ -60,7 +59,6 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> SignableMessage<'a, T, Pay
         match self {
             SignableMessage::RandaoReveal(epoch) => epoch.signing_root(domain),
             SignableMessage::BeaconBlock(b) => b.signing_root(domain),
-            SignableMessage::BlobSidecar(b) => b.signing_root(domain),
             SignableMessage::AttestationData(a) => a.signing_root(domain),
             SignableMessage::SignedAggregateAndProof(a) => a.signing_root(domain),
             SignableMessage::SelectionProof(slot) => slot.signing_root(domain),
@@ -119,6 +117,20 @@ impl SigningContext {
 }
 
 impl SigningMethod {
+    /// Return whether this signing method requires local slashing protection.
+    pub fn requires_local_slashing_protection(
+        &self,
+        enable_web3signer_slashing_protection: bool,
+    ) -> bool {
+        match self {
+            // Slashing protection is ALWAYS required for local keys. DO NOT TURN THIS OFF.
+            SigningMethod::LocalKeystore { .. } => true,
+            // Slashing protection is only required for remote signer keys when the configuration
+            // dictates that it is desired.
+            SigningMethod::Web3Signer { .. } => enable_web3signer_slashing_protection,
+        }
+    }
+
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
     pub async fn get_signature<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
@@ -184,10 +196,6 @@ impl SigningMethod {
                         Web3SignerObject::RandaoReveal { epoch }
                     }
                     SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block)?,
-                    SignableMessage::BlobSidecar(_) => {
-                        // https://github.com/ConsenSys/web3signer/issues/726
-                        unimplemented!("Web3Signer blob signing not implemented.")
-                    }
                     SignableMessage::AttestationData(a) => Web3SignerObject::Attestation(a),
                     SignableMessage::SignedAggregateAndProof(a) => {
                         Web3SignerObject::AggregateAndProof(a)

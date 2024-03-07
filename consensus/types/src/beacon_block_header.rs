@@ -13,6 +13,7 @@ use tree_hash_derive::TreeHash;
 #[derive(
     arbitrary::Arbitrary,
     Debug,
+    Default,
     PartialEq,
     Eq,
     Hash,
@@ -58,6 +59,16 @@ impl BeaconBlockHeader {
         SignedBeaconBlockHeader {
             message: self,
             signature,
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            body_root: Default::default(),
+            parent_root: Default::default(),
+            proposer_index: Default::default(),
+            slot: Default::default(),
+            state_root: Default::default(),
         }
     }
 }

@@ -21,8 +21,6 @@ use lighthouse_network::{
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use logging::TimeLatch;
-use lru::LruCache;
-use parking_lot::Mutex;
 use slog::{crit, debug, o, trace};
 use slog::{error, warn};
 use std::sync::Arc;
@@ -111,14 +109,10 @@ impl<T: BeaconChainTypes> Router<T> {
             reprocess_tx: beacon_processor_reprocess_tx,
             network_globals: network_globals.clone(),
             invalid_block_storage,
-            delayed_lookup_peers: Mutex::new(LruCache::new(
-                crate::network_beacon_processor::DELAYED_PEER_CACHE_SIZE,
-            )),
             executor: executor.clone(),
             log: log.clone(),
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
-        network_beacon_processor.spawn_delayed_lookup_service();
 
         // spawn the sync thread
         crate::sync::manager::spawn(
@@ -224,7 +218,7 @@ impl<T: BeaconChainTypes> Router<T> {
             ),
             Request::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_lightclient_bootstrap_request(peer_id, request_id, request),
+                    .send_light_client_bootstrap_request(peer_id, request_id, request),
             ),
         }
     }
@@ -302,14 +296,14 @@ impl<T: BeaconChainTypes> Router<T> {
                 ),
             ),
             PubsubMessage::BlobSidecar(data) => {
-                let (blob_index, signed_blob) = *data;
+                let (blob_index, blob_sidecar) = *data;
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_gossip_blob_sidecar(
                         message_id,
                         peer_id,
                         self.network_globals.client(&peer_id),
                         blob_index,
-                        signed_blob,
+                        blob_sidecar,
                         timestamp_now(),
                     ),
                 )

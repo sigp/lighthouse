@@ -1,7 +1,7 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "4.5.0"
+version = "5.0.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
@@ -43,6 +43,8 @@ beacon_chain = { workspace = true }
 store = { workspace = true }
 malloc_utils = { workspace = true }
 rayon = { workspace = true }
+execution_layer = { workspace = true }
+hex = { workspace = true }
 
 [package.metadata.cargo-udeps.ignore]
 normal = ["malloc_utils"]

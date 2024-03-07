@@ -46,7 +46,7 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
             while {
                 let pair_next_blob = blob_iter
                     .peek()
-                    .map(|sidecar| sidecar.slot == block.slot())
+                    .map(|sidecar| sidecar.slot() == block.slot())
                     .unwrap_or(false);
                 pair_next_blob
             } {

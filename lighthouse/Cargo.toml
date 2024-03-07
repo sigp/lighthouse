@@ -1,10 +1,10 @@
 [package]
 name = "lighthouse"
-version = "4.5.0"
+version = "5.0.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
-rust-version = "1.69.0"
+rust-version = "1.75.0"
 
 [features]
 default = ["slasher-lmdb"]
@@ -35,7 +35,6 @@ types = { workspace = true }
 bls = { workspace = true }
 ethereum_hashing = { workspace = true }
 clap = { workspace = true }
-env_logger = { workspace = true }
 environment = { workspace = true }
 boot_node = { path = "../boot_node" }
 futures = { workspace = true }
@@ -57,6 +56,8 @@ unused_port = { workspace = true }
 database_manager = { path = "../database_manager" }
 slasher = { workspace = true }
 validator_manager = { path = "../validator_manager" }
+tracing-subscriber = { workspace = true }
+logging = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

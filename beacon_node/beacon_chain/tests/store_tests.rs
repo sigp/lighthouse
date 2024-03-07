@@ -3,6 +3,7 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
     mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
@@ -26,6 +27,7 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
+use store::chunked_vector::Chunk;
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
 use store::{
     chunked_vector::{chunk_key, Field},
@@ -106,10 +108,10 @@ fn get_harness_generic(
     harness
 }
 
-/// Tests that `store.heal_freezer_block_roots` inserts block roots between last restore point
+/// Tests that `store.heal_freezer_block_roots_at_split` inserts block roots between last restore point
 /// slot and the split slot.
 #[tokio::test]
-async fn heal_freezer_block_roots() {
+async fn heal_freezer_block_roots_at_split() {
     // chunk_size is hard-coded to 128
     let num_blocks_produced = E::slots_per_epoch() * 20;
     let db_path = tempdir().unwrap();
@@ -136,7 +138,7 @@ async fn heal_freezer_block_roots() {
 
     // Do a heal before deleting to make sure that it doesn't break.
     let last_restore_point_slot = Slot::new(16 * E::slots_per_epoch());
-    store.heal_freezer_block_roots().unwrap();
+    store.heal_freezer_block_roots_at_split().unwrap();
     check_freezer_block_roots(&harness, last_restore_point_slot, split_slot);
 
     // Delete block roots between `last_restore_point_slot` and `split_slot`.
@@ -164,7 +166,7 @@ async fn heal_freezer_block_roots() {
     assert!(matches!(block_root_err, store::Error::NoContinuationData));
 
     // Re-insert block roots
-    store.heal_freezer_block_roots().unwrap();
+    store.heal_freezer_block_roots_at_split().unwrap();
     check_freezer_block_roots(&harness, last_restore_point_slot, split_slot);
 
     // Run for another two epochs to check that the invariant is maintained.
@@ -243,7 +245,7 @@ async fn heal_freezer_block_roots_with_skip_slots() {
     assert!(matches!(block_root_err, store::Error::NoContinuationData));
 
     // heal function
-    store.heal_freezer_block_roots().unwrap();
+    store.heal_freezer_block_roots_at_split().unwrap();
     check_freezer_block_roots(&harness, last_restore_point_slot, split_slot);
 
     // Run for another two epochs to check that the invariant is maintained.
@@ -257,12 +259,84 @@ async fn heal_freezer_block_roots_with_skip_slots() {
     check_iterators(&harness);
 }
 
-fn check_freezer_block_roots(
-    harness: &TestHarness,
-    last_restore_point_slot: Slot,
-    split_slot: Slot,
-) {
-    for slot in (last_restore_point_slot.as_u64()..split_slot.as_u64()).map(Slot::new) {
+/// Tests that `store.heal_freezer_block_roots_at_genesis` replaces 0x0 block roots between slot
+/// 0 and the first non-skip slot with genesis block root.
+#[tokio::test]
+async fn heal_freezer_block_roots_at_genesis() {
+    // Run for a few epochs to ensure we're past finalization.
+    let num_blocks_produced = E::slots_per_epoch() * 4;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Start with 2 skip slots.
+    harness.advance_slot();
+    harness.advance_slot();
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Do a heal before deleting to make sure that it doesn't break.
+    store.heal_freezer_block_roots_at_genesis().unwrap();
+    check_freezer_block_roots(
+        &harness,
+        Slot::new(0),
+        Epoch::new(1).end_slot(E::slots_per_epoch()),
+    );
+
+    // Write 0x0 block roots at slot 1 and slot 2.
+    let chunk_index = 0;
+    let chunk_db_key = chunk_key(chunk_index);
+    let mut chunk =
+        Chunk::<Hash256>::load(&store.cold_db, DBColumn::BeaconBlockRoots, &chunk_db_key)
+            .unwrap()
+            .unwrap();
+
+    chunk.values[1] = Hash256::zero();
+    chunk.values[2] = Hash256::zero();
+
+    let mut ops = vec![];
+    chunk
+        .store(DBColumn::BeaconBlockRoots, &chunk_db_key, &mut ops)
+        .unwrap();
+    store.cold_db.do_atomically(ops).unwrap();
+
+    // Ensure the DB is corrupted
+    let block_roots = store
+        .forwards_block_roots_iterator_until(
+            Slot::new(1),
+            Slot::new(2),
+            || unreachable!(),
+            &harness.chain.spec,
+        )
+        .unwrap()
+        .map(Result::unwrap)
+        .take(2)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        block_roots,
+        vec![
+            (Hash256::zero(), Slot::new(1)),
+            (Hash256::zero(), Slot::new(2))
+        ]
+    );
+
+    // Insert genesis block roots at skip slots before first block slot
+    store.heal_freezer_block_roots_at_genesis().unwrap();
+    check_freezer_block_roots(
+        &harness,
+        Slot::new(0),
+        Epoch::new(1).end_slot(E::slots_per_epoch()),
+    );
+}
+
+fn check_freezer_block_roots(harness: &TestHarness, start_slot: Slot, end_slot: Slot) {
+    for slot in (start_slot.as_u64()..end_slot.as_u64()).map(Slot::new) {
         let (block_root, result_slot) = harness
             .chain
             .store
@@ -2195,17 +2269,17 @@ async fn garbage_collect_temp_states_from_failed_block() {
         let block_slot = Slot::new(2 * slots_per_epoch);
         let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
 
-        let (mut block, _) = signed_block.deconstruct();
+        let (mut block, _) = (*signed_block).clone().deconstruct();
 
         // Mutate the block to make it invalid, and re-sign it.
         *block.state_root_mut() = Hash256::repeat_byte(0xff);
         let proposer_index = block.proposer_index() as usize;
-        let block = block.sign(
+        let block = Arc::new(block.sign(
             &harness.validator_keypairs[proposer_index].sk,
             &state.fork(),
             state.genesis_validators_root(),
             &harness.spec,
-        );
+        ));
 
         // The block should be rejected, but should store a bunch of temporary states.
         harness.set_current_slot(block_slot);
@@ -2322,6 +2396,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .get_full_block(&wss_block_root)
         .unwrap()
         .unwrap();
+    let wss_blobs_opt = harness.chain.store.get_blobs(&wss_block_root).unwrap();
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot))
         .unwrap()
@@ -2348,7 +2423,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .unwrap();
 
     let mock =
-        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone(), None);
+        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
 
     // Initialise a new beacon chain from the finalized checkpoint.
     // The slot clock must be set to a time ahead of the checkpoint state.
@@ -2364,7 +2439,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .custom_spec(test_spec::<E>())
         .task_executor(harness.chain.task_executor.clone())
         .logger(log.clone())
-        .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
+        .weak_subjectivity_state(
+            wss_state,
+            wss_block.clone(),
+            wss_blobs_opt.clone(),
+            genesis_state,
+        )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
         .dummy_eth1_backend()
@@ -2382,6 +2462,17 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .expect("should build");
 
     let beacon_chain = Arc::new(beacon_chain);
+    let wss_block_root = wss_block.canonical_root();
+    let store_wss_block = harness
+        .chain
+        .get_block(&wss_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+    let store_wss_blobs_opt = beacon_chain.store.get_blobs(&wss_block_root).unwrap();
+
+    assert_eq!(store_wss_block, wss_block);
+    assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
@@ -2474,6 +2565,25 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         }
     }
 
+    // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
+    // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
+    let mut batch_with_invalid_first_block = available_blocks.clone();
+    batch_with_invalid_first_block[0] = {
+        let (block_root, block, blobs) = available_blocks[0].clone().deconstruct();
+        let mut corrupt_block = (*block).clone();
+        *corrupt_block.signature_mut() = Signature::empty();
+        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), blobs)
+    };
+
+    // Importing the invalid batch should error.
+    assert!(matches!(
+        beacon_chain
+            .import_historical_block_batch(batch_with_invalid_first_block)
+            .unwrap_err(),
+        BeaconChainError::HistoricalBlockError(HistoricalBlockError::InvalidSignature)
+    ));
+
+    // Importing the batch with valid signatures should succeed.
     beacon_chain
         .import_historical_block_batch(available_blocks.clone())
         .unwrap();
@@ -2604,7 +2714,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         .chain
         .process_block(
             invalid_fork_block.canonical_root(),
-            Arc::new(invalid_fork_block.clone()),
+            invalid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -2617,7 +2727,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         .chain
         .process_block(
             valid_fork_block.canonical_root(),
-            Arc::new(valid_fork_block.clone()),
+            valid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )

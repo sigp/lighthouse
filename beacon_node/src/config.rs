@@ -62,6 +62,13 @@ pub fn get_config<E: EthSpec>(
             fs::remove_dir_all(freezer_db)
                 .map_err(|err| format!("Failed to remove freezer_db: {}", err))?;
         }
+
+        // Remove the blobs db.
+        let blobs_db = client_config.get_blobs_db_path();
+        if blobs_db.exists() {
+            fs::remove_dir_all(blobs_db)
+                .map_err(|err| format!("Failed to remove blobs_db: {}", err))?;
+        }
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -156,8 +163,15 @@ pub fn get_config<E: EthSpec>(
             cli_args.is_present("light-client-server");
     }
 
+    if cli_args.is_present("light-client-server") {
+        client_config.chain.enable_light_client_server = true;
+    }
+
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
+    }
+    if let Some(cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
+        client_config.chain.snapshot_cache_size = cache_size;
     }
 
     /*
@@ -309,6 +323,21 @@ pub fn get_config<E: EthSpec>(
                 clap_utils::parse_optional(cli_args, "builder-user-agent")?;
         }
 
+        if cli_args.is_present("builder-profit-threshold") {
+            warn!(
+                log,
+                "Ignoring --builder-profit-threshold";
+                "info" => "this flag is deprecated and will be removed"
+            );
+        }
+        if cli_args.is_present("always-prefer-builder-payload") {
+            warn!(
+                log,
+                "Ignoring --always-prefer-builder-payload";
+                "info" => "this flag is deprecated and will be removed"
+            );
+        }
+
         // Set config values from parse values.
         el_config.secret_files = vec![secret_file.clone()];
         el_config.execution_endpoints = vec![execution_endpoint.clone()];
@@ -317,12 +346,6 @@ pub fn get_config<E: EthSpec>(
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         el_config.default_datadir = client_config.data_dir().clone();
-        el_config.builder_profit_threshold =
-            clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
-        el_config.always_prefer_builder_payload =
-            cli_args.is_present("always-prefer-builder-payload");
-        el_config.ignore_builder_override_suggestion_threshold =
-            clap_utils::parse_required(cli_args, "ignore-builder-override-suggestion-threshold")?;
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
@@ -488,11 +511,14 @@ pub fn get_config<E: EthSpec>(
         None
     };
 
+    client_config.allow_insecure_genesis_sync = cli_args.is_present("allow-insecure-genesis-sync");
+
     client_config.genesis = if eth2_network_config.genesis_state_is_known() {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
-        if let (Some(initial_state_path), Some(initial_block_path)) = (
+        if let (Some(initial_state_path), Some(initial_block_path), opt_initial_blobs_path) = (
             cli_args.value_of("checkpoint-state"),
             cli_args.value_of("checkpoint-block"),
+            cli_args.value_of("checkpoint-blobs"),
         ) {
             let read = |path: &str| {
                 use std::fs::File;
@@ -508,10 +534,12 @@ pub fn get_config<E: EthSpec>(
 
             let anchor_state_bytes = read(initial_state_path)?;
             let anchor_block_bytes = read(initial_block_path)?;
+            let anchor_blobs_bytes = opt_initial_blobs_path.map(read).transpose()?;
 
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes,
                 anchor_block_bytes,
+                anchor_blobs_bytes,
             }
         } else if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
             let url = SensitiveUrl::parse(remote_bn_url)
@@ -962,13 +990,13 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc_port)
-                .unwrap_or(port);
+                .unwrap_or(tcp_port);
 
             let quic_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic_port)
-                .unwrap_or(port + 1);
+                .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
             ListenAddress::V6(lighthouse_network::ListenAddr {
                 addr: ipv6,
@@ -991,14 +1019,14 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_disc_port)
-                .unwrap_or(port);
+                .unwrap_or(tcp_port);
             // use zero ports if required. If not, use the specific quic port. If none given, use
             // the tcp port + 1.
             let quic_port = use_zero_ports
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
-                .unwrap_or(port + 1);
+                .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
             ListenAddress::V4(lighthouse_network::ListenAddr {
                 addr: ipv4,
@@ -1021,7 +1049,11 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
-                .unwrap_or(port + 1);
+                .unwrap_or(if ipv4_tcp_port == 0 {
+                    0
+                } else {
+                    ipv4_tcp_port + 1
+                });
 
             // Defaults to 9090 when required
             let ipv6_tcp_port = use_zero_ports
@@ -1037,7 +1069,11 @@ pub fn parse_listening_addresses(
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic6_port)
-                .unwrap_or(ipv6_tcp_port + 1);
+                .unwrap_or(if ipv6_tcp_port == 0 {
+                    0
+                } else {
+                    ipv6_tcp_port + 1
+                });
 
             ListenAddress::DualStack(
                 lighthouse_network::ListenAddr {
@@ -1092,8 +1128,6 @@ pub fn set_network_config(
         config.target_peers = target_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
-    } else {
-        config.target_peers = 80; // default value
     }
 
     if let Some(value) = cli_args.value_of("network-load") {

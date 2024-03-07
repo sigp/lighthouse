@@ -25,8 +25,8 @@ use warp::{http::StatusCode, Filter, Rejection};
 
 use crate::EngineCapabilities;
 pub use execution_block_generator::{
-    generate_blobs, generate_genesis_block, generate_genesis_header, generate_pow_block, Block,
-    ExecutionBlockGenerator,
+    generate_blobs, generate_genesis_block, generate_genesis_header, generate_pow_block,
+    static_valid_tx, Block, ExecutionBlockGenerator,
 };
 pub use hook::Hook;
 pub use mock_builder::{MockBuilder, Operation};
@@ -35,7 +35,6 @@ pub use mock_execution_layer::MockExecutionLayer;
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
-pub const DEFAULT_BUILDER_THRESHOLD_WEI: u128 = 1_000_000_000_000_000_000;
 pub const DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI: u128 = 10_000_000_000_000_000;
 pub const DEFAULT_BUILDER_PAYLOAD_VALUE_WEI: u128 = 20_000_000_000_000_000;
 pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
@@ -600,8 +599,8 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
     let code;
     let message;
 
-    if let Some(e) = err.find::<AuthError>() {
-        message = format!("Authorization error: {:?}", e);
+    if let Some(AuthError(e)) = err.find::<AuthError>() {
+        message = format!("Authorization error: {}", e);
         code = StatusCode::UNAUTHORIZED;
     } else {
         message = "BAD_REQUEST".to_string();

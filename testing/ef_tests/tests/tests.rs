@@ -1,7 +1,7 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
-use types::*;
+use types::{MainnetEthSpec, MinimalEthSpec, *};
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.
@@ -418,12 +418,6 @@ mod ssz_static {
     }
 
     #[test]
-    fn signed_blob_sidecar() {
-        SszStaticHandler::<SignedBlobSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
-        SszStaticHandler::<SignedBlobSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
-    }
-
-    #[test]
     fn blob_identifier() {
         SszStaticHandler::<BlobIdentifier, MinimalEthSpec>::deneb_only().run();
         SszStaticHandler::<BlobIdentifier, MainnetEthSpec>::deneb_only().run();
@@ -586,6 +580,18 @@ fn fork_choice_withholding() {
 }
 
 #[test]
+fn fork_choice_should_override_forkchoice_update() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("should_override_forkchoice_update").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("should_override_forkchoice_update").run();
+}
+
+#[test]
+fn fork_choice_get_proposer_head() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("get_proposer_head").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("get_proposer_head").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();
@@ -635,6 +641,13 @@ fn kzg_verify_kzg_proof() {
 #[test]
 fn merkle_proof_validity() {
     MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
+#[cfg(feature = "fake_crypto")]
+fn kzg_inclusion_merkle_proof_validity() {
+    KzgInclusionMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+    KzgInclusionMerkleProofValidityHandler::<MinimalEthSpec>::default().run();
 }
 
 #[test]

@@ -83,7 +83,6 @@ type_name!(ProposerSlashing);
 type_name_generic!(SignedAggregateAndProof);
 type_name_generic!(SignedBeaconBlock);
 type_name!(SignedBeaconBlockHeader);
-type_name_generic!(SignedBlobSidecar);
 type_name_generic!(SignedContributionAndProof);
 type_name!(SignedVoluntaryExit);
 type_name!(SigningData);

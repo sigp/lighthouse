@@ -42,7 +42,7 @@ pub struct TestRig<E, T: EthSpec = MainnetEthSpec> {
     ee_a: ExecutionPair<E, T>,
     ee_b: ExecutionPair<E, T>,
     spec: ChainSpec,
-    _runtime_shutdown: exit_future::Signal,
+    _runtime_shutdown: async_channel::Sender<()>,
 }
 
 /// Import a private key into the execution engine and unlock it so that we can
@@ -111,7 +111,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 .build()
                 .unwrap(),
         );
-        let (runtime_shutdown, exit) = exit_future::signal();
+        let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
         let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
@@ -334,6 +334,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 builder_params,
                 TEST_FORK,
                 &self.spec,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await
@@ -380,7 +381,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(valid_payload.clone().try_into().unwrap())
+            .notify_new_payload(valid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -434,7 +435,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(invalid_payload.try_into().unwrap())
+            .notify_new_payload(invalid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert!(matches!(
@@ -485,6 +486,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 builder_params,
                 TEST_FORK,
                 &self.spec,
+                None,
                 BlockProductionVersion::FullV2,
             )
             .await
@@ -505,7 +507,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(second_payload.clone().try_into().unwrap())
+            .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -557,7 +559,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(second_payload.clone().try_into().unwrap())
+            .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert!(matches!(status, PayloadStatus::Syncing));
@@ -595,7 +597,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(valid_payload.clone().try_into().unwrap())
+            .notify_new_payload(valid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -609,7 +611,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(second_payload.clone().try_into().unwrap())
+            .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
