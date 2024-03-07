@@ -3448,7 +3448,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    let unique_subscriptions: std::collections::BTreeSet<_> = subscriptions
+                    let subscriptions: std::collections::BTreeSet<_> = subscriptions
                         .iter()
                         .map(|subscription| {
                             chain
@@ -3463,9 +3463,8 @@ pub fn serve<T: BeaconChainTypes>(
                             }
                         })
                         .collect();
-                    let message = ValidatorSubscriptionMessage::AttestationSubscribe {
-                        subscriptions: unique_subscriptions.into_iter().collect(),
-                    };
+                    let message =
+                        ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions };
                     if let Err(e) = validator_subscription_tx.try_send(message) {
                         warn!(
                             log,

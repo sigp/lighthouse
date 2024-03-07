@@ -196,7 +196,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// safely dropped.
     pub fn validator_subscriptions(
         &mut self,
-        subscriptions: Vec<ValidatorSubscription>,
+        subscriptions: impl Iterator<Item=ValidatorSubscription>,
     ) -> Result<(), String> {
         // If the node is in a proposer-only state, we ignore all subnet subscriptions.
         if self.proposer_only {
