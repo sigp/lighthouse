@@ -211,7 +211,7 @@ jobs:
           channel: stable
           cache-target: release
           bins: cargo-nextest
-    - name: Run consensus-spec-tests with blst, milagro and fake_crypto
+    - name: Run consensus-spec-tests with blst and fake_crypto
       run: make nextest-ef
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
