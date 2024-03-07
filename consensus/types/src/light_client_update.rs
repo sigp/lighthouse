@@ -1,13 +1,12 @@
 use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{
-    beacon_state,
-    test_utils::TestRandom,
-    ForkName, ForkVersionDeserialize, LightClientHeader,
+    beacon_state, test_utils::TestRandom, ForkName, ForkVersionDeserialize, LightClientHeader,
 };
 use safe_arith::ArithError;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz_derive::{Decode, Encode};
+use ssz::Decode;
+use ssz_derive::Encode;
 use ssz_types::typenum::{U4, U5, U6};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
@@ -58,19 +57,11 @@ impl From<ArithError> for Error {
     }
 }
 
-/// A LightClientUpdate is the update we request solely to either complete the bootstraping process,
+/// A LightClientUpdate is the update we request solely to either complete the bootstrapping process,
 /// or to sync up to the last committee period, we need to have one ready for each ALTAIR period
 /// we go over, note: there is no need to keep all of the updates from [ALTAIR_PERIOD, CURRENT_PERIOD].
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    arbitrary::Arbitrary,
-    TestRandom,
+    Debug, Clone, PartialEq, Serialize, Deserialize, Encode, arbitrary::Arbitrary, TestRandom,
 )]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
@@ -109,13 +100,47 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientUpdate<T> {
     }
 }
 
+impl<E: EthSpec> LightClientUpdate<E> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<SyncCommittee<E>>()?;
+        builder.register_type::<FixedVector<Hash256, NextSyncCommitteeProofLen>>()?;
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<FixedVector<Hash256, FinalizedRootProofLen>>()?;
+        builder.register_type::<SyncAggregate<E>>()?;
+        builder.register_type::<Slot>()?;
+        let mut decoder = builder.build()?;
+
+        let attested_header = decoder
+            .decode_next_with(|bytes| LightClientHeader::from_ssz_bytes(bytes, fork_name))?;
+        let next_sync_committee = decoder.decode_next_with(SyncCommittee::from_ssz_bytes)?;
+        let next_sync_committee_branch = decoder.decode_next_with(FixedVector::from_ssz_bytes)?;
+        let finalized_header = decoder
+            .decode_next_with(|bytes| LightClientHeader::from_ssz_bytes(bytes, fork_name))?;
+        let finality_branch = decoder.decode_next_with(FixedVector::from_ssz_bytes)?;
+        let sync_aggregate = decoder.decode_next_with(SyncAggregate::from_ssz_bytes)?;
+        let signature_slot = decoder.decode_next_with(Slot::from_ssz_bytes)?;
+
+        Ok(Self {
+            attested_header,
+            next_sync_committee: Arc::new(next_sync_committee),
+            next_sync_committee_branch,
+            finalized_header,
+            finality_branch,
+            sync_aggregate,
+            signature_slot,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::MainnetEthSpec;
     use ssz_types::typenum::Unsigned;
 
-    ssz_tests!(LightClientUpdate<MainnetEthSpec>);
+    ssz_tests_by_fork!(LightClientUpdate<MainnetEthSpec>, ForkName::Deneb);
 
     #[test]
     fn finalized_root_params() {

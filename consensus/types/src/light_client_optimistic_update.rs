@@ -1,23 +1,16 @@
 use super::{EthSpec, ForkName, ForkVersionDeserialize, Slot, SyncAggregate};
 use crate::test_utils::TestRandom;
-use crate::{light_client_header::LightClientHeader};
+use crate::LightClientHeader;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz_derive::{Decode, Encode};
+use ssz::Decode;
+use ssz_derive::Encode;
 use test_random_derive::TestRandom;
 
 /// A LightClientOptimisticUpdate is the update we send on each slot,
 /// it is based off the current unfinalized epoch is verified only against BLS signature.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    arbitrary::Arbitrary,
-    TestRandom,
+    Debug, Clone, PartialEq, Serialize, Deserialize, Encode, arbitrary::Arbitrary, TestRandom,
 )]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
@@ -28,6 +21,27 @@ pub struct LightClientOptimisticUpdate<T: EthSpec> {
     pub sync_aggregate: SyncAggregate<T>,
     /// Slot of the sync aggregated singature
     pub signature_slot: Slot,
+}
+
+impl<E: EthSpec> LightClientOptimisticUpdate<E> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<SyncAggregate<E>>()?;
+        builder.register_type::<Slot>()?;
+        let mut decoder = builder.build()?;
+
+        let attested_header = decoder
+            .decode_next_with(|bytes| LightClientHeader::from_ssz_bytes(bytes, fork_name))?;
+        let sync_aggregate = decoder.decode_next_with(SyncAggregate::from_ssz_bytes)?;
+        let signature_slot = decoder.decode_next_with(Slot::from_ssz_bytes)?;
+
+        Ok(Self {
+            attested_header,
+            sync_aggregate,
+            signature_slot,
+        })
+    }
 }
 
 impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
@@ -53,5 +67,5 @@ mod tests {
     use super::*;
     use crate::MainnetEthSpec;
 
-    ssz_tests!(LightClientOptimisticUpdate<MainnetEthSpec>);
+    ssz_tests_by_fork!(LightClientOptimisticUpdate<MainnetEthSpec>, ForkName::Deneb);
 }
