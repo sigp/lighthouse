@@ -18,9 +18,9 @@ use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
-    fork_core_topics, subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic,
-    SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS, BASE_CORE_TOPICS,
-    CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
+    attestation_sync_committee_topics, fork_core_topics, subnet_from_topic_hash, GossipEncoding,
+    GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS,
+    BASE_CORE_TOPICS, CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
@@ -41,7 +41,6 @@ use std::{
 use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
-    SyncSubnetId, Unsigned,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
@@ -279,15 +278,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             // If we are using metrics, then register which topics we want to make sure to keep
             // track of
             if ctx.libp2p_registry.is_some() {
-                let topics_to_keep_metrics_for = (0..TSpec::SubnetBitfieldLength::to_usize())
-                    .map(|subnet_id| GossipKind::Attestation(SubnetId::new(subnet_id as u64)))
-                    .chain((0..TSpec::SyncCommitteeSubnetCount::to_usize()).map(
-                        |sync_committee_id| {
-                            GossipKind::SyncCommitteeMessage(SyncSubnetId::new(
-                                sync_committee_id as u64,
-                            ))
-                        },
-                    ))
+                let topics_to_keep_metrics_for = attestation_sync_committee_topics::<TSpec>()
                     .map(|gossip_kind| {
                         Topic::from(GossipTopic::new(
                             gossip_kind,
@@ -665,6 +656,20 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
+
+        // Register the new topics for metrics
+        let topics_to_keep_metrics_for = attestation_sync_committee_topics::<TSpec>()
+            .map(|gossip_kind| {
+                Topic::from(GossipTopic::new(
+                    gossip_kind,
+                    GossipEncoding::default(),
+                    new_fork_digest,
+                ))
+                .into()
+            })
+            .collect::<Vec<TopicHash>>();
+        self.gossipsub_mut()
+            .register_topics_for_metrics(topics_to_keep_metrics_for);
     }
 
     /// Unsubscribe from all topics that doesn't have the given fork_digest
