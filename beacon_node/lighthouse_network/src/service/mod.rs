@@ -144,6 +144,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         // initialise the node's ID
         let local_keypair = utils::load_private_key(&config, &log);
 
+        // Trusted peers will also be marked as explicit in GossipSub.
+        // Cfr. https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md#explicit-peering-agreements
+        let trusted_peers: Vec<PeerId> = config
+            .trusted_peers
+            .iter()
+            .map(|x| PeerId::from(x.clone()))
+            .collect();
+
         // set up a collection of variables accessible outside of the network crate
         let network_globals = {
             // Create an ENR or load from disk if appropriate
@@ -158,11 +166,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let globals = NetworkGlobals::new(
                 enr,
                 meta_data,
-                config
-                    .trusted_peers
-                    .iter()
-                    .map(|x| PeerId::from(x.clone()))
-                    .collect(),
+                trusted_peers,
                 config.disable_peer_scoring,
                 &log,
             );
@@ -274,6 +278,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             gossipsub
                 .with_peer_score(params, thresholds)
                 .expect("Valid score params and thresholds");
+
+            // Mark trusted peers as explicit.
+            for explicit_peer in config.trusted_peers.iter() {
+                gossipsub.add_explicit_peer(&PeerId::from(explicit_peer.clone()));
+            }
 
             // If we are using metrics, then register which topics we want to make sure to keep
             // track of
