@@ -854,6 +854,13 @@ where
         }
     }
 
+    /// Register topics to ensure metrics are recorded correctly for these topics.
+    pub fn register_topics_for_metrics(&mut self, topics: Vec<TopicHash>) {
+        if let Some(metrics) = &mut self.metrics {
+            metrics.register_allowed_topics(topics);
+        }
+    }
+
     /// Adds a new peer to the list of explicitly connected peers.
     pub fn add_explicit_peer(&mut self, peer_id: &PeerId) {
         tracing::debug!(peer=%peer_id, "Adding explicit peer");
