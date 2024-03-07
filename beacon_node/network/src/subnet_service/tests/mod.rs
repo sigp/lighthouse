@@ -237,7 +237,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(subscriptions)
+            .validator_subscriptions(subscriptions.into_iter())
             .unwrap();
 
         // not enough time for peer discovery, just subscribe, unsubscribe
@@ -342,7 +342,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(vec![sub1, sub2])
+            .validator_subscriptions(vec![sub1, sub2].into_iter())
             .unwrap();
 
         // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
@@ -423,7 +423,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(subscriptions)
+            .validator_subscriptions(subscriptions.into_iter())
             .unwrap();
 
         let events = get_events(&mut attestation_service, Some(131), 10).await;
@@ -493,7 +493,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(subscriptions)
+            .validator_subscriptions(subscriptions.into_iter())
             .unwrap();
 
         let events = get_events(&mut attestation_service, None, 3).await;
@@ -584,7 +584,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(vec![sub1, sub2])
+            .validator_subscriptions(vec![sub1, sub2].into_iter())
             .unwrap();
 
         // Unsubscription event should happen at the end of the slot.
@@ -657,7 +657,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(subscriptions)
+            .validator_subscriptions(subscriptions.into_iter())
             .unwrap();
 
         // There should only be the same subscriptions as there are in the specification,
