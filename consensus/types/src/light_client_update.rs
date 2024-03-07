@@ -105,12 +105,12 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientUpdate<E> {
 
 impl<E: EthSpec> LightClientUpdate<E> {
     pub fn new(
-        chain_spec: ChainSpec,
         beacon_state: BeaconState<E>,
         block: BeaconBlock<E>,
         attested_state: &mut BeaconState<E>,
         attested_block: &SignedBeaconBlock<E>,
         finalized_block: &SignedBeaconBlock<E>,
+        chain_spec: ChainSpec,
     ) -> Result<Self, Error> {
         let sync_aggregate = block.body().sync_aggregate()?;
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
