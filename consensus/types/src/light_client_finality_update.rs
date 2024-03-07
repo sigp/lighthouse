@@ -57,14 +57,14 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
             ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => Ok(
-                serde_json::from_value::<LightClientFinalityUpdate<T>>(value)
+                serde_json::from_value::<LightClientFinalityUpdate<E>>(value)
                     .map_err(serde::de::Error::custom),
             )?,
             ForkName::Base => Err(serde::de::Error::custom(format!(

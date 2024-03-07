@@ -9,7 +9,6 @@ use ssz::Decode;
 use ssz_derive::Encode;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
-use tree_hash_derive::TreeHash;
 
 /// A LightClientBootstrap is the initializer we send over to light_client nodes
 /// that are trying to generate their basic storage when booting up.
@@ -27,10 +26,10 @@ pub struct LightClientBootstrap<T: EthSpec> {
     pub current_sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen>,
 }
 
-impl<T: EthSpec> LightClientBootstrap<T> {
+impl<E: EthSpec> LightClientBootstrap<E> {
     pub fn from_beacon_state(
-        beacon_state: &mut BeaconState<T>,
-        block: &SignedBeaconBlock<T>,
+        beacon_state: &mut BeaconState<E>,
+        block: &SignedBeaconBlock<E>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let mut header = beacon_state.latest_block_header().clone();
@@ -38,10 +37,11 @@ impl<T: EthSpec> LightClientBootstrap<T> {
         let current_sync_committee_branch =
             beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?;
 
-        let fork_name =
-            chain_spec.fork_name_at_epoch(beacon_state.slot().epoch(T::slots_per_epoch()));
+        let fork_name = beacon_state
+            .fork_name(chain_spec)
+            .map_err(|_| Error::InconsistentFork)?;
 
-        let header = LightClientHeader::<T>::block_to_light_client_header(block, fork_name)?;
+        let header = LightClientHeader::<E>::block_to_light_client_header(block, fork_name)?;
 
         Ok(LightClientBootstrap {
             header,
@@ -53,7 +53,7 @@ impl<T: EthSpec> LightClientBootstrap<T> {
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
         builder.register_anonymous_variable_length_item()?;
-        builder.register_type::<SyncCommittee<T>>()?;
+        builder.register_type::<SyncCommittee<E>>()?;
         builder.register_type::<FixedVector<Hash256, CurrentSyncCommitteeProofLen>>()?;
         let mut decoder = builder.build()?;
 
@@ -71,14 +71,14 @@ impl<T: EthSpec> LightClientBootstrap<T> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientBootstrap<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientBootstrap<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
             ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
-                Ok(serde_json::from_value::<LightClientBootstrap<T>>(value)
+                Ok(serde_json::from_value::<LightClientBootstrap<E>>(value)
                     .map_err(serde::de::Error::custom))?
             }
             ForkName::Base => Err(serde::de::Error::custom(format!(

@@ -1,6 +1,7 @@
 use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{
-    beacon_state, test_utils::TestRandom, ForkName, ForkVersionDeserialize, LightClientHeader,
+    beacon_state, test_utils::TestRandom, BeaconBlock, BeaconBlockHeader, BeaconState, ChainSpec,
+    ForkName, ForkVersionDeserialize, LightClientHeader, SignedBeaconBlock,
 };
 use safe_arith::ArithError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -10,6 +11,7 @@ use ssz_derive::Encode;
 use ssz_types::typenum::{U4, U5, U6};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
 
 pub const FINALIZED_ROOT_INDEX: usize = 105;
 pub const CURRENT_SYNC_COMMITTEE_INDEX: usize = 54;
@@ -37,6 +39,7 @@ pub enum Error {
     MismatchingPeriods,
     InvalidFinalizedBlock,
     BeaconBlockBodyError,
+    InconsistentFork,
 }
 
 impl From<ssz_types::Error> for Error {
@@ -82,14 +85,14 @@ pub struct LightClientUpdate<T: EthSpec> {
     pub signature_slot: Slot,
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientUpdate<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientUpdate<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
             ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
-                Ok(serde_json::from_value::<LightClientUpdate<T>>(value)
+                Ok(serde_json::from_value::<LightClientUpdate<E>>(value)
                     .map_err(serde::de::Error::custom))?
             }
             ForkName::Base => Err(serde::de::Error::custom(format!(
@@ -101,6 +104,64 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientUpdate<T> {
 }
 
 impl<E: EthSpec> LightClientUpdate<E> {
+    pub fn new(
+        chain_spec: ChainSpec,
+        beacon_state: BeaconState<E>,
+        block: BeaconBlock<E>,
+        attested_state: &mut BeaconState<E>,
+        attested_block: &SignedBeaconBlock<E>,
+        finalized_block: &SignedBeaconBlock<E>,
+    ) -> Result<Self, Error> {
+        let sync_aggregate = block.body().sync_aggregate()?;
+        if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
+            return Err(Error::NotEnoughSyncCommitteeParticipants);
+        }
+
+        let signature_period = block.epoch().sync_committee_period(&chain_spec)?;
+        // Compute and validate attested header.
+        let mut attested_header = attested_state.latest_block_header().clone();
+        attested_header.state_root = attested_state.tree_hash_root();
+        let attested_period = attested_header
+            .slot
+            .epoch(E::slots_per_epoch())
+            .sync_committee_period(&chain_spec)?;
+        if attested_period != signature_period {
+            return Err(Error::MismatchingPeriods);
+        }
+        // Build finalized header from finalized block
+        let finalized_header = BeaconBlockHeader {
+            slot: finalized_block.slot(),
+            proposer_index: finalized_block.message().proposer_index(),
+            parent_root: finalized_block.parent_root(),
+            state_root: finalized_block.state_root(),
+            body_root: finalized_block.message().body_root(),
+        };
+        if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
+            return Err(Error::InvalidFinalizedBlock);
+        }
+        let next_sync_committee_branch =
+            attested_state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?;
+        let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
+        let fork_name = beacon_state
+            .fork_name(&chain_spec)
+            .map_err(|_| Error::InconsistentFork)?;
+
+        let attested_header =
+            LightClientHeader::block_to_light_client_header(attested_block, fork_name)?;
+        let finalized_header =
+            LightClientHeader::block_to_light_client_header(finalized_block, fork_name)?;
+
+        Ok(Self {
+            attested_header,
+            next_sync_committee: attested_state.next_sync_committee()?.clone(),
+            next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
+            finalized_header,
+            finality_branch: FixedVector::new(finality_branch)?,
+            sync_aggregate: sync_aggregate.clone(),
+            signature_slot: block.slot(),
+        })
+    }
+
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
         builder.register_anonymous_variable_length_item()?;

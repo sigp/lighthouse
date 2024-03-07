@@ -13,7 +13,6 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
-use tree_hash_derive::TreeHash;
 
 #[superstruct(
     variants(Altair, Capella, Deneb),
