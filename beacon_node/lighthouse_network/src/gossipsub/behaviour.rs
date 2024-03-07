@@ -646,11 +646,6 @@ where
                         // We don't have `mesh_n` peers in our mesh, we will randomly select extras
                         // and publish to them.
 
-                        let explicit_peers = &self.explicit_peers;
-                        let scores = self
-                            .peer_score
-                            .as_ref()
-                            .map(|(score, thresholds, ..)| (score, thresholds));
                         // Get a random set of peers that are appropriate to send messages too.
                         let peer_list = get_random_peers(
                             &self.connected_peers,
@@ -658,12 +653,10 @@ where
                             needed_extra_peers,
                             |peer| {
                                 !mesh_peers.contains(peer)
-                                    && !explicit_peers.contains(peer)
-                                    && scores
-                                        .map(|(score, thresholds)| {
-                                            score.score(peer) > thresholds.publish_threshold
-                                        })
-                                        .unwrap_or(true)
+                                    && !self.explicit_peers.contains(peer)
+                                    && !self
+                                        .score_below_threshold(peer, |pst| pst.publish_threshold)
+                                        .0
                             },
                         );
                         recipient_peers.extend(peer_list);
@@ -2238,10 +2231,9 @@ where
                         if outbound <= self.config.mesh_outbound_min() {
                             // do not remove anymore outbound peers
                             continue;
-                        } else {
-                            // an outbound peer gets removed
-                            outbound -= 1;
                         }
+                        // an outbound peer gets removed
+                        outbound -= 1;
                     }
 
                     // remove the peer
