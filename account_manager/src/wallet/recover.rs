@@ -52,13 +52,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .possible_values(&[HD_TYPE])
                 .default_value(HD_TYPE),
         )
-        .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
 }
 
 pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {

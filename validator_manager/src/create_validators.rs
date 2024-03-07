@@ -91,13 +91,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
-        .arg(
             Arg::with_name(DISABLE_DEPOSITS_FLAG)
                 .long(DISABLE_DEPOSITS_FLAG)
                 .help(

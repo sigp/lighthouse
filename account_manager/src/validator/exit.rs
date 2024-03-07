@@ -64,13 +64,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(NO_CONFIRMATION)
                 .help("Exits without prompting for confirmation that you understand the implications of a voluntary exit. This should be used with caution")
         )
-        .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
 }
 
 pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), String> {
