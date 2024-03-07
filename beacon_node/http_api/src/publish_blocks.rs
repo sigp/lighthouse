@@ -20,7 +20,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::data_column_sidecar::DataColumnSidecarList;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, DataColumnSidecar, DataColumnSubnetId,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, DataColumnSubnetId,
     EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256,
     SignedBeaconBlock, SignedBlindedBeaconBlock, VariableList,
 };
@@ -126,7 +126,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let log_clone = log.clone();
 
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
-    let (gossip_verified_block, gossip_verified_blobs) =
+    let (gossip_verified_block, gossip_verified_blobs, gossip_verified_data_columns) =
         match block_contents.into_gossip_verified_block(&chain) {
             Ok(b) => b,
             Err(BlockContentsError::BlockError(BlockError::BlockIsAlreadyKnown))
@@ -165,22 +165,15 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             .collect::<Vec<_>>();
         VariableList::from(blobs)
     });
-
-    // TODO: evaluate whether data columns should be constructed in `into_gossip_verified_block`
-    let data_cols_opt = blobs_opt
+    let data_cols_opt = gossip_verified_data_columns
         .as_ref()
-        .map(|blobs| {
-            let kzg = chain
-                .kzg
-                .as_ref()
-                .ok_or(warp_utils::reject::custom_server_error(
-                    "unable to publish".into(),
-                ))?;
-
-            DataColumnSidecar::build_sidecars(blobs, &block, kzg)
-                .map_err(|_err| warp_utils::reject::custom_server_error("unable to publish".into()))
-        })
-        .transpose()?;
+        .map(|gossip_verified_data_columns| {
+            let data_columns = gossip_verified_data_columns
+                .into_iter()
+                .map(|col| col.clone_data_column())
+                .collect::<Vec<_>>();
+            VariableList::from(data_columns)
+        });
 
     let block_root = block_root.unwrap_or(gossip_verified_block.block_root);
 
