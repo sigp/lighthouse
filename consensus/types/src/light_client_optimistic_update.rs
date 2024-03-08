@@ -33,14 +33,21 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
 
         let attested_header = decoder
             .decode_next_with(|bytes| LightClientHeader::from_ssz_bytes(bytes, fork_name))?;
-        let sync_aggregate = decoder.decode_next_with(SyncAggregate::from_ssz_bytes)?;
-        let signature_slot = decoder.decode_next_with(Slot::from_ssz_bytes)?;
+        let sync_aggregate = decoder.decode_next()?;
+        let signature_slot = decoder.decode_next()?;
 
         Ok(Self {
             attested_header,
             sync_aggregate,
             signature_slot,
         })
+    }
+
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes(bytes, fork_name)
     }
 }
 

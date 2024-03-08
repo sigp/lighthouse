@@ -5,15 +5,16 @@ use crate::{
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz::Decode;
 use ssz_derive::Encode;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
+use tree_hash_derive::TreeHash;
+use derivative::Derivative;
 
 /// A LightClientBootstrap is the initializer we send over to light_client nodes
 /// that are trying to generate their basic storage when booting up.
 #[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, Encode, arbitrary::Arbitrary, TestRandom,
+    Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Derivative, TreeHash, arbitrary::Arbitrary, TestRandom,
 )]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
@@ -37,11 +38,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         let current_sync_committee_branch =
             beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?;
 
-        let fork_name = beacon_state
-            .fork_name(chain_spec)
-            .map_err(|_| Error::InconsistentFork)?;
-
-        let header = LightClientHeader::<E>::block_to_light_client_header(block, fork_name)?;
+        let header = LightClientHeader::<E>::block_to_light_client_header(block, chain_spec)?;
 
         Ok(LightClientBootstrap {
             header,
@@ -56,18 +53,23 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         builder.register_type::<SyncCommittee<E>>()?;
         builder.register_type::<FixedVector<Hash256, CurrentSyncCommitteeProofLen>>()?;
         let mut decoder = builder.build()?;
-
         let header = decoder
             .decode_next_with(|bytes| LightClientHeader::from_ssz_bytes(bytes, fork_name))?;
-        let current_sync_committee = decoder.decode_next_with(SyncCommittee::from_ssz_bytes)?;
-        let current_sync_committee_branch =
-            decoder.decode_next_with(FixedVector::from_ssz_bytes)?;
+        let current_sync_committee = decoder.decode_next()?;
+        let current_sync_committee_branch = decoder.decode_next()?;
 
         Ok(Self {
             header,
             current_sync_committee: Arc::new(current_sync_committee),
             current_sync_committee_branch,
         })
+    }
+
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes(bytes, fork_name)
     }
 }
 

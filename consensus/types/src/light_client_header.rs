@@ -1,10 +1,11 @@
 use crate::BeaconBlockHeader;
+use crate::ChainSpec;
 use crate::ForkName;
 use crate::ForkVersionDeserialize;
 use crate::{light_client_update::*, BeaconBlockBody};
 use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    FixedVector, Hash256, SignedBeaconBlock,
+    FixedVector, Hash256, SignedBeaconBlock
 };
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -13,6 +14,8 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
+use derivative::Derivative;
+use tree_hash_derive::TreeHash;
 
 #[superstruct(
     variants(Altair, Capella, Deneb),
@@ -23,18 +26,20 @@ use test_random_derive::TestRandom;
             PartialEq,
             Serialize,
             Deserialize,
+            Derivative,
             Decode,
             Encode,
             TestRandom,
             arbitrary::Arbitrary,
+            TreeHash,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
     )
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, arbitrary::Arbitrary, PartialEq)]
+#[derive(Debug, Clone, Serialize, TreeHash, Deserialize, arbitrary::Arbitrary, PartialEq)]
 #[serde(untagged)]
-// #[ssz(enum_behaviour = "transparent")]
+#[tree_hash(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientHeader<E: EthSpec> {
@@ -49,17 +54,19 @@ pub struct LightClientHeader<E: EthSpec> {
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_header_deneb"))]
     pub execution: ExecutionPayloadHeaderDeneb<E>,
 
-    #[serde(skip)]
     #[ssz(skip_serializing, skip_deserializing)]
-    pub phantom_data: PhantomData<E>,
+    #[tree_hash(skip_hashing)]
+    #[serde(skip)]
+    #[arbitrary(default)]
+    pub _phantom_data: PhantomData<E>,
 }
 
 impl<E: EthSpec> LightClientHeader<E> {
     pub fn block_to_light_client_header(
         block: &SignedBeaconBlock<E>,
-        fork_name: ForkName,
+        chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        let header = match fork_name {
+        let header = match block.fork_name(chain_spec).map_err(|_| Error::InconsistentFork)? {
             ForkName::Base => return Err(Error::AltairForkNotActive),
             ForkName::Altair | ForkName::Merge => LightClientHeader::Altair(
                 LightClientHeaderAltair::block_to_light_client_header(block)?,
@@ -96,6 +103,14 @@ impl<E: EthSpec> LightClientHeader<E> {
         };
 
         Ok(header)
+    }
+
+    /// Custom SSZ decoder that takes a `ForkName` as context.
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes(bytes, fork_name)
     }
 }
 
@@ -137,7 +152,7 @@ impl<E: EthSpec> LightClientHeaderAltair<E> {
     pub fn block_to_light_client_header(block: &SignedBeaconBlock<E>) -> Result<Self, Error> {
         Ok(LightClientHeaderAltair {
             beacon: block.message().block_header(),
-            phantom_data: PhantomData,
+            _phantom_data: PhantomData,
         })
     }
 }
@@ -166,7 +181,7 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
             beacon: block.message().block_header(),
             execution: header,
             execution_branch: FixedVector::new(execution_branch)?,
-            phantom_data: PhantomData,
+            _phantom_data: PhantomData,
         });
     }
 }
@@ -195,7 +210,7 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
             beacon: block.message().block_header(),
             execution: header,
             execution_branch: FixedVector::new(execution_branch)?,
-            phantom_data: PhantomData,
+            _phantom_data: PhantomData,
         })
     }
 }

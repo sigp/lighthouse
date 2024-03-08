@@ -110,21 +110,21 @@ impl<E: EthSpec> LightClientUpdate<E> {
         attested_state: &mut BeaconState<E>,
         attested_block: &SignedBeaconBlock<E>,
         finalized_block: &SignedBeaconBlock<E>,
-        chain_spec: ChainSpec,
+        chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let sync_aggregate = block.body().sync_aggregate()?;
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
             return Err(Error::NotEnoughSyncCommitteeParticipants);
         }
 
-        let signature_period = block.epoch().sync_committee_period(&chain_spec)?;
+        let signature_period = block.epoch().sync_committee_period(chain_spec)?;
         // Compute and validate attested header.
         let mut attested_header = attested_state.latest_block_header().clone();
         attested_header.state_root = attested_state.tree_hash_root();
         let attested_period = attested_header
             .slot
             .epoch(E::slots_per_epoch())
-            .sync_committee_period(&chain_spec)?;
+            .sync_committee_period(chain_spec)?;
         if attested_period != signature_period {
             return Err(Error::MismatchingPeriods);
         }
@@ -142,14 +142,11 @@ impl<E: EthSpec> LightClientUpdate<E> {
         let next_sync_committee_branch =
             attested_state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?;
         let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
-        let fork_name = beacon_state
-            .fork_name(&chain_spec)
-            .map_err(|_| Error::InconsistentFork)?;
 
         let attested_header =
-            LightClientHeader::block_to_light_client_header(attested_block, fork_name)?;
+            LightClientHeader::block_to_light_client_header(attested_block, chain_spec)?;
         let finalized_header =
-            LightClientHeader::block_to_light_client_header(finalized_block, fork_name)?;
+            LightClientHeader::block_to_light_client_header(finalized_block, chain_spec)?;
 
         Ok(Self {
             attested_header,
@@ -175,13 +172,13 @@ impl<E: EthSpec> LightClientUpdate<E> {
 
         let attested_header = decoder
             .decode_next_with(|bytes| LightClientHeader::from_ssz_bytes(bytes, fork_name))?;
-        let next_sync_committee = decoder.decode_next_with(SyncCommittee::from_ssz_bytes)?;
-        let next_sync_committee_branch = decoder.decode_next_with(FixedVector::from_ssz_bytes)?;
+        let next_sync_committee = decoder.decode_next()?;
+        let next_sync_committee_branch = decoder.decode_next()?;
         let finalized_header = decoder
             .decode_next_with(|bytes| LightClientHeader::from_ssz_bytes(bytes, fork_name))?;
-        let finality_branch = decoder.decode_next_with(FixedVector::from_ssz_bytes)?;
-        let sync_aggregate = decoder.decode_next_with(SyncAggregate::from_ssz_bytes)?;
-        let signature_slot = decoder.decode_next_with(Slot::from_ssz_bytes)?;
+        let finality_branch = decoder.decode_next()?;
+        let sync_aggregate = decoder.decode_next()?;
+        let signature_slot = decoder.decode_next()?;
 
         Ok(Self {
             attested_header,
@@ -192,6 +189,13 @@ impl<E: EthSpec> LightClientUpdate<E> {
             sync_aggregate,
             signature_slot,
         })
+    }
+
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes(bytes, fork_name)
     }
 }
 
