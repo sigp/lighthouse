@@ -45,17 +45,47 @@ pub trait ObservableOperation<E: EthSpec>: VerifyOperation<E> + Sized {
     ///
     /// See the comment on `observed_validator_indices` above for detail.
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]>;
+
+    /// Check if the validator with `validator_index` has already committed the operation in `state`
+    /// and is therefore ineligible to do it again.
+    fn validator_already_committed_operation(
+        state: &BeaconState<E>,
+        validator_index: u64,
+        spec: &ChainSpec,
+    ) -> bool;
 }
 
 impl<E: EthSpec> ObservableOperation<E> for SignedVoluntaryExit {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
         smallvec![self.message.validator_index]
     }
+
+    fn validator_already_committed_operation(
+        state: &BeaconState<E>,
+        validator_index: u64,
+        spec: &ChainSpec,
+    ) -> bool {
+        state
+            .get_validator(validator_index as usize)
+            .map_or(false, |validator| {
+                validator.exit_epoch != spec.far_future_epoch
+            })
+    }
 }
 
 impl<E: EthSpec> ObservableOperation<E> for ProposerSlashing {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
         smallvec![self.signed_header_1.message.proposer_index]
+    }
+
+    fn validator_already_committed_operation(
+        state: &BeaconState<E>,
+        validator_index: u64,
+        _: &ChainSpec,
+    ) -> bool {
+        state
+            .get_validator(validator_index as usize)
+            .map_or(false, |validator| validator.slashed)
     }
 }
 
@@ -78,11 +108,33 @@ impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
             .copied()
             .collect()
     }
+
+    fn validator_already_committed_operation(
+        state: &BeaconState<E>,
+        validator_index: u64,
+        _: &ChainSpec,
+    ) -> bool {
+        state
+            .get_validator(validator_index as usize)
+            .map_or(false, |validator| validator.slashed)
+    }
 }
 
 impl<E: EthSpec> ObservableOperation<E> for SignedBlsToExecutionChange {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
         smallvec![self.message.validator_index]
+    }
+
+    fn validator_already_committed_operation(
+        state: &BeaconState<E>,
+        validator_index: u64,
+        spec: &ChainSpec,
+    ) -> bool {
+        state
+            .get_validator(validator_index as usize)
+            .map_or(false, |validator| {
+                validator.has_eth1_withdrawal_credential(spec)
+            })
     }
 }
 
@@ -108,10 +160,14 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
         //
         // At least one index in the intersection of the attesting indices of each attestation has
         // not yet been seen in any prior attester_slashing.
-        if new_validator_indices
-            .iter()
-            .all(|index| observed_validator_indices.contains(index))
-        {
+        //
+        // We also check against the head state here, as the cache forgets indices on restarts and
+        // at fork boundaries. We want to be good network citizens and not propagate junk exits/
+        // slashings/etc for validators that are already exited/slashed/etc.
+        if new_validator_indices.iter().all(|index| {
+            observed_validator_indices.contains(index)
+                || T::validator_already_committed_operation(head_state, *index, spec)
+        }) {
             return Ok(ObservationOutcome::AlreadyKnown);
         }
 
