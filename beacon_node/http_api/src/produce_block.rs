@@ -20,6 +20,10 @@ use warp::{
     Reply,
 };
 
+/// If default boost factor is provided in validator/blocks v3 request, we will skip the calculation
+/// to keep the precision.
+const DEFAULT_BOOST_FACTOR: u64 = 100;
+
 pub fn get_randao_verification(
     query: &api_types::ValidatorBlocksQuery,
     randao_reveal_infinity: bool,
@@ -52,6 +56,11 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
+    let builder_boost_factor = if query.builder_boost_factor == Some(DEFAULT_BOOST_FACTOR) {
+        None
+    } else {
+        query.builder_boost_factor
+    };
 
     let block_response_type = chain
         .produce_block_with_verification(
@@ -59,7 +68,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
             slot,
             query.graffiti,
             randao_verification,
-            query.builder_boost_factor,
+            builder_boost_factor,
             BlockProductionVersion::V3,
         )
         .await
