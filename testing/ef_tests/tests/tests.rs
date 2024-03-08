@@ -277,12 +277,10 @@ mod ssz_static {
     // Altair and later
     #[test]
     fn contribution_and_proof() {
-        SszStaticHandler::<ContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only(
-        )
-        .run();
-        SszStaticHandler::<ContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only(
-        )
-        .run();
+        SszStaticHandler::<ContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only()
+            .run();
+        SszStaticHandler::<ContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only()
+            .run();
     }
 
     // #[test]
@@ -305,14 +303,22 @@ mod ssz_static {
 
     #[test]
     fn light_client_header() {
-        SszStaticHandler::<LightClientHeaderAltair<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
-        SszStaticHandler::<LightClientHeaderAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+        SszStaticHandler::<LightClientHeaderAltair<MinimalEthSpec>, MinimalEthSpec>::altair_only()
+            .run();
+        SszStaticHandler::<LightClientHeaderAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only()
+            .run();
 
-        SszStaticHandler::<LightClientHeaderCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only().run();
-        SszStaticHandler::<LightClientHeaderCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only().run();
+        SszStaticHandler::<LightClientHeaderCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only(
+        )
+        .run();
+        SszStaticHandler::<LightClientHeaderCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only(
+        )
+        .run();
 
-        SszStaticHandler::<LightClientHeaderDeneb<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
-        SszStaticHandler::<LightClientHeaderDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
+        SszStaticHandler::<LightClientHeaderDeneb<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
+            .run();
+        SszStaticHandler::<LightClientHeaderDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
+            .run();
     }
 
     // #[test]

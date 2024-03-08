@@ -5,7 +5,6 @@ use crate::{
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz::Decode;
 use ssz_derive::Encode;
 use test_random_derive::TestRandom;
 

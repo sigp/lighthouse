@@ -5,8 +5,9 @@ use crate::ForkVersionDeserialize;
 use crate::{light_client_update::*, BeaconBlockBody};
 use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    FixedVector, Hash256, SignedBeaconBlock
+    FixedVector, Hash256, SignedBeaconBlock,
 };
+use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use ssz::{Decode, Encode};
@@ -14,7 +15,6 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
-use derivative::Derivative;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
@@ -66,7 +66,10 @@ impl<E: EthSpec> LightClientHeader<E> {
         block: &SignedBeaconBlock<E>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        let header = match block.fork_name(chain_spec).map_err(|_| Error::InconsistentFork)? {
+        let header = match block
+            .fork_name(chain_spec)
+            .map_err(|_| Error::InconsistentFork)?
+        {
             ForkName::Base => return Err(Error::AltairForkNotActive),
             ForkName::Altair | ForkName::Merge => LightClientHeader::Altair(
                 LightClientHeaderAltair::block_to_light_client_header(block)?,

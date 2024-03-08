@@ -6,7 +6,6 @@ use crate::{
 use safe_arith::ArithError;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz::Decode;
 use ssz_derive::Encode;
 use ssz_types::typenum::{U4, U5, U6};
 use std::sync::Arc;
