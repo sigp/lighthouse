@@ -172,6 +172,16 @@ pub fn start_engine_version_cache_refresh_service<T: BeaconChainTypes>(
         );
         return;
     };
+    if matches!(
+        chain.graffiti_calculator.beacon_graffiti,
+        GraffitiOrigin::UserSpecified(_)
+    ) {
+        debug!(
+            chain.log,
+            "Graffiti is user-specified, not starting engine version cache refresh service"
+        );
+        return;
+    }
 
     let execution_layer = el_ref.clone();
     let log = chain.log.clone();
