@@ -16,7 +16,6 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::Unsigned;
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
-use std::iter;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -95,23 +94,32 @@ impl<T: EthSpec> DataColumnSidecar<T> {
         for blob in blobs {
             let blob = KzgBlob::from_bytes(&blob.blob).map_err(KzgError::from)?;
             let (blob_cells, blob_cell_proofs) = kzg.compute_cells_and_proofs(&blob)?;
-            for ((column, column_proofs), (cell, proof)) in
-                iter::zip(columns.iter_mut(), column_kzg_proofs.iter_mut()).zip(iter::zip(
-                    blob_cells.into_iter(),
-                    blob_cell_proofs.into_iter(),
-                ))
-            {
+
+            // we iterate over each column, and we construct the column from "top to bottom",
+            // pushing on the cell and the corresponding proof at each column index. we do this for
+            // each blob (i.e. the outer loop).
+            for col in 0..T::number_of_columns() {
+                let cell = blob_cells
+                    .get(col)
+                    .expect("blob cell exists at index {col}");
                 let cell: Vec<u8> = cell
                     .into_inner()
                     .into_iter()
                     .flat_map(|data| (*data).into_iter())
                     .collect();
                 let cell = Cell::<T>::from(cell);
+                let proof = blob_cell_proofs
+                    .get(col)
+                    .expect("blob cell KZG proof exists at index {col}");
 
-                // construct data columns from "top to bottom", pushing on the cell and proof for
-                // each column for each blob
+                let column = columns
+                    .get_mut(col)
+                    .expect("data column exists at index {col}");
+                let column_proofs = column_kzg_proofs
+                    .get_mut(col)
+                    .expect("data column proofs exist at index {col}");
                 column.push(cell);
-                column_proofs.push(proof);
+                column_proofs.push(*proof);
             }
         }
 

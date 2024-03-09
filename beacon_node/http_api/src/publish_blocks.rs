@@ -20,9 +20,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::data_column_sidecar::DataColumnSidecarList;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, DataColumnSubnetId,
-    EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, VariableList,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, DataColumnSubnetId, EthSpec, ExecPayload,
+    ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
