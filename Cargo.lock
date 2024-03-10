@@ -9960,7 +9960,7 @@ dependencies = [
 [[package]]
 name = "yamux"
 version = "0.13.1"
-source = "git+https://github.com/sigp/rust-yamux.git#6689e227a48258a52347cd1d984adfc94afc6f7a"
+source = "git+https://github.com/sigp/rust-yamux.git#12a23aa0e34b7807c0c5f87f06b3438f7d6c2ed0"
 dependencies = [
  "futures",
  "instant",
