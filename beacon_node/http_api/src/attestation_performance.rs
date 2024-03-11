@@ -14,11 +14,12 @@ const MAX_REQUEST_RANGE_EPOCHS: usize = 100;
 const BLOCK_ROOT_CHUNK_SIZE: usize = 100;
 
 #[derive(Debug)]
+// We don't use the inner values directly, but they're used in the Debug impl.
 enum AttestationPerformanceError {
-    BlockReplay(BlockReplayError),
-    BeaconState(BeaconStateError),
-    ParticipationCache(ParticipationCacheError),
-    UnableToFindValidator(usize),
+    BlockReplay(#[allow(dead_code)] BlockReplayError),
+    BeaconState(#[allow(dead_code)] BeaconStateError),
+    ParticipationCache(#[allow(dead_code)] ParticipationCacheError),
+    UnableToFindValidator(#[allow(dead_code)] usize),
 }
 
 impl From<BlockReplayError> for AttestationPerformanceError {

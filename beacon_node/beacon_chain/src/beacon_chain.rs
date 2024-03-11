@@ -4,7 +4,7 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
-use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
+use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
@@ -1131,7 +1131,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn get_blocks_checking_early_attester_cache(
+    pub fn get_blocks_checking_caches(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
         executor: &TaskExecutor,
@@ -1144,10 +1144,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(
-            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::Yes)?
-                .launch_stream(block_roots, executor),
-        )
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?
+            .launch_stream(block_roots, executor))
     }
 
     pub fn get_blocks(
@@ -1163,10 +1161,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(
-            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::No)?
-                .launch_stream(block_roots, executor),
-        )
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?
+            .launch_stream(block_roots, executor))
     }
 
     pub fn get_blobs_checking_early_attester_cache(
@@ -2960,18 +2956,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        if let Ok(commitments) = unverified_block
-            .block()
-            .message()
-            .body()
-            .blob_kzg_commitments()
-        {
-            self.data_availability_checker.notify_block_commitments(
-                unverified_block.block().slot(),
-                block_root,
-                commitments.clone(),
-            );
-        };
+        self.data_availability_checker
+            .notify_block(block_root, unverified_block.block_cloned());
         let r = self
             .process_block(block_root, unverified_block, notify_execution_layer, || {
                 Ok(())
@@ -4180,21 +4166,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 (re_org_state.pre_state, re_org_state.state_root)
             }
             // Normal case: proposing a block atop the current head using the cache.
-            else if let Some((_, cached_state)) = self
-                .block_production_state
-                .lock()
-                .take()
-                .filter(|(cached_block_root, _)| *cached_block_root == head_block_root)
+            else if let Some((_, cached_state)) =
+                self.get_state_from_block_production_cache(head_block_root)
             {
                 (cached_state.pre_state, cached_state.state_root)
             }
             // Fall back to a direct read of the snapshot cache.
-            else if let Some(pre_state) = self
-                .snapshot_cache
-                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .and_then(|snapshot_cache| {
-                    snapshot_cache.get_state_for_block_production(head_block_root)
-                })
+            else if let Some(pre_state) =
+                self.get_state_from_snapshot_cache_for_block_production(head_block_root)
             {
                 warn!(
                     self.log,
@@ -4233,6 +4212,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(state_load_timer);
 
         Ok((state, state_root_opt))
+    }
+
+    /// Get the state cached for block production *if* it matches `head_block_root`.
+    ///
+    /// This will clear the cache regardless of whether the block root matches, so only call this if
+    /// you think the `head_block_root` is likely to match!
+    fn get_state_from_block_production_cache(
+        &self,
+        head_block_root: Hash256,
+    ) -> Option<(Hash256, BlockProductionPreState<T::EthSpec>)> {
+        // Take care to drop the lock as quickly as possible.
+        let mut lock = self.block_production_state.lock();
+        let result = lock
+            .take()
+            .filter(|(cached_block_root, _)| *cached_block_root == head_block_root);
+        drop(lock);
+        result
+    }
+
+    /// Get a state for block production from the snapshot cache.
+    fn get_state_from_snapshot_cache_for_block_production(
+        &self,
+        head_block_root: Hash256,
+    ) -> Option<BlockProductionPreState<T::EthSpec>> {
+        if let Some(lock) = self
+            .snapshot_cache
+            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+        {
+            let result = lock.get_state_for_block_production(head_block_root);
+            drop(lock);
+            result
+        } else {
+            None
+        }
     }
 
     /// Fetch the beacon state to use for producing a block if a 1-slot proposer re-org is viable.
@@ -4327,12 +4340,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Only attempt a re-org if we hit the block production cache or snapshot cache.
         let pre_state = self
-            .block_production_state
-            .lock()
-            .take()
-            .and_then(|(cached_block_root, state)| {
-                (cached_block_root == re_org_parent_block).then_some(state)
-            })
+            .get_state_from_block_production_cache(re_org_parent_block)
+            .map(|(_, state)| state)
             .or_else(|| {
                 warn!(
                     self.log,
@@ -4341,11 +4350,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "slot" => slot,
                     "block_root" => ?re_org_parent_block
                 );
-                self.snapshot_cache
-                    .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                    .and_then(|snapshot_cache| {
-                        snapshot_cache.get_state_for_block_production(re_org_parent_block)
-                    })
+                self.get_state_from_snapshot_cache_for_block_production(re_org_parent_block)
             })
             .or_else(|| {
                 debug!(

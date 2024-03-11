@@ -622,6 +622,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many states from the freezer database should cache in memory [default: 1]")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("state-cache-size")
+                .long("state-cache-size")
+                .value_name("STATE_CACHE_SIZE")
+                .help("Specifies the size of the snapshot cache [default: 3]")
+                .takes_value(true)
+        )
         /*
          * Execution Layer Integration
          */
@@ -938,6 +945,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("BLOCK_SSZ")
                 .takes_value(true)
                 .requires("checkpoint-state")
+        )
+        .arg(
+            Arg::with_name("checkpoint-blobs")
+                .long("checkpoint-blobs")
+                .help("Set the checkpoint blobs to start syncing from. Must be aligned and match \
+                       --checkpoint-block. Using --checkpoint-sync-url instead is recommended.")
+                .value_name("BLOBS_SSZ")
+                .takes_value(true)
+                .requires("checkpoint-block")
         )
         .arg(
             Arg::with_name("checkpoint-sync-url")
@@ -1271,11 +1287,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("disable-duplicate-warn-logs")
                 .long("disable-duplicate-warn-logs")
-                .help("Disable warning logs for duplicate gossip messages. The WARN level log is \
-                    useful for detecting a duplicate validator key running elsewhere. However, this may \
-                    result in excessive warning logs if the validator is broadcasting messages to \
-                    multiple beacon nodes via the validator client --broadcast flag. In this case, \
-                    disabling these warn logs may be useful.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(false)
         )
         .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))

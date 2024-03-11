@@ -34,6 +34,7 @@ use validator_dir::Builder as ValidatorDirBuilder;
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
+use crate::Config;
 
 /// Default timeout for a request to a remote signer for a signature.
 ///
@@ -208,6 +209,7 @@ impl InitializedValidator {
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
         web3_signer_client_map: &mut Option<HashMap<Web3SignerDefinition, Client>>,
+        config: &Config,
     ) -> Result<Self, Error> {
         if !def.enabled {
             return Err(Error::UnableToInitializeDisabledValidator);
@@ -311,6 +313,8 @@ impl InitializedValidator {
                                 web3_signer.client_identity_path.clone(),
                                 web3_signer.client_identity_password.clone(),
                                 request_timeout,
+                                config.web3_signer_keep_alive_timeout,
+                                config.web3_signer_max_idle_connections,
                             )?;
                             client_map.insert(web3_signer, client.clone());
                             client
@@ -325,6 +329,8 @@ impl InitializedValidator {
                         web3_signer.client_identity_path.clone(),
                         web3_signer.client_identity_password.clone(),
                         request_timeout,
+                        config.web3_signer_keep_alive_timeout,
+                        config.web3_signer_max_idle_connections,
                     )?;
                     new_web3_signer_client_map.insert(web3_signer, client.clone());
                     *web3_signer_client_map = Some(new_web3_signer_client_map);
@@ -393,8 +399,13 @@ fn build_web3_signer_client(
     client_identity_path: Option<PathBuf>,
     client_identity_password: Option<String>,
     request_timeout: Duration,
+    keep_alive_timeout: Option<Duration>,
+    max_idle_connections: Option<usize>,
 ) -> Result<Client, Error> {
-    let builder = Client::builder().timeout(request_timeout);
+    let builder = Client::builder()
+        .timeout(request_timeout)
+        .pool_idle_timeout(keep_alive_timeout)
+        .pool_max_idle_per_host(max_idle_connections.unwrap_or(usize::MAX));
 
     let builder = if let Some(path) = root_certificate_path {
         let certificate = load_pem_certificate(path)?;
@@ -475,6 +486,7 @@ pub struct InitializedValidators {
     web3_signer_client_map: Option<HashMap<Web3SignerDefinition, Client>>,
     /// For logging via `slog`.
     log: Logger,
+    config: Config,
 }
 
 impl InitializedValidators {
@@ -482,6 +494,7 @@ impl InitializedValidators {
     pub async fn from_definitions(
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
+        config: Config,
         log: Logger,
     ) -> Result<Self, Error> {
         let mut this = Self {
@@ -489,6 +502,7 @@ impl InitializedValidators {
             definitions,
             validators: HashMap::default(),
             web3_signer_client_map: None,
+            config,
             log,
         };
         this.update_validators().await?;
@@ -1234,6 +1248,7 @@ impl InitializedValidators {
                             &mut key_cache,
                             &mut key_stores,
                             &mut None,
+                            &self.config,
                         )
                         .await
                         {
@@ -1284,6 +1299,7 @@ impl InitializedValidators {
                             &mut key_cache,
                             &mut key_stores,
                             &mut self.web3_signer_client_map,
+                            &self.config,
                         )
                         .await
                         {

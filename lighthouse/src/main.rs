@@ -23,8 +23,6 @@ fn bls_library_name() -> &'static str {
         "blst-portable"
     } else if cfg!(feature = "modern") {
         "blst-modern"
-    } else if cfg!(feature = "milagro") {
-        "milagro"
     } else {
         "blst"
     }
@@ -556,9 +554,7 @@ fn run<E: EthSpec>(
 
     let path = tracing_log_path.clone().unwrap();
 
-    let turn_on_terminal_logs = matches.is_present("env_log");
-
-    logging::create_tracing_layer(path, turn_on_terminal_logs);
+    logging::create_tracing_layer(path);
 
     // Allow Prometheus to export the time at which the process was started.
     metrics::expose_process_start_time(&log);
