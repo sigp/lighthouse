@@ -495,6 +495,9 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
+    /// Compute the epoch used for activations prior to Deneb, and for exits under all forks.
+    ///
+    /// Spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#compute_activation_exit_epoch
     pub fn compute_activation_exit_epoch(&self, epoch: Epoch) -> Result<Epoch, ArithError> {
         epoch.safe_add(1)?.safe_add(self.max_seed_lookahead)
     }

@@ -54,8 +54,12 @@ pub mod base {
         ctxt: &mut ConsensusContext<T>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        // Ensure the previous epoch cache exists.
+        // Ensure required caches are all built. These should be no-ops during regular operation.
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        initialize_epoch_cache(state, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
+        state.build_slashings_cache()?;
 
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
 
@@ -121,9 +125,6 @@ pub mod altair_deneb {
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-        state.build_committee_cache(RelativeEpoch::Current, spec)?;
-
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
         let previous_epoch = ctxt.previous_epoch;
         let current_epoch = ctxt.current_epoch;

@@ -13,7 +13,7 @@ use types::{
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
     ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExitCache, ForkName,
-    ParticipationFlags, ProgressiveBalancesCache, Unsigned, Validator,
+    ParticipationFlags, ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator,
 };
 
 pub struct SinglePassConfig {
@@ -112,6 +112,8 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     initialize_epoch_cache(state, spec)?;
     initialize_progressive_balances_cache(state, spec)?;
     state.build_exit_cache(spec)?;
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
     let previous_epoch = state.previous_epoch();
     let current_epoch = state.current_epoch();

@@ -4,9 +4,9 @@ use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;
 use types::eth_spec::EthSpec;
 
-/// Slow version of `process_inactivity_updates`.
+/// Slow version of `process_inactivity_updates` that runs a subset of single-pass processing.
 ///
-/// Should only be used for testing.
+/// Should not be used for block processing, but is useful for testing & analytics.
 pub fn process_inactivity_updates_slow<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
