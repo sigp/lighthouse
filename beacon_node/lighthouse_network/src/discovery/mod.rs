@@ -1004,7 +1004,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         discv5::Event::SocketUpdated(socket_addr) => {
                             info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
-                            metrics::check_nat();
+                            // We have SOCKET_UPDATED messages. This occurs when discovery has a majority of
+                            // users reporting an external port and our ENR gets updated.
+                            // Which means we are able to do NAT traversal.
+                            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["discv5"], 1);
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
 
