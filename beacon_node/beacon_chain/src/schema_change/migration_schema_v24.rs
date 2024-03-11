@@ -131,6 +131,10 @@ fn upgrade_freezer_database<T: BeaconChainTypes>(
         if chunk_key.iter().all(|b| *b == 0u8) {
             continue;
         }
+        // Skip the 0x00..01 key which is for slot 0.
+        if chunk_key == old_schema_chunk_key(0).as_slice() && current_slot != 0 {
+            continue;
+        }
 
         let current_chunk_index = current_slot.as_u64() / OLD_SCHEMA_CHUNK_SIZE;
         if chunk_key != old_schema_chunk_key(current_chunk_index).as_slice() {
