@@ -59,7 +59,7 @@ const MAX_DISCOVERY_RETRY: usize = 3;
 /// Note: we always allow a single FindPeers query, so we would be
 /// running a maximum of `MAX_CONCURRENT_SUBNET_QUERIES + 1`
 /// discovery queries at a time.
-const MAX_CONCURRENT_SUBNET_QUERIES: usize = 2;
+const MAX_CONCURRENT_SUBNET_QUERIES: usize = 4;
 /// The max number of subnets to search for in a single subnet discovery query.
 const MAX_SUBNETS_IN_QUERY: usize = 3;
 /// The number of closest peers to search for when doing a regular peer search.
@@ -1004,7 +1004,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         discv5::Event::SocketUpdated(socket_addr) => {
                             info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
-                            metrics::check_nat();
+                            // We have SOCKET_UPDATED messages. This occurs when discovery has a majority of
+                            // users reporting an external port and our ENR gets updated.
+                            // Which means we are able to do NAT traversal.
+                            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["discv5"], 1);
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
 

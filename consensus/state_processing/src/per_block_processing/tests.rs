@@ -90,7 +90,7 @@ async fn invalid_block_header_state_slot() {
     let slot = state.slot() + Slot::new(1);
 
     let ((signed_block, _), mut state) = harness.make_block_return_pre_state(state, slot).await;
-    let (mut block, signature) = signed_block.deconstruct();
+    let (mut block, signature) = (*signed_block).clone().deconstruct();
     *block.slot_mut() = slot + Slot::new(1);
 
     let mut ctxt = ConsensusContext::new(block.slot());
@@ -123,7 +123,7 @@ async fn invalid_parent_block_root() {
     let ((signed_block, _), mut state) = harness
         .make_block_return_pre_state(state, slot + Slot::new(1))
         .await;
-    let (mut block, signature) = signed_block.deconstruct();
+    let (mut block, signature) = (*signed_block).clone().deconstruct();
     *block.parent_root_mut() = Hash256::from([0xAA; 32]);
 
     let mut ctxt = ConsensusContext::new(block.slot());
@@ -158,7 +158,7 @@ async fn invalid_block_signature() {
     let ((signed_block, _), mut state) = harness
         .make_block_return_pre_state(state, slot + Slot::new(1))
         .await;
-    let (block, _) = signed_block.deconstruct();
+    let (block, _) = (*signed_block).clone().deconstruct();
 
     let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(

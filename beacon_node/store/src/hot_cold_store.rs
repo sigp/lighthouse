@@ -267,7 +267,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
 
         // Load the config from disk but don't error on a failed read because the config itself may
         // need migrating.
-        if let Err(_) = db.load_config() {
+        if db.load_config().is_err() {
             // We expect this failure when migrating to tree-states for the first time, before
             // the new config is written. We need to set it here before the DB gets Arc'd for the
             // schema migration. This can be deleted when the v24 schema upgrade is deleted.
@@ -344,7 +344,20 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
 
         // Ensure that any on-disk config is compatible with the supplied config.
         if let Some(disk_config) = db.load_config()? {
-            db.config.check_compatibility(&disk_config)?;
+            let split = db.get_split_info();
+            let anchor = db.get_anchor_info();
+            db.config
+                .check_compatibility(&disk_config, &split, anchor.as_ref())?;
+
+            // Inform user if hierarchy config is changing.
+            if db.config.hierarchy_config != disk_config.hierarchy_config {
+                info!(
+                    db.log,
+                    "Updating historic state config";
+                    "previous_config" => ?disk_config.hierarchy_config,
+                    "new_config" => ?db.config.hierarchy_config,
+                );
+            }
         }
         db.store_config()?;
 
@@ -438,7 +451,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Store execution payload if present.
         if let Some(ref execution_payload) = payload {
-            ops.push(execution_payload.as_kv_store_op(*key)?);
+            ops.push(execution_payload.as_kv_store_op(*key));
         }
 
         // Re-construct block. This should always succeed.
@@ -641,7 +654,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         // Write the block root to slot mapping.
         let slot = block.slot();
-        kv_store_ops.push(FrozenBlockSlot(slot).as_kv_store_op(*block_root)?);
+        kv_store_ops.push(FrozenBlockSlot(slot).as_kv_store_op(*block_root));
 
         // Write the slot to block root mapping.
         kv_store_ops.push(KeyValueStoreOp::PutKeyValue(
@@ -733,7 +746,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         execution_payload: &ExecutionPayload<E>,
     ) -> Result<(), Error> {
         self.hot_db
-            .do_atomically(vec![execution_payload.as_kv_store_op(*block_root)?])
+            .do_atomically(vec![execution_payload.as_kv_store_op(*block_root)])
     }
 
     /// Check if the blobs for a block exists on disk.
@@ -1042,7 +1055,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::PutStateTemporaryFlag(state_root) => {
-                    key_value_batch.push(TemporaryFlag.as_kv_store_op(state_root)?);
+                    key_value_batch.push(TemporaryFlag.as_kv_store_op(state_root));
                 }
 
                 StoreOp::DeleteStateTemporaryFlag(state_root) => {
@@ -1247,7 +1260,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let diff_base_slot = self.state_diff_slot(state.slot());
 
         let hot_state_summary = HotStateSummary::new(state_root, state, diff_base_slot)?;
-        let op = hot_state_summary.as_kv_store_op(*state_root)?;
+        let op = hot_state_summary.as_kv_store_op(*state_root);
         ops.push(op);
 
         // On an epoch boundary, consider storing:
@@ -1284,7 +1297,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let target_buffer = HDiffBuffer::from_state(state.clone());
                 let diff = HDiff::compute(&base_buffer, &target_buffer)?;
                 drop(compute_diff_timer);
-                ops.push(diff.as_kv_store_op(*state_root)?);
+                ops.push(diff.as_kv_store_op(*state_root));
             }
         }
 
@@ -1675,7 +1688,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         slot: Slot,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        ops.push(ColdStateSummary { slot }.as_kv_store_op(*state_root)?);
+        ops.push(ColdStateSummary { slot }.as_kv_store_op(*state_root));
         ops.push(KeyValueStoreOp::PutKeyValue(
             get_key_for_col(
                 DBColumn::BeaconStateRoots.into(),
@@ -2053,7 +2066,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let column = SchemaVersion::db_column().into();
         let key = SCHEMA_VERSION_KEY.as_bytes();
         let db_key = get_key_for_col(column, key);
-        let op = KeyValueStoreOp::PutKeyValue(db_key, schema_version.as_store_bytes()?);
+        let op = KeyValueStoreOp::PutKeyValue(db_key, schema_version.as_store_bytes());
         ops.push(op);
 
         self.hot_db.do_atomically(ops)
@@ -2110,7 +2123,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<KeyValueStoreOp, Error> {
         let mut anchor_info = self.anchor_info.write();
         if *anchor_info == prev_value {
-            let kv_op = self.store_anchor_info_in_batch(&new_value)?;
+            let kv_op = self.store_anchor_info_in_batch(&new_value);
             *anchor_info = new_value;
             Ok(kv_op)
         } else {
@@ -2137,17 +2150,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// The argument is intended to be `self.anchor_info`, but is passed manually to avoid issues
     /// with recursive locking.
-    fn store_anchor_info_in_batch(
-        &self,
-        anchor_info: &Option<AnchorInfo>,
-    ) -> Result<KeyValueStoreOp, Error> {
+    fn store_anchor_info_in_batch(&self, anchor_info: &Option<AnchorInfo>) -> KeyValueStoreOp {
         if let Some(ref anchor_info) = anchor_info {
             anchor_info.as_kv_store_op(ANCHOR_INFO_KEY)
         } else {
-            Ok(KeyValueStoreOp::DeleteKey(get_key_for_col(
+            KeyValueStoreOp::DeleteKey(get_key_for_col(
                 DBColumn::BeaconMeta.into(),
                 ANCHOR_INFO_KEY.as_bytes(),
-            )))
+            ))
         }
     }
 
@@ -2192,7 +2202,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<KeyValueStoreOp, Error> {
         let mut blob_info = self.blob_info.write();
         if *blob_info == prev_value {
-            let kv_op = self.store_blob_info_in_batch(&new_value)?;
+            let kv_op = self.store_blob_info_in_batch(&new_value);
             *blob_info = new_value;
             Ok(kv_op)
         } else {
@@ -2219,7 +2229,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// The argument is intended to be `self.blob_info`, but is passed manually to avoid issues
     /// with recursive locking.
-    fn store_blob_info_in_batch(&self, blob_info: &BlobInfo) -> Result<KeyValueStoreOp, Error> {
+    fn store_blob_info_in_batch(&self, blob_info: &BlobInfo) -> KeyValueStoreOp {
         blob_info.as_kv_store_op(BLOB_INFO_KEY)
     }
 
@@ -2303,7 +2313,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Stage the split for storage to disk.
-    pub fn store_split_in_batch(&self) -> Result<KeyValueStoreOp, Error> {
+    pub fn store_split_in_batch(&self) -> KeyValueStoreOp {
         self.split.read_recursive().as_kv_store_op(SPLIT_KEY)
     }
 
@@ -2326,7 +2336,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         let value = &RestorePointHash { state_root };
-        let op = value.as_kv_store_op(Self::restore_point_key(restore_point_index))?;
+        let op = value.as_kv_store_op(Self::restore_point_key(restore_point_index));
         ops.push(op);
         Ok(())
     }
@@ -2763,6 +2773,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let columns = [
             DBColumn::BeaconState,
             DBColumn::BeaconStateSummary,
+            DBColumn::BeaconStateDiff,
             DBColumn::BeaconRestorePoint,
             DBColumn::BeaconStateRoots,
             DBColumn::BeaconHistoricalRoots,
@@ -2796,6 +2807,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             );
             self.store_cold_state(&genesis_state_root, genesis_state, cold_ops)?;
         }
+
+        // In order to reclaim space, we need to compact the freezer DB as well.
+        self.cold_db.compact()?;
 
         Ok(())
     }
@@ -3030,8 +3044,8 @@ impl StoreItem for Split {
         DBColumn::BeaconMeta
     }
 
-    fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.as_ssz_bytes())
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
@@ -3074,8 +3088,8 @@ macro_rules! impl_store_item_summary {
                 DBColumn::BeaconStateSummary
             }
 
-            fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
-                Ok(self.as_ssz_bytes())
+            fn as_store_bytes(&self) -> Vec<u8> {
+                self.as_ssz_bytes()
             }
 
             fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
@@ -3137,8 +3151,8 @@ impl StoreItem for ColdStateSummary {
         DBColumn::BeaconStateSummary
     }
 
-    fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.as_ssz_bytes())
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
@@ -3157,8 +3171,8 @@ impl StoreItem for RestorePointHash {
         DBColumn::BeaconRestorePoint
     }
 
-    fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.as_ssz_bytes())
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
@@ -3174,8 +3188,8 @@ impl StoreItem for TemporaryFlag {
         DBColumn::BeaconStateTemporary
     }
 
-    fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(vec![])
+    fn as_store_bytes(&self) -> Vec<u8> {
+        vec![]
     }
 
     fn from_store_bytes(_: &[u8]) -> Result<Self, Error> {

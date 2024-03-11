@@ -1,6 +1,6 @@
 use crate::{
     BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateCapella, BeaconStateDeneb,
-    BeaconStateError as Error, BeaconStateMerge, EthSpec, PublicKeyBytes, VList, Validator,
+    BeaconStateError as Error, BeaconStateMerge, EthSpec, List, PublicKeyBytes, Validator,
     ValidatorMutable,
 };
 use itertools::process_results;
@@ -30,7 +30,7 @@ macro_rules! full_to_compact {
             eth1_deposit_index: $s.eth1_deposit_index,
 
             // Validator registry
-            validators: VList::try_from_iter(
+            validators: List::try_from_iter(
                 $s.validators.into_iter().map(|validator| validator.mutable.clone())
             ).expect("fix this"),
             balances: $s.balances.clone(),
@@ -95,7 +95,7 @@ macro_rules! compact_to_full {
                             mutable: mutable.clone(),
                         }
                     })
-            }), |iter| VList::try_from_iter(iter))??,
+            }), |iter| List::try_from_iter(iter))??,
             balances: $inner.balances,
 
             // Shuffling

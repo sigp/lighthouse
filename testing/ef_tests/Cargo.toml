@@ -7,7 +7,6 @@ edition = { workspace = true }
 [features]
 # `ef_tests` feature must be enabled to actually run the tests
 ef_tests = []
-milagro = ["bls/milagro"]
 fake_crypto = ["bls/fake_crypto"]
 portable = ["beacon_chain/portable"]
 

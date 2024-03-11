@@ -250,7 +250,7 @@ impl TestRig {
         };
         Self {
             chain,
-            next_block: Arc::new(block),
+            next_block: block,
             next_blobs: blob_sidecars,
             attestations,
             next_block_attestations,

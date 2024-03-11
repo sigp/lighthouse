@@ -14,7 +14,7 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
-# List of features to use when building natively. Can be overriden via the environment.
+# List of features to use when building natively. Can be overridden via the environment.
 # No jemalloc on Windows
 ifeq ($(OS),Windows_NT)
     FEATURES?=
@@ -143,7 +143,6 @@ run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
-	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Runs EF test vectors with nextest
@@ -151,7 +150,6 @@ nextest-run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
-	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.

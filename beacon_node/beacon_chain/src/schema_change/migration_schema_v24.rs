@@ -143,7 +143,7 @@ fn upgrade_freezer_database<T: BeaconChainTypes>(
         }
 
         for (i, block_root_bytes) in chunk_bytes.chunks_exact(32).enumerate() {
-            let block_root = Hash256::from_slice(&block_root_bytes);
+            let block_root = Hash256::from_slice(block_root_bytes);
 
             if block_root.is_zero() {
                 continue;
@@ -195,14 +195,14 @@ fn upgrade_store_config<T: BeaconChainTypes>(
     let on_disk_config = db.get_config().as_disk_config();
     if on_disk_config.linear_blocks {
         return Err(Error::DBError {
-            message: format!("un-upgraded node should have linear_blocks=false"),
+            message: "un-upgraded node should have linear_blocks=false".to_string(),
         });
     }
-    hot_db_ops.push(on_disk_config.as_kv_store_op(CONFIG_KEY)?);
+    hot_db_ops.push(on_disk_config.as_kv_store_op(CONFIG_KEY));
     Ok(())
 }
 
-fn delete_pruning_checkpoint<T: BeaconChainTypes>(
+fn delete_pruning_checkpoint(
     hot_db_ops: &mut Vec<KeyValueStoreOp>,
     log: &Logger,
 ) -> Result<(), Error> {
@@ -230,7 +230,7 @@ fn upgrade_pubkey_cache<T: BeaconChainTypes>(
     for res in db.hot_db.iter_column::<Hash256>(DBColumn::PubkeyCache) {
         let (key, compressed_pubkey_bytes) = res?;
         let new_value = DatabasePubkey::from_legacy_pubkey_bytes(&compressed_pubkey_bytes)?;
-        hot_db_ops.push(new_value.as_kv_store_op(key)?);
+        hot_db_ops.push(new_value.as_kv_store_op(key));
         count += 1;
     }
     info!(
@@ -300,7 +300,7 @@ fn rewrite_hot_states<T: BeaconChainTypes>(
             "state_root" => ?head_state_root,
             "slot" => head_state_slot
         );
-        let current_state = get_state_by_replay::<T>(&db, head_state_root)?;
+        let current_state = get_state_by_replay::<T>(db, head_state_root)?;
 
         new_summaries.insert(
             head_state_root,
@@ -369,7 +369,7 @@ fn rewrite_hot_states<T: BeaconChainTypes>(
     hot_db_ops.reserve(new_summaries.len());
 
     for (state_root, summary) in new_summaries {
-        hot_db_ops.push(summary.as_kv_store_op(state_root)?);
+        hot_db_ops.push(summary.as_kv_store_op(state_root));
     }
 
     Ok(())
@@ -381,7 +381,7 @@ fn upgrade_hot_database<T: BeaconChainTypes>(
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     let mut hot_db_ops = vec![];
     upgrade_store_config::<T>(db, &mut hot_db_ops, log)?;
-    delete_pruning_checkpoint::<T>(&mut hot_db_ops, log)?;
+    delete_pruning_checkpoint(&mut hot_db_ops, log)?;
     upgrade_pubkey_cache::<T>(db, &mut hot_db_ops, log)?;
     rewrite_hot_states::<T>(db, &mut hot_db_ops, log)?;
     Ok(hot_db_ops)

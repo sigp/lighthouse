@@ -29,14 +29,10 @@ FLAGS:
                                                contention which degrades staking performance. Stakers should generally
                                                choose to avoid this flag since backfill sync is not required for
                                                staking.
-        --disable-deposit-contract-sync        Explictly disables syncing of deposit logs from the execution node. This
+        --disable-deposit-contract-sync        Explicitly disables syncing of deposit logs from the execution node. This
                                                overrides any previous option that depends on it. Useful if you intend to
                                                run a non-validating beacon node.
-        --disable-duplicate-warn-logs          Disable warning logs for duplicate gossip messages. The WARN level log is
-                                               useful for detecting a duplicate validator key running elsewhere.
-                                               However, this may result in excessive warning logs if the validator is
-                                               broadcasting messages to multiple beacon nodes via the validator client
-                                               --broadcast flag. In this case, disabling these warn logs may be useful.
+        --disable-duplicate-warn-logs          This flag is deprecated and has no effect.
     -x, --disable-enr-auto-update              Discovery automatically updates the nodes local ENR with an external IP
                                                address and port as seen by other peers on the network. This disables
                                                this feature, fixing the ENR's IP/PORT to those specified on boot.
@@ -185,6 +181,9 @@ OPTIONS:
         --builder-user-agent <STRING>
             The HTTP user agent to send alongside requests to the builder URL. The default is Lighthouse's version
             string.
+        --checkpoint-blobs <BLOBS_SSZ>
+            Set the checkpoint blobs to start syncing from. Must be aligned and match --checkpoint-block. Using
+            --checkpoint-sync-url instead is recommended.
         --checkpoint-block <BLOCK_SSZ>
             Set a checkpoint block to start syncing from. Must be aligned and match --checkpoint-state. Using
             --checkpoint-sync-url instead is recommended.
@@ -412,10 +411,8 @@ OPTIONS:
             useful for execution nodes which don't improve their payload after the first call, and high values are
             useful for ensuring the EL is given ample notice. Default: 1/3 of a slot.
         --progressive-balances <MODE>
-            Control the progressive balances cache mode. The default `fast` mode uses the cache to speed up fork choice.
-            A more conservative `checked` mode compares the cache's results against results without the cache. If there
-            is a mismatch, it falls back to the cache-free result. Using the default `fast` mode is recommended unless
-            advised otherwise by the Lighthouse team. [possible values: disabled, checked, strict, fast]
+            Deprecated. This optimisation is now the default and cannot be disabled. [possible values: fast, disabled,
+            checked, strict]
         --proposer-reorg-cutoff <MILLISECONDS>
             Maximum delay after the start of the slot at which to propose a reorging block. Lower values can prevent
             failed reorgs by ensuring the block has ample time to propagate and be processed by the network. The default
@@ -482,9 +479,7 @@ OPTIONS:
         --slasher-validator-chunk-size <NUM_VALIDATORS>
             Number of validators per chunk stored on disk.
 
-        --slots-per-restore-point <SLOT_COUNT>
-            Specifies how often a freezer DB restore point should be stored. Cannot be changed after initialization.
-            [default: 8192 (mainnet) or 64 (minimal)]
+        --slots-per-restore-point <SLOT_COUNT>                                                       Deprecated.
         --state-cache-size <SIZE>
             Specifies how many states the database should cache in memory [default: 128]
 

@@ -3,6 +3,7 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::test_utils::{
     mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
     BlockStrategy, DiskHarnessType,
@@ -2025,17 +2026,17 @@ async fn garbage_collect_temp_states_from_failed_block() {
         let block_slot = Slot::new(2 * slots_per_epoch);
         let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
 
-        let (mut block, _) = signed_block.deconstruct();
+        let (mut block, _) = (*signed_block).clone().deconstruct();
 
         // Mutate the block to make it invalid, and re-sign it.
         *block.state_root_mut() = Hash256::repeat_byte(0xff);
         let proposer_index = block.proposer_index() as usize;
-        let block = block.sign(
+        let block = Arc::new(block.sign(
             &harness.validator_keypairs[proposer_index].sk,
             &state.fork(),
             state.genesis_validators_root(),
             &harness.spec,
-        );
+        ));
 
         // The block should be rejected, but should store a bunch of temporary states.
         harness.set_current_slot(block_slot);
@@ -2153,6 +2154,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .get_full_block(&wss_block_root, None)
         .unwrap()
         .unwrap();
+    let wss_blobs_opt = harness.chain.store.get_blobs(&wss_block_root).unwrap();
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot))
         .unwrap()
@@ -2195,7 +2197,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .custom_spec(test_spec::<E>())
         .task_executor(harness.chain.task_executor.clone())
         .logger(log.clone())
-        .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
+        .weak_subjectivity_state(
+            wss_state,
+            wss_block.clone(),
+            wss_blobs_opt.clone(),
+            genesis_state,
+        )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
         .dummy_eth1_backend()
@@ -2213,6 +2220,17 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .expect("should build");
 
     let beacon_chain = Arc::new(beacon_chain);
+    let wss_block_root = wss_block.canonical_root();
+    let store_wss_block = harness
+        .chain
+        .get_block(&wss_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+    let store_wss_blobs_opt = beacon_chain.store.get_blobs(&wss_block_root).unwrap();
+
+    assert_eq!(store_wss_block, wss_block);
+    assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
@@ -2305,6 +2323,25 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         }
     }
 
+    // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
+    // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
+    let mut batch_with_invalid_first_block = available_blocks.clone();
+    batch_with_invalid_first_block[0] = {
+        let (block_root, block, blobs) = available_blocks[0].clone().deconstruct();
+        let mut corrupt_block = (*block).clone();
+        *corrupt_block.signature_mut() = Signature::empty();
+        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), blobs)
+    };
+
+    // Importing the invalid batch should error.
+    assert!(matches!(
+        beacon_chain
+            .import_historical_block_batch(batch_with_invalid_first_block)
+            .unwrap_err(),
+        BeaconChainError::HistoricalBlockError(HistoricalBlockError::InvalidSignature)
+    ));
+
+    // Importing the batch with valid signatures should succeed.
     beacon_chain
         .import_historical_block_batch(available_blocks.clone())
         .unwrap();
@@ -2435,7 +2472,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         .chain
         .process_block(
             invalid_fork_block.canonical_root(),
-            Arc::new(invalid_fork_block.clone()),
+            invalid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -2448,7 +2485,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         .chain
         .process_block(
             valid_fork_block.canonical_root(),
-            Arc::new(valid_fork_block.clone()),
+            valid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )

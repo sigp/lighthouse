@@ -4,7 +4,6 @@ use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
-use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
@@ -12,6 +11,7 @@ use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info};
+use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
@@ -23,8 +23,6 @@ fn bls_library_name() -> &'static str {
         "blst-portable"
     } else if cfg!(feature = "modern") {
         "blst-modern"
-    } else if cfg!(feature = "milagro") {
-        "milagro"
     } else {
         "blst"
     }
@@ -84,7 +82,8 @@ fn main() {
         .arg(
             Arg::with_name("env_log")
                 .short("l")
-                .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
+                .help(
+                    "DEPRECATED Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
                 )
                 .takes_value(false),
         )
@@ -364,11 +363,6 @@ fn main() {
         }
     }
 
-    // Debugging output for libp2p and external crates.
-    if matches.is_present("env_log") {
-        Builder::from_env(Env::default()).init();
-    }
-
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
         let eth_spec_id = eth2_network_config.eth_spec_id()?;
 
@@ -510,7 +504,7 @@ fn run<E: EthSpec>(
     };
 
     let logger_config = LoggerConfig {
-        path: log_path,
+        path: log_path.clone(),
         debug_level: String::from(debug_level),
         logfile_debug_level: String::from(logfile_debug_level),
         log_format: log_format.map(String::from),
@@ -532,6 +526,35 @@ fn run<E: EthSpec>(
         .build()?;
 
     let log = environment.core_context().log().clone();
+
+    // Log panics properly.
+    {
+        let log = log.clone();
+        std::panic::set_hook(Box::new(move |info| {
+            crit!(
+                log,
+                "Task panic. This is a bug!";
+                "location" => info.location().map(ToString::to_string),
+                "message" => info.payload().downcast_ref::<String>(),
+                "backtrace" => %Backtrace::capture(),
+                "advice" => "Please check above for a backtrace and notify the developers",
+            );
+        }));
+    }
+
+    let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+
+    if tracing_log_path.is_none() {
+        tracing_log_path = Some(
+            parse_path_or_default(matches, "datadir")?
+                .join(DEFAULT_BEACON_NODE_DIR)
+                .join("logs"),
+        )
+    }
+
+    let path = tracing_log_path.clone().unwrap();
+
+    logging::create_tracing_layer(path);
 
     // Allow Prometheus to export the time at which the process was started.
     metrics::expose_process_start_time(&log);

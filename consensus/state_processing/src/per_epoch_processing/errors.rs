@@ -1,4 +1,3 @@
-use crate::per_epoch_processing::altair::participation_cache::Error as ParticipationCacheError;
 use types::{milhouse, BeaconStateError, EpochCacheError, InconsistentFork};
 
 #[derive(Debug, PartialEq)]
@@ -24,7 +23,6 @@ pub enum EpochProcessingError {
     InconsistentStateFork(InconsistentFork),
     InvalidJustificationBit(ssz_types::Error),
     InvalidFlagIndex(usize),
-    ParticipationCache(ParticipationCacheError),
     MilhouseError(milhouse::Error),
     EpochCache(EpochCacheError),
 }
@@ -50,12 +48,6 @@ impl From<ssz_types::Error> for EpochProcessingError {
 impl From<safe_arith::ArithError> for EpochProcessingError {
     fn from(e: safe_arith::ArithError) -> EpochProcessingError {
         EpochProcessingError::ArithError(e)
-    }
-}
-
-impl From<ParticipationCacheError> for EpochProcessingError {
-    fn from(e: ParticipationCacheError) -> EpochProcessingError {
-        EpochProcessingError::ParticipationCache(e)
     }
 }
 

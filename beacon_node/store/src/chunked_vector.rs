@@ -2,7 +2,7 @@
 //!
 //! Space-efficient storage for `BeaconState` vector fields.
 //!
-//! This module provides logic for splitting the `FixedVector` fields of a `BeaconState` into
+//! This module provides logic for splitting the `Vector` fields of a `BeaconState` into
 //! chunks, and storing those chunks in contiguous ranges in the on-disk database.  The motiviation
 //! for doing this is avoiding massive duplication in every on-disk state.  For example, rather than
 //! storing the whole `historical_roots` vector, which is updated once every couple of thousand
@@ -21,7 +21,7 @@ use crate::*;
 use ssz::{Decode, Encode};
 use typenum::Unsigned;
 use types::historical_summary::HistoricalSummary;
-use types::{milhouse::List as VariableList, FixedVector};
+use types::{List, Vector};
 
 /// Description of how a `BeaconState` field is updated during state processing.
 ///
@@ -64,12 +64,12 @@ fn genesis_value_key() -> [u8; 8] {
 /// type-level. We require their value-level witnesses to be `Copy` so that we can avoid the
 /// turbofish when calling functions like `store_updated_vector`.
 pub trait Field<E: EthSpec>: Copy {
-    /// The type of value stored in this field: the `T` from `FixedVector<T, N>`.
+    /// The type of value stored in this field: the `T` from `Vector<T, N>`.
     ///
     /// The `Default` impl will be used to fill extra vector entries.
     type Value: milhouse::Value + Default + std::fmt::Debug;
 
-    /// The length of this field: the `N` from `FixedVector<T, N>`.
+    /// The length of this field: the `N` from `Vector<T, N>`.
     type Length: Unsigned;
 
     /// The database column where the integer-indexed chunks for this field should be stored.
@@ -277,10 +277,10 @@ pub trait Field<E: EthSpec>: Copy {
     }
 }
 
-/// Marker trait for fixed-length fields (`FixedVector<T, N>`).
+/// Marker trait for fixed-length fields (`Vector<T, N>`).
 pub trait FixedLengthField<E: EthSpec>: Field<E> {}
 
-/// Marker trait for variable-length fields (`VariableList<T, N>`).
+/// Marker trait for variable-length fields (`List<T, N>`).
 pub trait VariableLengthField<E: EthSpec>: Field<E> {}
 
 /// Macro to implement the `Field` trait on a new unit struct type.
@@ -569,7 +569,7 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: KeyValueStore<
     store: &S,
     slot: Slot,
     spec: &ChainSpec,
-) -> Result<FixedVector<F::Value, F::Length>, Error> {
+) -> Result<Vector<F::Value, F::Length>, Error> {
     // Do a range query
     let chunk_size = F::chunk_size();
     let (start_vindex, end_vindex) = F::start_and_end_vindex(slot, spec);
@@ -593,7 +593,7 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: KeyValueStore<
         default,
     )?;
 
-    Ok(FixedVector::new(result)?)
+    Ok(Vector::new(result)?)
 }
 
 /// The historical roots are stored in vector chunks, despite not actually being a vector.
@@ -601,7 +601,7 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyV
     store: &S,
     slot: Slot,
     spec: &ChainSpec,
-) -> Result<VariableList<F::Value, F::Length>, Error> {
+) -> Result<List<F::Value, F::Length>, Error> {
     let chunk_size = F::chunk_size();
     let (start_vindex, end_vindex) = F::start_and_end_vindex(slot, spec);
     let start_cindex = start_vindex / chunk_size;
@@ -621,12 +621,12 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyV
         }
     }
 
-    Ok(VariableList::new(result)?)
+    Ok(List::new(result)?)
 }
 
 /// Index into a field of the state, avoiding out of bounds and division by 0.
 fn safe_modulo_index_vector<T: Copy + milhouse::Value, N: Unsigned>(
-    values: &FixedVector<T, N>,
+    values: &Vector<T, N>,
     index: u64,
 ) -> Result<T, ChunkError> {
     if values.is_empty() {

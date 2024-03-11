@@ -16,7 +16,7 @@ use store::{
     DBColumn, HotColdDB, KeyValueStore, LevelDB,
 };
 use strum::{EnumString, EnumVariantNames, VariantNames};
-use types::{BeaconState, EthSpec, Slot, VList};
+use types::{BeaconState, EthSpec, Slot};
 
 pub const CMD: &str = "database_manager";
 
@@ -77,7 +77,15 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("freezer")
                 .long("freezer")
                 .help("Inspect the freezer DB rather than the hot DB")
-                .takes_value(false),
+                .takes_value(false)
+                .conflicts_with("blobs-db"),
+        )
+        .arg(
+            Arg::with_name("blobs-db")
+                .long("blobs-db")
+                .help("Inspect the blobs DB rather than the hot DB")
+                .takes_value(false)
+                .conflicts_with("freezer"),
         )
         .arg(
             Arg::with_name("output-dir")
@@ -88,31 +96,39 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
+pub fn compact_cli_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("compact")
+        .setting(clap::AppSettings::ColoredHelp)
+        .about("Compact database manually")
+        .arg(
+            Arg::with_name("column")
+                .long("column")
+                .value_name("TAG")
+                .help("3-byte column ID (see `DBColumn`)")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("freezer")
+                .long("freezer")
+                .help("Inspect the freezer DB rather than the hot DB")
+                .takes_value(false)
+                .conflicts_with("blobs-db"),
+        )
+        .arg(
+            Arg::with_name("blobs-db")
+                .long("blobs-db")
+                .help("Inspect the blobs DB rather than the hot DB")
+                .takes_value(false)
+                .conflicts_with("freezer"),
+        )
+}
+
 pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
     App::new("prune-payloads")
         .alias("prune_payloads")
         .setting(clap::AppSettings::ColoredHelp)
         .about("Prune finalized execution payloads")
-}
-
-pub fn diff_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("diff")
-        .setting(clap::AppSettings::ColoredHelp)
-        .about("Diff SSZ balances")
-        .arg(
-            Arg::with_name("first")
-                .long("first")
-                .value_name("PATH")
-                .takes_value(true)
-                .required(true),
-        )
-        .arg(
-            Arg::with_name("second")
-                .long("second")
-                .value_name("PATH")
-                .takes_value(true)
-                .required(true),
-        )
 }
 
 pub fn prune_blobs_app<'a, 'b>() -> App<'a, 'b> {
@@ -144,17 +160,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .setting(clap::AppSettings::ColoredHelp)
         .about("Manage a beacon node database")
         .arg(
-            Arg::with_name("slots-per-restore-point")
-                .long("slots-per-restore-point")
-                .value_name("SLOT_COUNT")
-                .help(
-                    "Specifies how often a freezer DB restore point should be stored. \
-                       Cannot be changed after initialization. \
-                       [default: 2048 (mainnet) or 64 (minimal)]",
-                )
-                .takes_value(true),
-        )
-        .arg(
             Arg::with_name("freezer-dir")
                 .long("freezer-dir")
                 .value_name("DIR")
@@ -179,12 +184,27 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Data directory for the blobs database.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("hierarchy-exponents")
+                .long("hierarchy-exponents")
+                .value_name("EXPONENTS")
+                .help("Specifies the frequency for storing full state snapshots and hierarchical \
+                        diffs in the freezer DB. Accepts a comma-separated list of ascending \
+                        exponents. Each exponent defines an interval for storing diffs to the layer \
+                        above. The last exponent defines the interval for full snapshots. \
+                        For example, a config of '4,8,12' would store a full snapshot every \
+                        4096 (2^12) slots, first-level diffs every 256 (2^8) slots, and second-level \
+                        diffs every 16 (2^4) slots. \
+                        Cannot be changed after initialization. \
+                        [default: 5,9,11,13,16,18,21]")
+                .takes_value(true)
+        )
         .subcommand(migrate_cli_app())
         .subcommand(version_cli_app())
         .subcommand(inspect_cli_app())
+        .subcommand(compact_cli_app())
         .subcommand(prune_payloads_app())
         .subcommand(prune_blobs_app())
-        .subcommand(diff_app())
         .subcommand(prune_states_app())
 }
 
@@ -208,6 +228,10 @@ fn parse_client_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
     {
         client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
+    }
+
+    if let Some(hierarchy_config) = clap_utils::parse_optional(cli_args, "hierarchy-exponents")? {
+        client_config.store.hierarchy_config = hierarchy_config;
     }
 
     Ok(client_config)
@@ -268,6 +292,7 @@ pub struct InspectConfig {
     skip: Option<usize>,
     limit: Option<usize>,
     freezer: bool,
+    blobs_db: bool,
     /// Configures where the inspect output should be stored.
     output_dir: PathBuf,
 }
@@ -278,6 +303,7 @@ fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> 
     let skip = clap_utils::parse_optional(cli_args, "skip")?;
     let limit = clap_utils::parse_optional(cli_args, "limit")?;
     let freezer = cli_args.is_present("freezer");
+    let blobs_db = cli_args.is_present("blobs-db");
 
     let output_dir: PathBuf =
         clap_utils::parse_optional(cli_args, "output-dir")?.unwrap_or_else(PathBuf::new);
@@ -287,6 +313,7 @@ fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> 
         skip,
         limit,
         freezer,
+        blobs_db,
         output_dir,
     })
 }
@@ -297,12 +324,15 @@ pub fn inspect_db<E: EthSpec>(
 ) -> Result<(), String> {
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let mut total = 0;
     let mut num_keys = 0;
 
     let sub_db = if inspect_config.freezer {
         LevelDB::<E>::open(&cold_path).map_err(|e| format!("Unable to open freezer DB: {e:?}"))?
+    } else if inspect_config.blobs_db {
+        LevelDB::<E>::open(&blobs_path).map_err(|e| format!("Unable to open blobs DB: {e:?}"))?
     } else {
         LevelDB::<E>::open(&hot_path).map_err(|e| format!("Unable to open hot DB: {e:?}"))?
     };
@@ -358,6 +388,7 @@ pub fn inspect_db<E: EthSpec>(
 
                 let write_result = fs::OpenOptions::new()
                     .create(true)
+                    .truncate(true)
                     .write(true)
                     .open(&file_path)
                     .map_err(|e| format!("Failed to open file: {:?}", e))
@@ -383,6 +414,50 @@ pub fn inspect_db<E: EthSpec>(
     println!("Num keys: {}", num_keys);
     println!("Total: {} bytes", total);
 
+    Ok(())
+}
+
+pub struct CompactConfig {
+    column: DBColumn,
+    freezer: bool,
+    blobs_db: bool,
+}
+
+fn parse_compact_config(cli_args: &ArgMatches) -> Result<CompactConfig, String> {
+    let column = clap_utils::parse_required(cli_args, "column")?;
+    let freezer = cli_args.is_present("freezer");
+    let blobs_db = cli_args.is_present("blobs-db");
+    Ok(CompactConfig {
+        column,
+        freezer,
+        blobs_db,
+    })
+}
+
+pub fn compact_db<E: EthSpec>(
+    compact_config: CompactConfig,
+    client_config: ClientConfig,
+    log: Logger,
+) -> Result<(), Error> {
+    let hot_path = client_config.get_db_path();
+    let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
+    let column = compact_config.column;
+
+    let (sub_db, db_name) = if compact_config.freezer {
+        (LevelDB::<E>::open(&cold_path)?, "freezer_db")
+    } else if compact_config.blobs_db {
+        (LevelDB::<E>::open(&blobs_path)?, "blobs_db")
+    } else {
+        (LevelDB::<E>::open(&hot_path)?, "hot_db")
+    };
+    info!(
+        log,
+        "Compacting database";
+        "db" => db_name,
+        "column" => ?column
+    );
+    sub_db.compact_column(column)?;
     Ok(())
 }
 
@@ -438,57 +513,6 @@ pub fn migrate_db<E: EthSpec>(
         to,
         log,
     )
-}
-
-pub struct DiffConfig {
-    first: PathBuf,
-    second: PathBuf,
-}
-
-fn parse_diff_config(cli_args: &ArgMatches) -> Result<DiffConfig, String> {
-    let first = clap_utils::parse_required(cli_args, "first")?;
-    let second = clap_utils::parse_required(cli_args, "second")?;
-
-    Ok(DiffConfig { first, second })
-}
-
-pub fn diff<E: EthSpec>(diff_config: &DiffConfig, log: Logger) -> Result<(), Error> {
-    use ssz::{Decode, Encode};
-    use std::fs::File;
-    use std::io::Read;
-    use store::StoreConfig;
-
-    let mut first_file = File::open(&diff_config.first).unwrap();
-    let mut second_file = File::open(&diff_config.second).unwrap();
-
-    let mut first_bytes = vec![];
-    first_file.read_to_end(&mut first_bytes).unwrap();
-    let first: VList<u64, E::ValidatorRegistryLimit> = VList::from_ssz_bytes(&first_bytes).unwrap();
-
-    let mut second_bytes = vec![];
-    second_file.read_to_end(&mut second_bytes).unwrap();
-    let second: VList<u64, E::ValidatorRegistryLimit> =
-        VList::from_ssz_bytes(&second_bytes).unwrap();
-
-    let mut diff_balances = Vec::with_capacity(second.len());
-
-    for (i, new_balance) in second.iter().enumerate() {
-        let old_balance = first.get(i).copied().unwrap_or(0);
-        let diff = new_balance.wrapping_sub(old_balance);
-        diff_balances.push(diff);
-    }
-
-    let diff_ssz_bytes = diff_balances.as_ssz_bytes();
-    let config = StoreConfig::default();
-    let compressed_diff_bytes = config.compress_bytes(&diff_ssz_bytes).unwrap();
-
-    info!(
-        log,
-        "Compressed diff to {} bytes (from {})",
-        compressed_diff_bytes.len(),
-        diff_ssz_bytes.len()
-    );
-    Ok(())
 }
 
 pub fn prune_payloads<E: EthSpec>(
@@ -591,7 +615,10 @@ pub fn prune_states<E: EthSpec>(
     // Check that the user has confirmed they want to proceed.
     if !prune_config.confirm {
         match db.get_anchor_info() {
-            Some(anchor_info) if anchor_info.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN => {
+            Some(anchor_info)
+                if anchor_info.state_lower_limit == 0
+                    && anchor_info.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN =>
+            {
                 info!(log, "States have already been pruned");
                 return Ok(());
             }
@@ -641,12 +668,12 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
             let inspect_config = parse_inspect_config(cli_args)?;
             inspect_db::<T>(inspect_config, client_config)
         }
+        ("compact", Some(cli_args)) => {
+            let compact_config = parse_compact_config(cli_args)?;
+            compact_db::<T>(compact_config, client_config, log).map_err(format_err)
+        }
         ("prune-payloads", Some(_)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
-        }
-        ("diff", Some(cli_args)) => {
-            let diff_config = parse_diff_config(cli_args)?;
-            diff::<T>(&diff_config, log).map_err(format_err)
         }
         ("prune-blobs", Some(_)) => prune_blobs(client_config, &context, log).map_err(format_err),
         ("prune-states", Some(cli_args)) => {

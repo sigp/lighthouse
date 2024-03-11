@@ -1,6 +1,7 @@
 //! Utilities for managing database schema changes.
 mod migration_schema_v17;
 mod migration_schema_v18;
+mod migration_schema_v19;
 mod migration_schema_v24;
 
 use crate::beacon_chain::BeaconChainTypes;
@@ -23,7 +24,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // Migrating from the current schema version to itself is always OK, a no-op.
         (_, _) if from == to && to == CURRENT_SCHEMA_VERSION => Ok(()),
         // Upgrade for tree-states database changes. There is no downgrade.
-        (SchemaVersion(18), SchemaVersion(24)) => {
+        (SchemaVersion(19), SchemaVersion(24)) => {
             migration_schema_v24::upgrade_to_v24::<T>(db, genesis_state_root, log)
         }
         // Upgrade across multiple versions by recursively migrating one step at a time.
@@ -56,6 +57,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         (SchemaVersion(18), SchemaVersion(17)) => {
             let ops = migration_schema_v18::downgrade_from_v18::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(18), SchemaVersion(19)) => {
+            let ops = migration_schema_v19::upgrade_to_v19::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(19), SchemaVersion(18)) => {
+            let ops = migration_schema_v19::downgrade_from_v19::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.

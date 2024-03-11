@@ -1,4 +1,6 @@
-use crate::address_change_broadcast::broadcast_address_changes_at_capella;
+use crate::compute_light_client_updates::{
+    compute_light_client_updates, LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
+};
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
@@ -7,6 +9,7 @@ use beacon_chain::data_availability_checker::start_availability_cache_maintenanc
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
+use beacon_chain::LightClientProducerEvent;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -24,6 +27,7 @@ use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
 use execution_layer::ExecutionLayer;
+use futures::channel::mpsc::Receiver;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
@@ -31,6 +35,7 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
+use ssz::Decode;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -39,7 +44,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
+    test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
 };
 
@@ -83,6 +88,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     beacon_processor_config: Option<BeaconProcessorConfig>,
     beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
+    light_client_server_rv: Option<Receiver<LightClientProducerEvent<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
 }
 
@@ -118,6 +124,7 @@ where
             eth_spec_instance,
             beacon_processor_config: None,
             beacon_processor_channels: None,
+            light_client_server_rv: None,
         }
     }
 
@@ -202,6 +209,16 @@ where
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
+        } else {
+            builder
+        };
+
+        let builder = if config.network.enable_light_client_server {
+            let (tx, rv) = futures::channel::mpsc::channel::<LightClientProducerEvent<TEthSpec>>(
+                LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
+            );
+            self.light_client_server_rv = Some(rv);
+            builder.light_client_server_tx(tx)
         } else {
             builder
         };
@@ -302,6 +319,7 @@ where
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes,
                 anchor_block_bytes,
+                anchor_blobs_bytes,
             } => {
                 info!(context.log(), "Starting checkpoint sync");
                 if config.chain.genesis_backfill {
@@ -315,10 +333,25 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
+                let anchor_blobs = if anchor_block.message().body().has_blobs() {
+                    let anchor_blobs_bytes = anchor_blobs_bytes
+                        .ok_or("Blobs for checkpoint must be provided using --checkpoint-blobs")?;
+                    Some(
+                        BlobSidecarList::from_ssz_bytes(&anchor_blobs_bytes)
+                            .map_err(|e| format!("Unable to parse weak subj blobs SSZ: {e:?}"))?,
+                    )
+                } else {
+                    None
+                };
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder
-                    .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
+                    .weak_subjectivity_state(
+                        anchor_state,
+                        anchor_block,
+                        anchor_blobs,
+                        genesis_state,
+                    )
                     .map(|v| (v, None))?
             }
             ClientGenesis::CheckpointSyncUrl { url } => {
@@ -413,8 +446,32 @@ where
                         e => format!("Error fetching finalized block from remote: {:?}", e),
                     })?
                     .ok_or("Finalized block missing from remote, it returned 404")?;
+                let block_root = block.canonical_root();
 
                 debug!(context.log(), "Downloaded finalized block");
+
+                let blobs = if block.message().body().has_blobs() {
+                    debug!(context.log(), "Downloading finalized blobs");
+                    if let Some(response) = remote
+                        .get_blobs::<TEthSpec>(BlockId::Root(block_root), None)
+                        .await
+                        .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
+                    {
+                        debug!(context.log(), "Downloaded finalized blobs");
+                        Some(response.data)
+                    } else {
+                        warn!(
+                            context.log(),
+                            "Checkpoint server is missing blobs";
+                            "block_root" => %block_root,
+                            "hint" => "use a different URL or ask the provider to update",
+                            "impact" => "db will be slightly corrupt until these blobs are pruned",
+                        );
+                        None
+                    }
+                } else {
+                    None
+                };
 
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
@@ -423,7 +480,7 @@ where
                     "Loaded checkpoint block and state";
                     "block_slot" => block.slot(),
                     "state_slot" => state.slot(),
-                    "block_root" => ?block.canonical_root(),
+                    "block_root" => ?block_root,
                 );
 
                 let service =
@@ -451,7 +508,7 @@ where
                     });
 
                 builder
-                    .weak_subjectivity_state(state, block, genesis_state)
+                    .weak_subjectivity_state(state, block, blobs, genesis_state)
                     .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {
@@ -488,6 +545,7 @@ where
                         network_senders: None,
                         network_globals: None,
                         beacon_processor_send: None,
+                        beacon_processor_reprocess_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
                         sse_logging_components: runtime_context.sse_logging_components.clone(),
@@ -730,6 +788,9 @@ where
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
+                beacon_processor_reprocess_send: Some(
+                    beacon_processor_channels.work_reprocessing_tx.clone(),
+                ),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
                 log: log.clone(),
             });
@@ -797,7 +858,7 @@ where
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,
-                    beacon_processor_channels.work_reprocessing_tx,
+                    beacon_processor_channels.work_reprocessing_tx.clone(),
                     beacon_processor_channels.work_reprocessing_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
@@ -858,25 +919,26 @@ where
                         beacon_chain.slot_clock.clone(),
                     );
                 }
+            }
 
-                // Spawn a service to publish BLS to execution changes at the Capella fork.
-                if let Some(network_senders) = self.network_senders {
-                    let inner_chain = beacon_chain.clone();
-                    let broadcast_context =
-                        runtime_context.service_context("addr_bcast".to_string());
-                    let log = broadcast_context.log().clone();
-                    broadcast_context.executor.spawn(
-                        async move {
-                            broadcast_address_changes_at_capella(
-                                &inner_chain,
-                                network_senders.network_send(),
-                                &log,
-                            )
-                            .await
-                        },
-                        "addr_broadcast",
-                    );
-                }
+            // Spawn service to publish light_client updates at some interval into the slot.
+            if let Some(light_client_server_rv) = self.light_client_server_rv {
+                let inner_chain = beacon_chain.clone();
+                let light_client_update_context =
+                    runtime_context.service_context("lc_update".to_string());
+                let log = light_client_update_context.log().clone();
+                light_client_update_context.executor.spawn(
+                    async move {
+                        compute_light_client_updates(
+                            &inner_chain,
+                            light_client_server_rv,
+                            beacon_processor_channels.work_reprocessing_tx,
+                            &log,
+                        )
+                        .await
+                    },
+                    "lc_update",
+                );
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());

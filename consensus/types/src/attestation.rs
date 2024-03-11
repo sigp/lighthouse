@@ -125,7 +125,7 @@ mod tests {
     // Check the in-memory size of an `Attestation`, which is useful for reasoning about memory
     // and preventing regressions.
     //
-    // This test will only pass with `blst`, if we run these tests with Milagro or another
+    // This test will only pass with `blst`, if we run these tests with another
     // BLS library in future we will have to make it generic.
     #[test]
     fn size_of() {

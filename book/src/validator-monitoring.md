@@ -57,6 +57,7 @@ Monitor the mainnet validators at indices `0` and `1`:
 ```
 lighthouse bn --validator-monitor-pubkeys 0x933ad9491b62059dd065b560d256d8957a8c402cc6e8d8ee7290ae11e8f7329267a8811c397529dac52ae1342ba58c95,0xa1d1ad0714035353258038e964ae9675dc0252ee22cea896825c01458e1807bfad2f9969338798548d9858a571f7425c
 ```
+> Note: The validator monitoring will stop collecting per-validator Prometheus metrics and issuing per-validator logs when the number of validators reaches 64. To continue collecting metrics and logging, use the flag `--validator-monitor-individual-tracking-threshold N` where `N` is a number greater than the number of validators to monitor. 
 
 ## Observing Monitoring
 

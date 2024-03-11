@@ -35,7 +35,7 @@ use crate::epoch_cache::EpochCache;
 use crate::historical_summary::HistoricalSummary;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
-pub use milhouse::{interface::Interface, List as VList, List, Vector as FixedVector};
+pub use milhouse::{interface::Interface, List, Vector};
 
 #[macro_use]
 mod committee_cache;
@@ -51,8 +51,8 @@ mod tests;
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 
-pub type Validators<T> = VList<Validator, <T as EthSpec>::ValidatorRegistryLimit>;
-pub type Balances<T> = VList<u64, <T as EthSpec>::ValidatorRegistryLimit>;
+pub type Validators<T> = List<Validator, <T as EthSpec>::ValidatorRegistryLimit>;
+pub type Balances<T> = List<u64, <T as EthSpec>::ValidatorRegistryLimit>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -115,7 +115,6 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
     NonLinearTreeHashCacheHistory,
-    ParticipationCacheError(String),
     ProgressiveBalancesCacheNotInitialized,
     ProgressiveBalancesCacheInconsistent,
     TreeHashCacheSkippedSlot {
@@ -328,12 +327,12 @@ where
     #[metastruct(exclude_from(tree_lists))]
     pub latest_block_header: BeaconBlockHeader,
     #[test_random(default)]
-    pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
+    pub block_roots: Vector<Hash256, T::SlotsPerHistoricalRoot>,
     #[test_random(default)]
-    pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
+    pub state_roots: Vector<Hash256, T::SlotsPerHistoricalRoot>,
     // Frozen in Capella, replaced by historical_summaries
     #[test_random(default)]
-    pub historical_roots: VList<Hash256, T::HistoricalRootsLimit>,
+    pub historical_roots: List<Hash256, T::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
     #[metastruct(exclude_from(tree_lists))]
@@ -341,7 +340,7 @@ where
     #[test_random(default)]
     // FIXME(sproul): excluded due to `rebase_on` issue
     #[metastruct(exclude_from(tree_lists))]
-    pub eth1_data_votes: VList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
+    pub eth1_data_votes: List<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -349,39 +348,39 @@ where
 
     // Registry
     #[test_random(default)]
-    pub validators: VList<GenericValidator, T::ValidatorRegistryLimit>,
+    pub validators: List<GenericValidator, T::ValidatorRegistryLimit>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    pub balances: VList<u64, T::ValidatorRegistryLimit>,
+    pub balances: List<u64, T::ValidatorRegistryLimit>,
 
     // Randomness
     #[test_random(default)]
-    pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
+    pub randao_mixes: Vector<Hash256, T::EpochsPerHistoricalVector>,
 
     // Slashings
     #[test_random(default)]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
-    pub slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
+    pub slashings: Vector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
     // FIXME(sproul): excluded from tree lists due to ResetListDiff
     #[superstruct(only(Base))]
     #[test_random(default)]
     #[metastruct(exclude_from(tree_lists))]
-    pub previous_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
+    pub previous_epoch_attestations: List<PendingAttestation<T>, T::MaxPendingAttestations>,
     #[superstruct(only(Base))]
     #[test_random(default)]
     #[metastruct(exclude_from(tree_lists))]
-    pub current_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
+    pub current_epoch_attestations: List<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
     #[superstruct(only(Altair, Merge, Capella, Deneb))]
     #[test_random(default)]
-    pub previous_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    pub previous_epoch_participation: List<ParticipationFlags, T::ValidatorRegistryLimit>,
     #[superstruct(only(Altair, Merge, Capella, Deneb))]
     #[test_random(default)]
-    pub current_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    pub current_epoch_participation: List<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
     #[test_random(default)]
@@ -401,7 +400,7 @@ where
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[superstruct(only(Altair, Merge, Capella, Deneb))]
     #[test_random(default)]
-    pub inactivity_scores: VList<u64, T::ValidatorRegistryLimit>,
+    pub inactivity_scores: List<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
     #[superstruct(only(Altair, Merge, Capella, Deneb))]
@@ -443,7 +442,7 @@ where
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella, Deneb))]
     #[test_random(default)]
-    pub historical_summaries: VList<HistoricalSummary, T::HistoricalRootsLimit>,
+    pub historical_summaries: List<HistoricalSummary, T::HistoricalRootsLimit>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -510,28 +509,28 @@ impl<T: EthSpec> BeaconState<T> {
 
             // History
             latest_block_header: BeaconBlock::<T>::empty(spec).temporary_block_header(),
-            block_roots: FixedVector::default(),
-            state_roots: FixedVector::default(),
-            historical_roots: VList::default(),
+            block_roots: Vector::default(),
+            state_roots: Vector::default(),
+            historical_roots: List::default(),
 
             // Eth1
             eth1_data,
-            eth1_data_votes: VList::default(),
+            eth1_data_votes: List::default(),
             eth1_deposit_index: 0,
 
             // Validator registry
-            validators: VList::default(), // Set later.
-            balances: VList::default(),   // Set later.
+            validators: List::default(), // Set later.
+            balances: List::default(),   // Set later.
 
             // Randomness
-            randao_mixes: FixedVector::default(),
+            randao_mixes: Vector::default(),
 
             // Slashings
-            slashings: FixedVector::default(),
+            slashings: Vector::default(),
 
             // Attestations
-            previous_epoch_attestations: VList::default(),
-            current_epoch_attestations: VList::default(),
+            previous_epoch_attestations: List::default(),
+            current_epoch_attestations: List::default(),
 
             // Finality
             justification_bits: BitVector::new(),
@@ -765,7 +764,7 @@ impl<T: EthSpec> BeaconState<T> {
         if self.slot() <= decision_slot {
             Ok(block_root)
         } else {
-            self.get_block_root(decision_slot).map(|root| *root)
+            self.get_block_root(decision_slot).copied()
         }
     }
 
@@ -781,7 +780,7 @@ impl<T: EthSpec> BeaconState<T> {
         if self.slot() == decision_slot {
             Ok(block_root)
         } else {
-            self.get_block_root(decision_slot).map(|root| *root)
+            self.get_block_root(decision_slot).copied()
         }
     }
 
@@ -807,7 +806,7 @@ impl<T: EthSpec> BeaconState<T> {
         if self.slot() == decision_slot {
             Ok(block_root)
         } else {
-            self.get_block_root(decision_slot).map(|root| *root)
+            self.get_block_root(decision_slot).copied()
         }
     }
 
@@ -1169,7 +1168,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Fill `randao_mixes` with
     pub fn fill_randao_mixes_with(&mut self, index_root: Hash256) -> Result<(), Error> {
-        *self.randao_mixes_mut() = FixedVector::from_elem(index_root)?;
+        *self.randao_mixes_mut() = Vector::from_elem(index_root)?;
         Ok(())
     }
 
@@ -1303,7 +1302,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Get a reference to the entire `slashings` vector.
-    pub fn get_all_slashings(&self) -> &FixedVector<u64, T::EpochsPerSlashingsVector> {
+    pub fn get_all_slashings(&self) -> &Vector<u64, T::EpochsPerSlashingsVector> {
         self.slashings()
     }
 
@@ -1370,9 +1369,9 @@ impl<T: EthSpec> BeaconState<T> {
         (
             &mut Validators<T>,
             &mut Balances<T>,
-            &VList<ParticipationFlags, T::ValidatorRegistryLimit>,
-            &VList<ParticipationFlags, T::ValidatorRegistryLimit>,
-            &mut VList<u64, T::ValidatorRegistryLimit>,
+            &List<ParticipationFlags, T::ValidatorRegistryLimit>,
+            &List<ParticipationFlags, T::ValidatorRegistryLimit>,
+            &mut List<u64, T::ValidatorRegistryLimit>,
             &mut ProgressiveBalancesCache,
             &mut ExitCache,
             &mut EpochCache,
@@ -1593,7 +1592,7 @@ impl<T: EthSpec> BeaconState<T> {
         ))
     }
 
-    pub fn compute_total_active_balance(
+    pub fn compute_total_active_balance_slow(
         &self,
         epoch: Epoch,
         spec: &ChainSpec,
@@ -1661,7 +1660,7 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let total_active_balance = self.compute_total_active_balance(epoch, spec)?;
+        let total_active_balance = self.compute_total_active_balance_slow(epoch, spec)?;
         *self.total_active_balance_mut() = Some((epoch, total_active_balance));
         Ok(())
     }
@@ -1677,7 +1676,7 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         previous_epoch: Epoch,
         current_epoch: Epoch,
-    ) -> Result<&mut VList<ParticipationFlags, T::ValidatorRegistryLimit>, Error> {
+    ) -> Result<&mut List<ParticipationFlags, T::ValidatorRegistryLimit>, Error> {
         if epoch == current_epoch {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
@@ -1928,19 +1927,19 @@ impl<T: EthSpec> BeaconState<T> {
             || self.slashings().has_pending_updates()
             || self
                 .previous_epoch_attestations()
-                .map_or(false, VList::has_pending_updates)
+                .map_or(false, List::has_pending_updates)
             || self
                 .current_epoch_attestations()
-                .map_or(false, VList::has_pending_updates)
+                .map_or(false, List::has_pending_updates)
             || self
                 .previous_epoch_participation()
-                .map_or(false, VList::has_pending_updates)
+                .map_or(false, List::has_pending_updates)
             || self
                 .current_epoch_participation()
-                .map_or(false, VList::has_pending_updates)
+                .map_or(false, List::has_pending_updates)
             || self
                 .inactivity_scores()
-                .map_or(false, VList::has_pending_updates)
+                .map_or(false, List::has_pending_updates)
     }
 
     /// Completely drops the `progressive_balances_cache` cache, replacing it with a new, empty cache.

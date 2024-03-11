@@ -363,6 +363,16 @@ impl<T: BeaconChainTypes> Critical<T> {
             }
         }
     }
+
+    /// Returns the number of pending component entries in memory.
+    pub fn num_blocks(&self) -> usize {
+        self.in_memory.len()
+    }
+
+    /// Returns the number of entries that have overflowed to disk.
+    pub fn num_store_entries(&self) -> usize {
+        self.store_keys.len()
+    }
 }
 
 /// This is the main struct for this module. Outside methods should
@@ -671,6 +681,21 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     pub fn state_lru_cache(&self) -> &StateLRUCache<T> {
         &self.state_cache
     }
+
+    /// Number of states stored in memory in the cache.
+    pub fn state_cache_size(&self) -> usize {
+        self.state_cache.lru_cache().read().len()
+    }
+
+    /// Number of pending component entries in memory in the cache.
+    pub fn block_cache_size(&self) -> usize {
+        self.critical.read().num_blocks()
+    }
+
+    /// Returns the number of entries in the cache that have overflowed to disk.
+    pub fn num_store_entries(&self) -> usize {
+        self.critical.read().num_store_entries()
+    }
 }
 
 impl ssz::Encode for OverflowKey {
@@ -952,7 +977,7 @@ mod test {
         };
 
         let availability_pending_block = AvailabilityPendingExecutedBlock {
-            block: Arc::new(block),
+            block,
             import_data,
             payload_verification_outcome,
         };

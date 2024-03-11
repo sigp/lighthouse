@@ -43,7 +43,7 @@ impl<T: EthSpec> Consts for Attestation<T> {
 
     /// We need to keep attestations for each slot of the current epoch.
     fn max_slot_capacity() -> usize {
-        T::slots_per_epoch() as usize
+        2 * T::slots_per_epoch() as usize
     }
 
     /// As a DoS protection measure, the maximum number of distinct `Attestations` or

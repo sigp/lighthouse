@@ -100,7 +100,7 @@ The `jq` tool is used to format the JSON data properly. If it returns `jq: comma
 Shows the status of validator at index `1` at the `head` state.
 
 ```bash
-curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "accept: application/json"
+curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "accept: application/json" | jq
 ```
 
 ```json

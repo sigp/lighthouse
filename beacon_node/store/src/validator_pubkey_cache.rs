@@ -135,7 +135,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
             // See: https://github.com/sigp/lighthouse/issues/2327
             store_ops.push(StoreOp::KeyValueOp(
                 DatabasePubkey::from_pubkey(&pubkey)
-                    .as_kv_store_op(DatabasePubkey::key_for_index(i))?,
+                    .as_kv_store_op(DatabasePubkey::key_for_index(i)),
             ));
 
             self.pubkeys.push(pubkey);
@@ -195,8 +195,8 @@ impl StoreItem for DatabasePubkey {
         DBColumn::PubkeyCache
     }
 
-    fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.as_ssz_bytes())
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
@@ -224,7 +224,7 @@ impl DatabasePubkey {
     }
 
     pub fn from_legacy_pubkey_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let pubkey = PublicKey::from_ssz_bytes(&bytes)?;
+        let pubkey = PublicKey::from_ssz_bytes(bytes)?;
         Ok(Self::from_pubkey(&pubkey))
     }
 }

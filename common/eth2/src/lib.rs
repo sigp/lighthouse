@@ -46,6 +46,9 @@ pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinde
 pub const EXECUTION_PAYLOAD_VALUE_HEADER: &str = "Eth-Execution-Payload-Value";
 pub const CONSENSUS_BLOCK_VALUE_HEADER: &str = "Eth-Consensus-Block-Value";
 
+pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
+pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
+
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
@@ -370,26 +373,27 @@ impl BeaconNodeHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
+
         let response = builder.json(body).send().await?;
         ok_or_error(response).await
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
-    async fn post_generic_with_ssz_body<T: Into<Body>, U: IntoUrl>(
+    /// Does not include Content-Type application/json in the request header.
+    async fn post_generic_json_without_content_type_header<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
-        body: T,
+        body: &T,
         timeout: Option<Duration>,
     ) -> Result<Response, Error> {
         let mut builder = self.client.post(url);
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder
-            .header("Content-Type", "application/octet-stream")
-            .body(body)
-            .send()
-            .await?;
+
+        let serialized_body = serde_json::to_vec(body).map_err(Error::InvalidJson)?;
+
+        let response = builder.body(serialized_body).send().await?;
         ok_or_error(response).await
     }
 
@@ -863,10 +867,11 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blocks");
 
-        self.post_generic_with_ssz_body(
+        self.post_generic_with_consensus_version_and_ssz_body(
             path,
             block_contents.as_ssz_bytes(),
             Some(self.timeouts.proposal),
+            block_contents.signed_block().fork_name_unchecked(),
         )
         .await?;
 
@@ -907,8 +912,13 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blinded_blocks");
 
-        self.post_generic_with_ssz_body(path, block.as_ssz_bytes(), Some(self.timeouts.proposal))
-            .await?;
+        self.post_generic_with_consensus_version_and_ssz_body(
+            path,
+            block.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+            block.fork_name_unchecked(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -1074,8 +1084,18 @@ impl BeaconNodeHttpClient {
     pub async fn get_blobs<T: EthSpec>(
         &self,
         block_id: BlockId,
+        indices: Option<&[u64]>,
     ) -> Result<Option<GenericResponse<BlobSidecarList<T>>>, Error> {
-        let path = self.get_blobs_path(block_id)?;
+        let mut path = self.get_blobs_path(block_id)?;
+        if let Some(indices) = indices {
+            let indices_string = indices
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut()
+                .append_pair("indices", &indices_string);
+        }
         let Some(response) = self.get_response(path, |b| b).await.optional()? else {
             return Ok(None);
         };
@@ -1250,7 +1270,8 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attester_slashings");
 
-        self.post(path, slashing).await?;
+        self.post_generic_json_without_content_type_header(path, slashing, None)
+            .await?;
 
         Ok(())
     }
@@ -2237,7 +2258,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_validator_liveness_epoch(
         &self,
         epoch: Epoch,
-        indices: &Vec<u64>,
+        indices: &[u64],
     ) -> Result<GenericResponse<Vec<StandardLivenessResponseData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2247,8 +2268,12 @@ impl BeaconNodeHttpClient {
             .push("liveness")
             .push(&epoch.to_string());
 
-        self.post_with_timeout_and_response(path, indices, self.timeouts.liveness)
-            .await
+        self.post_with_timeout_and_response(
+            path,
+            &ValidatorIndexDataRef(indices),
+            self.timeouts.liveness,
+        )
+        .await
     }
 
     /// `POST validator/duties/attester/{epoch}`

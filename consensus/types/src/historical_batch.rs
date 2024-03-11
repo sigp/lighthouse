@@ -24,9 +24,9 @@ use tree_hash_derive::TreeHash;
 #[arbitrary(bound = "T: EthSpec")]
 pub struct HistoricalBatch<T: EthSpec> {
     #[test_random(default)]
-    pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
+    pub block_roots: Vector<Hash256, T::SlotsPerHistoricalRoot>,
     #[test_random(default)]
-    pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
+    pub state_roots: Vector<Hash256, T::SlotsPerHistoricalRoot>,
 }
 
 #[cfg(test)]

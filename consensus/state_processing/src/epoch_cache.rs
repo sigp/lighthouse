@@ -72,24 +72,34 @@ impl PreEpochCache {
     }
 }
 
-pub fn initialize_epoch_cache<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<(), EpochCacheError> {
+pub fn is_epoch_cache_initialized<E: EthSpec>(
+    state: &BeaconState<E>,
+) -> Result<bool, EpochCacheError> {
     let current_epoch = state.current_epoch();
-    let next_epoch = state.next_epoch().map_err(EpochCacheError::BeaconState)?;
     let epoch_cache: &EpochCache = state.epoch_cache();
     let decision_block_root = state
         .proposer_shuffling_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;
 
-    if epoch_cache
+    Ok(epoch_cache
         .check_validity::<E>(current_epoch, decision_block_root)
-        .is_ok()
-    {
+        .is_ok())
+}
+
+pub fn initialize_epoch_cache<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), EpochCacheError> {
+    if is_epoch_cache_initialized(state)? {
         // `EpochCache` has already been initialized and is valid, no need to initialize.
         return Ok(());
     }
+
+    let current_epoch = state.current_epoch();
+    let next_epoch = state.next_epoch().map_err(EpochCacheError::BeaconState)?;
+    let decision_block_root = state
+        .proposer_shuffling_decision_root(Hash256::zero())
+        .map_err(EpochCacheError::BeaconState)?;
 
     state.build_total_active_balance_cache_at(current_epoch, spec)?;
     let total_active_balance = state.get_total_active_balance_at_epoch(current_epoch)?;

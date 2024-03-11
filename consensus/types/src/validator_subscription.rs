@@ -4,10 +4,8 @@ use ssz_derive::{Decode, Encode};
 
 /// A validator subscription, created when a validator subscribes to a slot to perform optional aggregation
 /// duties.
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode, Eq, PartialOrd, Ord)]
 pub struct ValidatorSubscription {
-    /// The validators index.
-    pub validator_index: u64,
     /// The index of the committee within `slot` of which the validator is a member. Used by the
     /// beacon node to quickly evaluate the associated `SubnetId`.
     pub attestation_committee_index: CommitteeIndex,

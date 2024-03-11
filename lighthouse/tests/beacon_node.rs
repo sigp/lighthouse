@@ -20,12 +20,12 @@ use std::time::Duration;
 use store::hdiff::HierarchyConfig;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
-use types::{
-    Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
-    ProgressiveBalancesMode,
-};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
+use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
+
+// These dummy ports should ONLY be used for `enr-xxx-port` flags that do not bind.
 const DUMMY_ENR_TCP_PORT: u16 = 7777;
 const DUMMY_ENR_UDP_PORT: u16 = 8888;
 const DUMMY_ENR_QUIC_PORT: u16 = 9999;
@@ -56,6 +56,12 @@ impl CommandLineTest {
     }
 
     fn run_with_zero_port(&mut self) -> CompletedTest<Config> {
+        // Required since Deneb was enabled on mainnet.
+        self.cmd.arg("--allow-insecure-genesis-sync");
+        self.run_with_zero_port_and_no_genesis_sync()
+    }
+
+    fn run_with_zero_port_and_no_genesis_sync(&mut self) -> CompletedTest<Config> {
         self.cmd.arg("-z");
         self.cmd.arg("--unsafe-and-dangerous-mode");
         self.run()
@@ -95,16 +101,16 @@ fn staking_flag() {
 }
 
 #[test]
-fn allow_insecure_genesis_sync() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.allow_insecure_genesis_sync, false);
-        });
+#[should_panic]
+fn allow_insecure_genesis_sync_default() {
+    CommandLineTest::new().run_with_zero_port_and_no_genesis_sync();
+}
 
+#[test]
+fn allow_insecure_genesis_sync_enabled() {
     CommandLineTest::new()
         .flag("allow-insecure-genesis-sync", None)
-        .run_with_zero_port()
+        .run_with_zero_port_and_no_genesis_sync()
         .with_config(|config| {
             assert_eq!(config.allow_insecure_genesis_sync, true);
         });
@@ -883,6 +889,7 @@ fn network_port_flag_over_ipv4() {
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .flag("unsafe-and-dangerous-mode", None)
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -891,6 +898,25 @@ fn network_port_flag_over_ipv4() {
                     listen_addr.quic_port,
                     listen_addr.tcp_port
                 )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+        });
+
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
+        .flag("allow-insecure-genesis-sync", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
                 Some((port, port + 1, port))
             );
         });
@@ -902,6 +928,7 @@ fn network_port_flag_over_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
         .flag("unsafe-and-dangerous-mode", None)
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -910,7 +937,91 @@ fn network_port_flag_over_ipv6() {
                     listen_addr.quic_port,
                     listen_addr.tcp_port
                 )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+        });
+
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
+        .flag("allow-insecure-genesis-sync", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
                 Some((port, port + 1, port))
+            );
+        });
+}
+#[test]
+fn network_port_flag_over_ipv4_and_ipv6() {
+    let port = 0;
+    let port6 = 0;
+    CommandLineTest::new()
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("port6", Some(port6.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
+        .flag("allow-insecure-genesis-sync", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port6, 0, port6))
+            );
+        });
+
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    let port6 = unused_tcp6_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("port6", Some(port6.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
+                Some((port, port + 1, port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
+                Some((port6, port6 + 1, port6))
             );
         });
 }
@@ -921,6 +1032,7 @@ fn network_port_and_discovery_port_flags_over_ipv4() {
     CommandLineTest::new()
         .flag("port", Some(tcp4_port.to_string().as_str()))
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -942,6 +1054,7 @@ fn network_port_and_discovery_port_flags_over_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port", Some(disc6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -968,6 +1081,7 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1008,6 +1122,7 @@ fn network_port_discovery_quic_port_flags_over_ipv4_and_ipv6() {
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
         .flag("quic-port6", Some(quic6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1226,15 +1341,15 @@ fn enr_tcp6_port_flag() {
 fn enr_match_flag_over_ipv4() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
 
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp4_port = DUMMY_ENR_UDP_PORT;
-    let tcp4_port = DUMMY_ENR_TCP_PORT;
+    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
 
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some("127.0.0.2"))
         .flag("discovery-port", Some(udp4_port.to_string().as_str()))
         .flag("port", Some(tcp4_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1258,15 +1373,15 @@ fn enr_match_flag_over_ipv6() {
     const ADDR: &str = "::1";
     let addr = ADDR.parse::<Ipv6Addr>().unwrap();
 
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp6_port = DUMMY_ENR_UDP_PORT;
-    let tcp6_port = DUMMY_ENR_TCP_PORT;
+    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
 
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some(ADDR))
         .flag("discovery-port", Some(udp6_port.to_string().as_str()))
         .flag("port", Some(tcp6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1289,15 +1404,13 @@ fn enr_match_flag_over_ipv6() {
 fn enr_match_flag_over_ipv4_and_ipv6() {
     const IPV6_ADDR: &str = "::1";
 
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp6_port = DUMMY_ENR_UDP_PORT;
-    let tcp6_port = DUMMY_ENR_TCP_PORT;
+    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
     let ipv6_addr = IPV6_ADDR.parse::<Ipv6Addr>().unwrap();
 
     const IPV4_ADDR: &str = "127.0.0.1";
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp4_port = DUMMY_ENR_UDP_PORT;
-    let tcp4_port = DUMMY_ENR_TCP_PORT;
+    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
     let ipv4_addr = IPV4_ADDR.parse::<Ipv4Addr>().unwrap();
 
     CommandLineTest::new()
@@ -1308,6 +1421,7 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some(IPV6_ADDR))
         .flag("discovery-port6", Some(udp6_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
@@ -1435,6 +1549,7 @@ fn http_port_flag() {
         .flag("http", None)
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
@@ -1593,6 +1708,7 @@ fn metrics_port_flag() {
         .flag("metrics", None)
         .flag("metrics-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, port1));
@@ -2310,6 +2426,7 @@ fn light_client_server_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enable_light_client_server, false);
+            assert_eq!(config.chain.enable_light_client_server, false);
             assert_eq!(config.http_api.enable_light_client_server, false);
         });
 }
@@ -2321,6 +2438,7 @@ fn light_client_server_enabled() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enable_light_client_server, true);
+            assert_eq!(config.chain.enable_light_client_server, true);
         });
 }
 
@@ -2399,28 +2517,11 @@ fn invalid_gossip_verified_blocks_path() {
 }
 
 #[test]
-fn progressive_balances_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Fast
-            )
-        });
-}
-
-#[test]
 fn progressive_balances_checked() {
+    // Flag is deprecated but supplying it should not crash until we remove it completely.
     CommandLineTest::new()
         .flag("progressive-balances", Some("checked"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Checked
-            )
-        });
+        .run_with_zero_port();
 }
 
 #[test]
@@ -2518,24 +2619,5 @@ fn genesis_state_url_value() {
                 Some("http://genesis.com")
             );
             assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
-        });
-}
-
-#[test]
-fn disable_duplicate_warn_logs_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.network.disable_duplicate_warn_logs, false);
-        });
-}
-
-#[test]
-fn disable_duplicate_warn_logs() {
-    CommandLineTest::new()
-        .flag("disable-duplicate-warn-logs", None)
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.network.disable_duplicate_warn_logs, true);
         });
 }

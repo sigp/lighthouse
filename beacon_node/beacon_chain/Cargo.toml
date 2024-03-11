@@ -11,6 +11,7 @@ write_ssz_files = []  # Writes debugging .ssz files to /tmp during block process
 participation_metrics = []  # Exposes validator participation metrics to Prometheus.
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
 portable = ["bls/supranational-portable"]
+test_backfill = []
 
 [dev-dependencies]
 maplit = { workspace = true }
@@ -30,7 +31,6 @@ ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 execution_layer = { workspace = true }
-exit-future = { workspace = true }
 fork_choice = { workspace = true }
 futures = { workspace = true }
 genesis = { workspace = true }
@@ -43,6 +43,7 @@ lighthouse_metrics = { workspace = true }
 logging = { workspace = true }
 lru = { workspace = true }
 merkle_proof = { workspace = true }
+oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
 promise_cache = { path = "../../common/promise_cache" }

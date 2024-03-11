@@ -24,7 +24,7 @@ impl<E: EthSpec> AllCaches for BeaconState<E> {
     fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), EpochCacheError> {
         self.build_caches(spec)?;
         initialize_epoch_cache(self, spec)?;
-        initialize_progressive_balances_cache(self, None, spec)?;
+        initialize_progressive_balances_cache(self, spec)?;
         Ok(())
     }
 

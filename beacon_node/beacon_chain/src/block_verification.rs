@@ -718,7 +718,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
                 Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
             })
             .transpose()?;
-        let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;
+        let gossip_verified_block = GossipVerifiedBlock::new(block, chain)?;
 
         Ok((gossip_verified_block, gossip_verified_blobs))
     }
@@ -760,6 +760,7 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>>;
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
@@ -1013,6 +1014,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for GossipVerifiedBlock<T
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.block.as_block()
     }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block.clone()
+    }
 }
 
 impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
@@ -1166,6 +1171,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.block.as_block()
     }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block.block_cloned()
+    }
 }
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
@@ -1196,6 +1205,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self
     }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.clone()
+    }
 }
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> {
@@ -1225,6 +1238,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.as_block()
+    }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block_cloned()
     }
 }
 

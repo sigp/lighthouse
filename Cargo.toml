@@ -95,7 +95,9 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
+anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
+async-channel = "1.9.0"
 bincode = "1"
 bitvec = "1"
 byteorder = "1"
@@ -107,12 +109,13 @@ crossbeam-channel = "0.5.8"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
-discv5 = { git="https://github.com/sigp/discv5", rev="dbb4a718cd32eaed8127c3c8241bfd0fde9eb908", features = ["libp2p"] }
+either = "1.9"
+discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
 ethereum_hashing = "1.0.0-beta.2"
-ethereum_serde_utils = "0.5"
+ethereum_serde_utils = "0.5.2"
 ethereum_ssz = "0.5"
 ethereum_ssz_derive = "0.5"
 ethers-core = "1"
@@ -163,12 +166,16 @@ tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.6", features = ["codec", "compat", "time"] }
+tracing = "0.1.40"
+tracing-appender = "0.2"
+tracing-core = "0.1"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tree_hash = "0.5"
 tree_hash_derive = "0.5"
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
-# TODO update to warp 0.3.6 after released.
-warp = { git = "https://github.com/seanmonstar/warp.git", default-features = false, features = ["tls"] }
+warp = { version = "0.3.6", default-features = false, features = ["tls"] }
 xdelta3 = { git = "http://github.com/michaelsproul/xdelta3-rs", rev="ae9a1d2585ef998f4656acdc35cf263ee88e6dfa" }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 zip = "0.6"
@@ -228,6 +235,9 @@ unused_port = { path = "common/unused_port" }
 validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
 warp_utils = { path = "common/warp_utils" }
+
+[patch.crates-io]
+yamux = { git = "https://github.com/sigp/rust-yamux.git" }
 
 [profile.maxperf]
 inherits = "release"

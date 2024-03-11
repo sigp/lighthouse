@@ -1,16 +1,13 @@
 use super::{BeaconBlockHeader, EthSpec, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{
-    beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec, ForkName,
-    ForkVersionDeserialize, LightClientHeader,
+    beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec, FixedVector,
+    ForkName, ForkVersionDeserialize, LightClientHeader,
 };
 use safe_arith::ArithError;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{
-    typenum::{U5, U6},
-    FixedVector,
-};
+use ssz_types::typenum::{U5, U6};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;

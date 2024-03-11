@@ -15,6 +15,7 @@ use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
+use std::sync::Arc;
 use std::time::Duration;
 use types::beacon_block_body::KzgCommitments;
 pub use types::*;
@@ -1480,15 +1481,15 @@ mod tests {
         type E = MainnetEthSpec;
         let spec = ForkName::Capella.make_genesis_spec(E::default_spec());
 
-        let block: PublishBlockRequest<E> = SignedBeaconBlock::from_block(
+        let block: PublishBlockRequest<E> = Arc::new(SignedBeaconBlock::from_block(
             BeaconBlock::<E>::Capella(BeaconBlockCapella::empty(&spec)),
             Signature::empty(),
-        )
+        ))
         .try_into()
         .expect("should convert into signed block contents");
 
         let decoded: PublishBlockRequest<E> =
-            PublishBlockRequest::from_ssz_bytes(&block.as_ssz_bytes(), &spec)
+            PublishBlockRequest::from_ssz_bytes(&block.as_ssz_bytes(), ForkName::Capella)
                 .expect("should decode Block");
         assert!(matches!(decoded, PublishBlockRequest::Block(_)));
     }
@@ -1504,11 +1505,14 @@ mod tests {
         );
         let blobs = BlobsList::<E>::from(vec![Blob::<E>::default()]);
         let kzg_proofs = KzgProofs::<E>::from(vec![KzgProof::empty()]);
-        let signed_block_contents = PublishBlockRequest::new(block, Some((kzg_proofs, blobs)));
+        let signed_block_contents =
+            PublishBlockRequest::new(Arc::new(block), Some((kzg_proofs, blobs)));
 
-        let decoded: PublishBlockRequest<E> =
-            PublishBlockRequest::from_ssz_bytes(&signed_block_contents.as_ssz_bytes(), &spec)
-                .expect("should decode BlockAndBlobSidecars");
+        let decoded: PublishBlockRequest<E> = PublishBlockRequest::from_ssz_bytes(
+            &signed_block_contents.as_ssz_bytes(),
+            ForkName::Deneb,
+        )
+        .expect("should decode BlockAndBlobSidecars");
         assert!(matches!(decoded, PublishBlockRequest::BlockContents(_)));
     }
 }
@@ -1643,7 +1647,7 @@ impl<T: EthSpec> FullBlockContents<T> {
     ) -> PublishBlockRequest<T> {
         let (block, maybe_blobs) = self.deconstruct();
         let signed_block = block.sign(secret_key, fork, genesis_validators_root, spec);
-        PublishBlockRequest::new(signed_block, maybe_blobs)
+        PublishBlockRequest::new(Arc::new(signed_block), maybe_blobs)
     }
 }
 
@@ -1674,7 +1678,10 @@ impl<T: EthSpec> Into<BeaconBlock<T>> for FullBlockContents<T> {
     }
 }
 
-pub type SignedBlockContentsTuple<T> = (SignedBeaconBlock<T>, Option<(KzgProofs<T>, BlobsList<T>)>);
+pub type SignedBlockContentsTuple<T> = (
+    Arc<SignedBeaconBlock<T>>,
+    Option<(KzgProofs<T>, BlobsList<T>)>,
+);
 
 fn parse_required_header<T>(
     headers: &HeaderMap,
@@ -1704,12 +1711,12 @@ impl TryFrom<&HeaderMap> for ProduceBlockV3Metadata {
             })?;
         let execution_payload_value =
             parse_required_header(headers, EXECUTION_PAYLOAD_VALUE_HEADER, |s| {
-                s.parse::<Uint256>()
+                Uint256::from_dec_str(s)
                     .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_VALUE_HEADER}: {e:?}"))
             })?;
         let consensus_block_value =
             parse_required_header(headers, CONSENSUS_BLOCK_VALUE_HEADER, |s| {
-                s.parse::<Uint256>()
+                Uint256::from_dec_str(s)
                     .map_err(|e| format!("invalid {CONSENSUS_BLOCK_VALUE_HEADER}: {e:?}"))
             })?;
 
@@ -1729,12 +1736,12 @@ impl TryFrom<&HeaderMap> for ProduceBlockV3Metadata {
 #[ssz(enum_behaviour = "transparent")]
 pub enum PublishBlockRequest<T: EthSpec> {
     BlockContents(SignedBlockContents<T>),
-    Block(SignedBeaconBlock<T>),
+    Block(Arc<SignedBeaconBlock<T>>),
 }
 
 impl<T: EthSpec> PublishBlockRequest<T> {
     pub fn new(
-        block: SignedBeaconBlock<T>,
+        block: Arc<SignedBeaconBlock<T>>,
         blob_items: Option<(KzgProofs<T>, BlobsList<T>)>,
     ) -> Self {
         match blob_items {
@@ -1747,23 +1754,12 @@ impl<T: EthSpec> PublishBlockRequest<T> {
         }
     }
 
-    /// SSZ decode with fork variant determined by slot.
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
-        let slot_len = <Slot as Decode>::ssz_fixed_len();
-        let slot_bytes = bytes
-            .get(0..slot_len)
-            .ok_or(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: slot_len,
-            })?;
-
-        let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
-
-        match fork_at_slot {
+    /// SSZ decode with fork variant determined by `fork_name`.
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                SignedBeaconBlock::from_ssz_bytes(bytes, spec)
-                    .map(|block| PublishBlockRequest::Block(block))
+                SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+                    .map(|block| PublishBlockRequest::Block(Arc::new(block)))
             }
             ForkName::Deneb => {
                 let mut builder = ssz::SszDecoderBuilder::new(bytes);
@@ -1772,16 +1768,20 @@ impl<T: EthSpec> PublishBlockRequest<T> {
                 builder.register_type::<BlobsList<T>>()?;
 
                 let mut decoder = builder.build()?;
-                let block = decoder
-                    .decode_next_with(|bytes| SignedBeaconBlock::from_ssz_bytes(bytes, spec))?;
+                let block = decoder.decode_next_with(|bytes| {
+                    SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+                })?;
                 let kzg_proofs = decoder.decode_next()?;
                 let blobs = decoder.decode_next()?;
-                Ok(PublishBlockRequest::new(block, Some((kzg_proofs, blobs))))
+                Ok(PublishBlockRequest::new(
+                    Arc::new(block),
+                    Some((kzg_proofs, blobs)),
+                ))
             }
         }
     }
 
-    pub fn signed_block(&self) -> &SignedBeaconBlock<T> {
+    pub fn signed_block(&self) -> &Arc<SignedBeaconBlock<T>> {
         match self {
             PublishBlockRequest::BlockContents(block_and_sidecars) => {
                 &block_and_sidecars.signed_block
@@ -1811,14 +1811,14 @@ pub fn into_full_block_and_blobs<T: EthSpec>(
             let signed_block = blinded_block
                 .try_into_full_block(None)
                 .ok_or("Failed to build full block with payload".to_string())?;
-            Ok(PublishBlockRequest::new(signed_block, None))
+            Ok(PublishBlockRequest::new(Arc::new(signed_block), None))
         }
         // This variant implies a pre-deneb block
         Some(FullPayloadContents::Payload(execution_payload)) => {
             let signed_block = blinded_block
                 .try_into_full_block(Some(execution_payload))
                 .ok_or("Failed to build full block with payload".to_string())?;
-            Ok(PublishBlockRequest::new(signed_block, None))
+            Ok(PublishBlockRequest::new(Arc::new(signed_block), None))
         }
         // This variant implies a post-deneb block
         Some(FullPayloadContents::PayloadAndBlobs(payload_and_blobs)) => {
@@ -1827,7 +1827,7 @@ pub fn into_full_block_and_blobs<T: EthSpec>(
                 .ok_or("Failed to build full block with payload".to_string())?;
 
             Ok(PublishBlockRequest::new(
-                signed_block,
+                Arc::new(signed_block),
                 Some((
                     payload_and_blobs.blobs_bundle.proofs,
                     payload_and_blobs.blobs_bundle.blobs,
@@ -1837,10 +1837,10 @@ pub fn into_full_block_and_blobs<T: EthSpec>(
     }
 }
 
-impl<T: EthSpec> TryFrom<SignedBeaconBlock<T>> for PublishBlockRequest<T> {
+impl<T: EthSpec> TryFrom<Arc<SignedBeaconBlock<T>>> for PublishBlockRequest<T> {
     type Error = &'static str;
-    fn try_from(block: SignedBeaconBlock<T>) -> Result<Self, Self::Error> {
-        match block {
+    fn try_from(block: Arc<SignedBeaconBlock<T>>) -> Result<Self, Self::Error> {
+        match *block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
@@ -1861,7 +1861,7 @@ impl<T: EthSpec> From<SignedBlockContentsTuple<T>> for PublishBlockRequest<T> {
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
 #[serde(bound = "T: EthSpec")]
 pub struct SignedBlockContents<T: EthSpec> {
-    pub signed_block: SignedBeaconBlock<T>,
+    pub signed_block: Arc<SignedBeaconBlock<T>>,
     pub kzg_proofs: KzgProofs<T>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<T>,

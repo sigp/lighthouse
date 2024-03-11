@@ -8,8 +8,6 @@ use crate::{
 };
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
-use serde::{Deserialize, Serialize};
-use strum::{Display, EnumString, EnumVariantNames};
 
 /// This cache keeps track of the accumulated target attestation balance for the current & previous
 /// epochs. The cached values can be utilised by fork choice to calculate unrealized justification
@@ -285,34 +283,7 @@ impl ProgressiveBalancesCache {
     }
 }
 
-#[derive(
-    Debug, PartialEq, Eq, Clone, Copy, Deserialize, Serialize, Display, EnumString, EnumVariantNames,
-)]
-#[strum(serialize_all = "lowercase")]
-pub enum ProgressiveBalancesMode {
-    /// Disable the usage of progressive cache, and use the existing `ParticipationCache` calculation.
-    Disabled,
-    /// Enable the usage of progressive cache, with checks against the `ParticipationCache` and falls
-    /// back to the existing calculation if there is a balance mismatch.
-    Checked,
-    /// Enable the usage of progressive cache, with checks against the `ParticipationCache`. BeaconStateErrors
-    /// if there is a balance mismatch. Used in testing only.
-    Strict,
-    /// Enable the usage of progressive cache, with no comparative checks against the
-    /// `ParticipationCache`. This is fast but an experimental mode, use with caution.
-    Fast,
-}
-
-impl ProgressiveBalancesMode {
-    pub fn perform_comparative_checks(&self) -> bool {
-        match self {
-            Self::Disabled | Self::Fast => false,
-            Self::Checked | Self::Strict => true,
-        }
-    }
-}
-
-/// `ProgressiveBalancesCache` is only enabled from `Altair` as it requires `ParticipationCache`.
+/// `ProgressiveBalancesCache` is only enabled from `Altair` as it uses Altair-specific logic.
 pub fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bool {
     match state {
         BeaconState::Base(_) => false,
