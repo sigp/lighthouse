@@ -134,33 +134,7 @@ validator_monitor_attestation_simulator_source_attester_hit_total
 validator_monitor_attestation_simulator_source_attester_miss_total
 ```
 
-We can query the metrics for `validator_monitor_attestation_simulator_head_attester_hit_total`:
-
-```bash
- curl -s "http://localhost:5054/metrics" | grep validator_monitor_attestation_simulator_head_attester_hit_total
- ```
-
- An example of response is:
-
-```
-# HELP validator_monitor_attestation_simulator_head_attester_hit_total Incremented if a validator is flagged as a previous slot head attester during per slot processing
-# TYPE validator_monitor_attestation_simulator_head_attester_hit_total counter
-validator_monitor_attestation_simulator_head_attester_hit_total 40666
-```
-
-Similarly, to query the metrics for `validator_monitor_attestation_simulator_head_attester_miss_total`:
-
-```bash
- curl -s "http://localhost:5054/metrics" | grep validator_monitor_attestation_simulator_head_attester_miss_total
- ```
-
- An example of response is:
-
-```
-# HELP validator_monitor_attestation_simulator_head_attester_miss_total Incremented if a validator is not flagged as a previous slot head attester during per slot processing
-# TYPE validator_monitor_attestation_simulator_head_attester_miss_total counter
-validator_monitor_attestation_simulator_head_attester_miss_total 2668
-```
+A grafana dashboard to view the metrics for attestation simulator is available [here](https://github.com/sigp/lighthouse-metrics/blob/master/dashboards/AttestationSimulator.json). 
 
 The attestation simulator provides an insight into the attestation performance of a beacon node. It can be used as an indication of how expediently the beacon node has completed importing blocks within the 4s time frame for an attestation to be made. 
 
@@ -176,6 +150,6 @@ Assuming the above factors are ignored (no delays between beacon node and valida
 
 1. If the attestation simulator says that the one or more votes are missed, it means that there is a delay in importing the block. The delay could be due to slowness in processing the block (e.g., due to a slow CPU) or that the block is arriving late (e.g., the proposer publishes the block late). If the beacon node were to publish the attestation for this slot, the validator will miss one or more votes (e.g., the head vote).
 
-A grafana dashboard to view the metrics for attestation simulator is available [here](https://github.com/sigp/lighthouse-metrics/blob/master/dashboards/AttestationSimulator.json). 
+
 
 
