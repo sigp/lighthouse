@@ -1,6 +1,5 @@
 //! Handles the encoding and decoding of pubsub messages.
 
-use crate::gossipsub;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::TopicHash;
 use snap::raw::{decompress_len, Decoder, Encoder};

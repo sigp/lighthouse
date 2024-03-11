@@ -3,7 +3,6 @@ use crate::peer_manager::PeerManager;
 use crate::rpc::{ReqId, RPC};
 use crate::types::SnappyTransform;
 
-use crate::gossipsub;
 use libp2p::identify;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::upnp::tokio::Behaviour as Upnp;

@@ -508,10 +508,10 @@ impl Decoder for GossipsubCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gossipsub::config::Config;
-    use crate::gossipsub::protocol::{BytesMut, GossipsubCodec, HandlerEvent};
-    use crate::gossipsub::*;
-    use crate::gossipsub::{IdentTopic as Topic, Version};
+    use crate::config::Config;
+    use crate::protocol::{BytesMut, GossipsubCodec, HandlerEvent};
+    use crate::{Behaviour, ConfigBuilder, MessageAuthenticity};
+    use crate::{IdentTopic as Topic, Version};
     use libp2p::identity::Keypair;
     use quickcheck::*;
 
@@ -586,7 +586,7 @@ mod tests {
         fn prop(message: Message) {
             let message = message.0;
 
-            let rpc = crate::gossipsub::types::Rpc {
+            let rpc = crate::types::Rpc {
                 messages: vec![message.clone()],
                 subscriptions: vec![],
                 control_msgs: vec![],
