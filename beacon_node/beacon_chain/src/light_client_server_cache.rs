@@ -4,15 +4,11 @@ use parking_lot::{Mutex, RwLock};
 use slog::{debug, Logger};
 use ssz_types::FixedVector;
 use std::num::NonZeroUsize;
-use types::light_client_header::{
-    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
-};
 use types::light_client_update::{FinalizedRootProofLen, FINALIZED_ROOT_INDEX};
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    light_client_update::Error as LightClientError, BeaconBlockRef, BeaconState, ChainSpec,
-    EthSpec, ForkName, Hash256, LightClientFinalityUpdate, LightClientHeader,
-    LightClientOptimisticUpdate, SignedBeaconBlock, Slot, SyncAggregate,
+    BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, Slot, SyncAggregate,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
@@ -117,11 +113,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         };
         if is_latest_optimistic {
             // can create an optimistic update, that is more recent
-            *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate {
-                attested_header: block_to_light_client_header(fork_name, &attested_block)?,
-                sync_aggregate: sync_aggregate.clone(),
+            *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate::new(
+                &attested_block,
+                sync_aggregate.clone(),
                 signature_slot,
-            });
+                fork_name,
+            )?);
         };
 
         // Spec: Full nodes SHOULD provide the LightClientFinalityUpdate with the highest
@@ -137,15 +134,14 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             if let Some(finalized_block) =
                 store.get_full_block(&cached_parts.finalized_block_root)?
             {
-                *self.latest_finality_update.write() = Some(LightClientFinalityUpdate {
-                    // TODO: may want to cache this result from latest_optimistic_update if producing a
-                    // light_client header becomes expensive
-                    attested_header: block_to_light_client_header(fork_name, &attested_block)?,
-                    finalized_header: block_to_light_client_header(fork_name, &finalized_block)?,
-                    finality_branch: cached_parts.finality_branch.clone(),
-                    sync_aggregate: sync_aggregate.clone(),
+                *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
+                    &attested_block,
+                    &finalized_block,
+                    cached_parts.finality_branch.clone(),
+                    sync_aggregate.clone(),
                     signature_slot,
-                });
+                    fork_name,
+                )?);
             } else {
                 debug!(
                     log,
@@ -231,10 +227,11 @@ fn is_latest_finality_update<T: EthSpec>(
     attested_slot: Slot,
     signature_slot: Slot,
 ) -> bool {
-    if attested_slot > prev.attested_header.beacon().slot {
+    let prev_slot = prev.get_slot();
+    if attested_slot > prev_slot {
         true
     } else {
-        attested_slot == prev.attested_header.beacon().slot && signature_slot > prev.signature_slot
+        attested_slot == prev_slot && signature_slot > *prev.signature_slot()
     }
 }
 
@@ -247,25 +244,10 @@ fn is_latest_optimistic_update<T: EthSpec>(
     attested_slot: Slot,
     signature_slot: Slot,
 ) -> bool {
-    if attested_slot > prev.attested_header.beacon().slot {
+    let prev_slot = prev.get_slot();
+    if attested_slot > prev_slot {
         true
     } else {
-        attested_slot == prev.attested_header.beacon().slot && signature_slot > prev.signature_slot
+        attested_slot == prev_slot && signature_slot > *prev.signature_slot()
     }
-}
-
-fn block_to_light_client_header<T: EthSpec>(
-    fork_name: ForkName,
-    block: &SignedBeaconBlock<T>,
-) -> Result<LightClientHeader<T>, BeaconChainError> {
-    let light_client_header = match fork_name {
-        ForkName::Base => return Err(LightClientError::AltairForkNotActive.into()),
-        ForkName::Merge | ForkName::Altair => {
-            LightClientHeaderAltair::block_to_light_client_header(block)?.into()
-        }
-        ForkName::Capella => LightClientHeaderCapella::block_to_light_client_header(block)?.into(),
-        ForkName::Deneb => LightClientHeaderDeneb::block_to_light_client_header(block)?.into(),
-    };
-
-    Ok(light_client_header)
 }

@@ -566,11 +566,7 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
             RPCResponse::LightClientBootstrap(bootstrap) => {
-                write!(
-                    f,
-                    "LightClientBootstrap Slot: {}",
-                    bootstrap.header.beacon().slot
-                )
+                write!(f, "LightClientBootstrap Slot: {}", bootstrap.get_slot())
             }
         }
     }

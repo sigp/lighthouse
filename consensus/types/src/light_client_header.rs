@@ -10,7 +10,7 @@ use crate::{
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use ssz::{Decode, Encode};
+use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use superstruct::superstruct;
@@ -37,9 +37,10 @@ use tree_hash_derive::TreeHash;
         arbitrary(bound = "E: EthSpec"),
     )
 )]
-#[derive(Debug, Clone, Serialize, TreeHash, Deserialize, arbitrary::Arbitrary, PartialEq)]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, Deserialize, arbitrary::Arbitrary, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientHeader<E: EthSpec> {
@@ -116,42 +117,6 @@ impl<E: EthSpec> LightClientHeader<E> {
         fork_name: ForkName,
     ) -> Result<Self, ssz::DecodeError> {
         Self::from_ssz_bytes(bytes, fork_name)
-    }
-}
-
-impl<E: EthSpec> Encode for LightClientHeader<E> {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn ssz_bytes_len<'a>(&'a self) -> usize {
-        map_light_client_header_ref!(&'a _, self.to_ref(), |inner, cons| {
-            cons(inner);
-            inner.ssz_bytes_len()
-        })
-    }
-
-    fn ssz_fixed_len() -> usize {
-        ssz::BYTES_PER_LENGTH_OFFSET
-    }
-
-    fn as_ssz_bytes<'a>(&'a self) -> Vec<u8> {
-        map_light_client_header_ref!(&'a _, self.to_ref(), |inner, cons| {
-            cons(inner);
-            inner.as_ssz_bytes()
-        })
-    }
-
-    fn ssz_append<'a>(&'a self, buf: &mut Vec<u8>) {
-        // map_light_client_header_ref!(&'a _, self.to_ref(), move |inner, cons| {
-        //     cons(inner);
-        //     inner.ssz_append(buf)
-        // });
-        match self {
-            LightClientHeader::Altair(header) => header.ssz_append(buf),
-            LightClientHeader::Capella(header) => header.ssz_append(buf),
-            LightClientHeader::Deneb(header) => header.ssz_append(buf),
-        }
     }
 }
 

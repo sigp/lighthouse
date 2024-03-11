@@ -1,42 +1,103 @@
 use super::{BeaconState, EthSpec, FixedVector, Hash256, SyncCommittee};
 use crate::{
     light_client_update::*, test_utils::TestRandom, ChainSpec, ForkName, ForkVersionDeserialize,
-    LightClientHeader, SignedBeaconBlock,
+    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
+    Slot,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz_derive::Encode;
+use ssz::Decode;
+use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// A LightClientBootstrap is the initializer we send over to light_client nodes
 /// that are trying to generate their basic storage when booting up.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Derivative,
-    TreeHash,
-    arbitrary::Arbitrary,
-    TestRandom,
+#[superstruct(
+    variants(Altair, Capella, Deneb),
+    variant_attributes(
+        derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Serialize,
+            Deserialize,
+            Derivative,
+            Decode,
+            Encode,
+            TestRandom,
+            arbitrary::Arbitrary,
+            TreeHash,
+        ),
+        serde(bound = "E: EthSpec", deny_unknown_fields),
+        arbitrary(bound = "E: EthSpec"),
+    )
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct LightClientBootstrap<T: EthSpec> {
+#[derive(
+    Debug, Clone, Serialize, TreeHash, Encode, Deserialize, arbitrary::Arbitrary, PartialEq,
+)]
+#[serde(untagged)]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct LightClientBootstrap<E: EthSpec> {
     /// The requested beacon block header.
-    pub header: LightClientHeader<T>,
+    #[superstruct(only(Altair), partial_getter(rename = "header_altair"))]
+    pub header: LightClientHeaderAltair<E>,
+    #[superstruct(only(Capella), partial_getter(rename = "header_capella"))]
+    pub header: LightClientHeaderCapella<E>,
+    #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
+    pub header: LightClientHeaderDeneb<E>,
     /// The `SyncCommittee` used in the requested period.
-    pub current_sync_committee: Arc<SyncCommittee<T>>,
+    pub current_sync_committee: Arc<SyncCommittee<E>>,
     /// Merkle proof for sync committee
     pub current_sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen>,
 }
 
 impl<E: EthSpec> LightClientBootstrap<E> {
+    pub fn get_slot<'a>(&'a self) -> Slot {
+        map_light_client_bootstrap_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.header.beacon.slot
+        })
+    }
+
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        let bootstrap = match fork_name {
+            ForkName::Altair | ForkName::Merge => {
+                let header = LightClientBootstrapAltair::from_ssz_bytes(bytes)?;
+                Self::Altair(header)
+            }
+            ForkName::Capella => {
+                let header = LightClientBootstrapCapella::from_ssz_bytes(bytes)?;
+                Self::Capella(header)
+            }
+            ForkName::Deneb => {
+                let header = LightClientBootstrapDeneb::from_ssz_bytes(bytes)?;
+                Self::Deneb(header)
+            }
+            ForkName::Base => {
+                return Err(ssz::DecodeError::BytesInvalid(format!(
+                    "LightClientBootstrap decoding for {fork_name} not implemented"
+                )))
+            }
+        };
+
+        Ok(bootstrap)
+    }
+
+    /// Custom SSZ decoder that takes a `ForkName` as context.
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes(bytes, fork_name)
+    }
+
     pub fn from_beacon_state(
         beacon_state: &mut BeaconState<E>,
         block: &SignedBeaconBlock<E>,
@@ -47,38 +108,29 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         let current_sync_committee_branch =
             beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?;
 
-        let header = LightClientHeader::<E>::block_to_light_client_header(block, chain_spec)?;
+        let light_client_bootstrap = match block
+            .fork_name(chain_spec)
+            .map_err(|_| Error::InconsistentFork)?
+        {
+            ForkName::Base => return Err(Error::AltairForkNotActive),
+            ForkName::Altair | ForkName::Merge => Self::Altair(LightClientBootstrapAltair {
+                header: LightClientHeaderAltair::block_to_light_client_header(block)?,
+                current_sync_committee: beacon_state.current_sync_committee()?.clone(),
+                current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
+            }),
+            ForkName::Capella => Self::Capella(LightClientBootstrapCapella {
+                header: LightClientHeaderCapella::block_to_light_client_header(block)?,
+                current_sync_committee: beacon_state.current_sync_committee()?.clone(),
+                current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
+            }),
+            ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb {
+                header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
+                current_sync_committee: beacon_state.current_sync_committee()?.clone(),
+                current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
+            }),
+        };
 
-        Ok(LightClientBootstrap {
-            header,
-            current_sync_committee: beacon_state.current_sync_committee()?.clone(),
-            current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
-        })
-    }
-
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        let mut builder = ssz::SszDecoderBuilder::new(bytes);
-        builder.register_anonymous_variable_length_item()?;
-        builder.register_type::<SyncCommittee<E>>()?;
-        builder.register_type::<FixedVector<Hash256, CurrentSyncCommitteeProofLen>>()?;
-        let mut decoder = builder.build()?;
-        let header = decoder
-            .decode_next_with(|bytes| LightClientHeader::from_ssz_bytes(bytes, fork_name))?;
-        let current_sync_committee = decoder.decode_next()?;
-        let current_sync_committee_branch = decoder.decode_next()?;
-
-        Ok(Self {
-            header,
-            current_sync_committee: Arc::new(current_sync_committee),
-            current_sync_committee_branch,
-        })
-    }
-
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes(bytes, fork_name)
+        Ok(light_client_bootstrap)
     }
 }
 
@@ -98,12 +150,4 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientBootstrap<E> {
             ))),
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::MainnetEthSpec;
-
-    ssz_tests_by_fork!(LightClientBootstrap<MainnetEthSpec>, ForkName::Deneb);
 }

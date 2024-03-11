@@ -217,7 +217,7 @@ mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
     use types::blob_sidecar::BlobIdentifier;
     use types::historical_summary::HistoricalSummary;
-    use types::{LightClientHeaderAltair, *};
+    use types::{LightClientBootstrapAltair, *};
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
     ssz_static_test!(attestation, Attestation<_>);
@@ -248,11 +248,7 @@ mod ssz_static {
     ssz_static_test!(signed_voluntary_exit, SignedVoluntaryExit);
     ssz_static_test!(signing_data, SigningData);
     ssz_static_test!(validator, Validator);
-    // ssz_static_test!(voluntary_exit, VoluntaryExit);
-    // ssz_static_test!(light_client_bootstrap, SszStaticWithSpecHandler, LightClientBootstrap<_>);
-    // ssz_static_test!(light_client_update, SszStaticWithSpecHandler, LightClientUpdate<_>);
-    // ssz_static_test!(light_client_finality_update, SszStaticWithSpecHandler, LightClientFinalityUpdate<_>);
-    // ssz_static_test!(light_client_optimistic_update, SszStaticWithSpecHandler, LightClientOptimisticUpdate<_>);
+    ssz_static_test!(voluntary_exit, VoluntaryExit);
     // BeaconBlockBody has no internal indicator of which fork it is for, so we test it separately.
     #[test]
     fn beacon_block_body() {
@@ -285,43 +281,37 @@ mod ssz_static {
             .run();
     }
 
+     // LightClientBootstrap has no internal indicator of which fork it is for, so we test it separately.
     #[test]
     fn light_client_bootstrap() {
-        // SszStaticWithSpecHandler::<LightClientBootstrap<MinimalEthSpec>, MinimalEthSpec>::altair_only()
-        //     .run();
-        // SszStaticWithSpecHandler::<LightClientBootstrap<MainnetEthSpec>, MainnetEthSpec>::altair_only()
-        //     .run();
-        SszStaticWithSpecHandler::<LightClientBootstrap<MinimalEthSpec>, MinimalEthSpec>::capella_only()
+        SszStaticHandler::<LightClientBootstrapAltair<MinimalEthSpec>, MinimalEthSpec>::altair_only()
             .run();
-        SszStaticWithSpecHandler::<LightClientBootstrap<MainnetEthSpec>, MainnetEthSpec>::capella_only()
+        SszStaticHandler::<LightClientBootstrapAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only()
             .run();
-        SszStaticWithSpecHandler::<LightClientBootstrap<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
+        SszStaticHandler::<LightClientBootstrapAltair<MinimalEthSpec>, MinimalEthSpec>::merge_only()
             .run();
-        SszStaticWithSpecHandler::<LightClientBootstrap<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
+        SszStaticHandler::<LightClientBootstrapAltair<MainnetEthSpec>, MainnetEthSpec>::merge_only()
             .run();
-    }
-
-    #[test]
-    fn light_client_finality_update() {
-        // SszStaticWithSpecHandler::<LightClientFinalityUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_only()
-        //     .run();
-        // SszStaticWithSpecHandler::<LightClientFinalityUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_only()
-        //     .run();
-        SszStaticWithSpecHandler::<LightClientFinalityUpdate<MinimalEthSpec>, MinimalEthSpec>::capella_only()
+        SszStaticHandler::<LightClientBootstrapCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only()
             .run();
-        SszStaticWithSpecHandler::<LightClientFinalityUpdate<MainnetEthSpec>, MainnetEthSpec>::capella_only()
+        SszStaticHandler::<LightClientBootstrapCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only()
             .run();
-        SszStaticWithSpecHandler::<LightClientFinalityUpdate<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
+        SszStaticHandler::<LightClientBootstrapDeneb<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
             .run();
-        SszStaticWithSpecHandler::<LightClientFinalityUpdate<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
+        SszStaticHandler::<LightClientBootstrapDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
     }
 
+    // LightClientHeader has no internal indicator of which fork it is for, so we test it separately.
     #[test]
     fn light_client_header() {
         SszStaticHandler::<LightClientHeaderAltair<MinimalEthSpec>, MinimalEthSpec>::altair_only()
             .run();
         SszStaticHandler::<LightClientHeaderAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only()
+            .run();
+        SszStaticHandler::<LightClientHeaderAltair<MinimalEthSpec>, MinimalEthSpec>::merge_only()
+            .run();
+        SszStaticHandler::<LightClientHeaderAltair<MainnetEthSpec>, MainnetEthSpec>::merge_only()
             .run();
 
         SszStaticHandler::<LightClientHeaderCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only(
@@ -337,36 +327,85 @@ mod ssz_static {
             .run();
     }
 
+    // LightClientOptimisticUpdate has no internal indicator of which fork it is for, so we test it separately.
     #[test]
     fn light_client_optimistic_update() {
-        // SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_only(
-        // )
-        //     .run();
-        // SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_only(
-        // )
-        //     .run();
-        SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MinimalEthSpec>, MinimalEthSpec>::capella_only(
+        SszStaticHandler::<LightClientOptimisticUpdateAltair<MinimalEthSpec>, MinimalEthSpec>::altair_only(
         )
             .run();
-        SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MainnetEthSpec>, MainnetEthSpec>::capella_only(
+        SszStaticHandler::<LightClientOptimisticUpdateAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only(
         )
             .run();
-        SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MinimalEthSpec>, MinimalEthSpec>::deneb_only(
+        SszStaticHandler::<LightClientOptimisticUpdateAltair<MinimalEthSpec>, MinimalEthSpec>::merge_only(
         )
             .run();
-        SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MainnetEthSpec>, MainnetEthSpec>::deneb_only(
+        SszStaticHandler::<LightClientOptimisticUpdateAltair<MainnetEthSpec>, MainnetEthSpec>::merge_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientOptimisticUpdateCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientOptimisticUpdateCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientOptimisticUpdateDeneb<MinimalEthSpec>, MinimalEthSpec>::deneb_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientOptimisticUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only(
         )
             .run();
     }
 
+    // LightClientFinalityUpdate has no internal indicator of which fork it is for, so we test it separately.
+    #[test]
+    fn light_client_finality_update() {
+        SszStaticHandler::<LightClientFinalityUpdateAltair<MinimalEthSpec>, MinimalEthSpec>::altair_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientFinalityUpdateAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientFinalityUpdateAltair<MinimalEthSpec>, MinimalEthSpec>::merge_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientFinalityUpdateAltair<MainnetEthSpec>, MainnetEthSpec>::merge_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientFinalityUpdateCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientFinalityUpdateCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientFinalityUpdateDeneb<MinimalEthSpec>, MinimalEthSpec>::deneb_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientFinalityUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only(
+        )
+            .run();
+    }
+
+    // LightClientUpdate has no internal indicator of which fork it is for, so we test it separately.
     #[test]
     fn light_client_update() {
-        // SszStaticWithSpecHandler::<LightClientUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
-        // SszStaticWithSpecHandler::<LightClientUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
-        SszStaticWithSpecHandler::<LightClientUpdate<MinimalEthSpec>, MinimalEthSpec>::capella_only().run();
-        SszStaticWithSpecHandler::<LightClientUpdate<MainnetEthSpec>, MainnetEthSpec>::capella_only().run();
-        SszStaticWithSpecHandler::<LightClientUpdate<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
-        SszStaticWithSpecHandler::<LightClientUpdate<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
+        SszStaticHandler::<LightClientUpdateAltair<MinimalEthSpec>, MinimalEthSpec>::altair_only()
+            .run();
+        SszStaticHandler::<LightClientUpdateAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only()
+            .run();
+        SszStaticHandler::<LightClientUpdateAltair<MinimalEthSpec>, MinimalEthSpec>::merge_only()
+            .run();
+        SszStaticHandler::<LightClientUpdateAltair<MainnetEthSpec>, MainnetEthSpec>::merge_only()
+            .run();
+        SszStaticHandler::<LightClientUpdateCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only(
+        )
+        .run();
+        SszStaticHandler::<LightClientUpdateCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only(
+        )
+        .run();
+        SszStaticHandler::<LightClientUpdateDeneb<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
+            .run();
+        SszStaticHandler::<LightClientUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
+            .run();
     }
 
     #[test]
