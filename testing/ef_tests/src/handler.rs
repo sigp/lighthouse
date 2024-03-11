@@ -243,7 +243,51 @@ pub struct SszStaticTHCHandler<T, E>(PhantomData<(T, E)>);
 /// Handler for SSZ types that don't implement `ssz::Decode`.
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct SszStaticWithSpecHandler<T, E>(PhantomData<(T, E)>);
+pub struct SszStaticWithSpecHandler<T, E> {
+    supported_forks: Vec<ForkName>,
+    _phantom: PhantomData<(T, E)>,
+}
+
+impl<T, E> SszStaticWithSpecHandler<T, E> {
+    pub fn for_forks(supported_forks: Vec<ForkName>) -> Self {
+        SszStaticWithSpecHandler {
+            supported_forks,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn base_only() -> Self {
+        Self::for_forks(vec![ForkName::Base])
+    }
+
+    pub fn altair_only() -> Self {
+        Self::for_forks(vec![ForkName::Altair])
+    }
+
+    pub fn merge_only() -> Self {
+        Self::for_forks(vec![ForkName::Merge])
+    }
+
+    pub fn capella_only() -> Self {
+        Self::for_forks(vec![ForkName::Capella])
+    }
+
+    pub fn deneb_only() -> Self {
+        Self::for_forks(vec![ForkName::Deneb])
+    }
+
+    pub fn altair_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[1..].to_vec())
+    }
+
+    pub fn merge_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[2..].to_vec())
+    }
+
+    pub fn capella_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[3..].to_vec())
+    }
+}
 
 impl<T, E> Handler for SszStaticHandler<T, E>
 where
@@ -306,6 +350,10 @@ where
 
     fn handler_name(&self) -> String {
         T::name().into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        self.supported_forks.contains(&fork_name)
     }
 }
 

@@ -7,11 +7,20 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::Encode;
 use test_random_derive::TestRandom;
+use tree_hash_derive::TreeHash;
 
 /// A LightClientFinalityUpdate is the update light_client request or received by a gossip that
 /// signal a new finalized beacon block header for the light client sync protocol.
 #[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, Encode, arbitrary::Arbitrary, TestRandom,
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    arbitrary::Arbitrary,
+    TestRandom,
+    TreeHash,
 )]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]

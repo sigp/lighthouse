@@ -5,11 +5,19 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz_derive::Encode;
 use test_random_derive::TestRandom;
-
+use tree_hash_derive::TreeHash;
 /// A LightClientOptimisticUpdate is the update we send on each slot,
 /// it is based off the current unfinalized epoch is verified only against BLS signature.
 #[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, Encode, arbitrary::Arbitrary, TestRandom,
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    arbitrary::Arbitrary,
+    TestRandom,
+    TreeHash,
 )]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]

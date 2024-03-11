@@ -44,8 +44,7 @@ use tree_hash_derive::TreeHash;
 #[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientHeader<E: EthSpec> {
     pub beacon: BeaconBlockHeader,
-    #[superstruct(only(Capella, Deneb))]
-    pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLen>,
+
     #[superstruct(
         only(Capella),
         partial_getter(rename = "execution_payload_header_capella")
@@ -53,6 +52,9 @@ pub struct LightClientHeader<E: EthSpec> {
     pub execution: ExecutionPayloadHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_header_deneb"))]
     pub execution: ExecutionPayloadHeaderDeneb<E>,
+
+    #[superstruct(only(Capella, Deneb))]
+    pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLen>,
 
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -122,27 +124,29 @@ impl<E: EthSpec> Encode for LightClientHeader<E> {
         false
     }
 
-    fn ssz_bytes_len(&self) -> usize {
-        match self {
-            LightClientHeader::Altair(header) => header.ssz_bytes_len(),
-            LightClientHeader::Capella(header) => header.ssz_bytes_len(),
-            LightClientHeader::Deneb(header) => header.ssz_bytes_len(),
-        }
+    fn ssz_bytes_len<'a>(&'a self) -> usize {
+        map_light_client_header_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.ssz_bytes_len()
+        })
     }
 
     fn ssz_fixed_len() -> usize {
         ssz::BYTES_PER_LENGTH_OFFSET
     }
 
-    fn as_ssz_bytes(&self) -> Vec<u8> {
-        match self {
-            LightClientHeader::Altair(header) => header.as_ssz_bytes(),
-            LightClientHeader::Capella(header) => header.as_ssz_bytes(),
-            LightClientHeader::Deneb(header) => header.as_ssz_bytes(),
-        }
+    fn as_ssz_bytes<'a>(&'a self) -> Vec<u8> {
+        map_light_client_header_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.as_ssz_bytes()
+        })
     }
 
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
+    fn ssz_append<'a>(&'a self, buf: &mut Vec<u8>) {
+        // map_light_client_header_ref!(&'a _, self.to_ref(), move |inner, cons| {
+        //     cons(inner);
+        //     inner.ssz_append(buf)
+        // });
         match self {
             LightClientHeader::Altair(header) => header.ssz_append(buf),
             LightClientHeader::Capella(header) => header.ssz_append(buf),

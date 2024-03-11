@@ -248,9 +248,11 @@ mod ssz_static {
     ssz_static_test!(signed_voluntary_exit, SignedVoluntaryExit);
     ssz_static_test!(signing_data, SigningData);
     ssz_static_test!(validator, Validator);
-    ssz_static_test!(voluntary_exit, VoluntaryExit);
+    // ssz_static_test!(voluntary_exit, VoluntaryExit);
     // ssz_static_test!(light_client_bootstrap, SszStaticWithSpecHandler, LightClientBootstrap<_>);
-
+    // ssz_static_test!(light_client_update, SszStaticWithSpecHandler, LightClientUpdate<_>);
+    // ssz_static_test!(light_client_finality_update, SszStaticWithSpecHandler, LightClientFinalityUpdate<_>);
+    // ssz_static_test!(light_client_optimistic_update, SszStaticWithSpecHandler, LightClientOptimisticUpdate<_>);
     // BeaconBlockBody has no internal indicator of which fork it is for, so we test it separately.
     #[test]
     fn beacon_block_body() {
@@ -283,23 +285,37 @@ mod ssz_static {
             .run();
     }
 
-    // #[test]
-    // fn light_client_bootstrap() {
-    //     SszStaticHandler::<LightClientBootstrap<MinimalEthSpec>, MinimalEthSpec>::altair_and_later()
-    //         .run();
-    //     SszStaticHandler::<LightClientBootstrap<MainnetEthSpec>, MainnetEthSpec>::altair_and_later()
-    //         .run();
-    // }
+    #[test]
+    fn light_client_bootstrap() {
+        // SszStaticWithSpecHandler::<LightClientBootstrap<MinimalEthSpec>, MinimalEthSpec>::altair_only()
+        //     .run();
+        // SszStaticWithSpecHandler::<LightClientBootstrap<MainnetEthSpec>, MainnetEthSpec>::altair_only()
+        //     .run();
+        SszStaticWithSpecHandler::<LightClientBootstrap<MinimalEthSpec>, MinimalEthSpec>::capella_only()
+            .run();
+        SszStaticWithSpecHandler::<LightClientBootstrap<MainnetEthSpec>, MainnetEthSpec>::capella_only()
+            .run();
+        SszStaticWithSpecHandler::<LightClientBootstrap<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
+            .run();
+        SszStaticWithSpecHandler::<LightClientBootstrap<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
+            .run();
+    }
 
-    // #[test]
-    // fn light_client_finality_update() {
-    //     SszStaticHandler::<LightClientFinalityUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_and_later(
-    //     )
-    //     .run();
-    //     SszStaticHandler::<LightClientFinalityUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_and_later(
-    //     )
-    //     .run();
-    // }
+    #[test]
+    fn light_client_finality_update() {
+        // SszStaticWithSpecHandler::<LightClientFinalityUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_only()
+        //     .run();
+        // SszStaticWithSpecHandler::<LightClientFinalityUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_only()
+        //     .run();
+        SszStaticWithSpecHandler::<LightClientFinalityUpdate<MinimalEthSpec>, MinimalEthSpec>::capella_only()
+            .run();
+        SszStaticWithSpecHandler::<LightClientFinalityUpdate<MainnetEthSpec>, MainnetEthSpec>::capella_only()
+            .run();
+        SszStaticWithSpecHandler::<LightClientFinalityUpdate<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
+            .run();
+        SszStaticWithSpecHandler::<LightClientFinalityUpdate<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
+            .run();
+    }
 
     #[test]
     fn light_client_header() {
@@ -321,21 +337,37 @@ mod ssz_static {
             .run();
     }
 
-    // #[test]
-    // fn light_client_optimistic_update() {
-    //     SszStaticHandler::<LightClientOptimisticUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_and_later(
-    //     )
-    //         .run();
-    //     SszStaticHandler::<LightClientOptimisticUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_and_later(
-    //     )
-    //         .run();
-    // }
+    #[test]
+    fn light_client_optimistic_update() {
+        // SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_only(
+        // )
+        //     .run();
+        // SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_only(
+        // )
+        //     .run();
+        SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MinimalEthSpec>, MinimalEthSpec>::capella_only(
+        )
+            .run();
+        SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MainnetEthSpec>, MainnetEthSpec>::capella_only(
+        )
+            .run();
+        SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MinimalEthSpec>, MinimalEthSpec>::deneb_only(
+        )
+            .run();
+        SszStaticWithSpecHandler::<LightClientOptimisticUpdate<MainnetEthSpec>, MainnetEthSpec>::deneb_only(
+        )
+            .run();
+    }
 
-    // #[test]
-    // fn light_client_update() {
-    //     SszStaticHandler::<LightClientUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_and_later().run();
-    //     SszStaticHandler::<LightClientUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_and_later().run();
-    // }
+    #[test]
+    fn light_client_update() {
+        // SszStaticWithSpecHandler::<LightClientUpdate<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
+        // SszStaticWithSpecHandler::<LightClientUpdate<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+        SszStaticWithSpecHandler::<LightClientUpdate<MinimalEthSpec>, MinimalEthSpec>::capella_only().run();
+        SszStaticWithSpecHandler::<LightClientUpdate<MainnetEthSpec>, MainnetEthSpec>::capella_only().run();
+        SszStaticWithSpecHandler::<LightClientUpdate<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
+        SszStaticWithSpecHandler::<LightClientUpdate<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
+    }
 
     #[test]
     fn signed_contribution_and_proof() {

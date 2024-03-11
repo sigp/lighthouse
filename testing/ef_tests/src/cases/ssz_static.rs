@@ -5,7 +5,10 @@ use crate::decode::{snappy_decode_file, yaml_decode_file};
 use serde::Deserialize;
 use ssz::Decode;
 use tree_hash::TreeHash;
-use types::{BeaconBlock, BeaconState, ForkName, Hash256, SignedBeaconBlock};
+use types::{
+    BeaconBlock, BeaconState, ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SszStaticRoots {
@@ -143,6 +146,50 @@ impl<E: EthSpec> Case for SszStaticWithSpec<SignedBeaconBlock<E>> {
         let spec = &testing_spec::<E>(fork_name);
         check_serialization(&self.value, &self.serialized, |bytes| {
             SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+        })?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> Case for SszStaticWithSpec<LightClientBootstrap<E>> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        check_serialization(&self.value, &self.serialized, |bytes| {
+            LightClientBootstrap::from_ssz_bytes(bytes, fork_name)
+        })?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> Case for SszStaticWithSpec<LightClientFinalityUpdate<E>> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        check_serialization(&self.value, &self.serialized, |bytes| {
+            LightClientFinalityUpdate::from_ssz_bytes(bytes, fork_name)
+        })?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> Case for SszStaticWithSpec<LightClientOptimisticUpdate<E>> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        check_serialization(&self.value, &self.serialized, |bytes| {
+            LightClientOptimisticUpdate::from_ssz_bytes(bytes, fork_name)
+        })?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> Case for SszStaticWithSpec<LightClientUpdate<E>> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        match fork_name {
+            ForkName::Base | ForkName::Merge => return Ok(()),
+            _ => {}
+        };
+        check_serialization(&self.value, &self.serialized, |bytes| {
+            LightClientUpdate::from_ssz_bytes(bytes, fork_name)
         })?;
         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
         Ok(())
