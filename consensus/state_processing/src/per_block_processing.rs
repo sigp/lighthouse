@@ -163,7 +163,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     } else {
         verify_signatures
     };
-    // Ensure the current and previous epoch caches are built.
+    // Ensure the current and previous epoch committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 

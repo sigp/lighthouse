@@ -1,27 +1,14 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
 use eth2::lighthouse::StandardAttestationRewards;
+use eth2::types::ValidatorId;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
 use slog::debug;
+use state_processing::common::base::get_base_reward_from_effective_balance;
 use state_processing::per_epoch_processing::altair::{
     process_inactivity_updates_slow, process_justification_and_finalization,
 };
-use state_processing::{
-    common::altair::BaseRewardPerIncrement,
-    per_epoch_processing::altair::rewards_and_penalties::get_flag_weight,
-};
-use std::collections::HashMap;
-use store::consts::altair::{
-    PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
-    TIMELY_TARGET_FLAG_INDEX,
-};
-use types::consts::altair::WEIGHT_DENOMINATOR;
-
-use types::{BeaconState, Epoch, EthSpec};
-
-use eth2::types::ValidatorId;
-use state_processing::common::base::get_base_reward_from_effective_balance;
 use state_processing::per_epoch_processing::base::rewards_and_penalties::{
     get_attestation_component_delta, get_attestation_deltas_all, get_attestation_deltas_subset,
     get_inactivity_penalty_delta, get_inclusion_delay_delta,
@@ -31,6 +18,19 @@ use state_processing::per_epoch_processing::base::{
     process_justification_and_finalization as process_justification_and_finalization_base,
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
+use state_processing::{
+    common::altair::BaseRewardPerIncrement,
+    common::update_progressive_balances_cache::initialize_progressive_balances_cache,
+    epoch_cache::initialize_epoch_cache,
+    per_epoch_processing::altair::rewards_and_penalties::get_flag_weight,
+};
+use std::collections::HashMap;
+use store::consts::altair::{
+    PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
+    TIMELY_TARGET_FLAG_INDEX,
+};
+use types::consts::altair::WEIGHT_DENOMINATOR;
+use types::{BeaconState, Epoch, EthSpec, RelativeEpoch};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_attestation_rewards(
@@ -131,6 +131,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validators: Vec<ValidatorId>,
     ) -> Result<StandardAttestationRewards, BeaconChainError> {
         let spec = &self.spec;
+
+        // Build required caches.
+        initialize_epoch_cache(&mut state, spec)?;
+        initialize_progressive_balances_cache(&mut state, spec)?;
+        state.build_exit_cache(spec)?;
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         // Calculate ideal_rewards
         process_justification_and_finalization(&state)?.apply_changes_to_state(&mut state);

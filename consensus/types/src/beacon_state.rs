@@ -1433,9 +1433,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Return the churn limit for the current epoch (number of validators who can leave per epoch).
     ///
-    /// Uses the epoch cache, and will error if it isn't initialized.
-    ///
-    /// Spec v0.12.1
+    /// Uses the current epoch committee cache, and will error if it isn't initialized.
     pub fn get_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         Ok(std::cmp::max(
             spec.min_per_epoch_churn_limit,
@@ -1448,9 +1446,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Return the activation churn limit for the current epoch (number of validators who can enter per epoch).
     ///
-    /// Uses the epoch cache, and will error if it isn't initialized.
-    ///
-    /// Spec v1.4.0
+    /// Uses the current epoch committee cache, and will error if it isn't initialized.
     pub fn get_activation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         Ok(match self {
             BeaconState::Base(_)
@@ -1673,7 +1669,7 @@ impl<T: EthSpec> BeaconState<T> {
         })
     }
 
-    /// Build an epoch cache, unless it is has already been built.
+    /// Build a committee cache, unless it is has already been built.
     pub fn build_committee_cache(
         &mut self,
         relative_epoch: RelativeEpoch,
@@ -1694,7 +1690,7 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
-    /// Always builds the previous epoch cache, even if it is already initialized.
+    /// Always builds the requested committee cache, even if it is already initialized.
     pub fn force_build_committee_cache(
         &mut self,
         relative_epoch: RelativeEpoch,
@@ -1724,7 +1720,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
     ///
     /// Note: this function will not build any new committee caches, but will build the total
-    /// balance cache if the (new) current epoch cache is initialized.
+    /// balance cache if the (new) current committee cache is initialized.
     pub fn advance_caches(&mut self, _spec: &ChainSpec) -> Result<(), Error> {
         self.committee_caches_mut().rotate_left(1);
 
@@ -1970,6 +1966,9 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(sync_committee)
     }
 
+    /// Get the base reward for `validator_index` from the epoch cache.
+    ///
+    /// This function will error if the epoch cache is not initialized.
     pub fn get_base_reward(&self, validator_index: usize) -> Result<u64, EpochCacheError> {
         self.epoch_cache().get_base_reward(validator_index)
     }
