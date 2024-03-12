@@ -74,7 +74,10 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         signature_slot: Slot,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        let finality_update = match attested_block.fork_name(chain_spec).map_err(|_| Error::InconsistentFork)? {
+        let finality_update = match attested_block
+            .fork_name(chain_spec)
+            .map_err(|_| Error::InconsistentFork)?
+        {
             ForkName::Altair | ForkName::Merge => {
                 let finality_update = LightClientFinalityUpdateAltair {
                     attested_header: LightClientHeaderAltair::block_to_light_client_header(

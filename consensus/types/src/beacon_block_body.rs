@@ -601,10 +601,7 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
 }
 
 impl<T: EthSpec> BeaconBlockBody<T> {
-    pub fn block_body_merkle_proof(
-        &mut self,
-        generalized_index: usize,
-    ) -> Result<Vec<Hash256>, Error> {
+    pub fn block_body_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
         let field_index = match generalized_index {
             light_client_update::EXECUTION_PAYLOAD_INDEX => {
                 // Execution payload is a top-level field, subtract off the generalized indices

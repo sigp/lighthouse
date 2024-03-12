@@ -136,11 +136,10 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
         let payload = block
             .message()
             .execution_payload()?
-            .execution_payload_capella()?
-            .to_owned();
+            .execution_payload_capella()?;
 
-        let header = ExecutionPayloadHeaderCapella::from(&payload);
-        let mut beacon_block_body = BeaconBlockBody::from(
+        let header = ExecutionPayloadHeaderCapella::from(payload);
+        let beacon_block_body = BeaconBlockBody::from(
             block
                 .message()
                 .body_capella()
@@ -165,11 +164,10 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
         let payload = block
             .message()
             .execution_payload()?
-            .execution_payload_deneb()?
-            .to_owned();
+            .execution_payload_deneb()?;
 
-        let header = ExecutionPayloadHeaderDeneb::from(&payload);
-        let mut beacon_block_body = BeaconBlockBody::from(
+        let header = ExecutionPayloadHeaderDeneb::from(payload);
+        let beacon_block_body = BeaconBlockBody::from(
             block
                 .message()
                 .body_deneb()
