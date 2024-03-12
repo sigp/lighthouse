@@ -757,7 +757,9 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
                     blobs.iter().map(|blob| blob.clone_blob()).collect();
                 let blob_sidecar_list = BlobSidecarList::new(blob_sidecar_list)
                     .map_err(DataColumnSidecarError::SszError)?;
+                let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
                 let sidecars = DataColumnSidecar::build_sidecars(&blob_sidecar_list, &block, kzg)?;
+                drop(timer);
                 let mut gossip_verified_data_columns = vec![];
                 for sidecar in sidecars {
                     let subnet = DataColumnSubnetId::try_from_column_index::<T::EthSpec>(
