@@ -16,7 +16,7 @@ struct G2Point([u8; BYTES_PER_G2_POINT]);
 /// `c_kzg::KzgSettings` object.
 ///
 /// The serialize/deserialize implementations are written according to
-/// the format specified in the the ethereum consensus specs trusted setup files.
+/// the format specified in the ethereum consensus specs trusted setup files.
 ///
 /// See https://github.com/ethereum/consensus-specs/blob/dev/presets/mainnet/trusted_setups/trusted_setup_4096.json
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -2364,7 +2364,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         );
         self.cold_db.do_atomically(std::mem::take(&mut cold_ops))?;
 
-        // If we just deleted the the genesis state, re-store it using the *current* schema, which
+        // If we just deleted the genesis state, re-store it using the *current* schema, which
         // may be different from the schema of the genesis state we just deleted.
         if self.get_split_slot() > 0 {
             info!(

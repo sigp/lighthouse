@@ -531,7 +531,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     BatchOperationOutcome::Failed { blacklist } => {
                         // Check that we have not exceeded the re-process retry counter,
                         // If a batch has exceeded the invalid batch lookup attempts limit, it means
-                        // that it is likely all peers in this chain are are sending invalid batches
+                        // that it is likely all peers in this chain are sending invalid batches
                         // repeatedly and are either malicious or faulty. We drop the chain and
                         // report all peers.
                         // There are some edge cases with forks that could land us in this situation.

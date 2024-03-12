@@ -293,7 +293,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    // Clippy warning is is ignored since the arguments are all of a different type (i.e., they
+    // Clippy warning is ignored since the arguments are all of a different type (i.e., they
     // cant' be mixed-up) and creating a struct would result in more complexity.
     #[allow(clippy::too_many_arguments)]
     fn process_gossip_attestation_result(
