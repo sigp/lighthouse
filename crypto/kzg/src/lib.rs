@@ -13,6 +13,7 @@ pub use c_kzg::{
     Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
     BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
 };
+use c_kzg::{Cell, CELLS_PER_BLOB};
 #[derive(Debug)]
 pub enum Error {
     /// An error from the underlying kzg library.
@@ -140,5 +141,52 @@ impl Kzg {
             &self.trusted_setup,
         )
         .map_err(Into::into)
+    }
+
+    /// Computes the cells and associated proofs for a given `blob` at index `index`.
+    #[allow(clippy::type_complexity)]
+    pub fn compute_cells_and_proofs(
+        &self,
+        blob: &Blob,
+    ) -> Result<(Box<[Cell; CELLS_PER_BLOB]>, Box<[KzgProof; CELLS_PER_BLOB]>), Error> {
+        let (cells, proofs) = c_kzg::Cell::compute_cells_and_proofs(blob, &self.trusted_setup)
+            .map_err(Into::<Error>::into)?;
+        let proofs = Box::new(proofs.map(|proof| KzgProof::from(proof.to_bytes().into_inner())));
+        Ok((cells, proofs))
+    }
+
+    /// Verifies a batch of cell-proof-commitment triplets.
+    ///
+    /// Here, `coordinates` correspond to the (row, col) coordinate of the cell in the extended
+    /// blob "matrix". In the 1D extension, row corresponds to the blob index, and col corresponds
+    /// to the data column index.
+    pub fn verify_cell_proof_batch(
+        &self,
+        cells: &[Cell],
+        kzg_proofs: &[KzgProof],
+        coordinates: &[(u64, u64)],
+        kzg_commitments: &[KzgCommitment],
+    ) -> Result<(), Error> {
+        let commitments_bytes: Vec<Bytes48> = kzg_commitments
+            .iter()
+            .map(|comm| Bytes48::from(*comm))
+            .collect();
+        let proofs_bytes: Vec<Bytes48> = kzg_proofs
+            .iter()
+            .map(|proof| Bytes48::from(*proof))
+            .collect();
+        let (rows, columns): (Vec<u64>, Vec<u64>) = coordinates.iter().cloned().unzip();
+        if !c_kzg::KzgProof::verify_cell_proof_batch(
+            &commitments_bytes,
+            &rows,
+            &columns,
+            cells,
+            &proofs_bytes,
+            &self.trusted_setup,
+        )? {
+            Err(Error::KzgVerificationFailed)
+        } else {
+            Ok(())
+        }
     }
 }

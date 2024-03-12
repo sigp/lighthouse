@@ -5,7 +5,10 @@ use kzg::{Error as KzgError, Kzg};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
-use types::{BeaconStateError, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
+use types::{
+    BeaconStateError, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
+    VariableList,
+};
 
 /// An error occurred while validating a gossip data column.
 #[derive(Debug)]
@@ -77,6 +80,11 @@ impl<T: EthSpec> From<BeaconStateError> for GossipDataColumnError<T> {
     }
 }
 
+pub type GossipVerifiedDataColumnList<T> = VariableList<
+    GossipVerifiedDataColumn<T>,
+    <<T as BeaconChainTypes>::EthSpec as EthSpec>::DataColumnCount,
+>;
+
 /// A wrapper around a `DataColumnSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Debug)]
@@ -111,6 +119,11 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
 
     pub fn as_data_column(&self) -> &DataColumnSidecar<T::EthSpec> {
         self.data_column.as_data_column()
+    }
+
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_data_column(&self) -> Arc<DataColumnSidecar<T::EthSpec>> {
+        self.data_column.clone_data_column()
     }
 
     pub fn block_root(&self) -> Hash256 {

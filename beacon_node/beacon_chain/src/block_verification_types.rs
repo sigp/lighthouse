@@ -2,14 +2,15 @@ use crate::blob_verification::{GossipBlobError, GossipVerifiedBlobList};
 use crate::block_verification::BlockError;
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
+use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumnList};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{get_block_root, GossipVerifiedBlock, PayloadVerificationOutcome};
 use derivative::Derivative;
 use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::sync::Arc;
-use types::blob_sidecar::{BlobIdentifier, BlobSidecarError, FixedBlobSidecarList};
-use types::data_column_sidecar::DataColumnSidecarList;
+use types::blob_sidecar::{self, BlobIdentifier, FixedBlobSidecarList};
+use types::data_column_sidecar::{self, DataColumnSidecarList};
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
@@ -320,14 +321,19 @@ pub struct BlockImportData<E: EthSpec> {
     pub consensus_context: ConsensusContext<E>,
 }
 
-pub type GossipVerifiedBlockContents<T> =
-    (GossipVerifiedBlock<T>, Option<GossipVerifiedBlobList<T>>);
+pub type GossipVerifiedBlockContents<T> = (
+    GossipVerifiedBlock<T>,
+    Option<GossipVerifiedBlobList<T>>,
+    Option<GossipVerifiedDataColumnList<T>>,
+);
 
 #[derive(Debug)]
 pub enum BlockContentsError<T: EthSpec> {
     BlockError(BlockError<T>),
     BlobError(GossipBlobError<T>),
-    SidecarError(BlobSidecarError),
+    BlobSidecarError(blob_sidecar::BlobSidecarError),
+    DataColumnError(GossipDataColumnError<T>),
+    DataColumnSidecarError(data_column_sidecar::DataColumnSidecarError),
 }
 
 impl<T: EthSpec> From<BlockError<T>> for BlockContentsError<T> {
@@ -342,6 +348,18 @@ impl<T: EthSpec> From<GossipBlobError<T>> for BlockContentsError<T> {
     }
 }
 
+impl<T: EthSpec> From<GossipDataColumnError<T>> for BlockContentsError<T> {
+    fn from(value: GossipDataColumnError<T>) -> Self {
+        Self::DataColumnError(value)
+    }
+}
+
+impl<T: EthSpec> From<data_column_sidecar::DataColumnSidecarError> for BlockContentsError<T> {
+    fn from(value: data_column_sidecar::DataColumnSidecarError) -> Self {
+        Self::DataColumnSidecarError(value)
+    }
+}
+
 impl<T: EthSpec> std::fmt::Display for BlockContentsError<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -351,8 +369,14 @@ impl<T: EthSpec> std::fmt::Display for BlockContentsError<T> {
             BlockContentsError::BlobError(err) => {
                 write!(f, "BlobError({})", err)
             }
-            BlockContentsError::SidecarError(err) => {
-                write!(f, "SidecarError({:?})", err)
+            BlockContentsError::BlobSidecarError(err) => {
+                write!(f, "BlobSidecarError({:?})", err)
+            }
+            BlockContentsError::DataColumnError(err) => {
+                write!(f, "DataColumnError({:?})", err)
+            }
+            BlockContentsError::DataColumnSidecarError(err) => {
+                write!(f, "DataColumnSidecarError({:?})", err)
             }
         }
     }

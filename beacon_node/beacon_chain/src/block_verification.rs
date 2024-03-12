@@ -53,7 +53,9 @@ use crate::block_verification_types::{
     AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
-use crate::data_column_verification::GossipDataColumnError;
+use crate::data_column_verification::{
+    GossipDataColumnError, GossipVerifiedDataColumn, GossipVerifiedDataColumnList,
+};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
@@ -99,10 +101,12 @@ use std::time::Duration;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
+use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
-    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecarList, ChainSpec, CloneConfig,
+    DataColumnSidecar, DataColumnSubnetId, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 use types::{BlobSidecar, ExecPayload};
 
@@ -727,7 +731,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
                     let _timer =
                         metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
                     let blob = BlobSidecar::new(i, blob, &block, *kzg_proof)
-                        .map_err(BlockContentsError::SidecarError)?;
+                        .map_err(BlockContentsError::BlobSidecarError)?;
                     drop(_timer);
                     let gossip_verified_blob =
                         GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
@@ -737,9 +741,52 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
                 Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
             })
             .transpose()?;
+
+        let gossip_verified_data_columns = gossip_verified_blobs
+            .as_ref()
+            .map(|blobs| {
+                // NOTE: we expect KZG to be initialized if the blobs are present
+                let kzg = chain
+                    .kzg
+                    .as_ref()
+                    .ok_or(BlockContentsError::DataColumnError(
+                        GossipDataColumnError::<T::EthSpec>::KzgNotInitialized,
+                    ))?;
+
+                let blob_sidecar_list: Vec<_> =
+                    blobs.iter().map(|blob| blob.clone_blob()).collect();
+                let blob_sidecar_list = BlobSidecarList::new(blob_sidecar_list)
+                    .map_err(DataColumnSidecarError::SszError)?;
+                let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
+                let sidecars = DataColumnSidecar::build_sidecars(&blob_sidecar_list, &block, kzg)?;
+                drop(timer);
+                let mut gossip_verified_data_columns = vec![];
+                for sidecar in sidecars {
+                    let subnet = DataColumnSubnetId::try_from_column_index::<T::EthSpec>(
+                        sidecar.index as usize,
+                    )
+                    .map_err(|_| {
+                        BlockContentsError::<T::EthSpec>::DataColumnSidecarError(
+                            DataColumnSidecarError::DataColumnIndexOutOfBounds,
+                        )
+                    })?;
+                    let column = GossipVerifiedDataColumn::new(sidecar, subnet.into(), chain)?;
+                    gossip_verified_data_columns.push(column);
+                }
+                let gossip_verified_data_columns =
+                    GossipVerifiedDataColumnList::new(gossip_verified_data_columns)
+                        .map_err(DataColumnSidecarError::SszError)?;
+                Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_data_columns)
+            })
+            .transpose()?;
+
         let gossip_verified_block = GossipVerifiedBlock::new(block, chain)?;
 
-        Ok((gossip_verified_block, gossip_verified_blobs))
+        Ok((
+            gossip_verified_block,
+            gossip_verified_blobs,
+            gossip_verified_data_columns,
+        ))
     }
 
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {

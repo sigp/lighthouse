@@ -1295,7 +1295,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum/c-kzg-4844?rev=748283cced543c486145d5f3f38684becdfe3e1b#748283cced543c486145d5f3f38684becdfe3e1b"
+source = "git+https://github.com/ethereum/c-kzg-4844?branch=das#5a2656d9409713fdb5112ed5c1c9ec808093de8f"
 dependencies = [
  "bindgen 0.66.1",
  "blst",
@@ -8985,6 +8985,7 @@ dependencies = [
  "criterion",
  "derivative",
  "eth2_interop_keypairs",
+ "eth2_network_config",
  "ethereum-types 0.14.1",
  "ethereum_hashing",
  "ethereum_serde_utils",

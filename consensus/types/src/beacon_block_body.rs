@@ -177,6 +177,39 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
         }
     }
 
+    /// Produces the proof of inclusion for `self.blob_kzg_commitments`.
+    pub fn kzg_commitments_merkle_proof(
+        &self,
+    ) -> Result<FixedVector<Hash256, T::KzgCommitmentsInclusionProofDepth>, Error> {
+        match self {
+            Self::Base(_) | Self::Altair(_) | Self::Merge(_) | Self::Capella(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
+            Self::Deneb(body) => {
+                let leaves = [
+                    body.randao_reveal.tree_hash_root(),
+                    body.eth1_data.tree_hash_root(),
+                    body.graffiti.tree_hash_root(),
+                    body.proposer_slashings.tree_hash_root(),
+                    body.attester_slashings.tree_hash_root(),
+                    body.attestations.tree_hash_root(),
+                    body.deposits.tree_hash_root(),
+                    body.voluntary_exits.tree_hash_root(),
+                    body.sync_aggregate.tree_hash_root(),
+                    body.execution_payload.tree_hash_root(),
+                    body.bls_to_execution_changes.tree_hash_root(),
+                    body.blob_kzg_commitments.tree_hash_root(),
+                ];
+                let beacon_block_body_depth = leaves.len().next_power_of_two().ilog2() as usize;
+                let tree = MerkleTree::create(&leaves, beacon_block_body_depth);
+                let (_, proof) = tree
+                    .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
+                    .map_err(Error::MerkleTreeError)?;
+                Ok(proof.into())
+            }
+        }
+    }
+
     /// Return `true` if this block body has a non-zero number of blobs.
     pub fn has_blobs(self) -> bool {
         self.blob_kzg_commitments()

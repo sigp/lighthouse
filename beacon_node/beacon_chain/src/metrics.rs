@@ -1042,6 +1042,10 @@ lazy_static! {
         "blob_sidecar_inclusion_proof_computation_seconds",
         "Time taken to compute blob sidecar inclusion proof"
     );
+    pub static ref DATA_COLUMN_SIDECAR_COMPUTATION: Result<Histogram> = try_create_histogram(
+        "data_column_sidecar_computation_seconds",
+        "Time taken to compute data column sidecar, including cells, proofs and inclusion proof"
+    );
 }
 
 // Fifth lazy-static block is used to account for macro recursion limit.
