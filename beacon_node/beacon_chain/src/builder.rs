@@ -936,6 +936,7 @@ where
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
             eth1_chain: self.eth1_chain,
+            effective_balances_cache: <_>::default(),
             execution_layer: self.execution_layer,
             genesis_validators_root,
             genesis_time,

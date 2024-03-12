@@ -74,7 +74,7 @@ pub fn upgrade_to_deneb<E: EthSpec>(
         deposit_balance_to_consume: 0u64.into(),
         pending_balance_deposits: <_>::default(),
         earliest_exit_epoch: earliest_exit_epoch.into(),
-        exit_balance_to_consume: exit_balance_to_consume.into(),
+        exit_balance_to_consume,
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
