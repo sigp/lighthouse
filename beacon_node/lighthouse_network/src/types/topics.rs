@@ -1,7 +1,7 @@
 use crate::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
-use types::{ChainSpec, DataColumnSubnetId, EthSpec, ForkName, SubnetId, SyncSubnetId};
+use types::{ChainSpec, DataColumnSubnetId, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned};
 
 use crate::Subnet;
 
@@ -61,6 +61,17 @@ pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> V
             deneb_topics
         }
     }
+}
+
+/// Returns all the attestation and sync committee topics, for a given fork.
+pub fn attestation_sync_committee_topics<TSpec: EthSpec>() -> impl Iterator<Item = GossipKind> {
+    (0..TSpec::SubnetBitfieldLength::to_usize())
+        .map(|subnet_id| GossipKind::Attestation(SubnetId::new(subnet_id as u64)))
+        .chain(
+            (0..TSpec::SyncCommitteeSubnetCount::to_usize()).map(|sync_committee_id| {
+                GossipKind::SyncCommitteeMessage(SyncSubnetId::new(sync_committee_id as u64))
+            }),
+        )
 }
 
 /// Returns all the topics that we need to subscribe to for a given fork

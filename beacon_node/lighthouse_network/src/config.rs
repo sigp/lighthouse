@@ -101,7 +101,7 @@ pub struct Config {
     /// List of libp2p nodes to initially connect to.
     pub libp2p_nodes: Vec<Multiaddr>,
 
-    /// List of trusted libp2p nodes which are not scored.
+    /// List of trusted libp2p nodes which are not scored and marked as explicit.
     pub trusted_peers: Vec<PeerIdSerialized>,
 
     /// Disables peer scoring altogether.

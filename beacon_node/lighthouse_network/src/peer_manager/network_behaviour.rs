@@ -156,8 +156,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             FromSwarm::ExternalAddrConfirmed(_) => {
                 // We have an external address confirmed, means we are able to do NAT traversal.
                 metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p"], 1);
-                // TODO: we likely want to check this against our assumed external tcp
-                // address
             }
             _ => {
                 // NOTE: FromSwarm is a non exhaustive enum so updates should be based on release
@@ -253,6 +251,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             } else {
                 "inbound"
             };
+
             match remote_addr.iter().find(|proto| {
                 matches!(
                     proto,
@@ -260,10 +259,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 )
             }) {
                 Some(multiaddr::Protocol::QuicV1) => {
-                    metrics::inc_gauge_vec(&metrics::PEERS_CONNECTED, &[direction, "quic"]);
+                    metrics::inc_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "quic"]);
                 }
                 Some(multiaddr::Protocol::Tcp(_)) => {
-                    metrics::inc_gauge_vec(&metrics::PEERS_CONNECTED, &[direction, "tcp"]);
+                    metrics::inc_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "tcp"]);
                 }
                 Some(_) => unreachable!(),
                 None => {
@@ -271,7 +270,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 }
             };
 
-            self.update_connected_peer_metrics();
+            metrics::inc_gauge(&metrics::PEERS_CONNECTED);
             metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
         }
 
@@ -354,15 +353,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 )
             }) {
                 Some(multiaddr::Protocol::QuicV1) => {
-                    metrics::dec_gauge_vec(&metrics::PEERS_CONNECTED, &[direction, "quic"]);
+                    metrics::dec_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "quic"]);
                 }
                 Some(multiaddr::Protocol::Tcp(_)) => {
-                    metrics::dec_gauge_vec(&metrics::PEERS_CONNECTED, &[direction, "tcp"]);
+                    metrics::dec_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "tcp"]);
                 }
                 // If it's an unknown protocol we already logged when connection was established.
                 _ => {}
             };
-            self.update_connected_peer_metrics();
+            // Legacy standard metrics.
+            metrics::dec_gauge(&metrics::PEERS_CONNECTED);
             metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
         }
     }
