@@ -222,7 +222,7 @@ fn main() {
                         .long("format")
                         .value_name("FORMAT")
                         .action(ArgAction::Set)
-                        .required(true)
+                        .required(false)
                         .default_value("json")
                         .value_parser(["json", "yaml"])
                         .help("Output format to use")
