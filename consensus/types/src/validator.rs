@@ -59,8 +59,10 @@ impl Validator {
     ///
     /// Spec v0.12.1
     pub fn is_eligible_for_activation_queue(&self, spec: &ChainSpec) -> bool {
+        // FIXME: consider if this needs to be made fork-aware
+        // it's not right now because MAX_EFFECTIVE_BALANCE == MIN_ACTIVATION_BALANCE
         self.activation_eligibility_epoch == spec.far_future_epoch
-            && self.effective_balance == spec.max_effective_balance
+            && self.effective_balance >= spec.min_activation_balance
     }
 
     /// Returns `true` if the validator is eligible to be activated.
@@ -98,6 +100,33 @@ impl Validator {
             .flatten()
     }
 
+    /// New in electra
+    pub fn has_compounding_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
+        self.withdrawal_credentials
+            .as_bytes()
+            .first()
+            .map(|byte| *byte == spec.compounding_withdrawal_prefix_byte)
+            .unwrap_or(false)
+    }
+
+    // New in electra
+    pub fn has_execution_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
+        self.has_compounding_withdrawal_credential(spec)
+            || self.has_eth1_withdrawal_credential(spec)
+    }
+
+    /// New in electra `get_validator_excess_balance`
+    pub fn get_excess_balance(&self, balance: u64, spec: &ChainSpec) -> u64 {
+        if self.has_compounding_withdrawal_credential(spec) {
+            // FIXME: check this
+            balance.saturating_sub(spec.max_effective_balance_eip7251)
+        } else if self.has_eth1_withdrawal_credential(spec) {
+            balance.saturating_sub(spec.min_activation_balance)
+        } else {
+            0
+        }
+    }
+
     /// Changes withdrawal credentials to  the provided eth1 execution address.
     ///
     /// WARNING: this function does NO VALIDATION - it just does it!
@@ -110,14 +139,18 @@ impl Validator {
 
     /// Returns `true` if the validator is fully withdrawable at some epoch.
     pub fn is_fully_withdrawable_at(&self, balance: u64, epoch: Epoch, spec: &ChainSpec) -> bool {
-        self.has_eth1_withdrawal_credential(spec) && self.withdrawable_epoch <= epoch && balance > 0
+        // FIXME: more consideration here if this method needs to be made fork-aware
+        // It's not right now because it reduces to the same logic pre-electra
+        self.has_execution_withdrawal_credential(spec)
+            && self.is_withdrawable_at(epoch)
+            && balance > 0
     }
 
     /// Returns `true` if the validator is partially withdrawable.
     pub fn is_partially_withdrawable_validator(&self, balance: u64, spec: &ChainSpec) -> bool {
-        self.has_eth1_withdrawal_credential(spec)
-            && self.effective_balance == spec.max_effective_balance
-            && balance > spec.max_effective_balance
+        // FIXME check if this needs to be made fork-aware
+        // Initial check looks equivalent to pre-electra
+        self.has_execution_withdrawal_credential(spec) && self.get_excess_balance(balance, spec) > 0
     }
 }
 

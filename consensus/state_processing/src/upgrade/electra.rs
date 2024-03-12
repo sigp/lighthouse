@@ -1,5 +1,8 @@
 use std::mem;
-use types::{BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
+use types::{
+    BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, EthSpec, Fork,
+    VariableList,
+};
 
 /// Transform a `Deneb` state into an `Electra` state.
 pub fn upgrade_to_electra<E: EthSpec>(
@@ -7,6 +10,17 @@ pub fn upgrade_to_electra<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
+    pre_state.build_exit_cache(spec)?;
+    let exit_balance_to_consume = pre_state.get_activation_exit_churn_limit(spec)?;
+    let earliest_exit_epoch = pre_state
+        .exit_cache()
+        .max_epoch()?
+        // TODO: check this
+        .unwrap_or(epoch)
+        .saturating_add(1u64);
+    let consolidation_balance_to_consume = pre_state.get_consolidation_churn_limit(spec)?;
+    let earliest_consolidation_epoch = pre_state.compute_activation_exit_epoch(epoch, spec)?;
+
     let pre = pre_state.as_deneb_mut()?;
 
     // Where possible, use something like `mem::take` to move fields from behind the &mut
@@ -59,6 +73,17 @@ pub fn upgrade_to_electra<E: EthSpec>(
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         historical_summaries: pre.historical_summaries.clone(),
+        // Electra
+        // EIP-7251
+        deposit_balance_to_consume: 0,
+        exit_balance_to_consume,
+        earliest_exit_epoch,
+        consolidation_balance_to_consume,
+        earliest_consolidation_epoch,
+        pending_balance_deposits: VariableList::default(),
+        pending_partial_withdrawals: VariableList::default(),
+        pending_consolidations: VariableList::default(),
+
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),

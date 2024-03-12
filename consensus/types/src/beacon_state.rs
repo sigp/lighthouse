@@ -320,6 +320,30 @@ where
     #[superstruct(only(Capella, Deneb, Electra))]
     pub historical_summaries: VariableList<HistoricalSummary, T::HistoricalRootsLimit>,
 
+    // Electra
+    // EIP-7251
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub deposit_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub exit_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    pub earliest_exit_epoch: Epoch,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub consolidation_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    pub earliest_consolidation_epoch: Epoch,
+    #[superstruct(only(Electra))]
+    pub pending_balance_deposits:
+        VariableList<PendingBalanceDeposit, T::PendingBalanceDepositsLimit>,
+    #[superstruct(only(Electra))]
+    pub pending_partial_withdrawals:
+        VariableList<PartialWithdrawal, T::PendingPartialWithdrawalsLimit>,
+    #[superstruct(only(Electra))]
+    pub pending_consolidations: VariableList<PendingConsolidation, T::PendingConsolidationsLimit>,
+
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -1370,6 +1394,62 @@ impl<T: EthSpec> BeaconState<T> {
                 self.get_churn_limit(spec)?,
             ),
         })
+    }
+
+    /// Returns the new electra-based churn limit (EIP-7251)
+    ///
+    /// TODO: rename and finish commenting this
+    pub fn get_churn_limit_gwei(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        let churn = std::cmp::max(
+            spec.min_per_epoch_churn_limit_eip7251,
+            self.get_total_active_balance()?
+                .safe_div(spec.churn_limit_quotient)?,
+        );
+
+        churn
+            .safe_sub(churn.safe_rem(spec.effective_balance_increment)?)
+            .map_err(Error::ArithError)
+    }
+
+    /// Return the activation exit churn limit
+    ///
+    /// TODO: finish commenting this
+    pub fn get_activation_exit_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        Ok(std::cmp::min(
+            spec.max_per_epoch_activation_exit_churn_limit,
+            self.get_churn_limit_gwei(spec)?,
+        ))
+    }
+
+    /// Returns the consolidation churn limit
+    ///
+    /// TODO: finish commenting this
+    pub fn get_consolidation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        self.get_churn_limit_gwei(spec).and_then(|churn_limit| {
+            churn_limit
+                .safe_sub(self.get_activation_exit_churn_limit(spec)?)
+                .map_err(Error::ArithError)
+        })
+    }
+
+    /// Returns the new electra-based active balance (EIP-7251)
+    ///
+    /// TODO: rename and finish commenting this
+    pub fn get_active_balance(&self, validator_index: u64, spec: &ChainSpec) -> Result<u64, Error> {
+        let validator = self.get_validator(validator_index as usize)?;
+        let active_balance_ceil = if validator.has_eth1_withdrawal_credential(spec) {
+            spec.min_activation_balance
+        } else {
+            spec.max_effective_balance_eip7251
+        };
+
+        let balance = self
+            .balances()
+            .get(validator_index as usize)
+            .copied()
+            .ok_or(Error::UnknownValidator(validator_index as usize))?;
+
+        Ok(std::cmp::min(balance, active_balance_ceil))
     }
 
     /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an
