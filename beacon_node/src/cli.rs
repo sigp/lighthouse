@@ -632,11 +632,11 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
         )
         .arg(
-            Arg::with_name("state-cache-size")
+            Arg::new("state-cache-size")
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
                 .help("Specifies the size of the snapshot cache [default: 3]")
-                .takes_value(true)
+                .action(ArgAction::Set)
         )
         /*
          * Execution Layer Integration
