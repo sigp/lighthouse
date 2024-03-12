@@ -88,7 +88,7 @@ impl<T: EthSpec> DataColumnSidecar<T> {
         let mut columns =
             vec![Vec::with_capacity(T::max_blobs_per_block()); T::number_of_columns()];
         let mut column_kzg_proofs =
-            vec![Vec::with_capacity(T::max_blob_commitments_per_block()); T::number_of_columns()];
+            vec![Vec::with_capacity(T::max_blobs_per_block()); T::number_of_columns()];
 
         // NOTE: assumes blob sidecars are ordered by index
         for blob in blobs {
@@ -99,25 +99,37 @@ impl<T: EthSpec> DataColumnSidecar<T> {
             // pushing on the cell and the corresponding proof at each column index. we do this for
             // each blob (i.e. the outer loop).
             for col in 0..T::number_of_columns() {
-                let cell = blob_cells
-                    .get(col)
-                    .expect("blob cell exists at index {col}");
+                let cell =
+                    blob_cells
+                        .get(col)
+                        .ok_or(DataColumnSidecarError::InconsistentArrayLength(format!(
+                            "Missing blob cell at index {col}"
+                        )))?;
                 let cell: Vec<u8> = cell
                     .into_inner()
                     .into_iter()
                     .flat_map(|data| (*data).into_iter())
                     .collect();
                 let cell = Cell::<T>::from(cell);
-                let proof = blob_cell_proofs
-                    .get(col)
-                    .expect("blob cell KZG proof exists at index {col}");
 
-                let column = columns
-                    .get_mut(col)
-                    .expect("data column exists at index {col}");
-                let column_proofs = column_kzg_proofs
-                    .get_mut(col)
-                    .expect("data column proofs exist at index {col}");
+                let proof = blob_cell_proofs.get(col).ok_or(
+                    DataColumnSidecarError::InconsistentArrayLength(format!(
+                        "Missing blob cell KZG proof at index {col}"
+                    )),
+                )?;
+
+                let column =
+                    columns
+                        .get_mut(col)
+                        .ok_or(DataColumnSidecarError::InconsistentArrayLength(format!(
+                            "Missing data column at index {col}"
+                        )))?;
+                let column_proofs = column_kzg_proofs.get_mut(col).ok_or(
+                    DataColumnSidecarError::InconsistentArrayLength(format!(
+                        "Missing data column proofs at index {col}"
+                    )),
+                )?;
+
                 column.push(cell);
                 column_proofs.push(*proof);
             }
@@ -193,6 +205,7 @@ pub enum DataColumnSidecarError {
     MissingBlobSidecars,
     PreDeneb,
     SszError(SszError),
+    InconsistentArrayLength(String),
 }
 
 impl From<ArithError> for DataColumnSidecarError {
