@@ -53,6 +53,7 @@ LOG_DIR=$TESTNET_DIR
 # user can "tail -f" right after starting this script
 # even before its done.
 ./clean.sh
+./clean_genesis.sh $genesis_file
 mkdir -p $LOG_DIR
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     touch $LOG_DIR/beacon_node_$bn.log
@@ -130,10 +131,6 @@ for (( el=1; el<=$BN_COUNT; el++ )); do
 done
 
 sleeping 20
-
-# Reset the `genesis.json` config file fork times.
-sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' $genesis_file
-sed -i 's/"cancunTime".*$/"cancunTime": 0,/g' $genesis_file
 
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     secret=$DATADIR/geth_datadir$bn/geth/jwtsecret

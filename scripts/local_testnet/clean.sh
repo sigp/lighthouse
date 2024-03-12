@@ -11,3 +11,5 @@ source ./vars.env
 if [ -d $DATADIR ]; then
   rm -rf $DATADIR
 fi
+
+./clean_genesis.sh genesis.json
