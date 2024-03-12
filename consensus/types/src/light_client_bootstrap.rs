@@ -1,6 +1,6 @@
-use super::{BeaconState, EthSpec, FixedVector, Hash256, SyncCommittee};
+use super::{BeaconState, EthSpec, Hash256, SyncCommittee};
 use crate::{
-    light_client_update::*, test_utils::TestRandom, ForkName, ForkVersionDeserialize,
+    light_client_update::*, test_utils::TestRandom, FixedVector, ForkName, ForkVersionDeserialize,
     LightClientHeader,
 };
 use serde::{Deserialize, Deserializer, Serialize};

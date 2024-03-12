@@ -1,11 +1,12 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
-use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::case_result::{check_state_diff, compare_beacon_state_results_without_caches};
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use serde::Deserialize;
 use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
+use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
@@ -89,6 +90,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
+        initialize_epoch_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
         match state {
             BeaconState::Base(_) => base::process_attestations(
@@ -102,7 +104,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => {
-                initialize_progressive_balances_cache(state, None, spec)?;
+                initialize_progressive_balances_cache(state, spec)?;
                 altair_deneb::process_attestation(
                     state,
                     self,
@@ -132,7 +134,7 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        initialize_progressive_balances_cache(state, None, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         process_attester_slashings(
             state,
             &[self.clone()],
@@ -183,7 +185,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        initialize_progressive_balances_cache(state, None, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         process_proposer_slashings(
             state,
             &[self.clone()],
@@ -485,14 +487,22 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let spec = &testing_spec::<E>(fork_name);
-        let mut state = self.pre.clone();
-        let mut expected = self.post.clone();
 
+        let mut pre_state = self.pre.clone();
         // Processing requires the committee caches.
         // NOTE: some of the withdrawals tests have 0 active validators, do not try
         // to build the commitee cache in this case.
         if O::handler_name() != "withdrawals" {
-            state.build_all_committee_caches(spec).unwrap();
+            pre_state.build_all_committee_caches(spec).unwrap();
+        }
+
+        let mut state = pre_state.clone();
+        let mut expected = self.post.clone();
+
+        if O::handler_name() != "withdrawals" {
+            if let Some(post_state) = expected.as_mut() {
+                post_state.build_all_committee_caches(spec).unwrap();
+            }
         }
 
         let mut result = self
@@ -502,6 +512,7 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
             .apply_to(&mut state, spec, self)
             .map(|()| state);
 
+        check_state_diff(&pre_state, &expected, spec)?;
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }
 }

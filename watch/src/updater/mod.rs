@@ -211,20 +211,20 @@ pub async fn get_validators(bn: &BeaconNodeHttpClient) -> Result<HashSet<WatchVa
 
     for val in validators {
         // Only store `activation_epoch` if it not the `FAR_FUTURE_EPOCH`.
-        let activation_epoch = if val.validator.activation_epoch.as_u64() == FAR_FUTURE_EPOCH {
+        let activation_epoch = if val.validator.activation_epoch().as_u64() == FAR_FUTURE_EPOCH {
             None
         } else {
-            Some(val.validator.activation_epoch.as_u64() as i32)
+            Some(val.validator.activation_epoch().as_u64() as i32)
         };
         // Only store `exit_epoch` if it is not the `FAR_FUTURE_EPOCH`.
-        let exit_epoch = if val.validator.exit_epoch.as_u64() == FAR_FUTURE_EPOCH {
+        let exit_epoch = if val.validator.exit_epoch().as_u64() == FAR_FUTURE_EPOCH {
             None
         } else {
-            Some(val.validator.exit_epoch.as_u64() as i32)
+            Some(val.validator.exit_epoch().as_u64() as i32)
         };
         validator_map.insert(WatchValidator {
             index: val.index as i32,
-            public_key: WatchPK::from_pubkey(val.validator.pubkey),
+            public_key: WatchPK::from_pubkey(*val.validator.pubkey),
             status: val.status.to_string(),
             activation_epoch,
             exit_epoch,

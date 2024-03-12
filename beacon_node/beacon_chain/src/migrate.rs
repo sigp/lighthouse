@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::mem;
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::{migrate_database, HotColdDBError};
@@ -24,6 +24,7 @@ const MAX_COMPACTION_PERIOD_SECONDS: u64 = 604800;
 const MIN_COMPACTION_PERIOD_SECONDS: u64 = 7200;
 /// Compact after a large finality gap, if we respect `MIN_COMPACTION_PERIOD_SECONDS`.
 const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
+const BLOCKS_PER_RECONSTRUCTION: usize = 8192 * 4;
 
 /// Default number of epochs to wait between finalization migrations.
 pub const DEFAULT_EPOCHS_PER_MIGRATION: u64 = 1;
@@ -34,8 +35,12 @@ pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     db: Arc<HotColdDB<E, Hot, Cold>>,
     /// Record of when the last migration ran, for enforcing `epochs_per_migration`.
     prev_migration: Arc<Mutex<PrevMigration>>,
-    #[allow(clippy::type_complexity)]
-    tx_thread: Option<Mutex<(mpsc::Sender<Notification>, thread::JoinHandle<()>)>>,
+    tx_thread: Option<
+        Mutex<(
+            crossbeam_channel::Sender<Notification>,
+            thread::JoinHandle<()>,
+        )>,
+    >,
     /// Genesis block root, for persisting the `PersistedBeaconChain`.
     genesis_block_root: Hash256,
     log: Logger,
@@ -72,6 +77,7 @@ impl MigratorConfig {
 }
 
 /// Record of when the last migration ran.
+#[derive(Debug)]
 pub struct PrevMigration {
     /// The epoch at which the last finalization migration ran.
     epoch: Epoch,
@@ -114,12 +120,14 @@ pub enum PruningError {
 }
 
 /// Message sent to the migration thread containing the information it needs to run.
+#[derive(Debug)]
 pub enum Notification {
     Finalization(FinalizationNotification),
     Reconstruction,
     PruneBlobs(Epoch),
 }
 
+#[derive(Clone, Debug)]
 pub struct FinalizationNotification {
     finalized_state_root: BeaconStateHash,
     finalized_checkpoint: Checkpoint,
@@ -127,6 +135,21 @@ pub struct FinalizationNotification {
     prev_migration: Arc<Mutex<PrevMigration>>,
     genesis_block_root: Hash256,
 }
+
+/*
+impl Notification {
+    pub fn epoch(&self) -> Option<Epoch> {
+        match self {
+            Notification::Finalization(FinalizationNotification {
+                finalized_checkpoint,
+                ..
+            }) => Some(finalized_checkpoint.epoch),
+            Notification::Reconstruction => None,
+            Notification::PruneBlobs => None,
+        }
+    }
+}
+*/
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
     /// Create a new `BackgroundMigrator` and spawn its thread if necessary.
@@ -201,7 +224,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     }
 
     pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
-        if let Err(e) = db.reconstruct_historic_states() {
+        if let Err(e) = db.reconstruct_historic_states(None) {
             error!(
                 log,
                 "State reconstruction failed";
@@ -287,6 +310,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         drop(prev_migration);
 
         debug!(log, "Database consolidation started");
+        let timer = std::time::Instant::now();
 
         let finalized_state_root = notif.finalized_state_root;
         let finalized_block_root = notif.finalized_checkpoint.root;
@@ -353,7 +377,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                 debug!(
                     log,
-                    "Database migration postponed, unaligned finalized block";
+                    "Database migration postponed due to unaligned finalized block";
                     "slot" => slot.as_u64()
                 );
             }
@@ -361,7 +385,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 warn!(
                     log,
                     "Database migration failed";
-                    "error" => format!("{:?}", e)
+                    "error" => ?e
                 );
                 return;
             }
@@ -374,10 +398,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             notif.finalized_checkpoint.epoch,
             log,
         ) {
-            warn!(log, "Database compaction failed"; "error" => format!("{:?}", e));
+            warn!(log, "Database compaction failed"; "error" => ?e);
         }
 
-        debug!(log, "Database consolidation complete");
+        debug!(
+            log,
+            "Database consolidation complete";
+            "running_time_ms" => timer.elapsed().as_millis()
+        );
     }
 
     /// Spawn a new child thread to run the migration process.
@@ -386,48 +414,85 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     fn spawn_thread(
         db: Arc<HotColdDB<E, Hot, Cold>>,
         log: Logger,
-    ) -> (mpsc::Sender<Notification>, thread::JoinHandle<()>) {
-        let (tx, rx) = mpsc::channel();
+    ) -> (
+        crossbeam_channel::Sender<Notification>,
+        thread::JoinHandle<()>,
+    ) {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let tx_thread = tx.clone();
         let thread = thread::spawn(move || {
-            while let Ok(notif) = rx.recv() {
-                let mut reconstruction_notif = None;
-                let mut finalization_notif = None;
-                let mut prune_blobs_notif = None;
-                match notif {
-                    Notification::Reconstruction => reconstruction_notif = Some(notif),
-                    Notification::Finalization(fin) => finalization_notif = Some(fin),
-                    Notification::PruneBlobs(dab) => prune_blobs_notif = Some(dab),
-                }
-                // Read the rest of the messages in the channel, taking the best of each type.
-                for notif in rx.try_iter() {
-                    match notif {
-                        Notification::Reconstruction => reconstruction_notif = Some(notif),
-                        Notification::Finalization(fin) => {
-                            if let Some(current) = finalization_notif.as_mut() {
-                                if fin.finalized_checkpoint.epoch
-                                    > current.finalized_checkpoint.epoch
-                                {
-                                    *current = fin;
-                                }
-                            } else {
-                                finalization_notif = Some(fin);
-                            }
-                        }
-                        Notification::PruneBlobs(dab) => {
-                            prune_blobs_notif = std::cmp::max(prune_blobs_notif, Some(dab));
-                        }
-                    }
-                }
-                // If reconstruction is on-going, ignore finalization migration and blob pruning.
+            let mut sel = crossbeam_channel::Select::new();
+            sel.recv(&rx);
+
+            loop {
+                // Block until sth is in queue
+                let _queue_size = sel.ready();
+                let queue: Vec<Notification> = rx.try_iter().collect();
+                debug!(
+                    log,
+                    "New worker thread poll";
+                    "queue" => ?queue
+                );
+
+                // Find a reconstruction notification and best finalization notification.
+                let reconstruction_notif = queue
+                    .iter()
+                    .find(|n| matches!(n, Notification::Reconstruction));
+                let migrate_notif = queue
+                    .iter()
+                    .filter_map(|n| match n {
+                        Notification::Finalization(f) => Some(f),
+                        _ => None,
+                    })
+                    .max_by_key(|f| f.finalized_checkpoint.epoch)
+                    .cloned();
+                let prune_blobs_notif = queue
+                    .iter()
+                    .filter_map(|n| match n {
+                        Notification::PruneBlobs(dab) => Some(*dab),
+                        _ => None,
+                    })
+                    .max();
+
+                // Do a bit of state reconstruction first if required.
                 if reconstruction_notif.is_some() {
-                    Self::run_reconstruction(db.clone(), &log);
-                } else {
-                    if let Some(fin) = finalization_notif {
-                        Self::run_migration(db.clone(), fin, &log);
+                    let timer = std::time::Instant::now();
+
+                    match db.reconstruct_historic_states(Some(BLOCKS_PER_RECONSTRUCTION)) {
+                        Err(Error::StateReconstructionDidNotComplete) => {
+                            info!(
+                                log,
+                                "Finished reconstruction batch";
+                                "batch_time_ms" => timer.elapsed().as_millis()
+                            );
+                            // Handle send error
+                            let _ = tx_thread.send(Notification::Reconstruction);
+                        }
+                        Err(e) => {
+                            error!(
+                                log,
+                                "State reconstruction failed";
+                                "error" => ?e,
+                            );
+                        }
+                        Ok(()) => {
+                            info!(
+                                log,
+                                "Finished state reconstruction";
+                                "batch_time_ms" => timer.elapsed().as_millis()
+                            );
+                        }
                     }
-                    if let Some(dab) = prune_blobs_notif {
-                        Self::run_prune_blobs(db.clone(), dab, &log);
-                    }
+                }
+
+                // Do the finalization migration.
+                if let Some(notif) = migrate_notif {
+                    Self::run_migration(db.clone(), notif, &log);
+                }
+
+                // Prune blobs.
+                if let Some(dab) = prune_blobs_notif {
+                    Self::run_prune_blobs(db.clone(), dab, &log);
                 }
             }
         });
@@ -447,13 +512,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         genesis_block_root: Hash256,
         log: &Logger,
     ) -> Result<PruningOutcome, BeaconChainError> {
-        let old_finalized_checkpoint =
-            store
-                .load_pruning_checkpoint()?
-                .unwrap_or_else(|| Checkpoint {
-                    epoch: Epoch::new(0),
-                    root: Hash256::zero(),
-                });
+        let old_finalized_checkpoint = store.get_pruning_checkpoint();
 
         let old_finalized_slot = old_finalized_checkpoint
             .epoch
@@ -507,18 +566,32 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             })
             .collect::<Result<_, _>>()?;
 
+        // Quick sanity check. If the canonical block & state roots are incorrect then we could
+        // incorrectly delete canonical states, which would corrupt the database.
+        let expected_canonical_block_roots = new_finalized_slot
+            .saturating_sub(old_finalized_slot)
+            .as_usize()
+            .saturating_add(1);
+        if newly_finalized_chain.len() != expected_canonical_block_roots {
+            return Err(BeaconChainError::DBInconsistent(format!(
+                "canonical chain iterator is corrupt; \
+                 expected {} but got {} block roots",
+                expected_canonical_block_roots,
+                newly_finalized_chain.len()
+            )));
+        }
+
         // We don't know which blocks are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.
         let mut abandoned_blocks: HashSet<SignedBeaconBlockHash> = HashSet::new();
-        let mut abandoned_states: HashSet<(Slot, BeaconStateHash)> = HashSet::new();
         let mut abandoned_heads: HashSet<Hash256> = HashSet::new();
 
         let heads = head_tracker.heads();
         debug!(
             log,
             "Extra pruning information";
-            "old_finalized_root" => format!("{:?}", old_finalized_checkpoint.root),
-            "new_finalized_root" => format!("{:?}", new_finalized_checkpoint.root),
+            "old_finalized_root" => ?old_finalized_checkpoint.root,
+            "new_finalized_root" => ?new_finalized_checkpoint.root,
             "head_count" => heads.len(),
         );
 
@@ -527,7 +600,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             // so delete it from the head tracker but leave it and its states in the database
             // This is suboptimal as it wastes disk space, but it's difficult to fix. A re-sync
             // can be used to reclaim the space.
-            let head_state_root = match store.get_blinded_block(&head_hash) {
+            let head_state_root = match store.get_blinded_block(&head_hash, Some(head_slot)) {
                 Ok(Some(block)) => block.state_root(),
                 Ok(None) => {
                     return Err(BeaconStateError::MissingBeaconBlock(head_hash.into()).into())
@@ -546,14 +619,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             };
 
             let mut potentially_abandoned_head = Some(head_hash);
-            let mut potentially_abandoned_blocks = vec![];
+            let mut potentially_abandoned_blocks = HashSet::new();
 
-            // Iterate backwards from this head, staging blocks and states for deletion.
+            // Iterate backwards from this head, staging blocks for deletion.
             let iter = std::iter::once(Ok((head_hash, head_state_root, head_slot)))
                 .chain(RootsIterator::from_block(&store, head_hash)?);
 
             for maybe_tuple in iter {
                 let (block_root, state_root, slot) = maybe_tuple?;
+
                 let block_root = SignedBeaconBlockHash::from(block_root);
                 let state_root = BeaconStateHash::from(state_root);
 
@@ -563,11 +637,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     // the fork's block and state for possible deletion.
                     None => {
                         if slot > new_finalized_slot {
-                            potentially_abandoned_blocks.push((
-                                slot,
-                                Some(block_root),
-                                Some(state_root),
-                            ));
+                            potentially_abandoned_blocks.insert(block_root);
                         } else if slot >= old_finalized_slot {
                             return Err(PruningError::MissingInfoForCanonicalChain { slot }.into());
                         } else {
@@ -577,7 +647,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                             warn!(
                                 log,
                                 "Found a chain that should already have been pruned";
-                                "head_block_root" => format!("{:?}", head_hash),
+                                "head_block_root" => ?head_hash,
                                 "head_slot" => head_slot,
                             );
                             potentially_abandoned_head.take();
@@ -605,26 +675,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                             // we will have just staged the common block for deletion.
                             // Unstage it.
                             else {
-                                for (_, block_root, _) in
-                                    potentially_abandoned_blocks.iter_mut().rev()
-                                {
-                                    if block_root.as_ref() == Some(finalized_block_root) {
-                                        *block_root = None;
-                                    } else {
-                                        break;
-                                    }
-                                }
+                                potentially_abandoned_blocks.remove(finalized_block_root);
                             }
                             break;
                         } else {
                             if state_root == *finalized_state_root {
                                 return Err(PruningError::UnexpectedEqualStateRoots.into());
                             }
-                            potentially_abandoned_blocks.push((
-                                slot,
-                                Some(block_root),
-                                Some(state_root),
-                            ));
+                            potentially_abandoned_blocks.insert(block_root);
                         }
                     }
                 }
@@ -634,18 +692,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 debug!(
                     log,
                     "Pruning head";
-                    "head_block_root" => format!("{:?}", abandoned_head),
+                    "head_block_root" => ?abandoned_head,
                     "head_slot" => head_slot,
                 );
                 abandoned_heads.insert(abandoned_head);
-                abandoned_blocks.extend(
-                    potentially_abandoned_blocks
-                        .iter()
-                        .filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash),
-                );
-                abandoned_states.extend(potentially_abandoned_blocks.iter().filter_map(
-                    |(slot, _, maybe_state_hash)| maybe_state_hash.map(|sr| (*slot, sr)),
-                ));
+                abandoned_blocks.extend(potentially_abandoned_blocks);
             }
         }
 
@@ -668,6 +719,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             head_tracker_lock.remove(&head_hash);
         }
 
+        let num_deleted_blocks = abandoned_blocks.len();
         let mut batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
             .map(Into::into)
@@ -678,11 +730,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     StoreOp::DeleteBlobs(block_root),
                 ]
             })
-            .chain(
-                abandoned_states
-                    .into_iter()
-                    .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash.into(), Some(slot))),
-            )
             .collect();
 
         // Persist the head in case the process is killed or crashes here. This prevents
@@ -697,13 +744,51 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY),
         ));
 
-        // Persist the new finalized checkpoint as the pruning checkpoint.
-        batch.push(StoreOp::KeyValueOp(
-            store.pruning_checkpoint_store_op(new_finalized_checkpoint),
-        ));
-
         store.do_atomically_with_block_and_blobs_cache(batch)?;
-        debug!(log, "Database pruning complete");
+        debug!(
+            log,
+            "Database block pruning complete";
+            "num_deleted_blocks" => num_deleted_blocks,
+        );
+
+        // Do a separate pass to clean up irrelevant states.
+        let mut state_delete_batch = vec![];
+        for res in store.iter_hot_state_summaries() {
+            let (state_root, summary) = res?;
+
+            if summary.slot <= new_finalized_slot {
+                // If state root doesn't match state root from canonical chain, then delete.
+                // We may also find older states here that should have been deleted by `migrate_db`
+                // but weren't due to wonky I/O atomicity.
+                if newly_finalized_chain
+                    .get(&summary.slot)
+                    .map_or(true, |(_, canonical_state_root)| {
+                        state_root != Hash256::from(*canonical_state_root)
+                    })
+                {
+                    let reason = if summary.slot < old_finalized_slot {
+                        "old dangling state"
+                    } else {
+                        "non-canonical"
+                    };
+                    debug!(
+                        log,
+                        "Deleting state";
+                        "state_root" => ?state_root,
+                        "slot" => summary.slot,
+                        "reason" => reason,
+                    );
+                    state_delete_batch.push(StoreOp::DeleteState(state_root, Some(summary.slot)));
+                }
+            }
+        }
+        let num_deleted_states = state_delete_batch.len();
+        store.do_atomically_with_block_and_blobs_cache(state_delete_batch)?;
+        debug!(
+            log,
+            "Database state pruning complete";
+            "num_deleted_states" => num_deleted_states,
+        );
 
         Ok(PruningOutcome::Successful {
             old_finalized_checkpoint,

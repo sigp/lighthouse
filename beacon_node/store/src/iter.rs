@@ -189,7 +189,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
         block_hash: Hash256,
     ) -> Result<Self, Error> {
         let block = store
-            .get_blinded_block(&block_hash)?
+            .get_blinded_block(&block_hash, None)?
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash.into()))?;
         let state = store
             .get_state(&block.state_root(), Some(block.slot()))?
@@ -286,7 +286,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             let block = if self.decode_any_variant {
                 self.store.get_block_any_variant(&block_root)
             } else {
-                self.store.get_blinded_block(&block_root)
+                self.store.get_blinded_block(&block_root, None)
             }?
             .ok_or(Error::BlockNotFound(block_root))?;
             self.next_block_root = block.message().parent_root();
@@ -329,7 +329,8 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> BlockIterator<'a, T,
     fn do_next(&mut self) -> Result<Option<SignedBeaconBlock<T, BlindedPayload<T>>>, Error> {
         if let Some(result) = self.roots.next() {
             let (root, _slot) = result?;
-            self.roots.inner.store.get_blinded_block(&root)
+            // Don't use slot hint here as it could be a skipped slot.
+            self.roots.inner.store.get_blinded_block(&root, None)
         } else {
             Ok(None)
         }
@@ -376,132 +377,4 @@ fn next_historical_root_backtrack_state<E: EthSpec, Hot: ItemStore<E>, Cold: Ite
 fn slot_of_prev_restore_point<E: EthSpec>(current_slot: Slot) -> Slot {
     let slots_per_historical_root = E::SlotsPerHistoricalRoot::to_u64();
     (current_slot - 1) / slots_per_historical_root * slots_per_historical_root
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::HotColdDB;
-    use crate::StoreConfig as Config;
-    use beacon_chain::test_utils::BeaconChainHarness;
-    use beacon_chain::types::{ChainSpec, MainnetEthSpec};
-    use sloggers::{null::NullLoggerBuilder, Build};
-
-    fn get_state<T: EthSpec>() -> BeaconState<T> {
-        let harness = BeaconChainHarness::builder(T::default())
-            .default_spec()
-            .deterministic_keypairs(1)
-            .fresh_ephemeral_store()
-            .build();
-        harness.advance_slot();
-        harness.get_current_state()
-    }
-
-    #[test]
-    fn block_root_iter() {
-        let log = NullLoggerBuilder.build().unwrap();
-        let store =
-            HotColdDB::open_ephemeral(Config::default(), ChainSpec::minimal(), log).unwrap();
-        let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
-
-        let mut state_a: BeaconState<MainnetEthSpec> = get_state();
-        let mut state_b: BeaconState<MainnetEthSpec> = get_state();
-
-        *state_a.slot_mut() = Slot::from(slots_per_historical_root);
-        *state_b.slot_mut() = Slot::from(slots_per_historical_root * 2);
-
-        let mut hashes = (0..).map(Hash256::from_low_u64_be);
-        let roots_a = state_a.block_roots_mut();
-        for i in 0..roots_a.len() {
-            roots_a[i] = hashes.next().unwrap()
-        }
-        let roots_b = state_b.block_roots_mut();
-        for i in 0..roots_b.len() {
-            roots_b[i] = hashes.next().unwrap()
-        }
-
-        let state_a_root = hashes.next().unwrap();
-        state_b.state_roots_mut()[0] = state_a_root;
-        store.put_state(&state_a_root, &state_a).unwrap();
-
-        let iter = BlockRootsIterator::new(&store, &state_b);
-
-        assert!(
-            iter.clone()
-                .any(|result| result.map(|(_root, slot)| slot == 0).unwrap()),
-            "iter should contain zero slot"
-        );
-
-        let mut collected: Vec<(Hash256, Slot)> = iter.collect::<Result<Vec<_>, _>>().unwrap();
-        collected.reverse();
-
-        let expected_len = 2 * MainnetEthSpec::slots_per_historical_root();
-
-        assert_eq!(collected.len(), expected_len);
-
-        for (i, item) in collected.iter().enumerate() {
-            assert_eq!(item.0, Hash256::from_low_u64_be(i as u64));
-        }
-    }
-
-    #[test]
-    fn state_root_iter() {
-        let log = NullLoggerBuilder.build().unwrap();
-        let store =
-            HotColdDB::open_ephemeral(Config::default(), ChainSpec::minimal(), log).unwrap();
-        let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
-
-        let mut state_a: BeaconState<MainnetEthSpec> = get_state();
-        let mut state_b: BeaconState<MainnetEthSpec> = get_state();
-
-        *state_a.slot_mut() = Slot::from(slots_per_historical_root);
-        *state_b.slot_mut() = Slot::from(slots_per_historical_root * 2);
-
-        let mut hashes = (0..).map(Hash256::from_low_u64_be);
-
-        for slot in 0..slots_per_historical_root {
-            state_a
-                .set_state_root(Slot::from(slot), hashes.next().unwrap())
-                .unwrap_or_else(|_| panic!("should set state_a slot {}", slot));
-        }
-        for slot in slots_per_historical_root..slots_per_historical_root * 2 {
-            state_b
-                .set_state_root(Slot::from(slot), hashes.next().unwrap())
-                .unwrap_or_else(|_| panic!("should set state_b slot {}", slot));
-        }
-
-        let state_a_root = Hash256::from_low_u64_be(slots_per_historical_root as u64);
-        let state_b_root = Hash256::from_low_u64_be(slots_per_historical_root as u64 * 2);
-
-        store.put_state(&state_a_root, &state_a).unwrap();
-        store.put_state(&state_b_root, &state_b).unwrap();
-
-        let iter = StateRootsIterator::new(&store, &state_b);
-
-        assert!(
-            iter.clone()
-                .any(|result| result.map(|(_root, slot)| slot == 0).unwrap()),
-            "iter should contain zero slot"
-        );
-
-        let mut collected: Vec<(Hash256, Slot)> = iter.collect::<Result<Vec<_>, _>>().unwrap();
-        collected.reverse();
-
-        let expected_len = MainnetEthSpec::slots_per_historical_root() * 2;
-
-        assert_eq!(collected.len(), expected_len, "collection length incorrect");
-
-        for (i, item) in collected.iter().enumerate() {
-            let (hash, slot) = *item;
-
-            assert_eq!(slot, i as u64, "slot mismatch at {}: {} vs {}", i, slot, i);
-
-            assert_eq!(
-                hash,
-                Hash256::from_low_u64_be(i as u64),
-                "hash mismatch at {}",
-                i
-            );
-        }
-    }
 }

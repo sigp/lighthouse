@@ -1,7 +1,7 @@
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use types::{Checkpoint, Epoch, ProgressiveBalancesMode};
+use types::{Checkpoint, Epoch};
 
 pub const DEFAULT_RE_ORG_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
 pub const DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION: Epoch = Epoch::new(2);
@@ -14,6 +14,9 @@ pub const DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR: u32 = 3;
 
 /// Fraction of a slot lookahead for fork choice in the state advance timer (500ms on mainnet).
 pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
+
+/// Cache only a small number of states in the parallel cache by default.
+pub const DEFAULT_PARALLEL_STATE_CACHE_SIZE: usize = 2;
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
@@ -72,8 +75,6 @@ pub struct ChainConfig {
     pub optimistic_finalized_sync: bool,
     /// The size of the shuffling cache,
     pub shuffling_cache_size: usize,
-    /// The size of the snapshot cache.
-    pub snapshot_cache_size: usize,
     /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
     /// genesis.
     pub genesis_backfill: bool,
@@ -81,10 +82,10 @@ pub struct ChainConfig {
     ///
     /// This is useful for block builders and testing.
     pub always_prepare_payload: bool,
-    /// Whether to use `ProgressiveBalancesCache` in unrealized FFG progression calculation.
-    pub progressive_balances_mode: ProgressiveBalancesMode,
     /// Number of epochs between each migration of data from the hot database to the freezer.
     pub epochs_per_migration: u64,
+    /// Size of the promise cache for de-duplicating parallel state requests.
+    pub parallel_state_cache_size: usize,
     /// When set to true Light client server computes and caches state proofs for serving updates
     pub enable_light_client_server: bool,
 }
@@ -114,11 +115,10 @@ impl Default for ChainConfig {
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
-            snapshot_cache_size: crate::snapshot_cache::DEFAULT_SNAPSHOT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,
-            progressive_balances_mode: ProgressiveBalancesMode::Fast,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
+            parallel_state_cache_size: DEFAULT_PARALLEL_STATE_CACHE_SIZE,
             enable_light_client_server: false,
         }
     }

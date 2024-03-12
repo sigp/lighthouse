@@ -75,8 +75,8 @@ use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
-    block_signature_verifier::BlockSignatureVerifier, per_block_processing, BlockSignatureStrategy,
-    ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
+    block_signature_verifier::BlockSignatureVerifier, per_block_processing, AllCaches,
+    BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -85,7 +85,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::HotColdDB;
-use types::{BeaconState, ChainSpec, CloneConfig, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -201,7 +201,10 @@ pub fn run<T: EthSpec>(
     let store = Arc::new(store);
 
     debug!("Building pubkey cache (might take some time)");
-    let validator_pubkey_cache = ValidatorPubkeyCache::new(&pre_state, store)
+    let validator_pubkey_cache = store.immutable_validators.clone();
+    validator_pubkey_cache
+        .write()
+        .import_new_pubkeys(&pre_state)
         .map_err(|e| format!("Failed to create pubkey cache: {:?}", e))?;
 
     /*
@@ -211,7 +214,7 @@ pub fn run<T: EthSpec>(
 
     if config.exclude_cache_builds {
         pre_state
-            .build_caches(spec)
+            .build_all_caches(spec)
             .map_err(|e| format!("Unable to build caches: {:?}", e))?;
         let state_root = pre_state
             .update_tree_hash_cache()
@@ -232,8 +235,9 @@ pub fn run<T: EthSpec>(
      */
 
     let mut output_post_state = None;
+    let mut saved_ctxt = None;
     for i in 0..runs {
-        let pre_state = pre_state.clone_with(CloneConfig::all());
+        let pre_state = pre_state.clone();
         let block = block.clone();
 
         let start = Instant::now();
@@ -244,7 +248,8 @@ pub fn run<T: EthSpec>(
             block,
             state_root_opt,
             &config,
-            &validator_pubkey_cache,
+            &*validator_pubkey_cache.read(),
+            &mut saved_ctxt,
             spec,
         )?;
 
@@ -294,9 +299,12 @@ pub fn run<T: EthSpec>(
             .map_err(|e| format!("Unable to write to output file: {:?}", e))?;
     }
 
+    drop(pre_state);
+
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn do_transition<T: EthSpec>(
     mut pre_state: BeaconState<T>,
     block_root: Hash256,
@@ -304,12 +312,13 @@ fn do_transition<T: EthSpec>(
     mut state_root_opt: Option<Hash256>,
     config: &Config,
     validator_pubkey_cache: &ValidatorPubkeyCache<EphemeralHarnessType<T>>,
+    saved_ctxt: &mut Option<ConsensusContext<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
     if !config.exclude_cache_builds {
         let t = Instant::now();
         pre_state
-            .build_caches(spec)
+            .build_all_caches(spec)
             .map_err(|e| format!("Unable to build caches: {:?}", e))?;
         debug!("Build caches: {:?}", t.elapsed());
 
@@ -337,15 +346,23 @@ fn do_transition<T: EthSpec>(
         .map_err(|e| format!("Unable to perform complete advance: {e:?}"))?;
     debug!("Slot processing: {:?}", t.elapsed());
 
+    // Slot and epoch processing should keep the caches fully primed.
+    assert!(pre_state.all_caches_built());
+
     let t = Instant::now();
     pre_state
-        .build_caches(spec)
+        .build_all_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
     debug!("Build all caches (again): {:?}", t.elapsed());
 
-    let mut ctxt = ConsensusContext::new(pre_state.slot())
-        .set_current_block_root(block_root)
-        .set_proposer_index(block.message().proposer_index());
+    let mut ctxt = if let Some(ctxt) = saved_ctxt {
+        ctxt.clone()
+    } else {
+        let ctxt = ConsensusContext::new(pre_state.slot())
+            .set_current_block_root(block_root)
+            .set_proposer_index(block.message().proposer_index());
+        ctxt
+    };
 
     if !config.no_signature_verification {
         let get_pubkey = move |validator_index| {

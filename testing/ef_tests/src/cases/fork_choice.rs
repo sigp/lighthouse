@@ -25,7 +25,7 @@ use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
     EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
-    ProgressiveBalancesMode, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
+    ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -557,9 +557,7 @@ impl<E: EthSpec> Tester<E> {
                         block_delay,
                         &state,
                         PayloadVerificationStatus::Irrelevant,
-                        ProgressiveBalancesMode::Strict,
                         &self.harness.chain.spec,
-                        self.harness.logger(),
                     );
 
                 if result.is_ok() {

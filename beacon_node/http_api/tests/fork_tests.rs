@@ -128,17 +128,18 @@ async fn attestations_across_fork_with_skip_slots() {
     let all_validators = harness.get_all_validators();
 
     let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
-    let fork_state = harness
+    let mut fork_state = harness
         .chain
         .state_at_slot(fork_slot, StateSkipConfig::WithStateRoots)
         .unwrap();
+    let fork_state_root = fork_state.update_tree_hash_cache().unwrap();
 
     harness.set_current_slot(fork_slot);
 
     let attestations = harness.make_attestations(
         &all_validators,
         &fork_state,
-        fork_state.canonical_root(),
+        fork_state_root,
         (*fork_state.get_block_root(fork_slot - 1).unwrap()).into(),
         fork_slot,
     );

@@ -9,7 +9,7 @@ use state_processing::{
 use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
-use store::{chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, KeyValueStore};
+use store::{get_key_for_col, AnchorInfo, BlobInfo, DBColumn, KeyValueStore, KeyValueStoreOp};
 use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -97,13 +97,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
-        let mut chunk_writer =
-            ChunkWriter::<BlockRoots, _, _>::new(&self.store.cold_db, prev_block_slot.as_usize())?;
+
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
 
         let mut blob_batch = Vec::with_capacity(n_blobs_lists_to_import);
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
-        let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
         for available_block in blocks_to_import.into_iter().rev() {
@@ -118,9 +116,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             let blinded_block = block.clone_as_blinded();
-            // Store block in the hot database without payload.
-            self.store
-                .blinded_block_as_kv_store_ops(&block_root, &blinded_block, &mut hot_batch);
+            // Store block in the freezer database without payload.
+            self.store.blinded_block_as_cold_kv_store_ops(
+                &block_root,
+                &blinded_block,
+                &mut cold_batch,
+            )?;
             // Store the blobs too
             if let Some(blobs) = maybe_blobs {
                 new_oldest_blob_slot = Some(block.slot());
@@ -129,8 +130,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             // Store block roots, including at all skip slots in the freezer DB.
-            for slot in (block.slot().as_usize()..prev_block_slot.as_usize()).rev() {
-                chunk_writer.set(slot, block_root, &mut cold_batch)?;
+            // The block root mapping for `block.slot()` itself was already written when the block
+            // was stored, above.
+            for slot in (block.slot().as_usize() + 1..prev_block_slot.as_usize()).rev() {
+                cold_batch.push(KeyValueStoreOp::PutKeyValue(
+                    get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                    block_root.as_bytes().to_vec(),
+                ));
             }
 
             prev_block_slot = block.slot();
@@ -142,15 +148,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // completion.
             if expected_block_root == self.genesis_block_root {
                 let genesis_slot = self.spec.genesis_slot;
-                for slot in genesis_slot.as_usize()..prev_block_slot.as_usize() {
-                    chunk_writer.set(slot, self.genesis_block_root, &mut cold_batch)?;
+                for slot in genesis_slot.as_u64()..prev_block_slot.as_u64() {
+                    cold_batch.push(KeyValueStoreOp::PutKeyValue(
+                        get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                        self.genesis_block_root.as_bytes().to_vec(),
+                    ));
                 }
                 prev_block_slot = genesis_slot;
                 expected_block_root = Hash256::zero();
                 break;
             }
         }
-        chunk_writer.write(&mut cold_batch)?;
         // these were pushed in reverse order so we reverse again
         signed_blocks.reverse();
 
@@ -197,12 +205,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(verify_timer);
         drop(sig_timer);
 
-        // Write the I/O batches to disk, writing the blocks themselves first, as it's better
-        // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
-        // do not exist.
+        // Write the I/O batches to disk.
+        // We fsync after each write because we need the writes to the blob and freezer DB to
+        // be persisted if the writes to the hot DB are persisted. Without fsync we could end up
+        // in a situation where the hot DB's anchor is updated but the actual blocks are forgotten
+        // from disk.
         self.store.blobs_db.do_atomically(blob_batch)?;
-        self.store.hot_db.do_atomically(hot_batch)?;
+        self.store.blobs_db.sync()?;
         self.store.cold_db.do_atomically(cold_batch)?;
+        self.store.cold_db.sync()?;
 
         let mut anchor_and_blob_batch = Vec::with_capacity(2);
 
@@ -232,6 +243,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .compare_and_set_anchor_info(Some(anchor_info), Some(new_anchor))?,
         );
         self.store.hot_db.do_atomically(anchor_and_blob_batch)?;
+        self.store.hot_db.sync()?;
 
         // If backfill has completed and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.

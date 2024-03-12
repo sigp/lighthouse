@@ -83,7 +83,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let signature_slot = block_slot;
         let attested_block_root = block_parent_root;
 
-        let attested_block = store.get_blinded_block(attested_block_root)?.ok_or(
+        let attested_block = store.get_blinded_block(attested_block_root, None)?.ok_or(
             BeaconChainError::DBInconsistent(format!(
                 "Block not available {:?}",
                 attested_block_root
@@ -127,7 +127,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         if is_latest_finality & !cached_parts.finalized_block_root.is_zero() {
             // Immediately after checkpoint sync the finalized block may not be available yet.
             if let Some(finalized_block) =
-                store.get_blinded_block(&cached_parts.finalized_block_root)?
+                store.get_blinded_block(&cached_parts.finalized_block_root, None)?
             {
                 *self.latest_finality_update.write() = Some(LightClientFinalityUpdate {
                     // TODO: may want to cache this result from latest_optimistic_update if producing a

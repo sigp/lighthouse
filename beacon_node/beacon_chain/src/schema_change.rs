@@ -2,6 +2,7 @@
 mod migration_schema_v17;
 mod migration_schema_v18;
 mod migration_schema_v19;
+mod migration_schema_v20;
 
 use crate::beacon_chain::BeaconChainTypes;
 use crate::types::ChainSpec;
@@ -24,6 +25,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
     match (from, to) {
         // Migrating from the current schema version to itself is always OK, a no-op.
         (_, _) if from == to && to == CURRENT_SCHEMA_VERSION => Ok(()),
+        // Upgrade for tree-states database changes.
+        (SchemaVersion(12), SchemaVersion(20)) => {
+            migration_schema_v20::upgrade_to_v20::<T>(db, log)
+        }
+        // Downgrade for tree-states database changes.
+        (SchemaVersion(20), SchemaVersion(12)) => {
+            migration_schema_v20::downgrade_from_v20::<T>(db, log)
+        }
         // Upgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);

@@ -15,7 +15,7 @@ use http_api::TlsConfig;
 use lighthouse_network::ListenAddress;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
-use slog::{info, warn, Logger};
+use slog::{crit, info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
 use std::fmt::Debug;
@@ -169,9 +169,6 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
-    }
-    if let Some(cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
-        client_config.chain.snapshot_cache_size = cache_size;
     }
 
     /*
@@ -383,18 +380,39 @@ pub fn get_config<E: EthSpec>(
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
 
+    if !cli_args.is_present("unsafe-and-dangerous-mode") {
+        crit!(
+            log,
+            "This is an EXPERIMENTAL build of Lighthouse. If you are seeing this message you may \
+            have downloaded the wrong version by mistake. If so, go back and download the latest \
+            stable release. If you are certain that you want to continue, read the docs for the \
+            latest experimental release and continue at your own risk."
+        );
+        return Err("FATAL ERROR, YOU HAVE THE WRONG LIGHTHOUSE BINARY".into());
+    }
+
     if let Some(blobs_db_dir) = cli_args.value_of("blobs-dir") {
         client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
     }
 
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
-    client_config.store.slots_per_restore_point = sprp;
-    client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
-
-    if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {
-        client_config.store.block_cache_size = block_cache_size
-            .parse()
-            .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    if let Some(block_cache_size) = clap_utils::parse_optional(cli_args, "block-cache-size")? {
+        client_config.store.block_cache_size = block_cache_size;
+    }
+    if let Some(state_cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
+        client_config.store.state_cache_size = state_cache_size;
+    }
+    if let Some(parallel_state_cache_size) =
+        clap_utils::parse_optional(cli_args, "parallel-state-cache-size")?
+    {
+        client_config.chain.parallel_state_cache_size = parallel_state_cache_size;
+    }
+    if let Some(diff_buffer_cache_size) =
+        clap_utils::parse_optional(cli_args, "diff-buffer-cache-size")?
+    {
+        client_config.store.diff_buffer_cache_size = diff_buffer_cache_size;
+    }
+    if let Some(compression_level) = clap_utils::parse_optional(cli_args, "compression-level")? {
+        client_config.store.compression_level = compression_level;
     }
 
     if let Some(historic_state_cache_size) = cli_args.value_of("historic-state-cache-size") {
@@ -412,6 +430,16 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(prune_payloads) = clap_utils::parse_optional(cli_args, "prune-payloads")? {
         client_config.store.prune_payloads = prune_payloads;
+    }
+
+    if let Some(epochs_per_state_diff) =
+        clap_utils::parse_optional(cli_args, "epochs-per-state-diff")?
+    {
+        client_config.store.epochs_per_state_diff = epochs_per_state_diff;
+    }
+
+    if let Some(hierarchy_config) = clap_utils::parse_optional(cli_args, "hierarchy-exponents")? {
+        client_config.store.hierarchy_config = hierarchy_config;
     }
 
     if let Some(epochs_per_migration) =
@@ -839,10 +867,12 @@ pub fn get_config<E: EthSpec>(
         client_config.network.invalid_block_storage = Some(path);
     }
 
-    if let Some(progressive_balances_mode) =
-        clap_utils::parse_optional(cli_args, "progressive-balances")?
-    {
-        client_config.chain.progressive_balances_mode = progressive_balances_mode;
+    if cli_args.is_present("progressive-balances") {
+        warn!(
+            log,
+            "Progressive balances mode is deprecated";
+            "info" => "please remove --progressive-balances"
+        );
     }
 
     if let Some(max_workers) = clap_utils::parse_optional(cli_args, "beacon-processor-max-workers")?
@@ -1450,25 +1480,6 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// Get the `slots_per_restore_point` value to use for the database.
-///
-/// Return `(sprp, set_explicitly)` where `set_explicitly` is `true` if the user provided the value.
-pub fn get_slots_per_restore_point<E: EthSpec>(
-    cli_args: &ArgMatches,
-) -> Result<(u64, bool), String> {
-    if let Some(slots_per_restore_point) =
-        clap_utils::parse_optional(cli_args, "slots-per-restore-point")?
-    {
-        Ok((slots_per_restore_point, true))
-    } else {
-        let default = std::cmp::min(
-            E::slots_per_historical_root() as u64,
-            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
-        );
-        Ok((default, false))
-    }
 }
 
 /// Parses the `cli_value` as a comma-separated string of values to be parsed with `parser`.

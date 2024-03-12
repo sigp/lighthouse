@@ -33,7 +33,8 @@ use BeaconStateError;
         tree_hash(enum_behaviour = "transparent")
     ),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
+    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
+    map_ref_into(ExecutionPayloadHeader)
 )]
 #[derive(
     Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
@@ -260,6 +261,16 @@ impl<'a, T: EthSpec> From<ExecutionPayloadRef<'a, T>> for ExecutionPayloadHeader
     }
 }
 
+impl<'a, T: EthSpec> From<ExecutionPayloadHeaderRef<'a, T>> for ExecutionPayloadHeader<T> {
+    fn from(header_ref: ExecutionPayloadHeaderRef<'a, T>) -> Self {
+        map_execution_payload_header_ref_into_execution_payload_header!(
+            &'a _,
+            header_ref,
+            |inner, cons| cons(inner.clone())
+        )
+    }
+}
+
 impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderMerge<T> {
     type Error = BeaconStateError;
     fn try_from(header: ExecutionPayloadHeader<T>) -> Result<Self, Self::Error> {
@@ -287,6 +298,24 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderDe
             ExecutionPayloadHeader::Deneb(execution_payload_header) => Ok(execution_payload_header),
             _ => Err(BeaconStateError::IncorrectStateVariant),
         }
+    }
+}
+
+impl<'a, T: EthSpec> ExecutionPayloadHeaderRefMut<'a, T> {
+    /// Mutate through
+    pub fn replace(self, header: ExecutionPayloadHeader<T>) -> Result<(), BeaconStateError> {
+        match self {
+            ExecutionPayloadHeaderRefMut::Merge(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+            ExecutionPayloadHeaderRefMut::Capella(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+        }
+        Ok(())
     }
 }
 

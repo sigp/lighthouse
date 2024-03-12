@@ -1,8 +1,6 @@
-use super::{
-    EthSpec, FixedVector, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot, SyncAggregate,
-};
+use super::{EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot, SyncAggregate};
 use crate::{
-    light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, ForkName,
+    light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, FixedVector, ForkName,
     ForkVersionDeserialize, LightClientHeader,
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -32,6 +30,7 @@ pub struct LightClientFinalityUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
     pub finalized_header: LightClientHeader,
     /// Merkle proof attesting finalized header.
+    #[test_random(default)]
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
     pub sync_aggregate: SyncAggregate<T>,

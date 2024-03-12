@@ -1,7 +1,7 @@
-use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
+use super::{BeaconBlockHeader, EthSpec, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{
-    beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec, ForkName,
-    ForkVersionDeserialize, LightClientHeader,
+    beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec, FixedVector,
+    ForkName, ForkVersionDeserialize, LightClientHeader,
 };
 use safe_arith::ArithError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -27,6 +27,7 @@ pub const NEXT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
+    MilhouseError(milhouse::Error),
     BeaconStateError(beacon_state::Error),
     ArithError(ArithError),
     AltairForkNotActive,
@@ -50,6 +51,12 @@ impl From<beacon_state::Error> for Error {
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Error {
         Error::ArithError(e)
+    }
+}
+
+impl From<milhouse::Error> for Error {
+    fn from(e: milhouse::Error) -> Error {
+        Error::MilhouseError(e)
     }
 }
 

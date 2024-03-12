@@ -451,8 +451,8 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
         Err(BlockProcessingError::AttestationInvalid {
             index: 0,
             reason: AttestationInvalid::WrongJustifiedCheckpoint {
-                state: old_justified_checkpoint,
-                attestation: new_justified_checkpoint,
+                state: Box::new(old_justified_checkpoint),
+                attestation: Box::new(new_justified_checkpoint),
                 is_current: true,
             }
         })

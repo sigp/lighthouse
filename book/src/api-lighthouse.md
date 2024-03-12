@@ -541,7 +541,6 @@ reconstruction has yet to be completed. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
 Sync](./checkpoint-sync.md#reconstructing-states).
 
-
 ### `/lighthouse/merge_readiness`
 Returns the current difficulty and terminal total difficulty of the network. Before [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> September 2022, you will see that the current difficulty is less than the terminal total difficulty, An example is shown below:
 ```bash

@@ -29,7 +29,7 @@ pub fn verify_bls_to_execution_change<T: EthSpec>(
 
     verify!(
         validator
-            .withdrawal_credentials
+            .withdrawal_credentials()
             .as_bytes()
             .first()
             .map(|byte| *byte == spec.bls_withdrawal_prefix_byte)
@@ -41,7 +41,7 @@ pub fn verify_bls_to_execution_change<T: EthSpec>(
     // future.
     let pubkey_hash = hash(address_change.from_bls_pubkey.as_serialized());
     verify!(
-        validator.withdrawal_credentials.as_bytes().get(1..) == pubkey_hash.get(1..),
+        validator.withdrawal_credentials().as_bytes().get(1..) == pubkey_hash.get(1..),
         Invalid::WithdrawalCredentialsMismatch
     );
 

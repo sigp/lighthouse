@@ -55,6 +55,7 @@ pub enum BeaconChainError {
     SlotClockDidNotStart,
     NoStateForSlot(Slot),
     BeaconStateError(BeaconStateError),
+    EpochCacheError(EpochCacheError),
     DBInconsistent(String),
     DBError(store::Error),
     ForkChoiceError(ForkChoiceError),
@@ -90,13 +91,10 @@ pub enum BeaconChainError {
     ValidatorPubkeyCacheLockTimeout,
     SnapshotCacheLockTimeout,
     IncorrectStateForAttestation(RelativeEpochError),
-    InvalidValidatorPubkeyBytes(bls::Error),
     ValidatorPubkeyCacheIncomplete(usize),
     SignatureSetError(SignatureSetError),
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),
     BlockReplayError(BlockReplayError),
-    DuplicateValidatorPublicKey,
-    ValidatorPubkeyCacheError(String),
     ValidatorIndexUnknown(usize),
     ValidatorPubkeyUnknown(PublicKeyBytes),
     OpPoolError(OpPoolError),
@@ -213,8 +211,7 @@ pub enum BeaconChainError {
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
-    CommitteePromiseFailed(oneshot_broadcast::Error),
-    MaxCommitteePromises(usize),
+    ShufflingCacheError(promise_cache::PromiseCacheError),
     BlsToExecutionPriorToCapella,
     BlsToExecutionConflictsWithPool,
     InconsistentFork(InconsistentFork),
@@ -250,6 +247,7 @@ easy_from_to!(StateAdvanceError, BeaconChainError);
 easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
+easy_from_to!(EpochCacheError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
@@ -258,6 +256,7 @@ pub enum BlockProductionError {
     UnableToProduceAtSlot(Slot),
     SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
+    EpochCacheError(EpochCacheError),
     ForkChoiceError(ForkChoiceError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
@@ -275,6 +274,7 @@ pub enum BlockProductionError {
     TerminalPoWBlockLookupFailed(execution_layer::Error),
     GetPayloadFailed(execution_layer::Error),
     FailedToReadFinalizedBlock(store::Error),
+    FailedToLoadState(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
     ShuttingDown,
@@ -297,3 +297,4 @@ easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(Eth1ChainError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);
+easy_from_to!(EpochCacheError, BlockProductionError);

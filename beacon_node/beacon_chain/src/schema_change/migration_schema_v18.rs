@@ -17,7 +17,7 @@ fn get_slot_clock<T: BeaconChainTypes>(
     log: &Logger,
 ) -> Result<Option<T::SlotClock>, Error> {
     let spec = db.get_chain_spec();
-    let Some(genesis_block) = db.get_blinded_block(&Hash256::zero())? else {
+    let Some(genesis_block) = db.get_blinded_block(&Hash256::zero(), Some(Slot::new(0)))? else {
         error!(log, "Missing genesis block");
         return Ok(None);
     };
@@ -46,10 +46,6 @@ pub fn upgrade_to_v18<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    db.heal_freezer_block_roots_at_split()?;
-    db.heal_freezer_block_roots_at_genesis()?;
-    info!(log, "Healed freezer block roots");
-
     // No-op, even if Deneb has already occurred. The database is probably borked in this case, but
     // *maybe* the fork recovery will revert the minority fork and succeed.
     if let Some(deneb_fork_epoch) = db.get_chain_spec().deneb_fork_epoch {

@@ -1,16 +1,15 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
 use eth2::lighthouse::StandardAttestationRewards;
-use participation_cache::ParticipationCache;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
 use slog::debug;
 use state_processing::per_epoch_processing::altair::{
-    process_inactivity_updates, process_justification_and_finalization,
+    process_inactivity_updates_slow, process_justification_and_finalization,
 };
 use state_processing::{
     common::altair::BaseRewardPerIncrement,
-    per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight},
+    per_epoch_processing::altair::rewards_and_penalties::get_flag_weight,
 };
 use std::collections::HashMap;
 use store::consts::altair::{
@@ -134,10 +133,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let spec = &self.spec;
 
         // Calculate ideal_rewards
-        let participation_cache = ParticipationCache::new(&state, spec)?;
-        process_justification_and_finalization(&state, &participation_cache)?
-            .apply_changes_to_state(&mut state);
-        process_inactivity_updates(&mut state, &participation_cache, spec)?;
+        process_justification_and_finalization(&state)?.apply_changes_to_state(&mut state);
+        process_inactivity_updates_slow(&mut state, spec)?;
 
         let previous_epoch = state.previous_epoch();
 
@@ -147,18 +144,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let weight = get_flag_weight(flag_index)
                 .map_err(|_| BeaconChainError::AttestationRewardsError)?;
 
-            let unslashed_participating_indices = participation_cache
-                .get_unslashed_participating_indices(flag_index, previous_epoch)?;
-
-            let unslashed_participating_balance =
-                unslashed_participating_indices
-                    .total_balance()
-                    .map_err(|_| BeaconChainError::AttestationRewardsError)?;
+            let unslashed_participating_balance = state
+                .progressive_balances_cache()
+                .previous_epoch_flag_attesting_balance(flag_index)?;
 
             let unslashed_participating_increments =
                 unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
 
-            let total_active_balance = participation_cache.current_epoch_total_active_balance();
+            let total_active_balance = state.get_total_active_balance()?;
 
             let active_increments =
                 total_active_balance.safe_div(spec.effective_balance_increment)?;
@@ -194,30 +187,50 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut total_rewards: Vec<TotalAttestationRewards> = Vec::new();
 
         let validators = if validators.is_empty() {
-            participation_cache.eligible_validator_indices().to_vec()
+            Self::all_eligible_validator_indices(&state, previous_epoch)?
         } else {
             Self::validators_ids_to_indices(&mut state, validators)?
         };
 
-        for validator_index in &validators {
-            let eligible = state.is_eligible_validator(previous_epoch, *validator_index)?;
+        for &validator_index in &validators {
+            // Return 0s for unknown/inactive validator indices. This is a bit different from stable
+            // where we error for unknown pubkeys.
+            let Ok(validator) = state.get_validator(validator_index) else {
+                debug!(
+                    self.log,
+                    "No rewards for inactive/unknown validator";
+                    "index" => validator_index,
+                    "epoch" => previous_epoch
+                );
+                total_rewards.push(TotalAttestationRewards {
+                    validator_index: validator_index as u64,
+                    head: 0,
+                    target: 0,
+                    source: 0,
+                    inclusion_delay: None,
+                    inactivity: 0,
+                });
+                continue;
+            };
+            let previous_epoch_participation_flags = state
+                .previous_epoch_participation()?
+                .get(validator_index)
+                .ok_or(BeaconChainError::AttestationRewardsError)?;
+            let eligible = state.is_eligible_validator(previous_epoch, validator)?;
             let mut head_reward = 0i64;
             let mut target_reward = 0i64;
             let mut source_reward = 0i64;
             let mut inactivity_penalty = 0i64;
 
             if eligible {
-                let effective_balance = state.get_effective_balance(*validator_index)?;
+                let effective_balance = validator.effective_balance();
 
                 for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
                     let (ideal_reward, penalty) = ideal_rewards_hashmap
                         .get(&(flag_index, effective_balance))
                         .ok_or(BeaconChainError::AttestationRewardsError)?;
-                    let voted_correctly = participation_cache
-                        .get_unslashed_participating_indices(flag_index, previous_epoch)
-                        .map_err(|_| BeaconChainError::AttestationRewardsError)?
-                        .contains(*validator_index)
-                        .map_err(|_| BeaconChainError::AttestationRewardsError)?;
+                    let voted_correctly = !validator.slashed()
+                        && previous_epoch_participation_flags.has_flag(flag_index)?;
                     if voted_correctly {
                         if flag_index == TIMELY_HEAD_FLAG_INDEX {
                             head_reward += *ideal_reward as i64;
@@ -232,10 +245,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         target_reward = *penalty;
 
                         let penalty_numerator = effective_balance
-                            .safe_mul(state.get_inactivity_score(*validator_index)?)?;
-                        let penalty_denominator = spec
-                            .inactivity_score_bias
-                            .safe_mul(spec.inactivity_penalty_quotient_for_state(&state))?;
+                            .safe_mul(state.get_inactivity_score(validator_index)?)?;
+                        let penalty_denominator = spec.inactivity_score_bias.safe_mul(
+                            spec.inactivity_penalty_quotient_for_fork(state.fork_name_unchecked()),
+                        )?;
                         inactivity_penalty =
                             -(penalty_numerator.safe_div(penalty_denominator)? as i64);
                     } else if flag_index == TIMELY_SOURCE_FLAG_INDEX {
@@ -244,7 +257,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
             total_rewards.push(TotalAttestationRewards {
-                validator_index: *validator_index as u64,
+                validator_index: validator_index as u64,
                 head: head_reward,
                 target: target_reward,
                 source: source_reward,
@@ -299,6 +312,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .max_effective_balance
             .safe_div(spec.effective_balance_increment)?;
         Ok(max_steps)
+    }
+
+    fn all_eligible_validator_indices(
+        state: &BeaconState<T::EthSpec>,
+        previous_epoch: Epoch,
+    ) -> Result<Vec<usize>, BeaconChainError> {
+        state
+            .validators()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, validator)| {
+                state
+                    .is_eligible_validator(previous_epoch, validator)
+                    .map(|eligible| eligible.then_some(i))
+                    .map_err(BeaconChainError::BeaconStateError)
+                    .transpose()
+            })
+            .collect()
     }
 
     fn validators_ids_to_indices(

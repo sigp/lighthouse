@@ -3,7 +3,6 @@ use crate::*;
 
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::FixedVector;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -24,8 +23,10 @@ use tree_hash_derive::TreeHash;
 )]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct HistoricalBatch<T: EthSpec> {
-    pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
-    pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
+    #[test_random(default)]
+    pub block_roots: Vector<Hash256, T::SlotsPerHistoricalRoot>,
+    #[test_random(default)]
+    pub state_roots: Vector<Hash256, T::SlotsPerHistoricalRoot>,
 }
 
 #[cfg(test)]

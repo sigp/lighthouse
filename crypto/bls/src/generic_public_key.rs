@@ -11,6 +11,9 @@ use tree_hash::TreeHash;
 /// The byte-length of a BLS public key when serialized in compressed form.
 pub const PUBLIC_KEY_BYTES_LEN: usize = 48;
 
+/// The byte-length of a BLS public key when serialized in uncompressed form.
+pub const PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN: usize = 96;
+
 /// Represents the public key at infinity.
 pub const INFINITY_PUBLIC_KEY: [u8; PUBLIC_KEY_BYTES_LEN] = [
     0xc0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -23,8 +26,17 @@ pub trait TPublicKey: Sized + Clone {
     /// Serialize `self` as compressed bytes.
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN];
 
+    /// Serialize `self` as uncompressed bytes.
+    fn serialize_uncompressed(&self) -> [u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN];
+
     /// Deserialize `self` from compressed bytes.
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
+
+    /// Deserialize `self` from uncompressed bytes.
+    ///
+    /// This function *does not* perform thorough checks of the input bytes and should only be
+    /// used with bytes output from `Self::serialize_uncompressed`.
+    fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error>;
 }
 
 /// A BLS public key that is generic across some BLS point (`Pub`).
@@ -65,6 +77,11 @@ where
         self.point.serialize()
     }
 
+    /// Serialize `self` as uncompressed bytes.
+    pub fn serialize_uncompressed(&self) -> [u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN] {
+        self.point.serialize_uncompressed()
+    }
+
     /// Deserialize `self` from compressed bytes.
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         if bytes == &INFINITY_PUBLIC_KEY[..] {
@@ -74,6 +91,13 @@ where
                 point: Pub::deserialize(bytes)?,
             })
         }
+    }
+
+    /// Deserialize `self` from compressed bytes.
+    pub fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self {
+            point: Pub::deserialize_uncompressed(bytes)?,
+        })
     }
 }
 
