@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "5.1.111-exp"
+version = "5.1.222-exp"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
