@@ -2441,14 +2441,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<ObservationOutcome<ProposerSlashing, T::EthSpec>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
 
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_proposer_slashing_subscribers() {
-                event_handler.register(EventKind::ProposerSlashing(Box::new(
-                    proposer_slashing.clone(),
-                )));
-            }
-        }
-
         Ok(self.observed_proposer_slashings.lock().verify_and_observe(
             proposer_slashing,
             &wall_clock_state,
@@ -2480,14 +2472,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         attester_slashing: AttesterSlashing<T::EthSpec>,
     ) -> Result<ObservationOutcome<AttesterSlashing<T::EthSpec>, T::EthSpec>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
-
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_attester_slashing_subscribers() {
-                event_handler.register(EventKind::AttesterSlashing(Box::new(
-                    attester_slashing.clone(),
-                )));
-            }
-        }
 
         Ok(self.observed_attester_slashings.lock().verify_and_observe(
             attester_slashing,

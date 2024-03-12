@@ -5309,8 +5309,6 @@ impl ApiTester {
         .await;
         assert_eq!(reorg_event.as_slice(), &[expected_reorg]);
 
-        let validator_indices = self.interesting_validator_indices();
-
         // Test attester slashing event
         let mut attester_slashing_event_future = self
             .client
