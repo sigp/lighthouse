@@ -12,7 +12,6 @@ mod bitfield;
 mod hash256;
 mod kzg_commitment;
 mod kzg_proof;
-mod light_client_header;
 mod public_key;
 mod public_key_bytes;
 mod secret_key;

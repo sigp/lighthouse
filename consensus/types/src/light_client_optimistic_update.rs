@@ -169,3 +169,11 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MainnetEthSpec;
+
+    ssz_tests!(LightClientOptimisticUpdateDeneb<MainnetEthSpec>);
+}

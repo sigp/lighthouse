@@ -145,3 +145,11 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientBootstrap<E> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MainnetEthSpec;
+
+    ssz_tests!(LightClientBootstrapDeneb<MainnetEthSpec>);
+}

@@ -175,3 +175,11 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<E> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MainnetEthSpec;
+
+    ssz_tests!(LightClientFinalityUpdateDeneb<MainnetEthSpec>);
+}
