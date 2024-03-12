@@ -510,3 +510,4 @@ OPTIONS:
             block root should be 0x-prefixed. Note that this flag is for verification only, to perform a checkpoint sync
             from a recent state use --checkpoint-sync-url.
 ```
+<style> .content main {max-width:88%;} </style>
