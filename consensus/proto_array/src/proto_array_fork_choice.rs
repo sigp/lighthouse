@@ -195,8 +195,10 @@ pub struct ProposerHeadInfo {
     /// Information about the parent of the current head, which should be selected as the parent
     /// for a new proposal *if* a re-org is decided on.
     pub parent_node: ProtoNode,
-    /// The computed fraction of the active committee balance below which we can re-org.
-    pub re_org_weight_threshold: u64,
+    /// The computed fraction of the active head committee balance below which we can re-org.
+    pub re_org_head_weight_threshold: u64,
+    /// The computed fraction of the active parent committee balance above which we can re-org.
+    pub re_org_parent_weight_threshold: u64,
     /// The current slot from fork choice's point of view, may lead the wall-clock slot by upto
     /// 500ms.
     pub current_slot: Slot,
@@ -259,7 +261,11 @@ pub enum DoNotReOrg {
     },
     HeadNotWeak {
         head_weight: u64,
-        re_org_weight_threshold: u64,
+        re_org_head_weight_threshold: u64,
+    },
+    ParentNotStrong {
+        parent_weight: u64,
+        re_org_parent_weight_threshold: u64,
     },
     HeadNotLate,
     NotProposing,
@@ -288,9 +294,21 @@ impl std::fmt::Display for DoNotReOrg {
             ),
             Self::HeadNotWeak {
                 head_weight,
-                re_org_weight_threshold,
+                re_org_head_weight_threshold,
             } => {
-                write!(f, "head not weak ({head_weight}/{re_org_weight_threshold})")
+                write!(
+                    f,
+                    "head not weak ({head_weight}/{re_org_head_weight_threshold})"
+                )
+            }
+            Self::ParentNotStrong {
+                parent_weight,
+                re_org_parent_weight_threshold,
+            } => {
+                write!(
+                    f,
+                    "parent not weak ({parent_weight}/{re_org_parent_weight_threshold})"
+                )
             }
             Self::HeadNotLate => {
                 write!(f, "head arrived on time")
@@ -486,12 +504,14 @@ impl ProtoArrayForkChoice {
     /// Get the block to propose on during `current_slot`.
     ///
     /// This function returns a *definitive* result which should be acted on.
+    #[allow(clippy::too_many_arguments)]
     pub fn get_proposer_head<E: EthSpec>(
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
-        re_org_threshold: ReOrgThreshold,
+        re_org_head_threshold: ReOrgThreshold,
+        re_org_parent_threshold: ReOrgThreshold,
         disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
@@ -499,7 +519,8 @@ impl ProtoArrayForkChoice {
             current_slot,
             canonical_head,
             justified_balances,
-            re_org_threshold,
+            re_org_head_threshold,
+            re_org_parent_threshold,
             disallowed_offsets,
             max_epochs_since_finalization,
         )?;
@@ -510,14 +531,26 @@ impl ProtoArrayForkChoice {
             return Err(DoNotReOrg::HeadDistance.into());
         }
 
-        // Only re-org if the head's weight is less than the configured committee fraction.
+        // Only re-org if the head's weight is less than the heads configured committee fraction.
         let head_weight = info.head_node.weight;
-        let re_org_weight_threshold = info.re_org_weight_threshold;
-        let weak_head = head_weight < re_org_weight_threshold;
+        let re_org_head_weight_threshold = info.re_org_head_weight_threshold;
+        let weak_head = head_weight < re_org_head_weight_threshold;
         if !weak_head {
             return Err(DoNotReOrg::HeadNotWeak {
                 head_weight,
-                re_org_weight_threshold,
+                re_org_head_weight_threshold,
+            }
+            .into());
+        }
+
+        // Only re-org if the parent's weight is greater than the parents configured committee fraction.
+        let parent_weight = info.parent_node.weight;
+        let re_org_parent_weight_threshold = info.re_org_parent_weight_threshold;
+        let parent_strong = parent_weight > re_org_parent_weight_threshold;
+        if !parent_strong {
+            return Err(DoNotReOrg::ParentNotStrong {
+                parent_weight,
+                re_org_parent_weight_threshold,
             }
             .into());
         }
@@ -529,12 +562,14 @@ impl ProtoArrayForkChoice {
     /// Get information about the block to propose on during `current_slot`.
     ///
     /// This function returns a *partial* result which must be processed further.
+    #[allow(clippy::too_many_arguments)]
     pub fn get_proposer_head_info<E: EthSpec>(
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
-        re_org_threshold: ReOrgThreshold,
+        re_org_head_threshold: ReOrgThreshold,
+        re_org_parent_threshold: ReOrgThreshold,
         disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
@@ -595,15 +630,20 @@ impl ProtoArrayForkChoice {
             return Err(DoNotReOrg::JustificationAndFinalizationNotCompetitive.into());
         }
 
-        // Compute re-org weight threshold.
-        let re_org_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, re_org_threshold.0)
+        // Compute re-org weight thresholds for head and parent.
+        let re_org_head_weight_threshold =
+            calculate_committee_fraction::<E>(justified_balances, re_org_head_threshold.0)
+                .ok_or(Error::ReOrgThresholdOverflow)?;
+
+        let re_org_parent_weight_threshold =
+            calculate_committee_fraction::<E>(justified_balances, re_org_parent_threshold.0)
                 .ok_or(Error::ReOrgThresholdOverflow)?;
 
         Ok(ProposerHeadInfo {
             head_node,
             parent_node,
-            re_org_weight_threshold,
+            re_org_head_weight_threshold,
+            re_org_parent_weight_threshold,
             current_slot,
         })
     }

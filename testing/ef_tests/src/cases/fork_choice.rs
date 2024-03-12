@@ -4,7 +4,8 @@ use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+    DisallowedReOrgOffsets, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
 };
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -748,7 +749,8 @@ impl<E: EthSpec> Tester<E> {
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
-            DEFAULT_RE_ORG_THRESHOLD,
+            DEFAULT_RE_ORG_HEAD_THRESHOLD,
+            DEFAULT_RE_ORG_PARENT_THRESHOLD,
             &DisallowedReOrgOffsets::default(),
             DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
         );

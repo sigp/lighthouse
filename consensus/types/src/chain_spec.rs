@@ -116,7 +116,6 @@ pub struct ChainSpec {
     pub proposer_score_boost: Option<u64>,
     pub reorg_head_weight_threshold: Option<u64>,
     pub reorg_parent_weight_threshold: Option<u64>,
-    pub reorg_max_epochs_since_finalization: Option<u64>,
 
     /*
      * Eth1
@@ -627,7 +626,6 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
-            reorg_max_epochs_since_finalization: Some(2),
 
             /*
              * Eth1
@@ -891,7 +889,6 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
-            reorg_max_epochs_since_finalization: Some(2),
 
             /*
              * Eth1

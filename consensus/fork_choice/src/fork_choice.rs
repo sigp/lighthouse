@@ -1,17 +1,15 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use per_epoch_processing::altair::participation_cache::Error as ParticipationCacheError;
 use proto_array::{
-    calculate_committee_fraction, Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus,
-    ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
+    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use slog::{crit, debug, error, warn, Logger};
-use slot_clock::{SlotClock, SystemTimeSlotClock};
 use ssz_derive::{Decode, Encode};
 use state_processing::per_epoch_processing::altair::ParticipationCache;
 use state_processing::per_epoch_processing::{
     weigh_justification_and_finalization, JustificationAndFinalizationState,
 };
-use state_processing::per_slot_processing;
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
 };
@@ -243,16 +241,6 @@ pub fn compute_slots_since_epoch_start<E: EthSpec>(slot: Slot) -> Slot {
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#compute_start_slot_at_epoch
 fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
-}
-
-/// Return the epoch number at `slot`
-///
-/// ## Specification
-/// Equivalent to:
-///
-/// TODO
-fn compute_epoch_at_slot<E: EthSpec>(slot: Slot) -> Epoch {
-    return Epoch::new(slot.as_u64() / E::slots_per_epoch());
 }
 
 /// Used for queuing attestations from the current slot. Only contains the minimum necessary
@@ -544,7 +532,8 @@ where
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
-        re_org_threshold: ReOrgThreshold,
+        re_org_head_threshold: ReOrgThreshold,
+        re_org_parent_threshold: ReOrgThreshold,
         disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
@@ -576,7 +565,8 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
-                re_org_threshold,
+                re_org_head_threshold,
+                re_org_parent_threshold,
                 disallowed_offsets,
                 max_epochs_since_finalization,
             )
@@ -586,7 +576,8 @@ where
     pub fn get_preliminary_proposer_head(
         &self,
         canonical_head: Hash256,
-        re_org_threshold: ReOrgThreshold,
+        re_org_head_threshold: ReOrgThreshold,
+        re_org_parent_threshold: ReOrgThreshold,
         disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
@@ -596,7 +587,8 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
-                re_org_threshold,
+                re_org_head_threshold,
+                re_org_parent_threshold,
                 disallowed_offsets,
                 max_epochs_since_finalization,
             )
@@ -732,15 +724,12 @@ where
             }));
         }
 
-        // Add block timeliness to the store
+        // Add proposer score boost if the block is timely.
         let is_before_attesting_interval =
             block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
-        let is_timely = current_slot == block.slot() && is_before_attesting_interval;
-        self.fc_store.set_block_timeliness(is_timely);
 
-        // Add proposer score boost if the block is timely and not conflicting with an existing block
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
-        if is_timely && is_first_block {
+        if current_slot == block.slot() && is_before_attesting_interval && is_first_block {
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
@@ -1571,150 +1560,6 @@ where
             proto_array_bytes: self.proto_array().as_bytes(),
             queued_attestations: self.queued_attestations().to_vec(),
         }
-    }
-
-    fn should_override_forkchoice_update(
-        &self,
-        head_root: Hash256,
-        parent_state: &mut BeaconState<E>,
-        spec: &ChainSpec,
-    ) -> Result<bool, Error<T::Error>> {
-        // TODO unwrap
-        // TODO maybe use proto_aray
-        let head_block = self.get_block(&head_root).unwrap();
-        let parent_root = head_block.parent_root.unwrap();
-
-        let parent_block = self
-            .proto_array
-            .get_block(&parent_root)
-            .ok_or_else(|| Error::InvalidBlock(InvalidBlock::UnknownParent(parent_root)))?;
-
-        let current_slot = self.fc_store.get_current_slot();
-        let proposal_slot = head_block.slot + Slot::new(1);
-
-        // Only re-org the `head_block` block if it arrived later than the attestation deadline.
-        let head_late = self.is_head_late();
-
-        // Shuffling stable.
-        let shuffling_stable = self.is_shuffling_stable(proposal_slot);
-
-        // FFG information of the new `head_block` will be competitive with the current head.
-        let ffg_competitive = self.is_ffg_competitive(&head_block, &parent_block);
-
-        // Do not re-org if the chain is not finalizing with acceptable frequency.
-        let finalization_ok = self.is_finalization_ok(proposal_slot, spec);
-
-        // Only suppress the fork choice update if we are confident that we will propose the next block.
-        // let parent_state_advanced = chain.get_state(parent_block.state_root);
-        self.process_slots(parent_state, proposal_slot, spec)?;
-        let proposer_index = parent_state.get_beacon_proposer_index(parent_block.slot, spec)?;
-        let proposing_reorg_slot = self.latest_message(proposer_index).is_some();
-
-        // Single slot re-org.
-        let parent_slot_ok = parent_block.slot.as_u64() + 1 == head_block.slot.as_u64();
-        let proposing_on_time = self.is_proposing_on_time(parent_state, spec);
-
-        // Note that this condition is different from `get_proposer_head`
-        let current_time_ok =
-            head_block.slot == current_slot || (proposal_slot == current_slot && proposing_on_time);
-        let single_slot_reorg = parent_slot_ok && current_time_ok;
-
-        // Check the head weight only if the attestations from the head slot have already been applied.
-        // Implementations may want to do this in different ways, e.g. by advancing
-        // `store.time` early, or by counting queued attestations during the head block's slot.
-        let head_weak;
-        let parent_strong;
-
-        if current_slot > head_block.slot {
-            head_weak = self.is_head_weak(&head_root, spec);
-            parent_strong = self.is_parent_strong(&parent_root, spec);
-        } else {
-            head_weak = true;
-            parent_strong = true;
-        }
-        let should_override_forkchoice_update = vec![
-            head_late,
-            shuffling_stable,
-            ffg_competitive,
-            finalization_ok,
-            proposing_reorg_slot,
-            single_slot_reorg,
-            head_weak,
-            parent_strong,
-        ]
-        .iter()
-        .all(|&f| f == true);
-        Ok((should_override_forkchoice_update))
-    }
-
-    // TODO
-    fn is_head_late(&self) -> bool {
-        false
-    }
-
-    fn is_head_weak(&self, head_root: &Hash256, spec: &ChainSpec) -> bool {
-        let reorg_threshold = calculate_committee_fraction::<E>(
-            self.fc_store.justified_balances(),
-            spec.proposer_score_boost.unwrap(),
-        )
-        .unwrap();
-        let head_weight = self.proto_array.get_weight(head_root).unwrap();
-        head_weight < reorg_threshold
-    }
-
-    fn is_parent_strong(&self, parent_root: &Hash256, spec: &ChainSpec) -> bool {
-        let parent_threshold = calculate_committee_fraction::<E>(
-            self.fc_store.justified_balances(),
-            spec.reorg_parent_weight_threshold.unwrap(),
-        )
-        .unwrap();
-        let parent_weight = self.proto_array.get_weight(parent_root).unwrap();
-        return parent_weight > parent_threshold;
-    }
-
-    fn is_shuffling_stable(&self, slot: Slot) -> bool {
-        return slot % E::slots_per_epoch() != 0;
-    }
-
-    fn is_ffg_competitive(&self, head_block: &ProtoBlock, parent_block: &ProtoBlock) -> bool {
-        head_block.unrealized_justified_checkpoint == parent_block.unrealized_justified_checkpoint
-    }
-
-    fn is_finalization_ok(&self, slot: Slot, spec: &ChainSpec) -> bool {
-        let epoch_since_finalization =
-            compute_epoch_at_slot::<E>(slot) - self.fc_store.finalized_checkpoint().epoch;
-
-        // TODO unwrap
-        epoch_since_finalization <= spec.reorg_max_epochs_since_finalization.unwrap()
-    }
-
-    fn process_slots(
-        &self,
-        state: &mut BeaconState<E>,
-        slot: Slot,
-        spec: &ChainSpec,
-    ) -> Result<(), Error<T::Error>> {
-        if state.slot() < slot {
-            return Err(Error::BeaconStateError(BeaconStateError::SlotOutOfBounds));
-        }
-
-        while state.slot() < slot {
-            per_slot_processing(state, state.get_state_root(slot).ok().copied(), spec).unwrap();
-        }
-
-        Ok(())
-    }
-
-    fn is_proposing_on_time(&self, state: &BeaconState<E>, spec: &ChainSpec) -> bool {
-        let slot_clock = SystemTimeSlotClock::new(
-            spec.genesis_slot,
-            Duration::from_secs(state.genesis_time()),
-            Duration::from_secs(spec.seconds_per_slot),
-        );
-
-        let proposer_reorg_cutoff = spec.seconds_per_slot / INTERVALS_PER_SLOT / 2;
-
-        slot_clock.duration_to_next_slot().unwrap().as_secs() <= proposer_reorg_cutoff
     }
 }
 

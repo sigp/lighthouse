@@ -12,7 +12,6 @@ state_processing = { workspace = true }
 proto_array = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
-slot_clock = { workspace = true }
 slog = { workspace = true }
 
 [dev-dependencies]

@@ -156,7 +156,6 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     unrealized_finalized_checkpoint: Checkpoint,
     proposer_boost_root: Hash256,
     equivocating_indices: BTreeSet<u64>,
-    block_timeliness: bool,
     _phantom: PhantomData<E>,
 }
 
@@ -206,7 +205,6 @@ where
             unrealized_finalized_checkpoint: finalized_checkpoint,
             proposer_boost_root: Hash256::zero(),
             equivocating_indices: BTreeSet::new(),
-            block_timeliness: true,
             _phantom: PhantomData,
         })
     }
@@ -224,7 +222,6 @@ where
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
             proposer_boost_root: self.proposer_boost_root,
             equivocating_indices: self.equivocating_indices.clone(),
-            block_timeliness: self.block_timeliness,
         }
     }
 
@@ -246,7 +243,6 @@ where
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
             proposer_boost_root: persisted.proposer_boost_root,
             equivocating_indices: persisted.equivocating_indices,
-            block_timeliness: persisted.block_timeliness,
             _phantom: PhantomData,
         })
     }
@@ -364,14 +360,6 @@ where
     fn extend_equivocating_indices(&mut self, indices: impl IntoIterator<Item = u64>) {
         self.equivocating_indices.extend(indices);
     }
-
-    fn block_timeliness(&self) -> bool {
-        self.block_timeliness
-    }
-
-    fn set_block_timeliness(&mut self, is_timely: bool) {
-        self.block_timeliness = is_timely;
-    }
 }
 
 pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV17;
@@ -399,7 +387,6 @@ pub struct PersistedForkChoiceStore {
     pub proposer_boost_root: Hash256,
     #[superstruct(only(V11, V17))]
     pub equivocating_indices: BTreeSet<u64>,
-    pub block_timeliness: bool,
 }
 
 impl Into<PersistedForkChoiceStore> for PersistedForkChoiceStoreV11 {
@@ -414,7 +401,6 @@ impl Into<PersistedForkChoiceStore> for PersistedForkChoiceStoreV11 {
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
             proposer_boost_root: self.proposer_boost_root,
             equivocating_indices: self.equivocating_indices,
-            block_timeliness: self.block_timeliness,
         }
     }
 }
@@ -432,7 +418,6 @@ impl Into<PersistedForkChoiceStoreV11> for PersistedForkChoiceStore {
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
             proposer_boost_root: self.proposer_boost_root,
             equivocating_indices: self.equivocating_indices,
-            block_timeliness: self.block_timeliness,
         }
     }
 }
