@@ -129,24 +129,24 @@ impl SubnetId {
         Ok((subnet_set_generator, valid_until_epoch.into()))
     }
 
-    /// Compute a mapping of `SubnetId` to `NodeId`s, which can be used for subnet discovery searches.
+    /// Compute a mapping of `SubnetId` to prefixes, which can be used for subnet discovery searches.
     #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_prefix_mapping_for_epoch<T: EthSpec>(
         epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<HashMap<SubnetId, Vec<ethereum_types::U256>>, &'static str> {
+    ) -> Result<HashMap<SubnetId, Vec<i32>>, &'static str> {
         // simplify variable naming
         let subnet_prefix_bits = spec.attestation_subnet_prefix_bits as u32
             + spec.attestation_subnet_shuffling_prefix_bits as u32;
 
         let mut mapping = HashMap::new();
 
-        for i in 0..2_i32.pow(subnet_prefix_bits) {
-            let node_id = ethereum_types::U256::from(i) << (256 - subnet_prefix_bits);
-            let (subnets, _) = Self::compute_subnets_for_epoch::<T>(node_id, epoch, spec)?;
+        for prefix in 0..2_i32.pow(subnet_prefix_bits) {
+            let prefixed_node_id = ethereum_types::U256::from(prefix) << (256 - subnet_prefix_bits);
+            let (subnets, _) = Self::compute_subnets_for_epoch::<T>(prefixed_node_id, epoch, spec)?;
 
             for subnet_id in subnets {
-                mapping.entry(subnet_id).or_insert(vec![]).push(node_id);
+                mapping.entry(subnet_id).or_insert(vec![]).push(prefix);
             }
         }
 
