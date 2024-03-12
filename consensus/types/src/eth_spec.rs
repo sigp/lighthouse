@@ -3,8 +3,9 @@ use crate::*;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    bit::B0, UInt, U0, U1024, U1048576, U1073741824, U1099511627776, U128, U131072, U16, U16777216,
-    U2, U2048, U256, U32, U4, U4096, U512, U6, U625, U64, U65536, U8, U8192,
+    bit::B0, UInt, Unsigned, U0, U1, U1024, U1048576, U1073741824, U1099511627776, U128, U131072,
+    U134217728, U16, U16777216, U2, U2048, U256, U262144, U32, U4, U4096, U512, U6, U625, U64,
+    U65536, U8, U8192,
 };
 use ssz_types::typenum::{U17, U9};
 use std::fmt::{self, Debug};
@@ -138,6 +139,10 @@ pub trait EthSpec:
      * New in Electra
      */
     type ElectraPlaceholder: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxConsolidations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type PendingBalanceDepositsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type PendingPartialWithdrawalsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type PendingConsolidationsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -287,6 +292,11 @@ pub trait EthSpec:
     fn electra_placeholder() -> usize {
         Self::ElectraPlaceholder::to_usize()
     }
+
+    /// Returns the `MAX_CONSOLIDATIONS` constant for this specification.
+    fn max_consolidations() -> usize {
+        Self::MaxConsolidations::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -338,6 +348,10 @@ impl EthSpec for MainnetEthSpec {
     type MaxBlsToExecutionChanges = U16;
     type MaxWithdrawalsPerPayload = U16;
     type ElectraPlaceholder = U16;
+    type MaxConsolidations = U1;
+    type PendingBalanceDepositsLimit = U134217728;
+    type PendingPartialWithdrawalsLimit = U134217728;
+    type PendingConsolidationsLimit = U262144;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -390,7 +404,11 @@ impl EthSpec for MinimalEthSpec {
         MaxBlsToExecutionChanges,
         MaxBlobsPerBlock,
         BytesPerFieldElement,
-        ElectraPlaceholder
+        ElectraPlaceholder,
+        MaxConsolidations,
+        PendingBalanceDepositsLimit,
+        PendingPartialWithdrawalsLimit,
+        PendingConsolidationsLimit
     });
 
     fn default_spec() -> ChainSpec {
@@ -443,6 +461,10 @@ impl EthSpec for GnosisEthSpec {
     type BytesPerBlob = U131072;
     type KzgCommitmentInclusionProofDepth = U17;
     type ElectraPlaceholder = U16;
+    type MaxConsolidations = U1;
+    type PendingBalanceDepositsLimit = U134217728;
+    type PendingPartialWithdrawalsLimit = U134217728;
+    type PendingConsolidationsLimit = U262144;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
