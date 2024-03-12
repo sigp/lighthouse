@@ -79,16 +79,28 @@ type_name_generic!(LightClientBootstrapCapella, "LightClientBootstrap");
 type_name_generic!(LightClientBootstrapDeneb, "LightClientBootstrap");
 type_name_generic!(LightClientFinalityUpdate);
 type_name_generic!(LightClientFinalityUpdateAltair, "LightClientFinalityUpdate");
-type_name_generic!(LightClientFinalityUpdateCapella, "LightClientFinalityUpdate");
+type_name_generic!(
+    LightClientFinalityUpdateCapella,
+    "LightClientFinalityUpdate"
+);
 type_name_generic!(LightClientFinalityUpdateDeneb, "LightClientFinalityUpdate");
 type_name_generic!(LightClientHeader);
 type_name_generic!(LightClientHeaderDeneb, "LightClientHeader");
 type_name_generic!(LightClientHeaderCapella, "LightClientHeader");
 type_name_generic!(LightClientHeaderAltair, "LightClientHeader");
 type_name_generic!(LightClientOptimisticUpdate);
-type_name_generic!(LightClientOptimisticUpdateAltair, "LightClientOptimisticUpdate");
-type_name_generic!(LightClientOptimisticUpdateCapella, "LightClientOptimisticUpdate");
-type_name_generic!(LightClientOptimisticUpdateDeneb, "LightClientOptimisticUpdate");
+type_name_generic!(
+    LightClientOptimisticUpdateAltair,
+    "LightClientOptimisticUpdate"
+);
+type_name_generic!(
+    LightClientOptimisticUpdateCapella,
+    "LightClientOptimisticUpdate"
+);
+type_name_generic!(
+    LightClientOptimisticUpdateDeneb,
+    "LightClientOptimisticUpdate"
+);
 type_name_generic!(LightClientUpdate);
 type_name_generic!(LightClientUpdateAltair, "LightClientUpdate");
 type_name_generic!(LightClientUpdateCapella, "LightClientUpdate");

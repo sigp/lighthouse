@@ -1,7 +1,7 @@
 use super::{EthSpec, ForkName, ForkVersionDeserialize, Slot, SyncAggregate};
 use crate::test_utils::TestRandom;
 use crate::{
-    light_client_update::*, LightClientHeaderAltair, LightClientHeaderCapella,
+    light_client_update::*, ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella,
     LightClientHeaderDeneb, SignedBeaconBlock,
 };
 use derivative::Derivative;
@@ -64,9 +64,12 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
         attested_block: &SignedBeaconBlock<E>,
         sync_aggregate: SyncAggregate<E>,
         signature_slot: Slot,
-        fork_name: ForkName,
+        chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        let optimistic_update = match fork_name {
+        let optimistic_update = match attested_block
+            .fork_name(chain_spec)
+            .map_err(|_| Error::InconsistentFork)?
+        {
             ForkName::Altair | ForkName::Merge => {
                 let optimistic_update = LightClientOptimisticUpdateAltair {
                     attested_header: LightClientHeaderAltair::block_to_light_client_header(
@@ -146,14 +149,6 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
         };
 
         Ok(optimistic_update)
-    }
-
-    /// Custom SSZ decoder that takes a `ForkName` as context.
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes(bytes, fork_name)
     }
 }
 

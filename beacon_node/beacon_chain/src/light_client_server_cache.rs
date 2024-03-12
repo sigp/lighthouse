@@ -101,8 +101,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         let attested_slot = attested_block.slot();
 
-        let fork_name = attested_block.fork_name(chain_spec)?;
-
         // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
         let is_latest_optimistic = match &self.latest_optimistic_update.read().clone() {
@@ -117,7 +115,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 &attested_block,
                 sync_aggregate.clone(),
                 signature_slot,
-                fork_name,
+                chain_spec,
             )?);
         };
 
@@ -140,7 +138,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                     cached_parts.finality_branch.clone(),
                     sync_aggregate.clone(),
                     signature_slot,
-                    fork_name,
+                    chain_spec,
                 )?);
             } else {
                 debug!(
@@ -227,7 +225,7 @@ fn is_latest_finality_update<T: EthSpec>(
     attested_slot: Slot,
     signature_slot: Slot,
 ) -> bool {
-    let prev_slot = prev.get_slot();
+    let prev_slot = prev.get_attested_header_slot();
     if attested_slot > prev_slot {
         true
     } else {

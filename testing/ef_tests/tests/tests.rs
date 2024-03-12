@@ -275,23 +275,27 @@ mod ssz_static {
     // Altair and later
     #[test]
     fn contribution_and_proof() {
-        SszStaticHandler::<ContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only()
-            .run();
-        SszStaticHandler::<ContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only()
-            .run();
+        SszStaticHandler::<ContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_and_later(
+        )
+        .run();
+        SszStaticHandler::<ContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_and_later(
+        )
+        .run();
     }
 
-     // LightClientBootstrap has no internal indicator of which fork it is for, so we test it separately.
+    // LightClientBootstrap has no internal indicator of which fork it is for, so we test it separately.
     #[test]
     fn light_client_bootstrap() {
         SszStaticHandler::<LightClientBootstrapAltair<MinimalEthSpec>, MinimalEthSpec>::altair_only()
             .run();
         SszStaticHandler::<LightClientBootstrapAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only()
             .run();
-        SszStaticHandler::<LightClientBootstrapAltair<MinimalEthSpec>, MinimalEthSpec>::merge_only()
-            .run();
-        SszStaticHandler::<LightClientBootstrapAltair<MainnetEthSpec>, MainnetEthSpec>::merge_only()
-            .run();
+        SszStaticHandler::<LightClientBootstrapAltair<MinimalEthSpec>, MinimalEthSpec>::merge_only(
+        )
+        .run();
+        SszStaticHandler::<LightClientBootstrapAltair<MainnetEthSpec>, MainnetEthSpec>::merge_only(
+        )
+        .run();
         SszStaticHandler::<LightClientBootstrapCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only()
             .run();
         SszStaticHandler::<LightClientBootstrapCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only()

@@ -259,13 +259,6 @@ impl<E: EthSpec> LightClientUpdate<E> {
 
         Ok(update)
     }
-
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes(bytes, fork_name)
-    }
 }
 
 #[cfg(test)]

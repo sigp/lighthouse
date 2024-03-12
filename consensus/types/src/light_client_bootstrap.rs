@@ -90,14 +90,6 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         Ok(bootstrap)
     }
 
-    /// Custom SSZ decoder that takes a `ForkName` as context.
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes(bytes, fork_name)
-    }
-
     pub fn from_beacon_state(
         beacon_state: &mut BeaconState<E>,
         block: &SignedBeaconBlock<E>,
@@ -106,7 +98,9 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         let mut header = beacon_state.latest_block_header().clone();
         header.state_root = beacon_state.update_tree_hash_cache()?;
         let current_sync_committee_branch =
-            beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?;
+            FixedVector::new(beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?)?;
+
+        let current_sync_committee = beacon_state.current_sync_committee()?.clone();
 
         let light_client_bootstrap = match block
             .fork_name(chain_spec)
@@ -115,18 +109,18 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Base => return Err(Error::AltairForkNotActive),
             ForkName::Altair | ForkName::Merge => Self::Altair(LightClientBootstrapAltair {
                 header: LightClientHeaderAltair::block_to_light_client_header(block)?,
-                current_sync_committee: beacon_state.current_sync_committee()?.clone(),
-                current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
+                current_sync_committee,
+                current_sync_committee_branch,
             }),
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella {
                 header: LightClientHeaderCapella::block_to_light_client_header(block)?,
-                current_sync_committee: beacon_state.current_sync_committee()?.clone(),
-                current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
+                current_sync_committee,
+                current_sync_committee_branch,
             }),
             ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb {
                 header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
-                current_sync_committee: beacon_state.current_sync_committee()?.clone(),
-                current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
+                current_sync_committee,
+                current_sync_committee_branch,
             }),
         };
 

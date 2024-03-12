@@ -592,7 +592,7 @@ fn handle_rpc_response<T: EthSpec>(
         )))),
         SupportedProtocol::LightClientBootstrapV1 => match fork_name {
             Some(fork_name) => Ok(Some(RPCResponse::LightClientBootstrap(Arc::new(
-                LightClientBootstrap::from_ssz_bytes_for_fork(decoded_buffer, fork_name)?,
+                LightClientBootstrap::from_ssz_bytes(decoded_buffer, fork_name)?,
             )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,

@@ -1,4 +1,5 @@
 use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate};
+use crate::ChainSpec;
 use crate::{
     light_client_update::*, test_utils::TestRandom, ForkName, ForkVersionDeserialize,
     LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
@@ -71,9 +72,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
         sync_aggregate: SyncAggregate<E>,
         signature_slot: Slot,
-        fork_name: ForkName,
+        chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        let finality_update = match fork_name {
+        let finality_update = match attested_block.fork_name(chain_spec).map_err(|_| Error::InconsistentFork)? {
             ForkName::Altair | ForkName::Merge => {
                 let finality_update = LightClientFinalityUpdateAltair {
                     attested_header: LightClientHeaderAltair::block_to_light_client_header(
@@ -122,7 +123,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         Ok(finality_update)
     }
 
-    pub fn get_slot<'a>(&'a self) -> Slot {
+    pub fn get_attested_header_slot<'a>(&'a self) -> Slot {
         map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
             cons(inner);
             inner.attested_header.beacon.slot
@@ -151,14 +152,6 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         };
 
         Ok(finality_update)
-    }
-
-    /// Custom SSZ decoder that takes a `ForkName` as context.
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes(bytes, fork_name)
     }
 }
 
