@@ -461,6 +461,9 @@ OPTIONS:
         --slots-per-restore-point <SLOT_COUNT>
             Specifies how often a freezer DB restore point should be stored. Cannot be changed after initialization.
             [default: 8192 (mainnet) or 64 (minimal)]
+        --state-cache-size <STATE_CACHE_SIZE>
+            Specifies the size of the snapshot cache [default: 3]
+
         --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
             Emergency fallback fee recipient for use in case the validator client does not have one configured. You
             should set this flag on the validator client instead of (or in addition to) setting it here.

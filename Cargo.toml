@@ -94,7 +94,9 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
+anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
+async-channel = "1.9.0"
 bincode = "1"
 bitvec = "1"
 byteorder = "1"
@@ -111,7 +113,7 @@ env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
 ethereum_hashing = "1.0.0-beta.2"
-ethereum_serde_utils = "0.5"
+ethereum_serde_utils = "0.5.2"
 ethereum_ssz = "0.5"
 ethereum_ssz_derive = "0.5"
 ethers-core = "1"
@@ -228,6 +230,9 @@ unused_port = { path = "common/unused_port" }
 validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
 warp_utils = { path = "common/warp_utils" }
+
+[patch.crates-io]
+yamux = { git = "https://github.com/sigp/rust-yamux.git" }
 
 [profile.maxperf]
 inherits = "release"
