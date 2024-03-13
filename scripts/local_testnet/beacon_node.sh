@@ -48,13 +48,14 @@ quic_port=${@:$OPTIND+2:1}
 http_port=${@:$OPTIND+3:1}
 execution_endpoint=${@:$OPTIND+4:1}
 execution_jwt=${@:$OPTIND+5:1}
+testnet_dir=${@:$OPTIND+6:1}
 
 exec $lighthouse_binary \
 	--debug-level $DEBUG_LEVEL \
 	bn \
 	$SUBSCRIBE_ALL_SUBNETS \
 	--datadir $data_dir \
-	--testnet-dir $TESTNET_DIR \
+	--testnet-dir $testnet_dir \
 	--enable-private-discovery \
   --disable-peer-scoring \
 	--staking \
