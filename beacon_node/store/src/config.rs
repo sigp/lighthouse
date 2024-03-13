@@ -5,6 +5,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::io::Write;
 use std::num::NonZeroUsize;
+use superstruct::superstruct;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{EthSpec, Unsigned};
 use zstd::Encoder;
@@ -43,8 +44,6 @@ pub struct StoreConfig {
     pub prune_payloads: bool,
     /// Whether to store finalized blocks compressed and linearised in the freezer database.
     pub linear_blocks: bool,
-    /// Whether to store finalized states compressed and linearised in the freezer database.
-    pub linear_restore_points: bool,
     /// State diff hierarchy.
     pub hierarchy_config: HierarchyConfig,
     /// Whether to prune blobs older than the blob data availability boundary.
@@ -57,12 +56,20 @@ pub struct StoreConfig {
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-// FIXME(sproul): schema migration
+#[superstruct(
+    variants(V1, V24),
+    variant_attributes(derive(Debug, Clone, PartialEq, Eq, Encode, Decode)),
+    no_enum
+)]
 pub struct OnDiskStoreConfig {
+    #[superstruct(only(V1))]
+    pub slots_per_restore_point: u64,
+    #[superstruct(only(V24))]
     pub linear_blocks: bool,
+    #[superstruct(only(V24))]
     pub hierarchy_config: HierarchyConfig,
 }
+pub type OnDiskStoreConfig = OnDiskStoreConfigV24;
 
 #[derive(Debug, Clone)]
 pub enum StoreConfigError {
@@ -97,7 +104,6 @@ impl Default for StoreConfig {
             compact_on_prune: true,
             prune_payloads: true,
             linear_blocks: true,
-            linear_restore_points: true,
             hierarchy_config: HierarchyConfig::default(),
             prune_blobs: true,
             epochs_per_blob_prune: DEFAULT_EPOCHS_PER_BLOB_PRUNE,

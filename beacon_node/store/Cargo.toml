@@ -31,3 +31,4 @@ safe_arith = { workspace = true }
 bls = { workspace = true }
 smallvec = { workspace = true }
 logging = { workspace = true }
+superstruct = { workspace = true }

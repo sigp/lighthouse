@@ -8358,6 +8358,7 @@ dependencies = [
  "smallvec",
  "state_processing",
  "strum",
+ "superstruct",
  "tempfile",
  "types",
  "xdelta3",

@@ -635,10 +635,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("state-cache-size")
-                .long("state-cache-size")
-                .value_name("STATE_CACHE_SIZE")
-                .help("Specifies the size of the snapshot cache [default: 3]")
+            Arg::with_name("db-linear-blocks")
+                .long("db-linear-blocks")
+                .value_name("BOOL")
+                .help("Customise storage of finalized blocks. Legacy databases must set this value \
+                       to `false`, while new databases should set it to `true`.")
                 .takes_value(true)
         )
         /*
