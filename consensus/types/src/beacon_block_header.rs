@@ -13,7 +13,6 @@ use tree_hash_derive::TreeHash;
 #[derive(
     arbitrary::Arbitrary,
     Debug,
-    Default,
     PartialEq,
     Eq,
     Hash,
