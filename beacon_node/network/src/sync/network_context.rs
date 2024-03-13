@@ -268,10 +268,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let id = self.next_id();
                 let request_id = RequestId::Sync(SyncRequestId::RangeBlockAndDataColumns { id });
 
-                // Create the blob request based on the blob request.
-                let blobs_request = Request::BlobsByRange(BlobsByRangeRequest {
+                // Create the data columns by range request.
+                let data_columns_request = Request::DataColumnsByRange(DataColumnsByRangeRequest {
                     start_slot: *request.start_slot(),
                     count: *request.count(),
+                    data_column_ids: vec![], // TODO(das)
                 });
                 let blocks_request = Request::BlocksByRange(request);
 
@@ -283,16 +284,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 })?;
                 self.send_network_msg(NetworkMessage::SendRequest {
                     peer_id,
-                    request: blobs_request,
+                    request: data_columns_request,
                     request_id,
                 })?;
-                let block_blob_info = BlocksAndBlobsRequestInfo::default();
-                self.range_blocks_and_blobs_requests.insert(
+                let block_data_column_info = BlocksAndDataColumnsRequestInfo::default();
+                self.range_blocks_and_data_columns_requests.insert(
                     id,
-                    BlocksAndBlobsByRangeRequest {
+                    BlocksAndDataColumnsByRangeRequest {
                         chain_id,
                         batch_id,
-                        block_blob_info,
+                        block_data_column_info,
                     },
                 );
                 Ok(id)

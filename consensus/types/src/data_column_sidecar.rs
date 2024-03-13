@@ -1,14 +1,12 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::test_utils::TestRandom;
 use crate::BeaconStateError;
-use crate::Epoch;
 use crate::{
     BeaconBlockHeader, BlobSidecarList, EthSpec, Hash256, KzgProofs, SignedBeaconBlock,
     SignedBeaconBlockHeader, Slot,
 };
 use bls::Signature;
 use derivative::Derivative;
-use ethereum_types::U256;
 use kzg::{Blob as KzgBlob, Error as KzgError, Kzg};
 use kzg::{KzgCommitment, KzgProof};
 use safe_arith::ArithError;
@@ -34,14 +32,6 @@ pub type DataColumn<T> = VariableList<Cell<T>, <T as EthSpec>::MaxBlobCommitment
 pub struct DataColumnIdentifier {
     pub block_root: Hash256,
     pub index: ColumnIndex,
-}
-
-impl DataColumnIdentifier {
-    /// Compute columns a node is required to custody for a given node id and epoch
-    /// TODO(das)
-    pub fn compute_data_columns_for_epoch(_node_id: U256, _epoch: Epoch) -> Vec<ColumnIndex> {
-        vec![1, 2]
-    }
 }
 
 #[derive(
