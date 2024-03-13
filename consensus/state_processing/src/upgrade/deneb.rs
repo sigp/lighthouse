@@ -1,5 +1,8 @@
 use std::mem;
-use types::{BeaconState, BeaconStateDeneb, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
+use types::{
+    BeaconState, BeaconStateDeneb, BeaconStateError as Error, ChainSpec, EthSpec, Fork,
+    RelativeEpoch,
+};
 
 /// Transform a `Capella` state into an `Deneb` state.
 pub fn upgrade_to_deneb<E: EthSpec>(
@@ -13,6 +16,9 @@ pub fn upgrade_to_deneb<E: EthSpec>(
         .filter(|exit_epoch| *exit_epoch != spec.far_future_epoch.as_u64())
         .max()
         .unwrap_or(0);
+
+    // Needs to build total active balance cache
+    pre_state.build_committee_cache(RelativeEpoch::Current, spec)?;
     let exit_balance_to_consume = pre_state.get_activation_exit_churn_limit(spec)?;
 
     let epoch = pre_state.current_epoch();
