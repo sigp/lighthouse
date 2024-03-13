@@ -17,6 +17,7 @@ use futures::prelude::*;
 use futures::StreamExt;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
+use lighthouse_network::Eth2Enr;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode},
@@ -733,12 +734,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 if !self.subscribe_all_subnets {
-                    for column_subnet in
-                        DataColumnSubnetId::compute_subnets_for_data_column::<T::EthSpec>(
-                            self.network_globals.local_enr().node_id().raw().into(),
-                            &self.beacon_chain.spec,
-                        )
-                    {
+                    for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
+                        self.network_globals.local_enr().node_id().raw().into(),
+                        self.network_globals
+                            .local_enr()
+                            .custody_subnet_count::<<T as BeaconChainTypes>::EthSpec>()
+                            .unwrap_or(self.beacon_chain.spec.custody_requirement),
+                    ) {
                         for fork_digest in self.required_gossip_fork_digests() {
                             let gossip_kind = Subnet::DataColumn(column_subnet).into();
                             let topic = GossipTopic::new(

@@ -1,8 +1,9 @@
 //! Identifies each data column subnet by an integer identifier.
-use crate::{ChainSpec, EthSpec};
+use crate::EthSpec;
 use ethereum_types::U256;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
 
@@ -44,20 +45,47 @@ impl DataColumnSubnetId {
     }
 
     #[allow(clippy::arithmetic_side_effects)]
+    pub fn columns<T: EthSpec>(&self) -> impl Iterator<Item = u64> {
+        let subnet = self.0;
+        let data_column_subnet_count = T::data_column_subnet_count() as u64;
+        let columns_per_subnet = (T::number_of_columns() as u64) / data_column_subnet_count;
+        (0..columns_per_subnet).map(move |i| data_column_subnet_count * i + subnet)
+    }
+
     /// Compute required subnets to subscribe to given the node id.
     /// TODO(das): Add epoch param
-    /// TODO(das): Add num of subnets (from ENR)
-    pub fn compute_subnets_for_data_column<T: EthSpec>(
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn compute_custody_subnets<T: EthSpec>(
         node_id: U256,
-        spec: &ChainSpec,
+        custody_subnet_count: u64,
     ) -> impl Iterator<Item = DataColumnSubnetId> {
-        let num_of_column_subnets = T::data_column_subnet_count() as u64;
-        (0..spec.custody_requirement)
-            .map(move |i| {
-                let node_offset = (node_id % U256::from(num_of_column_subnets)).as_u64();
-                node_offset.saturating_add(i) % num_of_column_subnets
-            })
-            .map(DataColumnSubnetId::new)
+        // NOTE: we could perform check on `custody_subnet_count` here to ensure that it is a valid
+        // value, but here we assume it is valid.
+
+        let mut subnets = SmallVec::<[u64; 32]>::new();
+        let mut offset = 0;
+        while (subnets.len() as u64) < custody_subnet_count {
+            let offset_node_id = node_id + U256::from(offset);
+            let offset_node_id = offset_node_id.as_u64().to_le_bytes();
+            let hash = ethereum_hashing::hash_fixed(&offset_node_id);
+            let subnet =
+                U256::from_little_endian(&hash).as_u64() % (T::data_column_subnet_count() as u64);
+
+            if !subnets.contains(&subnet) {
+                subnets.push(subnet);
+            }
+
+            offset += 1
+        }
+        subnets.into_iter().map(DataColumnSubnetId::new)
+    }
+
+    pub fn compute_custody_columns<T: EthSpec>(
+        node_id: U256,
+        custody_subnet_count: u64,
+    ) -> impl Iterator<Item = u64> {
+        Self::compute_custody_subnets::<T>(node_id, custody_subnet_count)
+            .flat_map(|subnet| subnet.columns::<T>())
     }
 }
 
@@ -155,9 +183,9 @@ mod test {
         let spec = ChainSpec::mainnet();
 
         for x in 0..node_ids.len() {
-            let computed_subnets = DataColumnSubnetId::compute_subnets_for_data_column::<
+            let computed_subnets = DataColumnSubnetId::compute_custody_subnets::<
                 crate::MainnetEthSpec,
-            >(node_ids[x], &spec);
+            >(node_ids[x], spec.custody_requirement);
 
             assert_eq!(
                 expected_subnets[x],

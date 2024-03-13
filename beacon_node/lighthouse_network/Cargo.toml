@@ -47,6 +47,7 @@ tracing = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
 either = { workspace = true }
+itertools = { workspace = true }
 
 # Local dependencies
 futures-ticker = "0.0.3"
