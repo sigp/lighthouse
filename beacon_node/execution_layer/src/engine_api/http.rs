@@ -72,23 +72,6 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
 ];
 
-/// This is necessary because a user might run a capella-enabled version of
-/// lighthouse before they update to a capella-enabled execution engine.
-// TODO (mark): rip this out once we are post-capella on mainnet
-pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
-    new_payload_v1: true,
-    new_payload_v2: false,
-    new_payload_v3: false,
-    forkchoice_updated_v1: true,
-    forkchoice_updated_v2: false,
-    forkchoice_updated_v3: false,
-    get_payload_bodies_by_hash_v1: false,
-    get_payload_bodies_by_range_v1: false,
-    get_payload_v1: true,
-    get_payload_v2: false,
-    get_payload_v3: false,
-};
-
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
     use ssz::Decode;
@@ -1022,13 +1005,7 @@ impl HttpJsonRpc {
             .await;
 
         match response {
-            // TODO (mark): rip this out once we are post capella on mainnet
-            Err(error) => match error {
-                Error::ServerMessage { code, message: _ } if code == METHOD_NOT_FOUND_CODE => {
-                    Ok(PRE_CAPELLA_ENGINE_CAPABILITIES)
-                }
-                _ => Err(error),
-            },
+            Err(error) => Err(error),
             Ok(capabilities) => Ok(EngineCapabilities {
                 new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
                 new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
