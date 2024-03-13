@@ -14,13 +14,19 @@ use types::{Epoch, EthSpec, MainnetEthSpec};
 
 pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = matches
-        .get_one::<usize>("nodes")
+        .get_one::<String>("nodes")
+        .expect("missing nodes default")
+        .parse::<usize>()
         .expect("missing nodes default");
     let validators_per_node = matches
-        .get_one::<usize>("validators_per_node")
+        .get_one::<String>("validators_per_node")
+        .expect("missing validators_per_node default")
+        .parse::<usize>()
         .expect("missing validators_per_node default");
     let speed_up_factor = matches
-        .get_one::<u64>("speed_up_factor")
+        .get_one::<String>("speed_up_factor")
+        .expect("missing speed_up_factor default")
+        .parse::<u64>()
         .expect("missing speed_up_factor default");
     let continue_after_checks = matches.get_flag("continue_after_checks");
 
@@ -30,7 +36,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" continue_after_checks:{}", continue_after_checks);
 
     // Generate the directories and keystores required for the validator clients.
-    let validator_files = (0..*node_count)
+    let validator_files = (0..node_count)
         .into_par_iter()
         .map(|i| {
             println!(

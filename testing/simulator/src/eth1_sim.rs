@@ -29,16 +29,22 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
-    let node_count = *matches
-        .get_one::<usize>("nodes")
+    let node_count = matches
+        .get_one::<String>("nodes")
+        .expect("missing nodes default")
+        .parse::<usize>()
         .expect("missing nodes default");
     let proposer_nodes = *matches.get_one::<usize>("proposer-nodes").unwrap_or(&0);
     println!("PROPOSER-NODES: {}", proposer_nodes);
-    let validators_per_node = *matches
-        .get_one::<usize>("validators_per_node")
+    let validators_per_node = matches
+        .get_one::<String>("validators_per_node")
+        .expect("missing validators_per_node default")
+        .parse::<usize>()
         .expect("missing validators_per_node default");
-    let speed_up_factor = *matches
-        .get_one::<u64>("speed_up_factor")
+    let speed_up_factor = matches
+        .get_one::<String>("speed_up_factor")
+        .expect("missing speed_up_factor default")
+        .parse::<u64>()
         .expect("missing speed_up_factor default");
     let continue_after_checks = matches.get_flag("continue_after_checks");
     let post_merge_sim = matches.get_flag("post-merge");
