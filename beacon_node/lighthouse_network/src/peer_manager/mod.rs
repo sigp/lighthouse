@@ -26,6 +26,7 @@ pub use libp2p::identity::Keypair;
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod peerdb;
 
+use crate::peer_manager::peerdb::client::ClientKind;
 pub use peerdb::peer_info::{
     ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo,
 };
@@ -33,6 +34,8 @@ use peerdb::score::{PeerAction, ReportSource};
 pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{hash_map::Entry, HashMap};
 use std::net::IpAddr;
+use strum::IntoEnumIterator;
+
 pub mod config;
 mod network_behaviour;
 
@@ -464,19 +467,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     "observed_address" => ?info.observed_addr,
                     "protocols" => ?info.protocols
                 );
-
-                // update the peer client kind metric if the peer is connected
-                if matches!(
-                    peer_info.connection_status(),
-                    PeerConnectionStatus::Connected { .. }
-                        | PeerConnectionStatus::Disconnecting { .. }
-                ) {
-                    metrics::inc_gauge_vec(
-                        &metrics::PEERS_PER_CLIENT,
-                        &[peer_info.client().kind.as_ref()],
-                    );
-                    metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT, &[previous_kind.as_ref()]);
-                }
             }
         } else {
             error!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
@@ -1264,6 +1254,26 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 &metrics::PEER_SCORE_PER_CLIENT,
                 &[&client.to_string()],
                 score / (peers as f64),
+            );
+        }
+    }
+
+    // Update peers per client metrics.
+    fn update_peers_per_client_metrics(&self) {
+        let mut clients_per_peer = HashMap::new();
+
+        for (_peer, peer_info) in self.network_globals.peers.read().connected_peers() {
+            *clients_per_peer
+                .entry(peer_info.client().kind.to_string())
+                .or_default() += 1;
+        }
+
+        for client_kind in ClientKind::iter() {
+            let value = clients_per_peer.get(&client_kind.to_string()).unwrap_or(&0);
+            metrics::set_gauge_vec(
+                &metrics::PEERS_PER_CLIENT,
+                &[client_kind.as_ref()],
+                *value as i64,
             );
         }
     }
