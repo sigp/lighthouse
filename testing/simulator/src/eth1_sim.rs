@@ -34,7 +34,11 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing nodes default")
         .parse::<usize>()
         .expect("missing nodes default");
-    let proposer_nodes = *matches.get_one::<usize>("proposer-nodes").unwrap_or(&0);
+    let proposer_nodes = matches
+        .get_one::<String>("proposer-nodes")
+        .unwrap_or(&String::from("0"))
+        .parse::<usize>()
+        .unwrap_or(0);
     println!("PROPOSER-NODES: {}", proposer_nodes);
     let validators_per_node = matches
         .get_one::<String>("validators_per_node")
