@@ -66,9 +66,11 @@ impl DataColumnSubnetId {
         let mut offset = 0;
         while (subnets.len() as u64) < custody_subnet_count {
             let offset_node_id = node_id + U256::from(offset);
-            let offset_node_id = offset_node_id.as_u64().to_le_bytes();
+            let offset_node_id = offset_node_id.low_u64().to_le_bytes();
             let hash: [u8; 32] = ethereum_hashing::hash_fixed(&offset_node_id);
-            let hash_prefix = [hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7]];
+            let hash_prefix = [
+                hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
+            ];
             let hash_prefix_u64 = u64::from_le_bytes(hash_prefix);
             let subnet = hash_prefix_u64 % (T::data_column_subnet_count() as u64);
 
@@ -149,6 +151,7 @@ impl From<ArithError> for Error {
 mod test {
     use crate::data_column_subnet_id::DataColumnSubnetId;
     use crate::ChainSpec;
+    use crate::EthSpec;
 
     #[test]
     fn test_compute_subnets_for_data_column() {
@@ -168,32 +171,29 @@ mod test {
         .map(|v| ethereum_types::U256::from_dec_str(v).unwrap())
         .collect::<Vec<_>>();
 
-        let expected_subnets = vec![
-            vec![0],
-            vec![29],
-            vec![28],
-            vec![20],
-            vec![30],
-            vec![9],
-            vec![18],
-            vec![21],
-            vec![23],
-            vec![29],
-        ];
-
         let spec = ChainSpec::mainnet();
 
-        for x in 0..node_ids.len() {
+        for node_id in node_ids {
             let computed_subnets = DataColumnSubnetId::compute_custody_subnets::<
                 crate::MainnetEthSpec,
-            >(node_ids[x], spec.custody_requirement);
+            >(node_id, spec.custody_requirement);
+            let computed_subnets: Vec<_> = computed_subnets.collect();
 
-            assert_eq!(
-                expected_subnets[x],
-                computed_subnets
-                    .map(DataColumnSubnetId::into)
-                    .collect::<Vec<u64>>()
-            );
+            // the number of subnets is equal to the custody requirement
+            assert_eq!(computed_subnets.len() as u64, spec.custody_requirement);
+
+            let subnet_count = crate::MainnetEthSpec::data_column_subnet_count();
+            let columns_per_subnet = crate::MainnetEthSpec::number_of_columns() / subnet_count;
+            for subnet in computed_subnets {
+                let columns: Vec<_> = subnet.columns::<crate::MainnetEthSpec>().collect();
+                // the number of columns is equal to the specified number of columns per subnet
+                assert_eq!(columns.len(), columns_per_subnet);
+
+                for pair in columns.windows(2) {
+                    // each successive column index is offset by the number of subnets
+                    assert_eq!(pair[1] - pair[0], subnet_count as u64);
+                }
+            }
         }
     }
 }
