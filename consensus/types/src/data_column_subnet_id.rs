@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
 
-const DATA_COLUMN_SUBNET_COUNT: u64 = 64;
+const DATA_COLUMN_SUBNET_COUNT: u64 = 32;
 
 lazy_static! {
     static ref DATA_COLUMN_SUBNET_ID_TO_STRING: Vec<String> = {
