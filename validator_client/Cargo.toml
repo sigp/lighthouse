@@ -31,7 +31,6 @@ directory = { workspace = true }
 lockfile = { workspace = true }
 environment = { workspace = true }
 parking_lot = { workspace = true }
-exit-future = { workspace = true }
 filesystem = { workspace = true }
 hex = { workspace = true }
 deposit_contract = { workspace = true }
