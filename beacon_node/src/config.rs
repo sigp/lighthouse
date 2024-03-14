@@ -170,6 +170,9 @@ pub fn get_config<E: EthSpec>(
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
     }
+    if let Some(cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
+        client_config.chain.snapshot_cache_size = cache_size;
+    }
 
     /*
      * Prometheus metrics HTTP server
