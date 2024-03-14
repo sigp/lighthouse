@@ -924,7 +924,6 @@ dependencies = [
  "oneshot_broadcast",
  "operation_pool",
  "parking_lot 0.12.1",
- "promise_cache",
  "proto_array",
  "rand 0.8.5",
  "rayon",
@@ -6690,10 +6689,8 @@ dependencies = [
 name = "promise_cache"
 version = "0.1.0"
 dependencies = [
- "derivative",
- "itertools",
  "oneshot_broadcast",
- "slog",
+ "parking_lot 0.12.1",
 ]
 
 [[package]]
@@ -8351,6 +8348,7 @@ dependencies = [
  "logging",
  "lru",
  "parking_lot 0.12.1",
+ "promise_cache",
  "safe_arith",
  "serde",
  "slog",

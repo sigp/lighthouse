@@ -2295,19 +2295,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(self.log, "Attestation for finalized state"; "peer_id" => % peer_id);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            AttnError::BeaconChainError(BeaconChainError::ShufflingCacheError(e)) => {
-                debug!(
-                    self.log,
-                    "Dropping attestation";
-                    "target_root" => ?failed_att.attestation().data.target.root,
-                    "beacon_block_root" => ?beacon_block_root,
-                    "slot" => ?failed_att.attestation().data.slot,
-                    "type" => ?attestation_type,
-                    "error" => ?e,
-                    "peer_id" => % peer_id
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
             AttnError::BeaconChainError(e) => {
                 /*
                  * Lighthouse hit an unexpected error whilst processing the attestation. It

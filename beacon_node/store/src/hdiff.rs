@@ -94,6 +94,20 @@ impl HDiffBuffer {
         *state.balances_mut() = List::new(self.balances).unwrap();
         Ok(state)
     }
+
+    pub fn as_state<E: EthSpec>(&self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
+        let mut state = BeaconState::from_ssz_bytes(&self.state, spec).unwrap();
+        *state.balances_mut() = List::try_from_iter(self.balances.iter().copied()).unwrap();
+        Ok(state)
+    }
+
+    pub fn state(&self) -> &[u8] {
+        &self.state
+    }
+
+    pub fn balances(&self) -> &[u64] {
+        &self.balances
+    }
 }
 
 impl HDiff {
@@ -113,6 +127,21 @@ impl HDiff {
 
         self.balances_diff.apply(&mut source.balances)?;
         Ok(())
+    }
+
+    pub fn apply_to_parts(
+        &self,
+        state: &[u8],
+        mut balances: Vec<u64>,
+    ) -> Result<HDiffBuffer, Error> {
+        let mut target_state = vec![];
+        self.state_diff.apply(state, &mut target_state)?;
+
+        self.balances_diff.apply(&mut balances)?;
+        Ok(HDiffBuffer {
+            state: target_state,
+            balances,
+        })
     }
 
     pub fn state_diff_len(&self) -> usize {
@@ -150,10 +179,6 @@ impl BytesDiff {
     }
 
     pub fn apply(&self, source: &[u8], target: &mut Vec<u8>) -> Result<(), Error> {
-        self.apply_xdelta(source, target)
-    }
-
-    pub fn apply_xdelta(&self, source: &[u8], target: &mut Vec<u8>) -> Result<(), Error> {
         *target = xdelta3::decode(&self.bytes, source).ok_or(Error::UnableToApplyDiff)?;
         Ok(())
     }
