@@ -29,6 +29,24 @@ pub struct Deposit {
     pub data: DepositData,
 }
 
+#[derive(
+    arbitrary::Arbitrary,
+    Debug,
+    PartialEq,
+    Hash,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+)]
+pub struct PendingBalanceDeposit {
+    pub index: u64,
+    pub amount: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

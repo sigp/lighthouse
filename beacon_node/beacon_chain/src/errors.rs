@@ -3,6 +3,7 @@ use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
+use crate::effective_balances_cache::Error as EffectiveBalancesCacheError;
 use crate::eth1_chain::Error as Eth1ChainError;
 use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::PruningError;
@@ -223,6 +224,7 @@ pub enum BeaconChainError {
     AvailabilityCheckError(AvailabilityCheckError),
     LightClientError(LightClientError),
     UnsupportedFork,
+    EffectiveBalancesCacheError(EffectiveBalancesCacheError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -250,6 +252,7 @@ easy_from_to!(StateAdvanceError, BeaconChainError);
 easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
+easy_from_to!(EffectiveBalancesCacheError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {

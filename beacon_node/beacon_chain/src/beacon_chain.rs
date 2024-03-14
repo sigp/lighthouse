@@ -24,6 +24,7 @@ use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
+use crate::effective_balances_cache::EffectiveBalancesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData};
@@ -425,6 +426,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
+    /// Caches effective balances for attestation aggregator calculation
+    pub effective_balances_cache: EffectiveBalancesCache,
     /// Interfaces with the execution client.
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the

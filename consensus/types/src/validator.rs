@@ -1,5 +1,5 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
     PublicKeyBytes,
 };
 use serde::{Deserialize, Serialize};
@@ -60,7 +60,7 @@ impl Validator {
     /// Spec v0.12.1
     pub fn is_eligible_for_activation_queue(&self, spec: &ChainSpec) -> bool {
         self.activation_eligibility_epoch == spec.far_future_epoch
-            && self.effective_balance == spec.max_effective_balance
+            && self.effective_balance >= spec.min_activation_balance
     }
 
     /// Returns `true` if the validator is eligible to be activated.
@@ -83,6 +83,15 @@ impl Validator {
             .as_bytes()
             .first()
             .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` if the validator has compounding withdrawal credential.
+    pub fn has_compounding_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
+        self.withdrawal_credentials
+            .as_bytes()
+            .first()
+            .map(|byte| *byte == spec.compounding_withdrawal_prefix_byte)
             .unwrap_or(false)
     }
 
@@ -114,10 +123,28 @@ impl Validator {
     }
 
     /// Returns `true` if the validator is partially withdrawable.
-    pub fn is_partially_withdrawable_validator(&self, balance: u64, spec: &ChainSpec) -> bool {
+    pub fn is_partially_withdrawable_validator(
+        &self,
+        balance: u64,
+        spec: &ChainSpec,
+        fork: ForkName,
+    ) -> bool {
+        let max_effective_balance = spec.max_effective_balance(fork);
         self.has_eth1_withdrawal_credential(spec)
-            && self.effective_balance == spec.max_effective_balance
-            && balance > spec.max_effective_balance
+            && self.effective_balance == max_effective_balance
+            && balance > max_effective_balance
+    }
+
+    pub fn compute_effective_balance_limit(&self, spec: &ChainSpec, fork: ForkName) -> u64 {
+        if fork > ForkName::Deneb {
+            if self.has_compounding_withdrawal_credential(spec) {
+                spec.max_effective_balance_maxeb
+            } else {
+                spec.min_activation_balance
+            }
+        } else {
+            spec.min_activation_balance
+        }
     }
 }
 

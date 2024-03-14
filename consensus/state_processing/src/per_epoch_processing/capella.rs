@@ -9,7 +9,8 @@ use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
 };
-use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
+use safe_arith::SafeArith;
+use types::{BeaconState, BeaconStateDeneb, BeaconStateError, ChainSpec, EthSpec, RelativeEpoch};
 
 use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_on_epoch_transition,
@@ -55,6 +56,8 @@ pub fn process_epoch<T: EthSpec>(
     // Reset eth1 data votes.
     process_eth1_data_reset(state)?;
 
+    process_pending_balance_deposits(state, spec)?;
+
     // Update effective balances with hysteresis (lag).
     process_effective_balance_updates(state, Some(&participation_cache), spec)?;
 
@@ -81,4 +84,44 @@ pub fn process_epoch<T: EthSpec>(
         participation_cache,
         sync_committee,
     })
+}
+
+pub fn process_pending_balance_deposits<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let activation_exit_churn_limit = state.get_activation_exit_churn_limit(spec)?;
+
+    if let BeaconState::Deneb(BeaconStateDeneb {
+        ref mut deposit_balance_to_consume,
+        ref mut pending_balance_deposits,
+        ref mut balances,
+        ..
+    }) = state
+    {
+        deposit_balance_to_consume.safe_add_assign(activation_exit_churn_limit)?;
+        let mut next_pending_deposit_index = 0;
+        for pending_balance_deposit in pending_balance_deposits.iter() {
+            if *deposit_balance_to_consume < pending_balance_deposit.amount {
+                break;
+            }
+
+            deposit_balance_to_consume.safe_sub_assign(pending_balance_deposit.amount)?;
+
+            let index = pending_balance_deposit.index as usize;
+            balances
+                .get_mut(index)
+                .ok_or(BeaconStateError::BalancesOutOfBounds(index))?
+                .safe_add_assign(pending_balance_deposit.amount)?;
+
+            next_pending_deposit_index.safe_add_assign(1)?;
+        }
+
+        // TODO(maxeb), converting to vec to have something while SSZ api supports pop
+        let mut pending_balance_deposits_vec = pending_balance_deposits.to_vec();
+        pending_balance_deposits_vec.drain(0..next_pending_deposit_index);
+        *pending_balance_deposits = pending_balance_deposits_vec.into();
+    }
+
+    Ok(())
 }

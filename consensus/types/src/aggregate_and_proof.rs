@@ -1,6 +1,6 @@
 use super::{
-    Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof,
-    Signature, SignedRoot,
+    Attestation, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, PublicKey, SecretKey,
+    SelectionProof, Signature, SignedRoot,
 };
 use crate::test_utils::TestRandom;
 use serde::{Deserialize, Serialize};
@@ -86,6 +86,10 @@ impl<T: EthSpec> AggregateAndProof<T> {
         );
         let message = self.aggregate.data.slot.signing_root(domain);
         self.selection_proof.verify(validator_pubkey, message)
+    }
+
+    pub fn epoch(&self) -> Epoch {
+        self.aggregate.data.slot.epoch(T::slots_per_epoch())
     }
 }
 

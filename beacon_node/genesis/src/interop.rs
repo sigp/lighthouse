@@ -96,7 +96,7 @@ pub fn interop_genesis_state_with_withdrawal_credentials<T: EthSpec>(
     }
 
     let eth1_timestamp = 2_u64.pow(40);
-    let amount = spec.max_effective_balance;
+    let amount = spec.min_activation_balance;
 
     let datas = keypairs
         .into_par_iter()
@@ -172,8 +172,8 @@ mod test {
 
         for b in state.balances() {
             assert_eq!(
-                *b, spec.max_effective_balance,
-                "validator balances should be max effective balance"
+                *b, spec.min_activation_balance,
+                "validator balances should be min activation balance"
             );
         }
 
@@ -234,8 +234,8 @@ mod test {
 
         for b in state.balances() {
             assert_eq!(
-                *b, spec.max_effective_balance,
-                "validator balances should be max effective balance"
+                *b, spec.min_activation_balance,
+                "validator balances should be min activation balance"
             );
         }
 

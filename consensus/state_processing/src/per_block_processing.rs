@@ -496,6 +496,7 @@ pub fn get_expected_withdrawals<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Withdrawals<T>, BlockProcessingError> {
     let epoch = state.current_epoch();
+    let fork = state.fork_name_unchecked();
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = vec![];
@@ -519,14 +520,14 @@ pub fn get_expected_withdrawals<T: EthSpec>(
                 amount: balance,
             });
             withdrawal_index.safe_add_assign(1)?;
-        } else if validator.is_partially_withdrawable_validator(balance, spec) {
+        } else if validator.is_partially_withdrawable_validator(balance, spec, fork) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
                 validator_index,
                 address: validator
                     .get_eth1_withdrawal_address(spec)
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
-                amount: balance.safe_sub(spec.max_effective_balance)?,
+                amount: balance.safe_sub(validator.compute_effective_balance_limit(spec, fork))?,
             });
             withdrawal_index.safe_add_assign(1)?;
         }

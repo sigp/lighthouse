@@ -105,7 +105,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let seconds_per_slot = spec.seconds_per_slot;
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
-    let deposit_amount = env.eth2_config.spec.max_effective_balance;
+    let deposit_amount = env.eth2_config.spec.min_activation_balance;
 
     let context = env.core_context();
 

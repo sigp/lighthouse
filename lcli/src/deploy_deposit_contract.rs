@@ -21,7 +21,7 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches<'_>) -> Result<
 
         // Deposit insecure validators to the deposit contract created
         if let Some(validator_count) = validator_count {
-            let amount = env.eth2_config.spec.max_effective_balance;
+            let amount = env.eth2_config.spec.min_activation_balance;
             for i in 0..validator_count {
                 println!("Submitting deposit for validator {}...", i);
                 contract.deposit_deterministic_async::<T>(i, amount).await?;

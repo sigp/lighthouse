@@ -238,7 +238,7 @@ impl CreateConfig {
         Ok(Self {
             output_path: clap_utils::parse_required(matches, OUTPUT_PATH_FLAG)?,
             deposit_gwei: clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
-                .unwrap_or(spec.max_effective_balance),
+                .unwrap_or(spec.min_activation_balance),
             first_index: clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?,
             count: clap_utils::parse_required(matches, COUNT_FLAG)?,
             mnemonic_path: clap_utils::parse_optional(matches, MNEMONIC_FLAG)?,
@@ -615,7 +615,7 @@ pub mod tests {
                 output_path: output_dir.path().into(),
                 first_index: 0,
                 count: 1,
-                deposit_gwei: spec.max_effective_balance,
+                deposit_gwei: spec.min_activation_balance,
                 mnemonic_path: Some(mnemonic_path),
                 stdin_inputs: false,
                 disable_deposits: false,

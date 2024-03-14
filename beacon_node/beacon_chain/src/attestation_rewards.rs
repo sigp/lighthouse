@@ -19,7 +19,7 @@ use store::consts::altair::{
 };
 use types::consts::altair::WEIGHT_DENOMINATOR;
 
-use types::{BeaconState, Epoch, EthSpec};
+use types::{BeaconState, Epoch, EthSpec, ForkName};
 
 use eth2::types::ValidatorId;
 use state_processing::common::base::get_base_reward_from_effective_balance;
@@ -166,7 +166,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let base_reward_per_increment =
                 BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
-            for effective_balance_eth in 1..=self.max_effective_balance_increment_steps()? {
+            for effective_balance_eth in
+                1..=self.max_effective_balance_increment_steps(state.fork_name_unchecked())?
+            {
                 let effective_balance =
                     effective_balance_eth.safe_mul(spec.effective_balance_increment)?;
                 let base_reward =
@@ -293,10 +295,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    fn max_effective_balance_increment_steps(&self) -> Result<u64, BeaconChainError> {
+    fn max_effective_balance_increment_steps(
+        &self,
+        fork: ForkName,
+    ) -> Result<u64, BeaconChainError> {
         let spec = &self.spec;
         let max_steps = spec
-            .max_effective_balance
+            .max_effective_balance(fork)
             .safe_div(spec.effective_balance_increment)?;
         Ok(max_steps)
     }
@@ -340,7 +345,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut ideal_attestation_rewards_list = Vec::new();
 
-        for effective_balance_step in 1..=self.max_effective_balance_increment_steps()? {
+        for effective_balance_step in
+            1..=self.max_effective_balance_increment_steps(state.fork_name_unchecked())?
+        {
             let effective_balance =
                 effective_balance_step.safe_mul(spec.effective_balance_increment)?;
             let base_reward = get_base_reward_from_effective_balance::<T::EthSpec>(

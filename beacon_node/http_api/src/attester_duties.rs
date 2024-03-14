@@ -6,7 +6,8 @@ use eth2::types::{self as api_types};
 use slot_clock::SlotClock;
 use state_processing::state_advance::partial_state_advance;
 use types::{
-    AttestationDuty, BeaconState, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256, RelativeEpoch,
+    AttestationDuty, BeaconState, ChainSpec, CloneConfig, Epoch, EthSpec, ForkName, Hash256,
+    RelativeEpoch,
 };
 
 /// The struct that is returned to the requesting HTTP client.
@@ -62,6 +63,8 @@ fn cached_attestation_duties<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     convert_to_api_response(
+        &chain.head().snapshot.beacon_state,
+        request_epoch,
         duties,
         request_indices,
         dependent_root,
@@ -153,6 +156,8 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     convert_to_api_response(
+        &state,
+        request_epoch,
         duties,
         request_indices,
         dependent_root,
@@ -193,6 +198,8 @@ fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
 /// Convert the internal representation of attester duties into the format returned to the HTTP
 /// client.
 fn convert_to_api_response<T: BeaconChainTypes>(
+    state: &BeaconState<T::EthSpec>,
+    request_epoch: Epoch,
     duties: Vec<Option<AttestationDuty>>,
     indices: &[u64],
     dependent_root: Hash256,
@@ -208,27 +215,57 @@ fn convert_to_api_response<T: BeaconChainTypes>(
         )));
     }
 
+    // need effective balances for epoch before the requested epoch
+    let relevant_balances_epoch = request_epoch.saturating_sub(1u64);
+    chain
+        .effective_balances_cache
+        // have to load the effective balances cache for the previous epoch
+        .load_epoch(chain, relevant_balances_epoch)
+        .map_err(warp_utils::reject::beacon_chain_error)?;
+
     let usize_indices = indices.iter().map(|i| *i as usize).collect::<Vec<_>>();
     let index_to_pubkey_map = chain
         .validator_pubkey_bytes_many(&usize_indices)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    let data = duties
-        .into_iter()
-        .zip(indices)
-        .filter_map(|(duty_opt, &validator_index)| {
-            let duty = duty_opt?;
-            Some(api_types::AttesterData {
-                pubkey: *index_to_pubkey_map.get(&(validator_index as usize))?,
-                validator_index,
-                committees_at_slot: duty.committees_at_slot,
-                committee_index: duty.index,
-                committee_length: duty.committee_len as u64,
-                validator_committee_index: duty.committee_position as u64,
-                slot: duty.slot,
-            })
-        })
-        .collect::<Vec<_>>();
+    let mut data = Vec::new();
+    for (duty_opt, &validator_index) in duties.into_iter().zip(indices.iter()) {
+        let (Some(duty), Some(pubkey)) = (
+            duty_opt,
+            index_to_pubkey_map.get(&(validator_index as usize)),
+        ) else {
+            continue;
+        };
+
+        let committee_length =
+            if chain.spec.fork_name_at_slot::<T::EthSpec>(duty.slot) >= ForkName::Deneb {
+                let beacon_committee = state
+                    .get_beacon_committee(duty.slot, duty.index)
+                    .map_err(warp_utils::reject::beacon_state_error)?;
+                let total_committee_balance = chain
+                    .effective_balances_cache
+                    .get_committee_balance::<T::EthSpec>(&beacon_committee)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let aggregator_balance = chain
+                    .effective_balances_cache
+                    .get_effective_balance(relevant_balances_epoch, validator_index as usize)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                total_committee_balance / aggregator_balance
+            } else {
+                duty.committee_len as u64
+            };
+
+        data.push(api_types::AttesterData {
+            pubkey: *pubkey,
+            validator_index,
+            committees_at_slot: duty.committees_at_slot,
+            committee_index: duty.index,
+            committee_length,
+            validator_committee_index: duty.committee_position as u64,
+            slot: duty.slot,
+        });
+    }
 
     Ok(api_types::DutiesResponse {
         dependent_root,

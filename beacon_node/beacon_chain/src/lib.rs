@@ -20,6 +20,7 @@ pub mod chain_config;
 pub mod data_availability_checker;
 pub mod deneb_readiness;
 mod early_attester_cache;
+pub mod effective_balances_cache;
 mod errors;
 pub mod eth1_chain;
 mod eth1_finalization_cache;
@@ -80,6 +81,7 @@ pub use block_verification::{
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
+pub use effective_balances_cache::EffectiveBalancesCache;
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::ServerSentEventHandler;
 pub use execution_layer::EngineState;
