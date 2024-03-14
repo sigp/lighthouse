@@ -46,7 +46,7 @@ pub struct Libp2pInstance(
     LibP2PService<ReqId, E>,
     #[allow(dead_code)]
     // This field is managed for lifetime purposes may not be used directly, hence the `#[allow(dead_code)]` attribute.
-    exit_future::Signal,
+    async_channel::Sender<()>,
 );
 
 impl std::ops::Deref for Libp2pInstance {
@@ -110,7 +110,7 @@ pub async fn build_libp2p_instance(
     let config = build_config(boot_nodes);
     // launch libp2p service
 
-    let (signal, exit) = exit_future::signal();
+    let (signal, exit) = async_channel::bounded(1);
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
     let executor = task_executor::TaskExecutor::new(rt, exit, log.clone(), shutdown_tx);
     let libp2p_context = lighthouse_network::Context {

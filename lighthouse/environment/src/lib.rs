@@ -343,7 +343,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
     /// Consumes the builder, returning an `Environment`.
     pub fn build(self) -> Result<Environment<E>, String> {
-        let (signal, exit) = exit_future::signal();
+        let (signal, exit) = async_channel::bounded(1);
         let (signal_tx, signal_rx) = channel(1);
         Ok(Environment {
             runtime: self
@@ -370,8 +370,8 @@ pub struct Environment<E: EthSpec> {
     signal_rx: Option<Receiver<ShutdownReason>>,
     /// Sender to request shutting down.
     signal_tx: Sender<ShutdownReason>,
-    signal: Option<exit_future::Signal>,
-    exit: exit_future::Exit,
+    signal: Option<async_channel::Sender<()>>,
+    exit: async_channel::Receiver<()>,
     log: Logger,
     sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
@@ -543,7 +543,7 @@ impl<E: EthSpec> Environment<E> {
     /// Fire exit signal which shuts down all spawned services
     pub fn fire_signal(&mut self) {
         if let Some(signal) = self.signal.take() {
-            let _ = signal.fire();
+            drop(signal);
         }
     }
 
