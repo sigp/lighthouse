@@ -67,9 +67,10 @@ impl DataColumnSubnetId {
         while (subnets.len() as u64) < custody_subnet_count {
             let offset_node_id = node_id + U256::from(offset);
             let offset_node_id = offset_node_id.as_u64().to_le_bytes();
-            let hash = ethereum_hashing::hash_fixed(&offset_node_id);
-            let subnet =
-                U256::from_little_endian(&hash).as_u64() % (T::data_column_subnet_count() as u64);
+            let hash: [u8; 32] = ethereum_hashing::hash_fixed(&offset_node_id);
+            let hash_prefix = [hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7]];
+            let hash_prefix_u64 = u64::from_le_bytes(hash_prefix);
+            let subnet = hash_prefix_u64 % (T::data_column_subnet_count() as u64);
 
             if !subnets.contains(&subnet) {
                 subnets.push(subnet);
