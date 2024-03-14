@@ -27,6 +27,7 @@ pub use verify_exit::verify_exit;
 pub mod altair;
 pub mod block_signature_verifier;
 pub mod deneb;
+pub mod electra;
 pub mod errors;
 mod is_valid_indexed_attestation;
 pub mod process_operations;
