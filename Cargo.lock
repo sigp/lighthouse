@@ -5106,6 +5106,7 @@ dependencies = [
  "slashing_protection",
  "slog",
  "sloggers",
+ "store",
  "task_executor",
  "tempfile",
  "tracing-subscriber",
@@ -6909,6 +6910,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "redb"
+version = "1.5.0"
+source = "git+https://github.com/cberner/redb?branch=master#2a362662733d1bf83b4dcc45d493bba9b3382eef"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8148,6 +8157,7 @@ dependencies = [
  "lighthouse_metrics",
  "lru",
  "parking_lot 0.12.1",
+ "redb",
  "serde",
  "slog",
  "sloggers",

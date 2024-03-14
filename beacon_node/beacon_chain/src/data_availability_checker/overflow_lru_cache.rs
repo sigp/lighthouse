@@ -84,7 +84,6 @@ impl<T: EthSpec> PendingComponents<T> {
             verified_blobs,
             executed_block,
         } = self;
-
         let Some(diet_executed_block) = executed_block else {
             return Err(AvailabilityCheckError::Unexpected);
         };
@@ -99,7 +98,6 @@ impl<T: EthSpec> PendingComponents<T> {
             return Err(AvailabilityCheckError::Unexpected);
         };
         let verified_blobs = VariableList::new(verified_blobs)?;
-
         let executed_block = recover(diet_executed_block)?;
 
         let AvailabilityPendingExecutedBlock {
@@ -213,11 +211,12 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
     ) -> Result<Option<PendingComponents<T::EthSpec>>, AvailabilityCheckError> {
         // read everything from disk and reconstruct
         let mut maybe_pending_components = None;
-        for res in self
-            .0
-            .hot_db
-            .iter_raw_entries(DBColumn::OverflowLRUCache, block_root.as_bytes())
-        {
+        let predicate = move |from: &[u8], prefix: &[u8]| -> bool { from.starts_with(prefix) };
+        for res in self.0.hot_db.iter_column_from::<Vec<u8>>(
+            DBColumn::OverflowLRUCache,
+            block_root.as_bytes(),
+            predicate,
+        )? {
             let (key_bytes, value_bytes) = res?;
             match OverflowKey::from_ssz_bytes(&key_bytes)? {
                 OverflowKey::Block(_) => {
@@ -245,7 +244,11 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
     /// Returns the hashes of all the blocks we have any data for on disk
     pub fn read_keys_on_disk(&self) -> Result<HashSet<Hash256>, AvailabilityCheckError> {
         let mut disk_keys = HashSet::new();
-        for res in self.0.hot_db.iter_raw_keys(DBColumn::OverflowLRUCache, &[]) {
+        for res in self
+            .0
+            .hot_db
+            .iter_column_keys::<Vec<u8>>(DBColumn::OverflowLRUCache)?
+        {
             let key_bytes = res?;
             disk_keys.insert(*OverflowKey::from_ssz_bytes(&key_bytes)?.root());
         }
@@ -632,7 +635,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             .overflow_store
             .0
             .hot_db
-            .iter_raw_entries(DBColumn::OverflowLRUCache, &[])
+            .iter_column::<Vec<u8>>(DBColumn::OverflowLRUCache)?
         {
             let (key_bytes, value_bytes) = res?;
             let overflow_key = OverflowKey::from_ssz_bytes(&key_bytes)?;
@@ -777,7 +780,7 @@ mod test {
     use state_processing::ConsensusContext;
     use std::collections::{BTreeMap, HashMap, VecDeque};
     use std::ops::AddAssign;
-    use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
+    use store::{database::interface::BeaconNodeBackend, HotColdDB, ItemStore, StoreConfig};
     use tempfile::{tempdir, TempDir};
     use types::non_zero_usize::new_non_zero_usize;
     use types::{ChainSpec, ExecPayload, MinimalEthSpec};
@@ -788,7 +791,7 @@ mod test {
         db_path: &TempDir,
         spec: ChainSpec,
         log: Logger,
-    ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
+    ) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
         let blobs_path = db_path.path().join("blobs_db");
@@ -994,7 +997,11 @@ mod test {
     )
     where
         E: EthSpec,
-        T: BeaconChainTypes<HotStore = LevelDB<E>, ColdStore = LevelDB<E>, EthSpec = E>,
+        T: BeaconChainTypes<
+            HotStore = BeaconNodeBackend<E>,
+            ColdStore = BeaconNodeBackend<E>,
+            EthSpec = E,
+        >,
     {
         let log = test_logger();
         let chain_db_path = tempdir().expect("should get temp dir");

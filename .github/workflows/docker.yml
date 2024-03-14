@@ -59,7 +59,7 @@ jobs:
                          x86_64,
                          x86_64-portable]
                 features: [
-                    {version_suffix: "", env: "gnosis,slasher-lmdb,slasher-mdbx,jemalloc"},
+                    {version_suffix: "", env: "gnosis,slasher-lmdb,slasher-mdbx,jemalloc,beacon-node-leveldb,beacon-node-redb"},
                     {version_suffix: "-dev", env: "jemalloc,spec-minimal"}
                 ]
                 include:

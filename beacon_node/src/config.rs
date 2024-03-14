@@ -44,6 +44,11 @@ pub fn get_config<E: EthSpec>(
 
     let mut client_config = ClientConfig::default();
 
+    if let Some(beacon_node_backend) = clap_utils::parse_optional(cli_args, "beacon-node-backend")?
+    {
+        client_config.database_backend = beacon_node_backend;
+    }
+
     // Update the client's data directory
     client_config.set_data_dir(get_data_dir(cli_args));
 

@@ -11,9 +11,10 @@ use std::io::Write;
 use std::path::PathBuf;
 use store::metadata::STATE_UPPER_LIMIT_NO_RETAIN;
 use store::{
+    database::interface::BeaconNodeBackend,
     errors::Error,
     metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION},
-    DBColumn, HotColdDB, KeyValueStore, LevelDB,
+    DBColumn, HotColdDB,
 };
 use strum::{EnumString, EnumVariantNames, VariantNames};
 use types::{BeaconState, EthSpec, Slot};
@@ -244,7 +245,7 @@ pub fn display_db_version<E: EthSpec>(
     let blobs_path = client_config.get_blobs_db_path();
 
     let mut version = CURRENT_SCHEMA_VERSION;
-    HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+    HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -326,11 +327,14 @@ pub fn inspect_db<E: EthSpec>(
     let mut num_keys = 0;
 
     let sub_db = if inspect_config.freezer {
-        LevelDB::<E>::open(&cold_path).map_err(|e| format!("Unable to open freezer DB: {e:?}"))?
+        BeaconNodeBackend::<E>::open(&client_config.store, &cold_path)
+            .map_err(|e| format!("Unable to open freezer DB: {e:?}"))?
     } else if inspect_config.blobs_db {
-        LevelDB::<E>::open(&blobs_path).map_err(|e| format!("Unable to open blobs DB: {e:?}"))?
+        BeaconNodeBackend::<E>::open(&client_config.store, &blobs_path)
+            .map_err(|e| format!("Unable to open blobs DB: {e:?}"))?
     } else {
-        LevelDB::<E>::open(&hot_path).map_err(|e| format!("Unable to open hot DB: {e:?}"))?
+        BeaconNodeBackend::<E>::open(&client_config.store, &hot_path)
+            .map_err(|e| format!("Unable to open hot DB: {e:?}"))?
     };
 
     let skip = inspect_config.skip.unwrap_or(0);
@@ -348,6 +352,7 @@ pub fn inspect_db<E: EthSpec>(
 
     for res in sub_db
         .iter_column::<Vec<u8>>(inspect_config.column)
+        .map_err(|e| format!("Unable to iterate columns: {:?}", e))?
         .skip(skip)
         .take(limit)
     {
@@ -441,11 +446,20 @@ pub fn compact_db<E: EthSpec>(
     let column = compact_config.column;
 
     let (sub_db, db_name) = if compact_config.freezer {
-        (LevelDB::<E>::open(&cold_path)?, "freezer_db")
+        (
+            BeaconNodeBackend::<E>::open(&client_config.store, &cold_path)?,
+            "freezer_db",
+        )
     } else if compact_config.blobs_db {
-        (LevelDB::<E>::open(&blobs_path)?, "blobs_db")
+        (
+            BeaconNodeBackend::<E>::open(&client_config.store, &blobs_path)?,
+            "blobs_db",
+        )
     } else {
-        (LevelDB::<E>::open(&hot_path)?, "hot_db")
+        (
+            BeaconNodeBackend::<E>::open(&client_config.store, &hot_path)?,
+            "hot_db",
+        )
     };
     info!(
         log,
@@ -480,7 +494,7 @@ pub fn migrate_db<E: EthSpec>(
 
     let mut from = CURRENT_SCHEMA_VERSION;
     let to = migrate_config.to;
-    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -520,7 +534,7 @@ pub fn prune_payloads<E: EthSpec>(
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
 
-    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -546,7 +560,7 @@ pub fn prune_blobs<E: EthSpec>(
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
 
-    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -582,7 +596,7 @@ pub fn prune_states<E: EthSpec>(
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
 
-    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
         &hot_path,
         &cold_path,
         &blobs_path,

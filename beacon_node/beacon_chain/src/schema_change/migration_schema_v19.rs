@@ -1,7 +1,7 @@
 use crate::beacon_chain::BeaconChainTypes;
 use slog::{debug, info, Logger};
 use std::sync::Arc;
-use store::{get_key_for_col, DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp};
+use store::{DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp};
 
 pub fn upgrade_to_v19<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
@@ -13,10 +13,12 @@ pub fn upgrade_to_v19<T: BeaconChainTypes>(
 
     debug!(log, "Migrating from v18 to v19");
     // Iterate through the blobs on disk.
-    for res in db.hot_db.iter_column_keys::<Vec<u8>>(column) {
+    for res in db.hot_db.iter_column_keys::<Vec<u8>>(column)? {
         let key = res?;
-        let key_col = get_key_for_col(column.as_str(), &key);
-        hot_delete_ops.push(KeyValueStoreOp::DeleteKey(key_col));
+        hot_delete_ops.push(KeyValueStoreOp::DeleteKey(
+            column.as_str().to_owned(),
+            key.to_vec(),
+        ));
         blob_keys.push(key);
     }
 
@@ -29,8 +31,11 @@ pub fn upgrade_to_v19<T: BeaconChainTypes>(
     for key in blob_keys {
         let next_blob = db.hot_db.get_bytes(column.as_str(), &key)?;
         if let Some(next_blob) = next_blob {
-            let key_col = get_key_for_col(column.as_str(), &key);
-            batch.push(KeyValueStoreOp::PutKeyValue(key_col, next_blob));
+            batch.push(KeyValueStoreOp::PutKeyValue(
+                column.as_str().to_owned(),
+                key.to_vec(),
+                next_blob,
+            ));
 
             if batch.len() >= batch_size {
                 db.blobs_db.do_atomically(batch.clone())?;

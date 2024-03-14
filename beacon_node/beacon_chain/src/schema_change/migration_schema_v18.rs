@@ -3,9 +3,7 @@ use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{
-    get_key_for_col, metadata::BLOB_INFO_KEY, DBColumn, Error, HotColdDB, KeyValueStoreOp,
-};
+use store::{metadata::BLOB_INFO_KEY, DBColumn, Error, HotColdDB, KeyValueStoreOp};
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// The slot clock isn't usually available before the database is initialized, so we construct a
@@ -109,11 +107,11 @@ pub fn downgrade_from_v18<T: BeaconChainTypes>(
             "info" => "you need to upgrade before Deneb",
         );
     }
-
-    let ops = vec![KeyValueStoreOp::DeleteKey(get_key_for_col(
-        DBColumn::BeaconMeta.into(),
-        BLOB_INFO_KEY.as_bytes(),
-    ))];
+    let column_name: &str = DBColumn::BeaconMeta.into();
+    let ops = vec![KeyValueStoreOp::DeleteKey(
+        column_name.to_owned(),
+        BLOB_INFO_KEY.as_bytes().to_vec(),
+    )];
 
     Ok(ops)
 }
