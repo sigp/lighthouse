@@ -348,7 +348,7 @@ If you would like to still use Lighthouse to submit the message, you will need t
 
 ### <a name="vc-resource"></a> Does increasing the number of validators increase the CPU and other computer resources used?
 
-A computer with hardware specifications stated in the [Recommended System Requirements](./installation.md#recommended-system-requirements) can run hundreds validators with only marginal increase in cpu usage. 
+A computer with hardware specifications stated in the [Recommended System Requirements](./installation.md#recommended-system-requirements) can run hundreds validators with only marginal increase in CPU usage. 
 
 ### <a name="vc-reimport"></a> I want to add new validators. Do I have to reimport the existing keys?
 
