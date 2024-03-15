@@ -878,14 +878,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let failed_peers = batch.failed_peers();
 
         let new_peer = {
-            let mut priorized_peers = self
+            let mut prioritized_peers = self
                 .peers
                 .iter()
                 .map(|(peer, requests)| (failed_peers.contains(peer), requests.len(), *peer))
                 .collect::<Vec<_>>();
             // Sort peers prioritizing unrelated peers with less active requests.
-            priorized_peers.sort_unstable();
-            priorized_peers.first().map(|&(_, _, peer)| peer)
+            prioritized_peers.sort_unstable();
+            prioritized_peers.first().map(|&(_, _, peer)| peer)
         };
 
         if let Some(peer) = new_peer {

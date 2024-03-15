@@ -38,6 +38,7 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
     DataColumnsByRoot(DataColumnsByRootRequest),
+    DataColumnsByRange(DataColumnsByRangeRequest),
     Ping(Ping),
     MetaData(MetadataRequest<TSpec>),
 }
@@ -93,6 +94,10 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 ProtocolId::new(SupportedProtocol::MetaDataV2, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::MetaDataV1, Encoding::SSZSnappy),
             ],
+            OutboundRequest::DataColumnsByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::DataColumnsByRangeV1,
+                Encoding::SSZSnappy,
+            )],
         }
     }
     /* These functions are used in the handler for stream management */
@@ -107,6 +112,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::BlobsByRange(req) => req.max_blobs_requested::<TSpec>(),
             OutboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             OutboundRequest::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
+            OutboundRequest::DataColumnsByRange(req) => req.data_column_ids.len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
         }
@@ -133,6 +139,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
                 MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
             },
+            OutboundRequest::DataColumnsByRange(_) => SupportedProtocol::DataColumnsByRangeV1,
         }
     }
 
@@ -147,6 +154,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             OutboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             OutboundRequest::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
+            OutboundRequest::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
             OutboundRequest::Ping(_) => unreachable!(),
@@ -205,6 +213,9 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             OutboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
             OutboundRequest::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),
+            OutboundRequest::DataColumnsByRange(req) => {
+                write!(f, "Data columns by range: {:?}", req)
+            }
             OutboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
         }

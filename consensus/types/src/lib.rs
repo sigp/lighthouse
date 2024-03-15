@@ -129,6 +129,7 @@ pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::{ConfigAndPreset, ConfigAndPresetCapella, ConfigAndPresetDeneb};
 pub use crate::contribution_and_proof::ContributionAndProof;
+pub use crate::data_column_sidecar::DataColumnIdentifier;
 pub use crate::data_column_sidecar::DataColumnSidecar;
 pub use crate::data_column_subnet_id::DataColumnSubnetId;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};

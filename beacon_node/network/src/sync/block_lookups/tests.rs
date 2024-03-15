@@ -1499,6 +1499,7 @@ mod deneb_only {
                 Some(block.canonical_root()),
                 block,
                 self.unknown_parent_blobs.take().map(VariableList::from),
+                None,
             )
             .unwrap();
             self.bl.parent_block_processed(

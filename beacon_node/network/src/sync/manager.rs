@@ -35,7 +35,7 @@
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
-use super::network_context::{BlockOrBlob, SyncNetworkContext};
+use super::network_context::{BlockOrBlob, BlockOrDataColumn, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
@@ -43,7 +43,9 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::common::{Current, Parent};
 use crate::sync::block_lookups::{BlobRequestState, BlockRequestState};
-use crate::sync::network_context::BlocksAndBlobsByRangeRequest;
+use crate::sync::network_context::{
+    BlocksAndBlobsByRangeRequest, BlocksAndDataColumnsByRangeRequest,
+};
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -64,7 +66,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    data_column_sidecar::FixedDataColumnSidecarList, BlobSidecar, DataColumnSidecar, EthSpec,
+    Hash256, SignedBeaconBlock, Slot,
+};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -100,10 +105,14 @@ pub enum RequestId {
     BackFillBlocks { id: Id },
     /// Backfill request that is composed by both a block range request and a blob range request.
     BackFillBlockAndBlobs { id: Id },
+    /// Backfill request that is composed by both a block range request and a data column range request.
+    BackFillBlockAndDataColumns { id: Id },
     /// The request was from a chain in the range sync algorithm.
     RangeBlocks { id: Id },
     /// Range request that is composed by both a block range request and a blob range request.
     RangeBlockAndBlobs { id: Id },
+    /// Range request that is composed by both a block range request and data column range requests.
+    RangeBlockAndDataColumns { id: Id },
 }
 
 #[derive(Debug)]
@@ -133,6 +142,9 @@ pub enum SyncMessage<T: EthSpec> {
 
     /// A blob with an unknown parent has been received.
     UnknownParentBlob(PeerId, Arc<BlobSidecar<T>>),
+
+    /// A data column with an unknown parent has been received.
+    UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<T>>),
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -351,11 +363,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             }
-
             RequestId::BackFillBlockAndBlobs { id } => {
                 if let Some(batch_id) = self
                     .network
                     .backfill_request_failed(id, ByRangeRequestType::BlocksAndBlobs)
+                {
+                    match self
+                        .backfill_sync
+                        .inject_error(&mut self.network, batch_id, &peer_id, id)
+                    {
+                        Ok(_) => {}
+                        Err(_) => self.update_sync_state(),
+                    }
+                }
+            }
+            RequestId::BackFillBlockAndDataColumns { id } => {
+                if let Some(batch_id) = self
+                    .network
+                    .backfill_request_failed(id, ByRangeRequestType::BlocksAndDataColumns)
                 {
                     match self
                         .backfill_sync
@@ -385,6 +410,21 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if let Some((chain_id, batch_id)) = self
                     .network
                     .range_sync_request_failed(id, ByRangeRequestType::BlocksAndBlobs)
+                {
+                    self.range_sync.inject_error(
+                        &mut self.network,
+                        peer_id,
+                        batch_id,
+                        chain_id,
+                        id,
+                    );
+                    self.update_sync_state()
+                }
+            }
+            RequestId::RangeBlockAndDataColumns { id } => {
+                if let Some((chain_id, batch_id)) = self
+                    .network
+                    .range_sync_request_failed(id, ByRangeRequestType::BlocksAndDataColumns)
                 {
                     self.range_sync.inject_error(
                         &mut self.network,
@@ -647,6 +687,26 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     ChildComponents::new(block_root, None, Some(blobs), None),
                 );
             }
+            SyncMessage::UnknownParentDataColumn(peer_id, data_column) => {
+                let data_column_slot = data_column.slot();
+                let block_root = data_column.block_root();
+                let parent_root = data_column.block_parent_root();
+                let data_column_index = data_column.index;
+                if data_column_index >= T::EthSpec::number_of_columns() as u64 {
+                    warn!(self.log, "Peer sent data column with invalid index"; "index" => data_column_index, "peer_id" => %peer_id);
+                    return;
+                }
+
+                let mut data_columns = FixedDataColumnSidecarList::default();
+                *data_columns.index_mut(data_column_index as usize) = Some(data_column);
+                self.handle_unknown_parent(
+                    peer_id,
+                    block_root,
+                    parent_root,
+                    data_column_slot,
+                    ChildComponents::new(block_root, None, None, Some(data_columns)),
+                );
+            }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
@@ -899,8 +959,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::BackFillBlockAndBlobs { id } => {
                 self.backfill_block_and_blobs_response(id, peer_id, block.into())
             }
+            RequestId::BackFillBlockAndDataColumns { id } => {
+                self.backfill_block_and_data_columns_response(id, peer_id, block.into())
+            }
             RequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, block.into())
+            }
+            RequestId::RangeBlockAndDataColumns { id } => {
+                self.range_block_and_data_columns_response(id, peer_id, block.into())
             }
         }
     }
@@ -966,6 +1032,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, blob.into())
             }
+            RequestId::BackFillBlockAndDataColumns { id: _ } => {
+                crit!(self.log, "Data column received during backfill block request"; "peer_id" => %peer_id  );
+            }
+            RequestId::RangeBlockAndDataColumns { id: _ } => {
+                crit!(self.log, "Data column received during range block request"; "peer_id" => %peer_id  );
+            }
         }
     }
 
@@ -1023,6 +1095,129 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         peer_id,
                         PeerAction::MidToleranceError,
                         "block_blob_faulty_batch",
+                    );
+                    self.inject_error(peer_id, id, RPCError::InvalidData(e))
+                }
+            }
+        }
+    }
+
+    // Handles receiving a response for a range sync request that should have both blocks and
+    /// blobs.
+    fn range_block_and_data_columns_response(
+        &mut self,
+        id: Id,
+        peer_id: PeerId,
+        block_or_data_column: BlockOrDataColumn<T::EthSpec>,
+    ) {
+        if let Some((chain_id, resp)) = self
+            .network
+            .range_sync_block_and_data_column_response(id, block_or_data_column)
+        {
+            match resp.responses {
+                Ok(blocks) => {
+                    for block in blocks
+                        .into_iter()
+                        .map(Some)
+                        // chain the stream terminator
+                        .chain(vec![None])
+                    {
+                        self.range_sync.blocks_by_range_response(
+                            &mut self.network,
+                            peer_id,
+                            chain_id,
+                            resp.batch_id,
+                            id,
+                            block,
+                        );
+                        self.update_sync_state();
+                    }
+                }
+                Err(e) => {
+                    // Re-insert the request so we can retry
+                    let new_req = BlocksAndDataColumnsByRangeRequest {
+                        chain_id,
+                        batch_id: resp.batch_id,
+                        block_data_column_info: <_>::default(),
+                    };
+                    self.network
+                        .insert_range_blocks_and_data_columns_request(id, new_req);
+                    // inform range that the request needs to be treated as failed
+                    // With time we will want to downgrade this log
+                    warn!(
+                        self.log,
+                        "Blocks and data columns request for range received invalid data";
+                        "peer_id" => %peer_id,
+                        "batch_id" => resp.batch_id,
+                        "error" => e.clone()
+                    );
+                    let id = RequestId::RangeBlockAndDataColumns { id };
+                    self.network.report_peer(
+                        peer_id,
+                        PeerAction::MidToleranceError,
+                        "block_data_column_faulty_batch",
+                    );
+                    self.inject_error(peer_id, id, RPCError::InvalidData(e))
+                }
+            }
+        }
+    }
+
+    fn backfill_block_and_data_columns_response(
+        &mut self,
+        id: Id,
+        peer_id: PeerId,
+        block_or_data_column: BlockOrDataColumn<T::EthSpec>,
+    ) {
+        if let Some(resp) = self
+            .network
+            .backfill_sync_block_and_data_column_response(id, block_or_data_column)
+        {
+            match resp.responses {
+                Ok(blocks) => {
+                    for block in blocks
+                        .into_iter()
+                        .map(Some)
+                        // chain the stream terminator
+                        .chain(vec![None])
+                    {
+                        match self.backfill_sync.on_block_response(
+                            &mut self.network,
+                            resp.batch_id,
+                            &peer_id,
+                            id,
+                            block,
+                        ) {
+                            Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                            Ok(ProcessResult::Successful) => {}
+                            Err(_error) => {
+                                // The backfill sync has failed, errors are reported
+                                // within.
+                                self.update_sync_state();
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Re-insert the request so we can retry
+                    self.network
+                        .insert_backfill_blocks_and_data_columns_requests(
+                            id,
+                            resp.batch_id,
+                            <_>::default(),
+                        );
+
+                    // inform backfill that the request needs to be treated as failed
+                    // With time we will want to downgrade this log
+                    warn!(
+                        self.log, "Blocks and data columns request for backfill received invalid data";
+                        "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e.clone()
+                    );
+                    let id = RequestId::BackFillBlockAndDataColumns { id };
+                    self.network.report_peer(
+                        peer_id,
+                        PeerAction::MidToleranceError,
+                        "block_data_column_faulty_backfill_batch",
                     );
                     self.inject_error(peer_id, id, RPCError::InvalidData(e))
                 }

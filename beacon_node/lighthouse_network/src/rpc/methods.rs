@@ -12,9 +12,9 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
-use types::data_column_sidecar::DataColumnIdentifier;
+use types::DataColumnSidecar;
 use types::{
-    blob_sidecar::BlobSidecar, ChainSpec, DataColumnSidecar, Epoch, EthSpec, Hash256,
+    blob_sidecar::BlobSidecar, ChainSpec, DataColumnIdentifier, Epoch, EthSpec, Hash256,
     LightClientBootstrap, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
@@ -290,6 +290,25 @@ impl BlobsByRangeRequest {
     }
 }
 
+/// Request a number of beacon data columns from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct DataColumnsByRangeRequest {
+    /// The starting slot to request data columns.
+    pub start_slot: u64,
+
+    /// The number of slots from the start slot.
+    pub count: u64,
+
+    /// The list of beacon block roots and column indices being requested.
+    pub data_column_ids: Vec<DataColumnIdentifier>,
+}
+
+impl DataColumnsByRangeRequest {
+    pub fn max_data_columns_requested<E: EthSpec>(&self) -> u64 {
+        self.count.saturating_mul(E::number_of_columns() as u64)
+    }
+}
+
 /// Request a number of beacon block roots from a peer.
 #[superstruct(
     variants(V1, V2),
@@ -401,6 +420,9 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
     DataColumnsByRoot(Arc<DataColumnSidecar<T>>),
 
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_RANGE request.
+    DataColumnsByRange(Arc<DataColumnSidecar<T>>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -425,6 +447,9 @@ pub enum ResponseTermination {
 
     /// Data column sidecars by root stream termination.
     DataColumnsByRoot,
+
+    /// Data column sidecars by range stream termination.
+    DataColumnsByRange,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -500,6 +525,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
                 RPCResponse::LightClientBootstrap(_) => false,
+                RPCResponse::DataColumnsByRange(_) => true,
             },
             RPCCodedResponse::Error(_, _) => true,
             // Stream terminations are part of responses that have chunks
@@ -539,6 +565,7 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            RPCResponse::DataColumnsByRange(_) => Protocol::DataColumnsByRange,
         }
     }
 }
@@ -590,6 +617,9 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
                     "LightClientBootstrap Slot: {}",
                     bootstrap.header.beacon.slot
                 )
+            }
+            RPCResponse::DataColumnsByRange(sidecar) => {
+                write!(f, "DataColumnsByRoot: Data column slot: {}", sidecar.slot())
             }
         }
     }

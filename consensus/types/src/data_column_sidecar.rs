@@ -71,6 +71,17 @@ impl<T: EthSpec> DataColumnSidecar<T> {
         self.signed_block_header.message.tree_hash_root()
     }
 
+    pub fn block_parent_root(&self) -> Hash256 {
+        self.signed_block_header.message.parent_root
+    }
+
+    pub fn id(&self) -> DataColumnIdentifier {
+        DataColumnIdentifier {
+            block_root: self.block_root(),
+            index: self.index,
+        }
+    }
+
     pub fn build_sidecars(
         blobs: &BlobSidecarList<T>,
         block: &SignedBeaconBlock<T>,

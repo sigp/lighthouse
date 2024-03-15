@@ -1,7 +1,7 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
-use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
+use super::block_sidecar_coupling::{BlocksAndBlobsRequestInfo, BlocksAndDataColumnsRequestInfo};
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
@@ -12,14 +12,16 @@ use crate::sync::manager::SingleLookupReqId;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest,
+};
 use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, DataColumnIdentifier, DataColumnSidecar, EthSpec, SignedBeaconBlock};
 
 pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
     pub batch_id: BatchId,
@@ -30,6 +32,17 @@ pub struct BlocksAndBlobsByRangeRequest<T: EthSpec> {
     pub chain_id: ChainId,
     pub batch_id: BatchId,
     pub block_blob_info: BlocksAndBlobsRequestInfo<T>,
+}
+
+pub struct BlocksAndDataColumnsByRangeResponse<T: EthSpec> {
+    pub batch_id: BatchId,
+    pub responses: Result<Vec<RpcBlock<T>>, String>,
+}
+
+pub struct BlocksAndDataColumnsByRangeRequest<E: EthSpec> {
+    pub chain_id: ChainId,
+    pub batch_id: BatchId,
+    pub block_data_column_info: BlocksAndDataColumnsRequestInfo<E>,
 }
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
@@ -49,9 +62,17 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// BlocksByRange requests paired with BlobsByRange requests made by the range.
     range_blocks_and_blobs_requests: FnvHashMap<Id, BlocksAndBlobsByRangeRequest<T::EthSpec>>,
 
+    /// BlocksByRange requests paired with BlobsByRange requests made by the range.
+    range_blocks_and_data_columns_requests:
+        FnvHashMap<Id, BlocksAndDataColumnsByRangeRequest<T::EthSpec>>,
+
     /// BlocksByRange requests paired with BlobsByRange requests made by the backfill sync.
     backfill_blocks_and_blobs_requests:
         FnvHashMap<Id, (BatchId, BlocksAndBlobsRequestInfo<T::EthSpec>)>,
+
+    /// BlocksByRange requests paired with DataColumnsByRange requests made by the backfill sync.
+    backfill_blocks_and_data_columns_requests:
+        FnvHashMap<Id, (BatchId, BlocksAndDataColumnsRequestInfo<T::EthSpec>)>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
@@ -64,6 +85,24 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     /// Logger for the `SyncNetworkContext`.
     pub log: slog::Logger,
+}
+
+/// Small enumeration to make dealing with block and data column requests easier.
+pub enum BlockOrDataColumn<T: EthSpec> {
+    Block(Option<Arc<SignedBeaconBlock<T>>>),
+    DataColumn(Option<Arc<DataColumnSidecar<T>>>),
+}
+
+impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrDataColumn<T> {
+    fn from(block: Option<Arc<SignedBeaconBlock<T>>>) -> Self {
+        BlockOrDataColumn::Block(block)
+    }
+}
+
+impl<T: EthSpec> From<Option<Arc<DataColumnSidecar<T>>>> for BlockOrDataColumn<T> {
+    fn from(data_column_sidecar: Option<Arc<DataColumnSidecar<T>>>) -> Self {
+        BlockOrDataColumn::DataColumn(data_column_sidecar)
+    }
 }
 
 /// Small enumeration to make dealing with block and blob requests easier.
@@ -98,7 +137,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             range_requests: FnvHashMap::default(),
             backfill_requests: FnvHashMap::default(),
             range_blocks_and_blobs_requests: FnvHashMap::default(),
+            range_blocks_and_data_columns_requests: FnvHashMap::default(),
             backfill_blocks_and_blobs_requests: FnvHashMap::default(),
+            backfill_blocks_and_data_columns_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
             log,
@@ -214,6 +255,49 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 );
                 Ok(id)
             }
+            ByRangeRequestType::BlocksAndDataColumns => {
+                debug!(
+                    self.log,
+                    "Sending BlocksByRange and DataColumnsByRange requests";
+                    "method" => "Mixed by range request",
+                    "count" => request.count(),
+                    "peer" => %peer_id,
+                );
+
+                // create the shared request id. This is fine since the rpc handles substream ids.
+                let id = self.next_id();
+                let request_id = RequestId::Sync(SyncRequestId::RangeBlockAndDataColumns { id });
+
+                // Create the data columns by range request.
+                let data_columns_request = Request::DataColumnsByRange(DataColumnsByRangeRequest {
+                    start_slot: *request.start_slot(),
+                    count: *request.count(),
+                    data_column_ids: vec![], // TODO(das)
+                });
+                let blocks_request = Request::BlocksByRange(request);
+
+                // Send both requests. Make sure both can be sent.
+                self.send_network_msg(NetworkMessage::SendRequest {
+                    peer_id,
+                    request: blocks_request,
+                    request_id,
+                })?;
+                self.send_network_msg(NetworkMessage::SendRequest {
+                    peer_id,
+                    request: data_columns_request,
+                    request_id,
+                })?;
+                let block_data_column_info = BlocksAndDataColumnsRequestInfo::default();
+                self.range_blocks_and_data_columns_requests.insert(
+                    id,
+                    BlocksAndDataColumnsByRangeRequest {
+                        chain_id,
+                        batch_id,
+                        block_data_column_info,
+                    },
+                );
+                Ok(id)
+            }
         }
     }
 
@@ -224,6 +308,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         batch_type: ByRangeRequestType,
         request: BlocksByRangeRequest,
         batch_id: BatchId,
+        data_column_ids: Option<Vec<DataColumnIdentifier>>,
     ) -> Result<Id, &'static str> {
         match batch_type {
             ByRangeRequestType::Blocks => {
@@ -281,6 +366,46 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     .insert(id, (batch_id, block_blob_info));
                 Ok(id)
             }
+            ByRangeRequestType::BlocksAndDataColumns => {
+                debug!(
+                    self.log,
+                    "Sending backfill BlocksByRange and DataColumnsByRange requests";
+                    "method" => "Mixed by range request",
+                    "count" => request.count(),
+                    "peer" => %peer_id,
+                );
+
+                // create the shared request id. This is fine since the rpc handles substream ids.
+                let id = self.next_id();
+                let request_id = RequestId::Sync(SyncRequestId::BackFillBlockAndDataColumns { id });
+                let data_column_ids = data_column_ids.ok_or(
+                    "Trying to send a backfill BlocksByRange and DataColumnsByRange request without data column ids"
+                )?;
+
+                // Create the data column request based on the blob request.
+                let data_columns_request = Request::DataColumnsByRange(DataColumnsByRangeRequest {
+                    start_slot: *request.start_slot(),
+                    count: *request.count(),
+                    data_column_ids,
+                });
+                let blocks_request = Request::BlocksByRange(request);
+
+                // Send both requests. Make sure both can be sent.
+                self.send_network_msg(NetworkMessage::SendRequest {
+                    peer_id,
+                    request: blocks_request,
+                    request_id,
+                })?;
+                self.send_network_msg(NetworkMessage::SendRequest {
+                    peer_id,
+                    request: data_columns_request,
+                    request_id,
+                })?;
+                let block_data_column_info = BlocksAndDataColumnsRequestInfo::default();
+                self.backfill_blocks_and_data_columns_requests
+                    .insert(id, (batch_id, block_data_column_info));
+                Ok(id)
+            }
         }
     }
 
@@ -333,6 +458,47 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
+    /// Received a blocks by range response for a request that couples blocks and data columns.
+    pub fn range_sync_block_and_data_column_response(
+        &mut self,
+        request_id: Id,
+        block_or_data_column: BlockOrDataColumn<T::EthSpec>,
+    ) -> Option<(ChainId, BlocksAndDataColumnsByRangeResponse<T::EthSpec>)> {
+        match self
+            .range_blocks_and_data_columns_requests
+            .entry(request_id)
+        {
+            Entry::Occupied(mut entry) => {
+                let req = entry.get_mut();
+                let info = &mut req.block_data_column_info;
+                match block_or_data_column {
+                    BlockOrDataColumn::Block(maybe_block) => info.add_block_response(maybe_block),
+                    BlockOrDataColumn::DataColumn(maybe_data_column_sidecar) => {
+                        info.add_data_column_sidecar_response(maybe_data_column_sidecar)
+                    }
+                }
+                if info.is_finished() {
+                    // If the request is finished, dequeue everything
+                    let BlocksAndDataColumnsByRangeRequest {
+                        chain_id,
+                        batch_id,
+                        block_data_column_info,
+                    } = entry.remove();
+                    Some((
+                        chain_id,
+                        BlocksAndDataColumnsByRangeResponse {
+                            batch_id,
+                            responses: block_data_column_info.into_responses(),
+                        },
+                    ))
+                } else {
+                    None
+                }
+            }
+            Entry::Vacant(_) => None,
+        }
+    }
+
     pub fn range_sync_request_failed(
         &mut self,
         request_id: Id,
@@ -344,6 +510,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .remove(&request_id)
                 .map(|req| (req.chain_id, req.batch_id)),
             ByRangeRequestType::Blocks => self.range_requests.remove(&request_id),
+            ByRangeRequestType::BlocksAndDataColumns => self
+                .range_blocks_and_data_columns_requests
+                .remove(&request_id)
+                .map(|req| (req.chain_id, req.batch_id)),
         };
         if let Some(req) = req {
             debug!(
@@ -369,6 +539,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let batch_id = match batch_type {
             ByRangeRequestType::BlocksAndBlobs => self
                 .backfill_blocks_and_blobs_requests
+                .remove(&request_id)
+                .map(|(batch_id, _info)| batch_id),
+            ByRangeRequestType::BlocksAndDataColumns => self
+                .backfill_blocks_and_data_columns_requests
                 .remove(&request_id)
                 .map(|(batch_id, _info)| batch_id),
             ByRangeRequestType::Blocks => self.backfill_requests.remove(&request_id),
@@ -421,6 +595,42 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
                     let responses = info.into_responses();
                     Some(BlocksAndBlobsByRangeResponse {
+                        batch_id,
+                        responses,
+                    })
+                } else {
+                    None
+                }
+            }
+            Entry::Vacant(_) => None,
+        }
+    }
+
+    /// Received a blocks by range or data columns by range response for a request that couples blocks
+    /// and data columns.
+    pub fn backfill_sync_block_and_data_column_response(
+        &mut self,
+        request_id: Id,
+        block_or_data_column: BlockOrDataColumn<T::EthSpec>,
+    ) -> Option<BlocksAndDataColumnsByRangeResponse<T::EthSpec>> {
+        match self
+            .backfill_blocks_and_data_columns_requests
+            .entry(request_id)
+        {
+            Entry::Occupied(mut entry) => {
+                let (_, info) = entry.get_mut();
+                match block_or_data_column {
+                    BlockOrDataColumn::Block(maybe_block) => info.add_block_response(maybe_block),
+                    BlockOrDataColumn::DataColumn(maybe_data_column_sidecar) => {
+                        info.add_data_column_sidecar_response(maybe_data_column_sidecar)
+                    }
+                }
+                if info.is_finished() {
+                    // If the request is finished, dequeue everything
+                    let (batch_id, info) = entry.remove();
+
+                    let responses = info.into_responses();
+                    Some(BlocksAndDataColumnsByRangeResponse {
                         batch_id,
                         responses,
                     })
@@ -606,6 +816,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.range_blocks_and_blobs_requests.insert(id, request);
     }
 
+    pub fn insert_range_blocks_and_data_columns_request(
+        &mut self,
+        id: Id,
+        request: BlocksAndDataColumnsByRangeRequest<T::EthSpec>,
+    ) {
+        self.range_blocks_and_data_columns_requests
+            .insert(id, request);
+    }
+
     pub fn insert_backfill_blocks_and_blobs_requests(
         &mut self,
         id: Id,
@@ -613,6 +832,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request: BlocksAndBlobsRequestInfo<T::EthSpec>,
     ) {
         self.backfill_blocks_and_blobs_requests
+            .insert(id, (batch_id, request));
+    }
+
+    pub fn insert_backfill_blocks_and_data_columns_requests(
+        &mut self,
+        id: Id,
+        batch_id: BatchId,
+        request: BlocksAndDataColumnsRequestInfo<T::EthSpec>,
+    ) {
+        self.backfill_blocks_and_data_columns_requests
             .insert(id, (batch_id, request));
     }
 }

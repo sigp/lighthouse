@@ -2496,7 +2496,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         beacon_chain
             .process_block(
                 full_block.canonical_root(),
-                RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs)).unwrap(),
+                RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs), None).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -2557,7 +2557,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .chain
             .data_availability_checker
             .verify_kzg_for_rpc_block(
-                RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs)).unwrap(),
+                RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs), None).unwrap(),
             )
             .expect("should verify kzg")
         {

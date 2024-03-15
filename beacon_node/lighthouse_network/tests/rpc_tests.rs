@@ -13,9 +13,10 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BlobSidecar, ChainSpec,
-    EmptyBlock, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature,
-    SignedBeaconBlock, Slot,
+    beacon_block_body::KzgCommitments, data_column_sidecar::DataColumn, BeaconBlock,
+    BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BlobSidecar, ChainSpec,
+    DataColumnIdentifier, DataColumnSidecar, EmptyBlock, Epoch, EthSpec, ForkContext, ForkName,
+    Hash256, KzgProofs, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -388,6 +389,140 @@ fn test_blobs_by_range_chunked_rpc() {
             }
         }
     })
+}
+
+// Tests a streamed DataColumnsByRange RPC Message
+#[test]
+#[allow(clippy::single_match)]
+fn test_data_columns_by_range_chunked_rpc() {
+    // set up the logging. The level and enabled logging or not
+    let log_level = Level::Debug;
+    let enable_logging = false;
+
+    let slot_count = 32;
+    let messages_to_send = 34;
+    let mut messages_received = 0;
+
+    let log = common::build_log(log_level, enable_logging);
+
+    let rt = Arc::new(Runtime::new().unwrap());
+
+    rt.block_on(async {
+        // get sender/receiver
+        let spec = E::default_spec();
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Deneb,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
+
+        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
+        let signed_full_block =
+            SignedBeaconBlock::from_block(full_block.clone(), Signature::empty());
+
+        let data_column_identifier_1 = DataColumnIdentifier {
+            block_root: full_block.body_root(),
+            index: 1,
+        };
+
+        // BlobsByRange Request
+        let rpc_request = Request::DataColumnsByRange(DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: slot_count,
+            data_column_ids: vec![data_column_identifier_1],
+        });
+
+        let data_column = DataColumn::<E>::default();
+
+        let data_column_sidecar = DataColumnSidecar {
+            index: 1,
+            column: data_column,
+            kzg_commitments: KzgCommitments::<E>::default(),
+            kzg_proofs: KzgProofs::<E>::default(),
+            signed_block_header: signed_full_block.signed_block_header(),
+            kzg_commitments_inclusion_proof: Default::default(),
+        };
+
+        let rpc_response = Response::DataColumnsByRange(Some(Arc::new(data_column_sidecar)));
+
+        let request_id = messages_to_send as usize;
+        // build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        // Send a DataColumnsByRange message
+                        debug!(log, "Sending RPC");
+                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _,
+                        id: _,
+                        response,
+                    } => {
+                        warn!(log, "Sender received a response");
+                        match response {
+                            Response::DataColumnsByRange(Some(_)) => {
+                                assert_eq!(response, rpc_response.clone());
+                                messages_received += 1;
+                                warn!(log, "Chunk received");
+                            }
+                            Response::DataColumnsByRange(None) => {
+                                // should be exactly `messages_to_send` messages before terminating
+                                assert_eq!(messages_received, messages_to_send);
+                                // end the test
+                                return;
+                            }
+                            _ => panic!("Invalid RPC received"),
+                        }
+                    }
+                    // The request will fail because the sender will refuse to send anything > MAX_RPC_SIZE
+                    NetworkEvent::RPCFailed { id, .. } => {
+                        assert_eq!(id, request_id);
+                        return;
+                    }
+                    _ => {} // Ignore other behaviour events
+                }
+            }
+        };
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived {
+                        peer_id,
+                        id,
+                        request,
+                    } => {
+                        if request == rpc_request {
+                            // send the response
+                            warn!(log, "Receiver got request");
+
+                            for _ in 0..messages_to_send {
+                                receiver.send_response(peer_id, id, rpc_response.clone());
+                            }
+
+                            // Response termination
+                            receiver.send_response(peer_id, id, Response::DataColumnsByRange(None));
+                        }
+                    }
+                    _ => {} // Ignore other events
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                    panic!("Future timed out");
+            }
+        }
+    });
 }
 
 // Tests rejection of blocks over `MAX_RPC_SIZE`.

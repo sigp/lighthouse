@@ -142,7 +142,7 @@ fn chain_segment_blocks(
         .iter()
         .zip(blobs.iter())
         .map(|(snapshot, blobs)| {
-            RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+            RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone(), None).unwrap()
         })
         .collect()
 }
@@ -425,7 +425,7 @@ async fn assert_invalid_signature(
         .iter()
         .zip(chain_segment_blobs.iter())
         .map(|(snapshot, blobs)| {
-            RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+            RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone(), None).unwrap()
         })
         .collect();
 
@@ -452,7 +452,7 @@ async fn assert_invalid_signature(
         .take(block_index)
         .zip(chain_segment_blobs.iter())
         .map(|(snapshot, blobs)| {
-            RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+            RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone(), None).unwrap()
         })
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
@@ -471,6 +471,7 @@ async fn assert_invalid_signature(
                 None,
                 snapshots[block_index].beacon_block.clone(),
                 chain_segment_blobs[block_index].clone(),
+                None,
             )
             .unwrap(),
             NotifyExecutionLayer::Yes,
@@ -524,7 +525,7 @@ async fn invalid_signature_gossip_block() {
             .take(block_index)
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+                RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone(), None).unwrap()
             })
             .collect();
         harness
@@ -571,7 +572,7 @@ async fn invalid_signature_block_proposal() {
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+                RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone(), None).unwrap()
             })
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
@@ -784,7 +785,7 @@ async fn invalid_signature_deposit() {
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+                RpcBlock::new(None, snapshot.beacon_block.clone(), blobs.clone(), None).unwrap()
             })
             .collect();
         assert!(

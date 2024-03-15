@@ -148,6 +148,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
                 self.block_request_state.requested_block_root,
                 block.clone(),
                 components.downloaded_blobs.clone(),
+                components.downloaded_data_columns.clone(),
             ) {
                 Ok(rpc_block) => CachedChild::Ok(rpc_block),
                 Err(e) => CachedChild::Err(e),

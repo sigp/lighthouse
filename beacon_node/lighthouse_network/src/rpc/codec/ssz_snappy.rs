@@ -75,6 +75,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::DataColumnsByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::DataColumnsByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
@@ -232,6 +233,7 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
             OutboundRequest::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
+            OutboundRequest::DataColumnsByRange(req) => req.data_column_ids.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };
@@ -508,6 +510,9 @@ fn handle_rpc_request<T: EthSpec>(
                 )?,
             },
         ))),
+        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
+            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -597,6 +602,22 @@ fn handle_rpc_response<T: EthSpec>(
         SupportedProtocol::DataColumnsByRootV1 => match fork_name {
             // TODO(das): update fork name
             Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
+                DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+            )))),
+            Some(_) => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                "Invalid fork name for data columns by root".to_string(),
+            )),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRange(Arc::new(
                 DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
             )))),
             Some(_) => Err(RPCError::ErrorResponse(
@@ -974,6 +995,9 @@ mod tests {
             }
             OutboundRequest::DataColumnsByRoot(dcbroot) => {
                 assert_eq!(decoded, InboundRequest::DataColumnsByRoot(dcbroot))
+            }
+            OutboundRequest::DataColumnsByRange(dcbrange) => {
+                assert_eq!(decoded, InboundRequest::DataColumnsByRange(dcbrange))
             }
             OutboundRequest::Ping(ping) => {
                 assert_eq!(decoded, InboundRequest::Ping(ping))

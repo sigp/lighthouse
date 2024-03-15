@@ -9,8 +9,10 @@ use derivative::Derivative;
 use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::sync::Arc;
-use types::blob_sidecar::{self, BlobIdentifier, FixedBlobSidecarList};
-use types::data_column_sidecar::{self, DataColumnSidecarList};
+use types::blob_sidecar::{self};
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::data_column_sidecar::{self};
+use types::data_column_sidecar::{DataColumnSidecarList, FixedDataColumnSidecarList};
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
@@ -102,6 +104,7 @@ impl<E: EthSpec> RpcBlock<E> {
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
+        _data_column_sidecars: Option<DataColumnSidecarList<E>>,
     ) -> Result<Self, AvailabilityCheckError> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
 
@@ -126,6 +129,9 @@ impl<E: EthSpec> RpcBlock<E> {
             Some(blobs) => RpcBlockInner::BlockAndBlobs(block, blobs),
             None => RpcBlockInner::Block(block),
         };
+
+        // TODO(das) handle data columns
+
         Ok(Self {
             block_root,
             block: inner,
@@ -136,6 +142,7 @@ impl<E: EthSpec> RpcBlock<E> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: FixedBlobSidecarList<E>,
+        data_columns: FixedDataColumnSidecarList<E>,
     ) -> Result<Self, AvailabilityCheckError> {
         let filtered = blobs
             .into_iter()
@@ -146,7 +153,16 @@ impl<E: EthSpec> RpcBlock<E> {
         } else {
             Some(VariableList::from(filtered))
         };
-        Self::new(Some(block_root), block, blobs)
+        let filtered_data_columns = data_columns
+            .into_iter()
+            .filter_map(|b| b.clone())
+            .collect::<Vec<_>>();
+        let data_columns = if filtered_data_columns.is_empty() {
+            None
+        } else {
+            Some(VariableList::from(filtered_data_columns))
+        };
+        Self::new(Some(block_root), block, blobs, data_columns)
     }
 
     #[allow(clippy::type_complexity)]

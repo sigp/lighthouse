@@ -220,6 +220,10 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.network_beacon_processor
                     .send_data_columns_by_roots_request(peer_id, request_id, request),
             ),
+            Request::DataColumnsByRange(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_data_columns_by_range_request(peer_id, request_id, request),
+            ),
             Request::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_light_client_bootstrap_request(peer_id, request_id, request),
@@ -256,6 +260,9 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             Response::DataColumnsByRoot(data_column) => {
                 self.on_data_columns_by_root_response(peer_id, request_id, data_column);
+            }
+            Response::DataColumnsByRange(data_column) => {
+                self.on_data_columns_by_range_response(peer_id, request_id, data_column);
             }
             Response::LightClientBootstrap(_) => unreachable!(),
         }
@@ -513,7 +520,9 @@ impl<T: BeaconChainTypes> Router<T> {
                 id @ (SyncId::BackFillBlocks { .. }
                 | SyncId::RangeBlocks { .. }
                 | SyncId::BackFillBlockAndBlobs { .. }
-                | SyncId::RangeBlockAndBlobs { .. }) => id,
+                | SyncId::RangeBlockAndBlobs { .. }
+                | SyncId::RangeBlockAndDataColumns { .. }
+                | SyncId::BackFillBlockAndDataColumns { .. }) => id,
             },
             RequestId::Router => {
                 crit!(self.log, "All BBRange requests belong to sync"; "peer_id" => %peer_id);
@@ -575,7 +584,9 @@ impl<T: BeaconChainTypes> Router<T> {
                 SyncId::BackFillBlocks { .. }
                 | SyncId::RangeBlocks { .. }
                 | SyncId::RangeBlockAndBlobs { .. }
-                | SyncId::BackFillBlockAndBlobs { .. } => {
+                | SyncId::BackFillBlockAndBlobs { .. }
+                | SyncId::BackFillBlockAndDataColumns { .. }
+                | SyncId::RangeBlockAndDataColumns { .. } => {
                     crit!(self.log, "Batch syncing do not request BBRoot requests"; "peer_id" => %peer_id);
                     return;
                 }
@@ -620,7 +631,9 @@ impl<T: BeaconChainTypes> Router<T> {
                 SyncId::BackFillBlocks { .. }
                 | SyncId::RangeBlocks { .. }
                 | SyncId::RangeBlockAndBlobs { .. }
-                | SyncId::BackFillBlockAndBlobs { .. } => {
+                | SyncId::BackFillBlockAndBlobs { .. }
+                | SyncId::BackFillBlockAndDataColumns { .. }
+                | SyncId::RangeBlockAndDataColumns { .. } => {
                     crit!(self.log, "Batch syncing does not request BBRoot requests"; "peer_id" => %peer_id);
                     return;
                 }
@@ -652,6 +665,16 @@ impl<T: BeaconChainTypes> Router<T> {
         _data_column_sidecar: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
         // TODO(das) implement `DataColumnsByRoot` response handling
+    }
+
+    /// Handle a `DataColumnsByRange` response from the peer.
+    pub fn on_data_columns_by_range_response(
+        &mut self,
+        _peer_id: PeerId,
+        _request_id: RequestId,
+        _data_column_sidecar: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) {
+        // TODO(das) implement `DataColumnsByRange` response handling
     }
 
     fn handle_beacon_processor_send_result(

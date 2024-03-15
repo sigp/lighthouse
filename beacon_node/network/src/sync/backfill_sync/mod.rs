@@ -923,7 +923,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         let failed_peers = batch.failed_peers();
 
         let new_peer = {
-            let mut priorized_peers = self
+            let mut prioritized_peers = self
                 .network_globals
                 .peers
                 .read()
@@ -937,8 +937,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 })
                 .collect::<Vec<_>>();
             // Sort peers prioritizing unrelated peers with less active requests.
-            priorized_peers.sort_unstable();
-            priorized_peers.first().map(|&(_, _, peer)| peer)
+            prioritized_peers.sort_unstable();
+            prioritized_peers.first().map(|&(_, _, peer)| peer)
         };
 
         if let Some(peer) = new_peer {
@@ -961,7 +961,14 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ) -> Result<(), BackFillError> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, is_blob_batch) = batch.to_blocks_by_range_request();
-            match network.backfill_blocks_by_range_request(peer, is_blob_batch, request, batch_id) {
+            // TODO(das) pass in data_column_ids to fetch
+            match network.backfill_blocks_by_range_request(
+                peer,
+                is_blob_batch,
+                request,
+                batch_id,
+                None,
+            ) {
                 Ok(request_id) => {
                     // inform the batch about the new request
                     if let Err(e) = batch.start_downloading_from_peer(peer, request_id) {
