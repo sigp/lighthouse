@@ -1719,9 +1719,9 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
     ///
-    /// Note: this function will not build any new committee caches, but will build the total
-    /// balance cache if the (new) current committee cache is initialized.
-    pub fn advance_caches(&mut self, _spec: &ChainSpec) -> Result<(), Error> {
+    /// Note: this function will not build any new committee caches, nor will it update the total
+    /// active balance cache. The total active balance cache must be updated separately.
+    pub fn advance_caches(&mut self) -> Result<(), Error> {
         self.committee_caches_mut().rotate_left(1);
 
         let next = Self::committee_cache_index(RelativeEpoch::Next);

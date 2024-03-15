@@ -1,4 +1,4 @@
-use crate::{ActivationQueue, BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, Slot};
+use crate::{ActivationQueue, BeaconStateError, ChainSpec, Epoch, Hash256, Slot};
 use safe_arith::{ArithError, SafeArith};
 use std::sync::Arc;
 
@@ -40,6 +40,7 @@ pub struct EpochCacheKey {
 pub enum EpochCacheError {
     IncorrectEpoch { cache: Epoch, state: Epoch },
     IncorrectDecisionBlock { cache: Hash256, state: Hash256 },
+    ZeroDecisionBlock,
     ValidatorIndexOutOfBounds { validator_index: usize },
     EffectiveBalanceOutOfBounds { effective_balance_eth: usize },
     InvalidSlot { slot: Slot },
@@ -79,7 +80,7 @@ impl EpochCache {
         }
     }
 
-    pub fn check_validity<E: EthSpec>(
+    pub fn check_validity(
         &self,
         current_epoch: Epoch,
         state_decision_root: Hash256,
