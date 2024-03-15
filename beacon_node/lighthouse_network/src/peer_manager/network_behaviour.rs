@@ -270,7 +270,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 }
             };
 
-            metrics::inc_gauge(&metrics::PEERS_CONNECTED);
             metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
 
             self.update_peers_per_client_metrics();
@@ -364,7 +363,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 _ => {}
             };
             // Legacy standard metrics.
-            metrics::dec_gauge(&metrics::PEERS_CONNECTED);
             metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
 
             self.update_peers_per_client_metrics();

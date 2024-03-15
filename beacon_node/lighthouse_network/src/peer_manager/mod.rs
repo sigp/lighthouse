@@ -802,11 +802,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // start a ping and status timer for the peer
         self.status_peers.insert(*peer_id);
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
-
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
 
         true
     }
@@ -1260,14 +1257,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     // Update peers per client metrics.
     fn update_peers_per_client_metrics(&self) {
+        let mut peers_connected = 0;
         let mut clients_per_peer = HashMap::new();
 
         for (_peer, peer_info) in self.network_globals.peers.read().connected_peers() {
+            peers_connected += 1;
             *clients_per_peer
                 .entry(peer_info.client().kind.to_string())
                 .or_default() += 1;
         }
 
+        // PEERS_CONNECTED
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, peers_connected);
+
+        // PEERS_PER_CLIENT
         for client_kind in ClientKind::iter() {
             let value = clients_per_peer.get(&client_kind.to_string()).unwrap_or(&0);
             metrics::set_gauge_vec(
