@@ -30,13 +30,13 @@ The exit phrase is the following:
 
 
 
-Below is an example for initiating a voluntary exit on the Goerli testnet.
+Below is an example for initiating a voluntary exit on the Holesky testnet.
 
 ```
-$ lighthouse --network goerli account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
+$ lighthouse --network holesky account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
 
 Running account manager for Prater network
-validator-dir path: ~/.lighthouse/goerli/validators
+validator-dir path: ~/.lighthouse/holesky/validators
 
 Enter the keystore password for validator in 0xabcd
 
