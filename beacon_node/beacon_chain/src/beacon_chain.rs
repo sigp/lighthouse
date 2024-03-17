@@ -21,7 +21,8 @@ use crate::block_verification_types::{
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
-    Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
+    Availability, AvailabilityCheckError, AvailableBlock, BlockAvailability,
+    DataAvailabilityChecker,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
@@ -69,8 +70,7 @@ use crate::validator_monitor::{
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
-    BeaconSnapshot, CachedHead,
+    kzg_utils, metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead,
 };
 use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
@@ -3018,14 +3018,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )?;
             publish_fn()?;
             let executed_block = chain.into_executed_block(execution_pending).await?;
-            match executed_block {
-                ExecutedBlock::Available(block) => {
-                    self.import_available_block(Box::new(block)).await
-                }
-                ExecutedBlock::AvailabilityPending(block) => {
-                    self.check_block_availability_and_import(block).await
-                }
-            }
+            self.check_block_availability_and_import(executed_block)
+                .await
         };
 
         // Verify and import the block.
@@ -3095,6 +3089,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let ExecutionPendingBlock {
             block,
             import_data,
+            availability,
             payload_verification_handle,
         } = execution_pending_block;
 
@@ -3135,6 +3130,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(ExecutedBlock::new(
             block,
             import_data,
+            availability,
             payload_verification_outcome,
         ))
     }
@@ -3145,7 +3141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// in the data availability checker.
     async fn check_block_availability_and_import(
         self: &Arc<Self>,
-        block: AvailabilityPendingExecutedBlock<T::EthSpec>,
+        block: ExecutedBlock<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let slot = block.block.slot();
         let availability = self

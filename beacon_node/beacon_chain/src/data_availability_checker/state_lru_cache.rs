@@ -1,4 +1,5 @@
 use crate::block_verification_types::AsBlock;
+use crate::ExecutedBlock;
 use crate::{
     block_verification_types::BlockImportData,
     data_availability_checker::{AvailabilityCheckError, STATE_LRU_CAPACITY_NON_ZERO},
@@ -72,7 +73,7 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
     /// keep around in memory.
     pub fn register_pending_executed_block(
         &self,
-        executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
+        executed_block: ExecutedBlock<T::EthSpec>,
     ) -> DietAvailabilityPendingExecutedBlock<T::EthSpec> {
         let state = executed_block.import_data.state;
         let state_root = executed_block.block.state_root();

@@ -52,7 +52,9 @@ use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_verification_types::{
     AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
-use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
+use crate::data_availability_checker::{
+    AvailabilityCheckError, BlockAvailability, MaybeAvailableBlock,
+};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
@@ -673,9 +675,10 @@ type PayloadVerificationHandle<E> =
 /// due to finality or some other event. A `ExecutionPendingBlock` should be imported into the
 /// `BeaconChain` immediately after it is instantiated.
 pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
-    pub block: MaybeAvailableBlock<T::EthSpec>,
+    pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
     pub import_data: BlockImportData<T::EthSpec>,
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
+    pub availability: BlockAvailability<T::EthSpec>,
 }
 
 pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
@@ -1115,9 +1118,10 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         if signature_verifier.verify().is_ok() {
             Ok(Self {
-                block: MaybeAvailableBlock::AvailabilityPending {
-                    block_root: from.block_root,
+                block: MaybeAvailableBlock {
                     block,
+                    block_root: from.block_root,
+                    availability: BlockAvailability::Pending,
                 },
                 block_root: from.block_root,
                 parent: Some(parent),
@@ -1645,7 +1649,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         drop(fork_choice);
 
         Ok(Self {
-            block,
+            block: block.block_cloned(),
             import_data: BlockImportData {
                 block_root,
                 state,
@@ -1655,6 +1659,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 consensus_context,
             },
             payload_verification_handle,
+            availability: block.availability,
         })
     }
 }

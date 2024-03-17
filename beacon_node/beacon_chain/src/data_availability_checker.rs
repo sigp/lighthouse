@@ -1,14 +1,12 @@
 use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlobList};
-use crate::block_verification_types::{
-    AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
-};
+use crate::block_verification_types::{AvailableExecutedBlock, RpcBlock};
 pub use crate::data_availability_checker::availability_view::{
     AvailabilityView, GetCommitment, GetCommitments,
 };
 pub use crate::data_availability_checker::child_components::ChildComponents;
 use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::data_availability_checker::processing_cache::ProcessingCache;
-use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
+use crate::{BeaconChain, BeaconChainTypes, BeaconStore, ExecutedBlock};
 use kzg::Kzg;
 use parking_lot::RwLock;
 pub use processing_cache::ProcessingComponents;
@@ -235,7 +233,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// about whether all components have been received or more are required.
     pub fn put_pending_executed_block(
         &self,
-        executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
+        executed_block: ExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
             .put_pending_executed_block(executed_block)
@@ -251,16 +249,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
         let (block_root, block, blobs) = block.deconstruct();
-        match blobs {
+        let availability = match blobs {
             None => {
                 if self.blobs_required_for_block(&block) {
-                    Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+                    BlockAvailability::Pending
                 } else {
-                    Ok(MaybeAvailableBlock::Available(AvailableBlock {
-                        block_root,
-                        block,
-                        blobs: None,
-                    }))
+                    BlockAvailability::Available { blobs: None }
                 }
             }
             Some(blob_list) => {
@@ -275,13 +269,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 } else {
                     None
                 };
-                Ok(MaybeAvailableBlock::Available(AvailableBlock {
-                    block_root,
-                    block,
+                BlockAvailability::Available {
                     blobs: verified_blobs,
-                }))
+                }
             }
-        }
+        };
+        Ok(MaybeAvailableBlock {
+            block,
+            block_root,
+            availability,
+        })
     }
 
     /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
@@ -315,16 +312,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         for block in blocks {
             let (block_root, block, blobs) = block.deconstruct();
-            match blobs {
+            let availability = match blobs {
                 None => {
                     if self.blobs_required_for_block(&block) {
-                        results.push(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+                        BlockAvailability::Pending
                     } else {
-                        results.push(MaybeAvailableBlock::Available(AvailableBlock {
-                            block_root,
-                            block,
-                            blobs: None,
-                        }))
+                        BlockAvailability::Available { blobs: None }
                     }
                 }
                 Some(blob_list) => {
@@ -334,13 +327,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         None
                     };
                     // already verified kzg for all blobs
-                    results.push(MaybeAvailableBlock::Available(AvailableBlock {
-                        block_root,
-                        block,
+                    BlockAvailability::Available {
                         blobs: verified_blobs,
-                    }))
+                    }
                 }
-            }
+            };
+            results.push(MaybeAvailableBlock {
+                block,
+                block_root,
+                availability,
+            });
         }
 
         Ok(results)
@@ -567,6 +563,22 @@ pub struct AvailableBlock<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
+    pub fn from_maybe_available(maybe_available: MaybeAvailableBlock<E>) -> Option<Self> {
+        let MaybeAvailableBlock {
+            block,
+            block_root,
+            availability,
+        } = maybe_available;
+        match availability {
+            BlockAvailability::Available { blobs } => Some(AvailableBlock {
+                block,
+                block_root,
+                blobs,
+            }),
+            BlockAvailability::Pending => None,
+        }
+    }
+
     pub fn __new_for_testing(
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
@@ -606,24 +618,31 @@ impl<E: EthSpec> AvailableBlock<E> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum MaybeAvailableBlock<E: EthSpec> {
-    /// This variant is fully available.
-    /// i.e. for pre-deneb blocks, it contains a (`SignedBeaconBlock`, `Blobs::None`) and for
-    /// post-4844 blocks, it contains a `SignedBeaconBlock` and a Blobs variant other than `Blobs::None`.
-    Available(AvailableBlock<E>),
-    /// This variant is not fully available and requires blobs to become fully available.
-    AvailabilityPending {
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<E>>,
-    },
+pub enum BlockAvailability<E: EthSpec> {
+    Available { blobs: Option<BlobSidecarList<E>> },
+    Pending,
+}
+
+pub struct MaybeAvailableBlock<E: EthSpec> {
+    pub block: Arc<SignedBeaconBlock<E>>,
+    pub block_root: Hash256,
+    pub availability: BlockAvailability<E>,
 }
 
 impl<E: EthSpec> MaybeAvailableBlock<E> {
-    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match self {
-            Self::Available(block) => block.block_cloned(),
-            Self::AvailabilityPending { block, .. } => block.clone(),
+    pub fn into_available(self) -> Option<AvailableBlock<E>> {
+        let Self {
+            block,
+            block_root,
+            availability,
+        } = self;
+        match availability {
+            BlockAvailability::Available { blobs } => Some(AvailableBlock {
+                block,
+                block_root,
+                blobs,
+            }),
+            BlockAvailability::Pending => None,
         }
     }
 }

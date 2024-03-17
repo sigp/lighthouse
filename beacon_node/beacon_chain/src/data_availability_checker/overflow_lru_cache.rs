@@ -28,15 +28,14 @@
 //! the cache when they are accessed.
 
 use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
+use super::BlockAvailability;
 use crate::beacon_chain::BeaconStore;
 use crate::blob_verification::KzgVerifiedBlob;
-use crate::block_verification_types::{
-    AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
-};
+use crate::block_verification_types::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 use crate::data_availability_checker::availability_view::AvailabilityView;
-use crate::data_availability_checker::{Availability, AvailabilityCheckError};
+use crate::data_availability_checker::{Availability, AvailabilityCheckError, AvailableBlock};
 use crate::store::{DBColumn, KeyValueStore};
-use crate::BeaconChainTypes;
+use crate::{BeaconChainTypes, ExecutedBlock};
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
 use ssz::{Decode, Encode};
@@ -468,8 +467,39 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     /// triggers import of the block.
     pub fn put_pending_executed_block(
         &self,
-        executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
+        executed_block: ExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        // If executed_block is already available, return early
+        let executed_block = {
+            let ExecutedBlock {
+                block,
+                import_data,
+                availability,
+                payload_verification_outcome,
+            } = executed_block;
+            match availability {
+                BlockAvailability::Available { blobs } => {
+                    return Ok(Availability::Available(Box::new(
+                        AvailableExecutedBlock::new(
+                            AvailableBlock {
+                                block_root: import_data.block_root,
+                                block,
+                                blobs,
+                            },
+                            import_data,
+                            payload_verification_outcome,
+                        ),
+                    )))
+                }
+                BlockAvailability::Pending => ExecutedBlock {
+                    block,
+                    import_data,
+                    availability,
+                    payload_verification_outcome,
+                },
+            }
+        };
+
         let mut write_lock = self.critical.write();
         let block_root = executed_block.import_data.block_root;
 

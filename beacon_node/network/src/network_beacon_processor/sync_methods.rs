@@ -7,7 +7,6 @@ use crate::sync::{
 };
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
-use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::{
     validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainError,
     BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
@@ -475,10 +474,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         {
             Ok(blocks) => blocks
                 .into_iter()
-                .filter_map(|maybe_available| match maybe_available {
-                    MaybeAvailableBlock::Available(block) => Some(block),
-                    MaybeAvailableBlock::AvailabilityPending { .. } => None,
-                })
+                .filter_map(|maybe_available| maybe_available.into_available())
                 .collect::<Vec<_>>(),
             Err(e) => match e {
                 AvailabilityCheckError::StoreError(_)

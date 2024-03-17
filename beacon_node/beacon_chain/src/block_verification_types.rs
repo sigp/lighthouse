@@ -1,7 +1,8 @@
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlobList};
 use crate::block_verification::BlockError;
-use crate::data_availability_checker::AvailabilityCheckError;
-pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
+use crate::data_availability_checker::{
+    AvailabilityCheckError, AvailableBlock, BlockAvailability, MaybeAvailableBlock,
+};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{get_block_root, GossipVerifiedBlock, PayloadVerificationOutcome};
 use derivative::Derivative;
@@ -172,48 +173,34 @@ impl<E: EthSpec> RpcBlock<E> {
 ///    required blobs.
 /// 2. `AvailabilityPending`: This block hasn't received all required blobs to consider it a
 ///    fully available block.
-pub enum ExecutedBlock<E: EthSpec> {
-    Available(AvailableExecutedBlock<E>),
-    AvailabilityPending(AvailabilityPendingExecutedBlock<E>),
+pub struct ExecutedBlock<E: EthSpec> {
+    pub block: Arc<SignedBeaconBlock<E>>,
+    pub import_data: BlockImportData<E>,
+    pub availability: BlockAvailability<E>,
+    pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
 impl<E: EthSpec> ExecutedBlock<E> {
     pub fn new(
-        block: MaybeAvailableBlock<E>,
+        block: Arc<SignedBeaconBlock<E>>,
         import_data: BlockImportData<E>,
+        availability: BlockAvailability<E>,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
-        match block {
-            MaybeAvailableBlock::Available(available_block) => {
-                Self::Available(AvailableExecutedBlock::new(
-                    available_block,
-                    import_data,
-                    payload_verification_outcome,
-                ))
-            }
-            MaybeAvailableBlock::AvailabilityPending {
-                block_root: _,
-                block: pending_block,
-            } => Self::AvailabilityPending(AvailabilityPendingExecutedBlock::new(
-                pending_block,
-                import_data,
-                payload_verification_outcome,
-            )),
+        Self {
+            block,
+            import_data,
+            payload_verification_outcome,
+            availability,
         }
     }
 
     pub fn as_block(&self) -> &SignedBeaconBlock<E> {
-        match self {
-            Self::Available(available) => available.block.block(),
-            Self::AvailabilityPending(pending) => &pending.block,
-        }
+        &self.block
     }
 
     pub fn block_root(&self) -> Hash256 {
-        match self {
-            ExecutedBlock::AvailabilityPending(pending) => pending.import_data.block_root,
-            ExecutedBlock::Available(available) => available.import_data.block_root,
-        }
+        self.import_data.block_root
     }
 }
 
@@ -416,33 +403,33 @@ impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
-        match &self {
-            MaybeAvailableBlock::Available(block) => block.as_block(),
-            MaybeAvailableBlock::AvailabilityPending {
-                block_root: _,
-                block,
-            } => block,
-        }
+        &self.block
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match &self {
-            MaybeAvailableBlock::Available(block) => block.block_cloned(),
-            MaybeAvailableBlock::AvailabilityPending {
-                block_root: _,
-                block,
-            } => block.clone(),
-        }
+        self.block.clone()
     }
     fn canonical_root(&self) -> Hash256 {
         self.as_block().canonical_root()
     }
 
     fn into_rpc_block(self) -> RpcBlock<E> {
-        match self {
-            MaybeAvailableBlock::Available(available_block) => available_block.into_rpc_block(),
-            MaybeAvailableBlock::AvailabilityPending { block_root, block } => {
-                RpcBlock::new_without_blobs(Some(block_root), block)
-            }
+        let Self {
+            block,
+            block_root,
+            availability,
+        } = self;
+        // Circumvent the constructor here, because an Available block will have already had
+        // consistency checks performed.
+        let inner = match availability {
+            BlockAvailability::Available { blobs } => match blobs {
+                Some(blobs) => RpcBlockInner::BlockAndBlobs(block, blobs),
+                None => RpcBlockInner::Block(block),
+            },
+            BlockAvailability::Pending => RpcBlockInner::Block(block),
+        };
+        RpcBlock {
+            block_root,
+            block: inner,
         }
     }
 }
