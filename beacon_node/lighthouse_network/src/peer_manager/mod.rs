@@ -1256,8 +1256,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
-    // Update peers per client metrics.
-    fn update_peers_per_client_metrics(&self) {
+    // Update peer count related metrics.
+    fn update_peer_count_metrics(&self) {
         let mut peers_connected = 0;
         let mut clients_per_peer = HashMap::new();
         let mut peers_connected_mutli: HashMap<(&str, &str), i32> = HashMap::new();

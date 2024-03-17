@@ -243,11 +243,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.events.push(PeerManagerEvent::MetaData(peer_id));
         }
 
-        // increment prometheus metrics
+        // Update the prometheus metrics
         if self.metrics_enabled {
             metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
 
-            self.update_peers_per_client_metrics();
+            self.update_peer_count_metrics();
         }
 
         // Count dialing peers in the limit if the peer dialed us.
@@ -319,7 +319,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // Legacy standard metrics.
             metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
 
-            self.update_peers_per_client_metrics();
+            self.update_peer_count_metrics();
         }
     }
 
