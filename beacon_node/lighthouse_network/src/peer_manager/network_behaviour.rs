@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
-use libp2p::core::{multiaddr, ConnectedPoint};
+use libp2p::core::ConnectedPoint;
 use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
@@ -285,7 +285,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn on_connection_closed(
         &mut self,
         peer_id: PeerId,
-        endpoint: &ConnectedPoint,
+        _endpoint: &ConnectedPoint,
         remaining_established: usize,
     ) {
         if remaining_established > 0 {
@@ -313,7 +313,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // reference so that peer manager can track this peer.
         self.inject_disconnect(&peer_id);
 
-        let remote_addr = endpoint.get_remote_address();
         // Update the prometheus metrics
         if self.metrics_enabled {
             // Legacy standard metrics.
