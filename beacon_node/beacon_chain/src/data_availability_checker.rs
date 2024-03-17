@@ -409,14 +409,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.processing_cache.write().remove(block_root)
     }
 
-    /// Gather all block roots for which we are not currently processing all components for the
-    /// given slot.
-    pub fn incomplete_processing_components(&self, slot: Slot) -> Vec<Hash256> {
-        self.processing_cache
-            .read()
-            .incomplete_processing_components(slot)
-    }
-
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
