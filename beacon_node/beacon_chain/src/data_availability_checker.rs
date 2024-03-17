@@ -15,6 +15,7 @@ pub use processing_cache::ProcessingComponents;
 use slasher::test_utils::E;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
+use ssz_types::FixedVector;
 use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
@@ -114,10 +115,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ///
     /// If there's no block, all possible ids will be returned that don't exist in the given blobs.
     /// If there no blobs, all possible ids will be returned.
-    pub fn get_missing_blob_ids<V: AvailabilityView<T::EthSpec>>(
+    pub fn get_missing_blob_ids<V>(
         &self,
         block_root: Hash256,
-        availability_view: &V,
+        block: &Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        blobs: &FixedVector<Option<V>, <T::EthSpec as EthSpec>::MaxBlobsPerBlock>,
     ) -> MissingBlobs {
         let Some(current_slot) = self.slot_clock.now_or_genesis() else {
             error!(
@@ -130,10 +132,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
         if self.da_check_required_for_epoch(current_epoch) {
-            match availability_view.get_cached_block() {
+            match block {
                 Some(cached_block) => {
                     let block_commitments = cached_block.get_commitments();
-                    let blob_commitments = availability_view.get_cached_blobs();
 
                     let num_blobs_expected = block_commitments.len();
                     let mut blob_ids = Vec::with_capacity(num_blobs_expected);
@@ -141,37 +142,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     // Zip here will always limit the number of iterations to the size of
                     // `block_commitment` because `blob_commitments` will always be populated
                     // with `Option` values up to `MAX_BLOBS_PER_BLOCK`.
-                    for (index, (block_commitment, blob_commitment_opt)) in block_commitments
-                        .into_iter()
-                        .zip(blob_commitments.iter())
-                        .enumerate()
+                    for (index, (_, blob_commitment_opt)) in
+                        block_commitments.into_iter().zip(blobs.iter()).enumerate()
                     {
                         // Always add a missing blob.
-                        let Some(blob_commitment) = blob_commitment_opt else {
+                        if blob_commitment_opt.is_none() {
                             blob_ids.push(BlobIdentifier {
                                 block_root,
                                 index: index as u64,
                             });
                             continue;
                         };
-
-                        let blob_commitment = *blob_commitment.get_commitment();
-
-                        // Check for consistency, but this shouldn't happen, an availability view
-                        // should guaruntee consistency.
-                        if blob_commitment != block_commitment {
-                            error!(self.log,
-                                "Inconsistent availability view";
-                                "block_root" => ?block_root,
-                                "block_commitment" => ?block_commitment,
-                                "blob_commitment" => ?blob_commitment,
-                                "index" => index
-                            );
-                            blob_ids.push(BlobIdentifier {
-                                block_root,
-                                index: index as u64,
-                            });
-                        }
                     }
                     MissingBlobs::KnownMissing(blob_ids)
                 }
