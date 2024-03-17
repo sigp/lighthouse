@@ -27,6 +27,7 @@ pub use libp2p::identity::Keypair;
 pub mod peerdb;
 
 use crate::peer_manager::peerdb::client::ClientKind;
+use libp2p::multiaddr;
 pub use peerdb::peer_info::{
     ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo,
 };
@@ -1259,11 +1260,36 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn update_peers_per_client_metrics(&self) {
         let mut peers_connected = 0;
         let mut clients_per_peer = HashMap::new();
+        let mut peers_connected_mutli: HashMap<(&str, &str), i32> = HashMap::new();
 
-        for (_peer, peer_info) in self.network_globals.peers.read().connected_peers() {
+        for (_, peer_info) in self.network_globals.peers.read().connected_peers() {
             peers_connected += 1;
+
             *clients_per_peer
                 .entry(peer_info.client().kind.to_string())
+                .or_default() += 1;
+
+            let direction = match peer_info.connection_direction() {
+                Some(ConnectionDirection::Incoming) => "inbound",
+                Some(ConnectionDirection::Outgoing) => "outbound",
+                None => "none",
+            };
+            // Note: the `transport` is set to `unknown` if the `listening_addresses` list is empty.
+            // This situation occurs when the peer is initially registered in PeerDB, but the peer
+            // info has not yet been updated at `PeerManager::identify`.
+            let transport = peer_info
+                .listening_addresses()
+                .iter()
+                .find_map(|addr| {
+                    addr.iter().find_map(|proto| match proto {
+                        multiaddr::Protocol::QuicV1 => Some("quic"),
+                        multiaddr::Protocol::Tcp(_) => Some("tcp"),
+                        _ => None,
+                    })
+                })
+                .unwrap_or("unknown");
+            *peers_connected_mutli
+                .entry((direction, transport))
                 .or_default() += 1;
         }
 
@@ -1278,6 +1304,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 &[client_kind.as_ref()],
                 *value as i64,
             );
+        }
+
+        // PEERS_CONNECTED_MULTI
+        for direction in ["inbound", "outbound", "none"] {
+            for transport in ["quic", "tcp", "unknown"] {
+                metrics::set_gauge_vec(
+                    &metrics::PEERS_CONNECTED_MULTI,
+                    &[direction, transport],
+                    *peers_connected_mutli
+                        .get(&(direction, transport))
+                        .unwrap_or(&0) as i64,
+                );
+            }
         }
     }
 }

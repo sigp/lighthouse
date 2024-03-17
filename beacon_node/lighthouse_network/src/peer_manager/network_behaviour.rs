@@ -245,31 +245,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // increment prometheus metrics
         if self.metrics_enabled {
-            let remote_addr = endpoint.get_remote_address();
-            let direction = if endpoint.is_dialer() {
-                "outbound"
-            } else {
-                "inbound"
-            };
-
-            match remote_addr.iter().find(|proto| {
-                matches!(
-                    proto,
-                    multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
-                )
-            }) {
-                Some(multiaddr::Protocol::QuicV1) => {
-                    metrics::inc_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "quic"]);
-                }
-                Some(multiaddr::Protocol::Tcp(_)) => {
-                    metrics::inc_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "tcp"]);
-                }
-                Some(_) => unreachable!(),
-                None => {
-                    error!(self.log, "Connection established via unknown transport"; "addr" => %remote_addr)
-                }
-            };
-
             metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
 
             self.update_peers_per_client_metrics();
@@ -341,27 +316,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let remote_addr = endpoint.get_remote_address();
         // Update the prometheus metrics
         if self.metrics_enabled {
-            let direction = if endpoint.is_dialer() {
-                "outbound"
-            } else {
-                "inbound"
-            };
-
-            match remote_addr.iter().find(|proto| {
-                matches!(
-                    proto,
-                    multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
-                )
-            }) {
-                Some(multiaddr::Protocol::QuicV1) => {
-                    metrics::dec_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "quic"]);
-                }
-                Some(multiaddr::Protocol::Tcp(_)) => {
-                    metrics::dec_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "tcp"]);
-                }
-                // If it's an unknown protocol we already logged when connection was established.
-                _ => {}
-            };
             // Legacy standard metrics.
             metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
 
