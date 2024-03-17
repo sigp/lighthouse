@@ -239,6 +239,7 @@ where
             kind: kind.clone().unwrap_or(PeerKind::Floodsub),
             connections: vec![connection_id],
             topics: Default::default(),
+            dont_send: LruCache::new(NonZeroUsize::new(IDONTWANT_CAP).unwrap()),
             sender,
         },
     );
@@ -624,6 +625,7 @@ fn test_join() {
                 kind: PeerKind::Floodsub,
                 connections: vec![connection_id],
                 topics: Default::default(),
+                dont_send: LruCache::new(NonZeroUsize::new(IDONTWANT_CAP).unwrap()),
                 sender,
             },
         );
@@ -1019,6 +1021,7 @@ fn test_get_random_peers() {
                 connections: vec![ConnectionId::new_unchecked(0)],
                 topics: topics.clone(),
                 sender: RpcSender::new(gs.config.connection_handler_queue_len()),
+                dont_send: LruCache::new(NonZeroUsize::new(IDONTWANT_CAP).unwrap()),
             },
         );
     }

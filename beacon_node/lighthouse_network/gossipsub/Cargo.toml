@@ -38,6 +38,7 @@ tracing = "0.1.37"
 void = "1.0.2"
 
 prometheus-client = "0.22.0"
+lru.workspace = true
 
 [dev-dependencies]
 quickcheck = { workspace = true }

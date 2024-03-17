@@ -25,12 +25,14 @@ use std::{
     collections::{BTreeSet, HashMap},
     fmt,
     net::IpAddr,
+    num::NonZeroUsize,
     task::{Context, Poll},
     time::Duration,
 };
 
 use futures::StreamExt;
 use futures_ticker::Ticker;
+use lru::LruCache;
 use prometheus_client::registry::Registry;
 use rand::{seq::SliceRandom, thread_rng};
 
@@ -44,6 +46,8 @@ use libp2p::swarm::{
     ConnectionDenied, ConnectionId, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
     THandlerOutEvent, ToSwarm,
 };
+
+use crate::types::IDontWant;
 
 use super::gossip_promises::GossipPromises;
 use super::handler::{Handler, HandlerEvent, HandlerIn};
@@ -73,6 +77,9 @@ use std::{cmp::Ordering::Equal, fmt::Debug};
 
 #[cfg(test)]
 mod tests;
+
+/// IDONTWANT Cache capacity.
+const IDONTWANT_CAP: usize = 100;
 
 /// Determines if published messages should be signed or not.
 ///
@@ -1796,6 +1803,9 @@ where
         // Calculate the message id on the transformed data.
         let msg_id = self.config.message_id(&message);
 
+        // Broadcast IDONTWANT messages.
+        self.send_idontwant(&raw_message, &msg_id, propagation_source);
+
         // Check the validity of the message
         // Peers get penalized if this message is invalid. We don't add it to the duplicate cache
         // and instead continually penalize peers that repeatedly send this message.
@@ -2656,6 +2666,54 @@ where
         }
     }
 
+    /// Helper function which sends an IDONTWANT message to mesh\[topic\] peers.
+    fn send_idontwant(
+        &mut self,
+        message: &RawMessage,
+        msg_id: &MessageId,
+        propagation_source: &PeerId,
+    ) {
+        let Some(mesh_peers) = self.mesh.get(&message.topic) else {
+            return;
+        };
+
+        let recipient_peers = mesh_peers.iter().filter(|peer_id| {
+            *peer_id != propagation_source && Some(*peer_id) != message.source.as_ref()
+        });
+
+        for peer_id in recipient_peers {
+            let Some(peer) = self.connected_peers.get_mut(peer_id) else {
+                tracing::error!(peer = %peer_id,
+                    "Could not IDONTWANT, peer doesn't exist in connected peer list");
+                continue;
+            };
+
+            // Only gossipsub 1.2 peers support IDONTWANT.
+            if peer.kind == PeerKind::Gossipsubv1_2 {
+                continue;
+            }
+
+            if peer
+                .sender
+                .idontwant(IDontWant {
+                    message_ids: vec![msg_id.clone()],
+                })
+                .is_err()
+            {
+                tracing::warn!(peer=%peer_id, "Send Queue full. Could not send IDONTWANT");
+
+                if let Some((peer_score, ..)) = &mut self.peer_score {
+                    peer_score.failed_message_slow_peer(peer_id);
+                }
+                // Increment failed message count
+                self.failed_messages
+                    .entry(*peer_id)
+                    .or_default()
+                    .non_priority += 1;
+            }
+        }
+    }
+
     /// Helper function which forwards a message to mesh\[topic\] peers.
     ///
     /// Returns true if at least one peer was messaged.
@@ -2709,6 +2767,11 @@ where
         if !recipient_peers.is_empty() {
             for peer_id in recipient_peers.iter() {
                 if let Some(peer) = self.connected_peers.get_mut(peer_id) {
+                    if peer.dont_send.get(msg_id).is_some() {
+                        tracing::debug!(%peer_id, message=%msg_id, "Peer doesn't want message");
+                        continue;
+                    }
+
                     tracing::debug!(%peer_id, message=%msg_id, "Sending message to peer");
                     if peer
                         .sender
@@ -3058,6 +3121,7 @@ where
                 connections: vec![],
                 sender: RpcSender::new(self.config.connection_handler_queue_len()),
                 topics: Default::default(),
+                dont_send: LruCache::new(NonZeroUsize::new(IDONTWANT_CAP).unwrap()),
             });
         // Add the new connection
         connected_peer.connections.push(connection_id);
@@ -3088,6 +3152,7 @@ where
                 connections: vec![],
                 sender: RpcSender::new(self.config.connection_handler_queue_len()),
                 topics: Default::default(),
+                dont_send: LruCache::new(NonZeroUsize::new(IDONTWANT_CAP).unwrap()),
             });
         // Add the new connection
         connected_peer.connections.push(connection_id);
@@ -3246,6 +3311,17 @@ where
                             peers,
                             backoff,
                         }) => prune_msgs.push((topic_hash, peers, backoff)),
+                        ControlAction::IDontWant(IDontWant { message_ids }) => {
+                            let Some(peer) = self.connected_peers.get_mut(&propagation_source)
+                            else {
+                                tracing::error!(peer = %propagation_source,
+                                    "Could not handle IDONTWANT, peer doesn't exist in connected peer list");
+                                continue;
+                            };
+                            for message_id in message_ids {
+                                peer.dont_send.push(message_id, ());
+                            }
+                        }
                     }
                 }
                 if !ihave_msgs.is_empty() {
