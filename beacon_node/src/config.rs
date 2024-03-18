@@ -1,6 +1,7 @@
 use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_PARENT_THRESHOLD,
 };
 use beacon_chain::TrustedSetup;
 use clap::ArgMatches;
@@ -760,6 +761,12 @@ pub fn get_config<E: EthSpec>(
                 .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
         client_config.chain.re_org_cutoff_millis =
             clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
+
+        client_config.chain.re_org_parent_threshold = Some(
+            clap_utils::parse_optional(cli_args, "proposer-reorg-parent-threshold")?
+                .map(ReOrgThreshold)
+                .unwrap_or(DEFAULT_RE_ORG_PARENT_THRESHOLD),
+        );
 
         // TODO(is_parent_strong) do we want re_org_parent_threshold settable?
 

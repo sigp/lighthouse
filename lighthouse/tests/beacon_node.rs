@@ -2223,10 +2223,23 @@ fn disable_proposer_re_orgs() {
     CommandLineTest::new()
         .flag("disable-proposer-reorgs", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_head_threshold, None));
+        .with_config(|config| {
+            assert_eq!(config.chain.re_org_head_threshold, None);
+            assert_eq!(
+                config.chain.re_org_parent_threshold.unwrap().0,
+                u64::MAX
+            )
+        });
 }
 
-// TODO(is_parent_strong)
+#[test]
+fn proposer_re_org_parent_threshold() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-parent-threshold", Some("90"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.re_org_parent_threshold.unwrap().0, 90));
+}
+
 #[test]
 fn proposer_re_org_head_threshold() {
     CommandLineTest::new()
