@@ -20,8 +20,11 @@ use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
+use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
+
+// These dummy ports should ONLY be used for `enr-xxx-port` flags that do not bind.
 const DUMMY_ENR_TCP_PORT: u16 = 7777;
 const DUMMY_ENR_UDP_PORT: u16 = 8888;
 const DUMMY_ENR_QUIC_PORT: u16 = 9999;
@@ -167,6 +170,26 @@ fn shuffling_cache_set() {
         .flag("shuffling-cache-size", Some("500"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.shuffling_cache_size, 500));
+}
+
+#[test]
+fn snapshot_cache_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.snapshot_cache_size,
+                beacon_node::beacon_chain::snapshot_cache::DEFAULT_SNAPSHOT_CACHE_SIZE
+            )
+        });
+}
+
+#[test]
+fn snapshot_cache_set() {
+    CommandLineTest::new()
+        .flag("state-cache-size", Some("500"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.snapshot_cache_size, 500));
 }
 
 #[test]
@@ -868,7 +891,7 @@ fn network_port_flag_over_ipv4() {
             );
         });
 
-    let port = 9000;
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
@@ -905,7 +928,7 @@ fn network_port_flag_over_ipv6() {
             );
         });
 
-    let port = 9000;
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
@@ -955,8 +978,8 @@ fn network_port_flag_over_ipv4_and_ipv6() {
             );
         });
 
-    let port = 19000;
-    let port6 = 29000;
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    let port6 = unused_tcp6_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("listen-address", Some("127.0.0.1"))
         .flag("listen-address", Some("::1"))
@@ -1297,9 +1320,8 @@ fn enr_tcp6_port_flag() {
 fn enr_match_flag_over_ipv4() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
 
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp4_port = DUMMY_ENR_UDP_PORT;
-    let tcp4_port = DUMMY_ENR_TCP_PORT;
+    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
 
     CommandLineTest::new()
         .flag("enr-match", None)
@@ -1329,9 +1351,8 @@ fn enr_match_flag_over_ipv6() {
     const ADDR: &str = "::1";
     let addr = ADDR.parse::<Ipv6Addr>().unwrap();
 
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp6_port = DUMMY_ENR_UDP_PORT;
-    let tcp6_port = DUMMY_ENR_TCP_PORT;
+    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
 
     CommandLineTest::new()
         .flag("enr-match", None)
@@ -1360,15 +1381,13 @@ fn enr_match_flag_over_ipv6() {
 fn enr_match_flag_over_ipv4_and_ipv6() {
     const IPV6_ADDR: &str = "::1";
 
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp6_port = DUMMY_ENR_UDP_PORT;
-    let tcp6_port = DUMMY_ENR_TCP_PORT;
+    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
     let ipv6_addr = IPV6_ADDR.parse::<Ipv6Addr>().unwrap();
 
     const IPV4_ADDR: &str = "127.0.0.1";
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp4_port = DUMMY_ENR_UDP_PORT;
-    let tcp4_port = DUMMY_ENR_TCP_PORT;
+    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
     let ipv4_addr = IPV4_ADDR.parse::<Ipv4Addr>().unwrap();
 
     CommandLineTest::new()

@@ -9,7 +9,7 @@ use types::{
 };
 
 /// The default size of the cache.
-pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
+pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 3;
 
 /// The minimum block delay to clone the state in the cache instead of removing it.
 /// This helps keep block processing fast during re-orgs from late blocks.
@@ -174,6 +174,7 @@ impl<T: EthSpec> SnapshotCache<T> {
         self.snapshots.iter().map(|s| s.beacon_block_root).collect()
     }
 
+    #[allow(clippy::len_without_is_empty)]
     /// The number of snapshots contained in `self`.
     pub fn len(&self) -> usize {
         self.snapshots.len()
