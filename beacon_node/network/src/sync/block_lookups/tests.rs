@@ -2112,6 +2112,7 @@ mod deneb_only {
             .expect_no_blobs_request()
             .expect_no_block_request();
     }
+
     #[test]
     fn unknown_parent_blob_dup() {
         let Some(tester) =
