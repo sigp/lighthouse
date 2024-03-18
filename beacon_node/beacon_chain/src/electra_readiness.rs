@@ -88,6 +88,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                 }
                 Ok(capabilities) => {
+                    // TODO(electra): Update in the event we get V4s.
                     let mut missing_methods = String::from("Required Methods Unsupported:");
                     let mut all_good = true;
                     if !capabilities.get_payload_v3 {
