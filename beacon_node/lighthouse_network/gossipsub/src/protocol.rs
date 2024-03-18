@@ -42,7 +42,7 @@ pub(crate) const SIGNING_PREFIX: &[u8] = b"libp2p-pubsub:";
 
 pub(crate) const GOSSIPSUB_1_2_0_PROTOCOL: ProtocolId = ProtocolId {
     protocol: StreamProtocol::new("/meshsub/1.2.0"),
-    kind: PeerKind::Gossipsubv1_1,
+    kind: PeerKind::Gossipsubv1_2,
 };
 pub(crate) const GOSSIPSUB_1_1_0_PROTOCOL: ProtocolId = ProtocolId {
     protocol: StreamProtocol::new("/meshsub/1.1.0"),

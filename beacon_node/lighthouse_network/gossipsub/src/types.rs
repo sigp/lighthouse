@@ -25,10 +25,10 @@ use async_channel::{Receiver, Sender};
 use futures::stream::Peekable;
 use futures::{Future, Stream, StreamExt};
 use futures_timer::Delay;
+use hashlink::LinkedHashMap;
 use instant::Duration;
 use libp2p::identity::PeerId;
 use libp2p::swarm::ConnectionId;
-use lru::LruCache;
 use prometheus_client::encoding::EncodeLabelValue;
 use quick_protobuf::MessageWrite;
 use std::collections::BTreeSet;
@@ -36,6 +36,7 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Instant;
 use std::{fmt, pin::Pin};
 
 use crate::rpc_proto::proto;
@@ -123,7 +124,7 @@ pub(crate) struct PeerConnections {
     /// Subscribed topics.
     pub(crate) topics: BTreeSet<TopicHash>,
     /// Don't send messages.
-    pub(crate) dont_send: LruCache<MessageId, ()>,
+    pub(crate) dont_send: LinkedHashMap<MessageId, Instant>,
 }
 
 /// Describes the types of peers that can exist in the gossipsub context.
@@ -300,10 +301,10 @@ pub struct Prune {
     pub(crate) backoff: Option<u64>,
 }
 
-/// The node requests us to not forward message ids (peer_id + sequence _number) - IDontWant control message.
+/// The node requests us to not forward message ids - IDontWant control message.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IDontWant {
-    /// A list of known message ids (peer_id + sequence _number) as a string.
+    /// A list of known message ids.
     pub(crate) message_ids: Vec<MessageId>,
 }
 
@@ -568,10 +569,10 @@ impl From<Rpc> for proto::RPC {
                     control.prune.push(rpc_prune);
                 }
                 ControlAction::IDontWant(IDontWant { message_ids }) => {
-                    let rpc_iwant = proto::ControlIDontWant {
+                    let rpc_idontwant = proto::ControlIDontWant {
                         message_ids: message_ids.into_iter().map(|msg_id| msg_id.0).collect(),
                     };
-                    control.idontwant.push(rpc_iwant);
+                    control.idontwant.push(rpc_idontwant);
                 }
             }
         }

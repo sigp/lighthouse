@@ -25,18 +25,16 @@ use std::{
     collections::{BTreeSet, HashMap},
     fmt,
     net::IpAddr,
-    num::NonZeroUsize,
     task::{Context, Poll},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use futures::StreamExt;
 use futures_ticker::Ticker;
-use lru::LruCache;
+use hashlink::LinkedHashMap;
 use prometheus_client::registry::Registry;
 use rand::{seq::SliceRandom, thread_rng};
 
-use instant::Instant;
 use libp2p::core::{multiaddr::Protocol::Ip4, multiaddr::Protocol::Ip6, Endpoint, Multiaddr};
 use libp2p::identity::Keypair;
 use libp2p::identity::PeerId;
@@ -78,8 +76,11 @@ use std::{cmp::Ordering::Equal, fmt::Debug};
 #[cfg(test)]
 mod tests;
 
-/// IDONTWANT Cache capacity.
-const IDONTWANT_CAP: usize = 100;
+/// IDONTWANT cache capacity.
+const IDONTWANT_CAP: usize = 10_000;
+
+/// IDONTWANT timeout before removal.
+const IDONTWANT_TIMEOUT: Duration = Duration::new(3, 0);
 
 /// Determines if published messages should be signed or not.
 ///
@@ -1377,6 +1378,11 @@ where
                         "IWANT: Peer has asked for message too many times; ignoring request"
                     );
                 } else if let Some(peer) = &mut self.connected_peers.get_mut(peer_id) {
+                    if peer.dont_send.get(&id).is_some() {
+                        tracing::debug!(%peer_id, message=%id, "Peer already sent IDONTWANT for this message");
+                        continue;
+                    }
+
                     tracing::debug!(peer=%peer_id, "IWANT: Sending cached messages to peer");
                     if peer
                         .sender
@@ -1970,7 +1976,10 @@ where
                     }
                     // if the mesh needs peers add the peer to the mesh
                     if !self.explicit_peers.contains(propagation_source)
-                        && matches!(peer.kind, PeerKind::Gossipsubv1_1 | PeerKind::Gossipsub)
+                        && matches!(
+                            peer.kind,
+                            PeerKind::Gossipsubv1_1 | PeerKind::Gossipsub | PeerKind::Gossipsubv1_2
+                        )
                         && !Self::score_below_threshold_from_scores(
                             &self.peer_score,
                             propagation_source,
@@ -2485,6 +2494,17 @@ where
         }
         self.failed_messages.shrink_to_fit();
 
+        // Clear stale IDONTWANTs.
+        for peer in self.connected_peers.values_mut() {
+            while let Some((_front, instant)) = peer.dont_send.front() {
+                if (*instant + IDONTWANT_TIMEOUT) >= Instant::now() {
+                    break;
+                } else {
+                    peer.dont_send.pop_front();
+                }
+            }
+        }
+
         tracing::debug!("Completed Heartbeat");
         if let Some(metrics) = self.metrics.as_mut() {
             let duration = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -2677,9 +2697,18 @@ where
             return;
         };
 
-        let recipient_peers = mesh_peers.iter().filter(|peer_id| {
-            *peer_id != propagation_source && Some(*peer_id) != message.source.as_ref()
-        });
+        let iwant_peers = self
+            .peer_score
+            .as_ref()
+            .map(|(_peer_score, .., gossip_promises)| gossip_promises.peers_for_message(msg_id))
+            .unwrap_or(vec![]);
+
+        let recipient_peers = mesh_peers
+            .iter()
+            .chain(iwant_peers.iter())
+            .filter(|peer_id| {
+                *peer_id != propagation_source && Some(*peer_id) != message.source.as_ref()
+            });
 
         for peer_id in recipient_peers {
             let Some(peer) = self.connected_peers.get_mut(peer_id) else {
@@ -2689,7 +2718,7 @@ where
             };
 
             // Only gossipsub 1.2 peers support IDONTWANT.
-            if peer.kind == PeerKind::Gossipsubv1_2 {
+            if peer.kind != PeerKind::Gossipsubv1_2 {
                 continue;
             }
 
@@ -3121,7 +3150,7 @@ where
                 connections: vec![],
                 sender: RpcSender::new(self.config.connection_handler_queue_len()),
                 topics: Default::default(),
-                dont_send: LruCache::new(NonZeroUsize::new(IDONTWANT_CAP).unwrap()),
+                dont_send: LinkedHashMap::new(),
             });
         // Add the new connection
         connected_peer.connections.push(connection_id);
@@ -3152,7 +3181,7 @@ where
                 connections: vec![],
                 sender: RpcSender::new(self.config.connection_handler_queue_len()),
                 topics: Default::default(),
-                dont_send: LruCache::new(NonZeroUsize::new(IDONTWANT_CAP).unwrap()),
+                dont_send: LinkedHashMap::new(),
             });
         // Add the new connection
         connected_peer.connections.push(connection_id);
@@ -3319,7 +3348,11 @@ where
                                 continue;
                             };
                             for message_id in message_ids {
-                                peer.dont_send.push(message_id, ());
+                                peer.dont_send.insert(message_id, Instant::now());
+                                // Don't exceed capacity.
+                                if peer.dont_send.len() > IDONTWANT_CAP {
+                                    peer.dont_send.pop_front();
+                                }
                             }
                         }
                     }
@@ -3472,7 +3505,11 @@ fn get_random_peers_dynamic(
         .iter()
         .filter(|(_, p)| p.topics.contains(topic_hash))
         .filter(|(peer_id, _)| f(peer_id))
-        .filter(|(_, p)| p.kind == PeerKind::Gossipsub || p.kind == PeerKind::Gossipsubv1_1)
+        .filter(|(_, p)| {
+            p.kind == PeerKind::Gossipsub
+                || p.kind == PeerKind::Gossipsubv1_1
+                || p.kind == PeerKind::Gossipsubv1_2
+        })
         .map(|(peer_id, _)| *peer_id)
         .collect::<Vec<PeerId>>();
 
