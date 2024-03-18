@@ -18,9 +18,9 @@ use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
-    fork_core_topics, subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic,
-    SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS, BASE_CORE_TOPICS,
-    CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
+    attestation_sync_committee_topics, fork_core_topics, subnet_from_topic_hash, GossipEncoding,
+    GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS,
+    BASE_CORE_TOPICS, CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
@@ -144,6 +144,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         // initialise the node's ID
         let local_keypair = utils::load_private_key(&config, &log);
 
+        // Trusted peers will also be marked as explicit in GossipSub.
+        // Cfr. https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md#explicit-peering-agreements
+        let trusted_peers: Vec<PeerId> = config
+            .trusted_peers
+            .iter()
+            .map(|x| PeerId::from(x.clone()))
+            .collect();
+
         // set up a collection of variables accessible outside of the network crate
         let network_globals = {
             // Create an ENR or load from disk if appropriate
@@ -158,11 +166,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let globals = NetworkGlobals::new(
                 enr,
                 meta_data,
-                config
-                    .trusted_peers
-                    .iter()
-                    .map(|x| PeerId::from(x.clone()))
-                    .collect(),
+                trusted_peers,
                 config.disable_peer_scoring,
                 &log,
             );
@@ -274,6 +278,27 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             gossipsub
                 .with_peer_score(params, thresholds)
                 .expect("Valid score params and thresholds");
+
+            // Mark trusted peers as explicit.
+            for explicit_peer in config.trusted_peers.iter() {
+                gossipsub.add_explicit_peer(&PeerId::from(explicit_peer.clone()));
+            }
+
+            // If we are using metrics, then register which topics we want to make sure to keep
+            // track of
+            if ctx.libp2p_registry.is_some() {
+                let topics_to_keep_metrics_for = attestation_sync_committee_topics::<TSpec>()
+                    .map(|gossip_kind| {
+                        Topic::from(GossipTopic::new(
+                            gossip_kind,
+                            GossipEncoding::default(),
+                            enr_fork_id.fork_digest,
+                        ))
+                        .into()
+                    })
+                    .collect::<Vec<TopicHash>>();
+                gossipsub.register_topics_for_metrics(topics_to_keep_metrics_for);
+            }
 
             (gossipsub, update_gossipsub_scores)
         };
@@ -640,6 +665,20 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
+
+        // Register the new topics for metrics
+        let topics_to_keep_metrics_for = attestation_sync_committee_topics::<TSpec>()
+            .map(|gossip_kind| {
+                Topic::from(GossipTopic::new(
+                    gossip_kind,
+                    GossipEncoding::default(),
+                    new_fork_digest,
+                ))
+                .into()
+            })
+            .collect::<Vec<TopicHash>>();
+        self.gossipsub_mut()
+            .register_topics_for_metrics(topics_to_keep_metrics_for);
     }
 
     /// Unsubscribe from all topics that doesn't have the given fork_digest

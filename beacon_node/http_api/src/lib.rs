@@ -3448,34 +3448,34 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    for subscription in &subscriptions {
-                        chain
-                            .validator_monitor
-                            .write()
-                            .auto_register_local_validator(subscription.validator_index);
-
-                        let validator_subscription = api_types::ValidatorSubscription {
-                            validator_index: subscription.validator_index,
-                            attestation_committee_index: subscription.committee_index,
-                            slot: subscription.slot,
-                            committee_count_at_slot: subscription.committees_at_slot,
-                            is_aggregator: subscription.is_aggregator,
-                        };
-
-                        let message = ValidatorSubscriptionMessage::AttestationSubscribe {
-                            subscriptions: vec![validator_subscription],
-                        };
-                        if let Err(e) = validator_subscription_tx.try_send(message) {
-                            warn!(
-                                log,
-                                "Unable to process committee subscriptions";
-                                "info" => "the host may be overloaded or resource-constrained",
-                                "error" => ?e,
-                            );
-                            return Err(warp_utils::reject::custom_server_error(
-                                "unable to queue subscription, host may be overloaded or shutting down".to_string(),
-                            ));
-                        }
+                    let subscriptions: std::collections::BTreeSet<_> = subscriptions
+                        .iter()
+                        .map(|subscription| {
+                            chain
+                                .validator_monitor
+                                .write()
+                                .auto_register_local_validator(subscription.validator_index);
+                            api_types::ValidatorSubscription {
+                                attestation_committee_index: subscription.committee_index,
+                                slot: subscription.slot,
+                                committee_count_at_slot: subscription.committees_at_slot,
+                                is_aggregator: subscription.is_aggregator,
+                            }
+                        })
+                        .collect();
+                    let message =
+                        ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions };
+                    if let Err(e) = validator_subscription_tx.try_send(message) {
+                        warn!(
+                            log,
+                            "Unable to process committee subscriptions";
+                            "info" => "the host may be overloaded or resource-constrained",
+                            "error" => ?e,
+                        );
+                        return Err(warp_utils::reject::custom_server_error(
+                            "unable to queue subscription, host may be overloaded or shutting down"
+                                .to_string(),
+                        ));
                     }
 
                     Ok(())
