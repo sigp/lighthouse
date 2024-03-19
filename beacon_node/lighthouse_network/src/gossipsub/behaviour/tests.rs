@@ -23,9 +23,7 @@
 use super::*;
 use crate::gossipsub::subscription_filter::WhitelistSubscriptionFilter;
 use crate::gossipsub::types::RpcReceiver;
-use crate::gossipsub::{
-config::ConfigBuilder, types::Rpc, IdentTopic as Topic,
-};
+use crate::gossipsub::{config::ConfigBuilder, types::Rpc, IdentTopic as Topic};
 use async_std::net::Ipv4Addr;
 use byteorder::{BigEndian, ByteOrder};
 use libp2p::core::ConnectedPoint;
