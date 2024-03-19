@@ -118,7 +118,6 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::iter::FromIterator;
     use std::{collections::HashSet, hash::Hash};
 
     impl<T> MaxCover for HashSet<T>

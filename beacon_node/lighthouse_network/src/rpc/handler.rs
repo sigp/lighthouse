@@ -9,7 +9,7 @@ use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use futures::{Sink, SinkExt};
+use futures::SinkExt;
 use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,

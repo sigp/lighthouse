@@ -1,9 +1,8 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
-use std::path::Path;
 use tree_hash::Hash256;
-use types::{BeaconBlockBody, BeaconBlockBodyDeneb, BeaconState, EthSpec, ForkName};
+use types::{BeaconBlockBody, BeaconBlockBodyDeneb, BeaconState};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {
