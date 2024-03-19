@@ -113,7 +113,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let (gossip_verified_block, gossip_verified_blobs) =
         match block_contents.into_gossip_verified_block(&chain) {
             Ok(b) => b,
-            Err(BlockContentsError::BlockError(BlockError::BlockIsAlreadyKnown))
+            Err(BlockContentsError::BlockError(BlockError::BlockIsAlreadyKnown(_)))
             | Err(BlockContentsError::BlobError(
                 beacon_chain::blob_verification::GossipBlobError::RepeatBlob { .. },
             )) => {
@@ -133,7 +133,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     log,
                     "Not publishing block - not gossip verified";
                     "slot" => slot,
-                    "error" => ?e
+                    "error" => %e
                 );
                 return Err(warp_utils::reject::custom_bad_request(e.to_string()));
             }

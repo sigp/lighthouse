@@ -1117,7 +1117,11 @@ fn test_same_chain_race_condition() {
         // the processing result
         if i + 2 == depth {
             // one block was removed
-            bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx)
+            bl.parent_block_processed(
+                chain_hash,
+                BlockError::BlockIsAlreadyKnown(block.canonical_root()).into(),
+                &mut cx,
+            )
         } else {
             bl.parent_block_processed(
                 chain_hash,
