@@ -1480,19 +1480,13 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// This method should rarely be invoked because single-pass epoch processing keeps the total
     /// active balance cache up to date.
-    pub fn compute_total_active_balance_slow(
-        &self,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<u64, Error> {
-        if epoch != self.current_epoch() && epoch != self.next_epoch()? {
-            return Err(Error::EpochOutOfBounds);
-        }
+    pub fn compute_total_active_balance_slow(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        let current_epoch = self.current_epoch();
 
         let mut total_active_balance = 0;
 
         for validator in self.validators() {
-            if validator.is_active_at(epoch) {
+            if validator.is_active_at(current_epoch) {
                 total_active_balance.safe_add_assign(validator.effective_balance)?;
             }
         }
@@ -1536,26 +1530,24 @@ impl<T: EthSpec> BeaconState<T> {
         *self.total_active_balance_mut() = Some((epoch, balance));
     }
 
-    /// Build the total active balance cache.
-    pub fn build_total_active_balance_cache_at(
-        &mut self,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        if self.get_total_active_balance_at_epoch(epoch).is_err() {
-            self.force_build_total_active_balance_cache_at(epoch, spec)?;
+    /// Build the total active balance cache for the current epoch if it is not already built.
+    pub fn build_total_active_balance_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+        if self
+            .get_total_active_balance_at_epoch(self.current_epoch())
+            .is_err()
+        {
+            self.force_build_total_active_balance_cache(spec)?;
         }
         Ok(())
     }
 
     /// Build the total active balance cache, even if it is already built.
-    pub fn force_build_total_active_balance_cache_at(
+    pub fn force_build_total_active_balance_cache(
         &mut self,
-        epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let total_active_balance = self.compute_total_active_balance_slow(epoch, spec)?;
-        *self.total_active_balance_mut() = Some((epoch, total_active_balance));
+        let total_active_balance = self.compute_total_active_balance_slow(spec)?;
+        *self.total_active_balance_mut() = Some((self.current_epoch(), total_active_balance));
         Ok(())
     }
 
@@ -1685,7 +1677,7 @@ impl<T: EthSpec> BeaconState<T> {
         }
 
         if self.total_active_balance().is_none() && relative_epoch == RelativeEpoch::Current {
-            self.build_total_active_balance_cache_at(self.current_epoch(), spec)?;
+            self.build_total_active_balance_cache(spec)?;
         }
         Ok(())
     }
@@ -1719,9 +1711,9 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
     ///
-    /// Note: this function will not build any new committee caches, but will build the total
-    /// balance cache if the (new) current committee cache is initialized.
-    pub fn advance_caches(&mut self, _spec: &ChainSpec) -> Result<(), Error> {
+    /// Note: this function will not build any new committee caches, nor will it update the total
+    /// active balance cache. The total active balance cache must be updated separately.
+    pub fn advance_caches(&mut self) -> Result<(), Error> {
         self.committee_caches_mut().rotate_left(1);
 
         let next = Self::committee_cache_index(RelativeEpoch::Next);

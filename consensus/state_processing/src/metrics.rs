@@ -17,10 +17,6 @@ lazy_static! {
         "beacon_participation_prev_epoch_source_attesting_gwei_total",
         "Total effective balance (gwei) of validators who attested to the source in the previous epoch"
     );
-    pub static ref PARTICIPATION_PREV_EPOCH_ACTIVE_GWEI_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_participation_prev_epoch_active_gwei_total",
-        "Total effective balance (gwei) of validators active in the previous epoch"
-    );
     /*
      * Processing metrics
      */

@@ -24,7 +24,7 @@ pub fn process_epoch<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
-    state.build_total_active_balance_cache_at(state.current_epoch(), spec)?;
+    state.build_total_active_balance_cache(spec)?;
     initialize_epoch_cache(state, spec)?;
 
     // Load the struct we use to assign validators into sets based on their participation.
@@ -70,7 +70,7 @@ pub fn process_epoch<T: EthSpec>(
     process_participation_record_updates(state)?;
 
     // Rotate the epoch caches to suit the epoch transition.
-    state.advance_caches(spec)?;
+    state.advance_caches()?;
 
     Ok(EpochProcessingSummary::Base {
         total_balances: validator_statuses.total_balances,

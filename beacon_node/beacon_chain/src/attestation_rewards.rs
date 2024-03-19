@@ -5,7 +5,7 @@ use eth2::types::ValidatorId;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
 use slog::debug;
-use state_processing::common::base::get_base_reward_from_effective_balance;
+use state_processing::common::base::{self, SqrtTotalActiveBalance};
 use state_processing::per_epoch_processing::altair::{
     process_inactivity_updates_slow, process_justification_and_finalization,
 };
@@ -376,15 +376,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let mut ideal_attestation_rewards_list = Vec::new();
-
+        let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_balances.current_epoch());
         for effective_balance_step in 1..=self.max_effective_balance_increment_steps()? {
             let effective_balance =
                 effective_balance_step.safe_mul(spec.effective_balance_increment)?;
-            let base_reward = get_base_reward_from_effective_balance::<T::EthSpec>(
-                effective_balance,
-                total_balances.current_epoch(),
-                spec,
-            )?;
+            let base_reward =
+                base::get_base_reward(effective_balance, sqrt_total_active_balance, spec)?;
 
             // compute ideal head rewards
             let head = get_attestation_component_delta(

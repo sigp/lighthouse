@@ -256,16 +256,14 @@ impl<T: EthSpec> OperationPool<T> {
         curr_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, T>) -> bool + Send,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<T>>, OpPoolError> {
-        if let BeaconState::Base(_) = state {
-            // Ok
-        } else {
-            // epoch cache must be initialized to fetch base_reward values in the max_cover score
-            // function. Currently max_cover ignores items on errors. If epoch cache is not
-            // initialized, this function returns Ok([]).
+        if !matches!(state, BeaconState::Base(_)) {
+            // Epoch cache must be initialized to fetch base reward values in the max cover `score`
+            // function. Currently max cover ignores items on errors. If epoch cache is not
+            // initialized, this function returns an error.
             if !is_epoch_cache_initialized(state).map_err(OpPoolError::EpochCacheError)? {
                 return Err(OpPoolError::EpochCacheNotInitialized);
             }
-        };
+        }
 
         // Attestations for the current fork, which may be from the current or previous epoch.
         let (prev_epoch_key, curr_epoch_key) = CheckpointKey::keys_for_state(state);

@@ -19,6 +19,9 @@ impl PreEpochCache {
         // State root should already have been filled in by `process_slot`, except in the case
         // of a `partial_state_advance`.
         let decision_block_root = latest_block_header.canonical_root();
+        if decision_block_root.is_zero() {
+            return Err(EpochCacheError::ZeroDecisionBlock);
+        }
 
         let epoch_key = EpochCacheKey {
             epoch: state.next_epoch()?,
@@ -82,7 +85,7 @@ pub fn is_epoch_cache_initialized<E: EthSpec>(
         .map_err(EpochCacheError::BeaconState)?;
 
     Ok(epoch_cache
-        .check_validity::<E>(current_epoch, decision_block_root)
+        .check_validity(current_epoch, decision_block_root)
         .is_ok())
 }
 
@@ -101,7 +104,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
         .proposer_shuffling_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;
 
-    state.build_total_active_balance_cache_at(current_epoch, spec)?;
+    state.build_total_active_balance_cache(spec)?;
     let total_active_balance = state.get_total_active_balance_at_epoch(current_epoch)?;
 
     // Collect effective balances and compute activation queue.
