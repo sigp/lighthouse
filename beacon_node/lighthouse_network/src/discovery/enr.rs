@@ -69,11 +69,12 @@ impl Eth2Enr for Enr {
     }
 
     fn custody_subnet_count<TSpec: EthSpec>(&self) -> Result<u64, &'static str> {
-        // NOTE: given that a minimum is defined, we could map a non-existent key-value to the
-        // minimum value.
+        // NOTE: if the custody value is non-existent in the ENR, then we assume the minimum
+        // custody value defined in the spec.
+        let min_custody_bytes = TSpec::min_custody_requirement().as_ssz_bytes();
         let custody_bytes = self
             .get(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
-            .ok_or("ENR custody subnet countn non-existent")?;
+            .unwrap_or(&min_custody_bytes);
         u64::from_ssz_bytes(custody_bytes)
             .map_err(|_| "Could not decode the ENR custody subnet count")
     }
