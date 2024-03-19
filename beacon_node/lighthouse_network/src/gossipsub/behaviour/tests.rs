@@ -25,12 +25,15 @@ use crate::gossipsub::subscription_filter::WhitelistSubscriptionFilter;
 use crate::gossipsub::transform::{DataTransform, IdentityTransform};
 use crate::gossipsub::types::{RpcOut, RpcReceiver};
 use crate::gossipsub::ValidationError;
-use crate::gossipsub::{config::ConfigBuilder, types::Rpc, IdentTopic as Topic, TopicScoreParams};
+use crate::gossipsub::{
+    config::Config, config::ConfigBuilder, types::Rpc, IdentTopic as Topic, TopicScoreParams,
+};
 use async_std::net::Ipv4Addr;
 use byteorder::{BigEndian, ByteOrder};
-use libp2p::core::ConnectedPoint;
+use libp2p::core::{ConnectedPoint, Endpoint};
 use rand::Rng;
 use std::thread::sleep;
+use std::time::Duration;
 
 #[derive(Default, Debug)]
 struct InjectNodes<D, F>
@@ -424,7 +427,7 @@ fn test_subscribe() {
         .create_network();
 
     assert!(
-        gs.mesh.contains_key(&topic_hashes[0]),
+        gs.mesh.get(&topic_hashes[0]).is_some(),
         "Subscribe should add a new entry to the mesh[topic] hashmap"
     );
 
@@ -474,7 +477,7 @@ fn test_unsubscribe() {
             "Topic_peers contain a topic entry"
         );
         assert!(
-            gs.mesh.contains_key(topic_hash),
+            gs.mesh.get(topic_hash).is_some(),
             "mesh should contain a topic entry"
         );
     }
@@ -508,7 +511,7 @@ fn test_unsubscribe() {
     // check we clean up internal structures
     for topic_hash in &topic_hashes {
         assert!(
-            !gs.mesh.contains_key(topic_hash),
+            gs.mesh.get(topic_hash).is_none(),
             "All topics should have been removed from the mesh"
         );
     }
@@ -691,7 +694,7 @@ fn test_publish_without_flood_publishing() {
         .create_network();
 
     assert!(
-        gs.mesh.contains_key(&topic_hashes[0]),
+        gs.mesh.get(&topic_hashes[0]).is_some(),
         "Subscribe should add a new entry to the mesh[topic] hashmap"
     );
 
@@ -771,7 +774,7 @@ fn test_fanout() {
         .create_network();
 
     assert!(
-        gs.mesh.contains_key(&topic_hashes[0]),
+        gs.mesh.get(&topic_hashes[0]).is_some(),
         "Subscribe should add a new entry to the mesh[topic] hashmap"
     );
     // Unsubscribe from topic
@@ -943,7 +946,7 @@ fn test_handle_received_subscriptions() {
     );
 
     assert!(
-        !gs.connected_peers.contains_key(&unknown_peer),
+        gs.connected_peers.get(&unknown_peer).is_none(),
         "Unknown peer should not have been added"
     );
 
@@ -1344,7 +1347,7 @@ fn test_handle_graft_multiple_topics() {
     }
 
     assert!(
-        !gs.mesh.contains_key(&topic_hashes[2]),
+        gs.mesh.get(&topic_hashes[2]).is_none(),
         "Expected the second topic to not be in the mesh"
     );
 }
@@ -5225,7 +5228,7 @@ fn test_graft_without_subscribe() {
         .create_network();
 
     assert!(
-        gs.mesh.contains_key(&topic_hashes[0]),
+        gs.mesh.get(&topic_hashes[0]).is_some(),
         "Subscribe should add a new entry to the mesh[topic] hashmap"
     );
 

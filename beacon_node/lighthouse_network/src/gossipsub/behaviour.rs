@@ -551,7 +551,7 @@ where
         tracing::debug!(%topic, "Unsubscribing from topic");
         let topic_hash = topic.hash();
 
-        if self.mesh.contains_key(&topic_hash) {
+        if !self.mesh.contains_key(&topic_hash) {
             tracing::debug!(topic=%topic_hash, "Already unsubscribed from topic");
             // we are not subscribed
             return Ok(false);
