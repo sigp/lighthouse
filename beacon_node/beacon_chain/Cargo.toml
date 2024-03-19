@@ -71,6 +71,7 @@ hex = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 slog-term = { workspace = true }
 slog-async = { workspace = true }
+lighthouse_network = { workspace = true }
 
 [[test]]
 name = "beacon_chain_tests"

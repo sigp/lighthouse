@@ -898,6 +898,7 @@ dependencies = [
  "kzg",
  "lazy_static",
  "lighthouse_metrics",
+ "lighthouse_network",
  "logging",
  "lru",
  "maplit",

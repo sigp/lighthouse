@@ -10,6 +10,7 @@ use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
+use lighthouse_network::{Enr, NetworkGlobals};
 use parking_lot::RwLock;
 pub use processing_cache::ProcessingComponents;
 use slasher::test_utils::E;
@@ -55,6 +56,7 @@ pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     processing_cache: RwLock<ProcessingCache<T::EthSpec>>,
     availability_cache: Arc<OverflowLRUCache<T>>,
+    network_globals: RwLock<Option<Arc<NetworkGlobals<T::EthSpec>>>>,
     slot_clock: T::SlotClock,
     kzg: Option<Arc<Kzg>>,
     log: Logger,
@@ -94,6 +96,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         Ok(Self {
             processing_cache: <_>::default(),
             availability_cache: Arc::new(overflow_cache),
+            network_globals: <_>::default(),
             slot_clock,
             log: log.clone(),
             kzg,
@@ -104,6 +107,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Checks if the given block root is cached.
     pub fn has_block(&self, block_root: &Hash256) -> bool {
         self.processing_cache.read().has_block(block_root)
+    }
+
+    pub fn set_network_globals(&self, network_globals: Arc<NetworkGlobals<T::EthSpec>>) {
+        let _ = self.network_globals.write().insert(network_globals);
+    }
+
+    pub fn get_local_enr(&self) -> Option<Enr> {
+        if let Some(network_globals) = self.network_globals.read().as_ref().or(None) {
+            return Some(network_globals.local_enr());
+        }
+
+        None
     }
 
     /// Get the processing info for a block.

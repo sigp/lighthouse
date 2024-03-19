@@ -642,7 +642,7 @@ where
         };
 
         let (network_globals, network_senders) = NetworkService::start(
-            beacon_chain,
+            beacon_chain.clone(),
             config,
             context.executor,
             libp2p_registry.as_mut(),
@@ -652,9 +652,12 @@ where
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
-        self.network_globals = Some(network_globals);
+        self.network_globals = Some(network_globals.clone());
         self.network_senders = Some(network_senders);
         self.libp2p_registry = libp2p_registry;
+        beacon_chain
+            .data_availability_checker
+            .set_network_globals(network_globals);
 
         Ok(self)
     }

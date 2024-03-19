@@ -37,6 +37,16 @@ fn http_server_genesis_state() {
 
     let node = build_node(&mut env);
 
+    let beacon_chain = node
+        .client
+        .beacon_chain()
+        .expect("client should have beacon chain");
+
+    beacon_chain
+        .data_availability_checker
+        .get_local_enr()
+        .expect("da checker should have access to network globals");
+
     let remote_node = node.remote_node().expect("should produce remote node");
 
     let api_state = env
