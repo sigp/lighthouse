@@ -6,7 +6,7 @@ use ssz_types::typenum::{
     bit::B0, UInt, Unsigned, U0, U1024, U1048576, U1073741824, U1099511627776, U128, U131072, U16,
     U16777216, U2, U2048, U256, U32, U4, U4096, U512, U6, U625, U64, U65536, U8, U8192,
 };
-use ssz_types::typenum::{U17, U9};
+use ssz_types::typenum::{U1, U17, U9};
 use std::fmt::{self, Debug};
 use std::str::FromStr;
 
@@ -115,6 +115,7 @@ pub trait EthSpec:
     /*
      * New in PeerDAS
      */
+    type MinCustodyRequirement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type DataColumnSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type DataColumnCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxBytesPerColumn: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -296,6 +297,10 @@ pub trait EthSpec:
         Self::DataColumnCount::to_usize()
     }
 
+    fn min_custody_requirement() -> usize {
+        Self::MinCustodyRequirement::to_usize()
+    }
+
     fn data_column_subnet_count() -> usize {
         Self::DataColumnSubnetCount::to_usize()
     }
@@ -353,6 +358,7 @@ impl EthSpec for MainnetEthSpec {
     type FieldElementsPerCell = U64;
     type BytesPerBlob = U131072;
     type KzgCommitmentInclusionProofDepth = U17;
+    type MinCustodyRequirement = U1;
     type DataColumnSubnetCount = U32;
     type DataColumnCount = U128;
     // Column samples are entire columns in 1D DAS.
@@ -396,6 +402,7 @@ impl EthSpec for MinimalEthSpec {
     type MaxBlobCommitmentsPerBlock = U16;
     type KzgCommitmentInclusionProofDepth = U9;
     // DAS spec values copied from `MainnetEthSpec`
+    type MinCustodyRequirement = U1;
     type DataColumnSubnetCount = U32;
     type DataColumnCount = U128;
     type MaxBytesPerColumn = U65536;
@@ -476,6 +483,7 @@ impl EthSpec for GnosisEthSpec {
     type BytesPerBlob = U131072;
     type KzgCommitmentInclusionProofDepth = U17;
     // DAS spec values copied from `MainnetEthSpec`
+    type MinCustodyRequirement = U1;
     type DataColumnSubnetCount = U32;
     type DataColumnCount = U128;
     type MaxBytesPerColumn = U65536;

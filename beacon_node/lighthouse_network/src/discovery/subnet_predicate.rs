@@ -1,8 +1,10 @@
 //! The subnet predicate used for searching for a particular subnet.
 use super::*;
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
+use itertools::Itertools;
 use slog::trace;
 use std::ops::Deref;
+use types::DataColumnSubnetId;
 
 /// Returns the predicate for a given subnet.
 pub fn subnet_predicate<TSpec>(
@@ -22,9 +24,15 @@ where
             };
 
         // Pre-fork/fork-boundary enrs may not contain a syncnets field.
-        // Don't return early here
+        // Don't return early here.
         let sync_committee_bitfield: Result<EnrSyncCommitteeBitfield<TSpec>, _> =
             enr.sync_committee_bitfield::<TSpec>();
+
+        // Pre-fork/fork-boundary enrs may not contain a peerdas custody field.
+        // Don't return early here.
+        //
+        // NOTE: we could map to minimum custody requirement here.
+        let custody_subnet_count: Result<u64, _> = enr.custody_subnet_count::<TSpec>();
 
         let predicate = subnets.iter().any(|subnet| match subnet {
             Subnet::Attestation(s) => attestation_bitfield
@@ -33,8 +41,13 @@ where
             Subnet::SyncCommittee(s) => sync_committee_bitfield
                 .as_ref()
                 .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
-            // TODO(das) discovery to be implemented at a later phase. Initially we just use a large peer count.
-            Subnet::DataColumn(_) => false,
+            Subnet::DataColumn(s) => custody_subnet_count.map_or(false, |count| {
+                let mut subnets = DataColumnSubnetId::compute_custody_subnets::<TSpec>(
+                    enr.node_id().raw().into(),
+                    count,
+                );
+                subnets.contains(s)
+            }),
         });
 
         if !predicate {

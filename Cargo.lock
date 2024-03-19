@@ -5150,6 +5150,7 @@ dependencies = [
  "hex",
  "hex_fmt",
  "instant",
+ "itertools",
  "lazy_static",
  "libp2p",
  "libp2p-mplex",
