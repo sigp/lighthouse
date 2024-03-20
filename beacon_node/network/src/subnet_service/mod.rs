@@ -1,4 +1,5 @@
 pub mod attestation_subnets;
+pub mod data_column_subnets;
 pub mod sync_subnets;
 
 use lighthouse_network::{Subnet, SubnetDiscovery};
