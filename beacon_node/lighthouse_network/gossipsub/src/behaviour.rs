@@ -1978,10 +1978,7 @@ where
                     }
                     // if the mesh needs peers add the peer to the mesh
                     if !self.explicit_peers.contains(propagation_source)
-                        && matches!(
-                            peer.kind,
-                            PeerKind::Gossipsubv1_1 | PeerKind::Gossipsub | PeerKind::Gossipsubv1_2
-                        )
+                        && peer.kind.is_gossipsub()
                         && !Self::score_below_threshold_from_scores(
                             &self.peer_score,
                             propagation_source,
@@ -3503,11 +3500,7 @@ fn get_random_peers_dynamic(
         .iter()
         .filter(|(_, p)| p.topics.contains(topic_hash))
         .filter(|(peer_id, _)| f(peer_id))
-        .filter(|(_, p)| {
-            p.kind == PeerKind::Gossipsub
-                || p.kind == PeerKind::Gossipsubv1_1
-                || p.kind == PeerKind::Gossipsubv1_2
-        })
+        .filter(|(_, p)| p.kind.is_gossipsub())
         .map(|(peer_id, _)| *peer_id)
         .collect::<Vec<PeerId>>();
 

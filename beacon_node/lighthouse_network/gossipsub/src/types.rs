@@ -142,6 +142,16 @@ pub enum PeerKind {
     NotSupported,
 }
 
+impl PeerKind {
+    /// Returns true if peer speaks any gossipsub version.
+    pub(crate) fn is_gossipsub(&self) -> bool {
+        matches!(
+            self,
+            Self::Gossipsubv1_2 | Self::Gossipsubv1_1 | Self::Gossipsub
+        )
+    }
+}
+
 /// A message received by the gossipsub system and stored locally in caches..
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct RawMessage {
