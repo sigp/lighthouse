@@ -9,7 +9,6 @@ use eth2::{
 };
 use log::{debug, error, info, warn};
 use std::collections::HashSet;
-use std::iter::FromIterator;
 use types::{BeaconBlockHeader, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 use crate::updater::{get_beacon_block, get_header, get_validators};

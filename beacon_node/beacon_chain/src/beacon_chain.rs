@@ -72,7 +72,7 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
+use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
     FailedCondition, PayloadAttributes, PayloadStatus,
@@ -120,8 +120,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
-use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::payload::BlockProductionVersion;
 use types::*;
 

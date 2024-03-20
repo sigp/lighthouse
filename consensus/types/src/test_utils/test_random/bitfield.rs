@@ -1,5 +1,4 @@
 use super::*;
-use crate::{BitList, BitVector, Unsigned};
 use smallvec::smallvec;
 
 impl<N: Unsigned + Clone> TestRandom for BitList<N> {
