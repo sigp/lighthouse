@@ -1625,6 +1625,16 @@ mod deneb_only {
             self.rig.expect_block_process(ResponseType::Block);
             self
         }
+        fn search_parent_dup(mut self) -> Self {
+            self.bl.search_parent(
+                self.slot,
+                self.block_root,
+                self.block.parent_root(),
+                self.peer_id,
+                &mut self.cx,
+            );
+            self
+        }
     }
 
     fn get_fork_name() -> ForkName {
@@ -2087,5 +2097,33 @@ mod deneb_only {
             .parent_blob_response()
             .expect_no_penalty()
             .expect_block_process();
+    }
+
+    #[test]
+    fn unknown_parent_block_dup() {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlock { num_parents: 1 })
+        else {
+            return;
+        };
+
+        tester
+            .search_parent_dup()
+            .expect_no_blobs_request()
+            .expect_no_block_request();
+    }
+
+    #[test]
+    fn unknown_parent_blob_dup() {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlob { num_parents: 1 })
+        else {
+            return;
+        };
+
+        tester
+            .search_parent_dup()
+            .expect_no_blobs_request()
+            .expect_no_block_request();
     }
 }
