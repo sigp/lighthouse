@@ -315,7 +315,7 @@ pub struct Behaviour<D = IdentityTransform, F = AllowAllSubscriptionFilter> {
 
     /// Stores optional peer score data together with thresholds, decay interval and gossip
     /// promises.
-    peer_score: Option<(PeerScore, PeerScoreThresholds, Ticker, GossipPromises)>,
+    peer_score: Option<(PeerScore, PeerScoreThresholds, Ticker)>,
 
     /// Counts the number of `IHAVE` received from each peer since the last heartbeat.
     count_received_ihave: HashMap<PeerId, usize>,
@@ -340,6 +340,9 @@ pub struct Behaviour<D = IdentityTransform, F = AllowAllSubscriptionFilter> {
 
     /// Tracks the numbers of failed messages per peer-id.
     failed_messages: HashMap<PeerId, FailedMessages>,
+
+    /// Tracks recently sent `IWANT` messages and checks if peers respond to them.
+    gossip_promises: GossipPromises,
 }
 
 impl<D, F> Behaviour<D, F>
@@ -476,6 +479,7 @@ where
             subscription_filter,
             data_transform,
             failed_messages: Default::default(),
+            gossip_promises: Default::default(),
         })
     }
 }
@@ -928,7 +932,7 @@ where
 
         let interval = Ticker::new(params.decay_interval);
         let peer_score = PeerScore::new_with_message_delivery_time_callback(params, callback);
-        self.peer_score = Some((peer_score, threshold, interval, GossipPromises::default()));
+        self.peer_score = Some((peer_score, threshold, interval));
         Ok(())
     }
 
@@ -1196,7 +1200,7 @@ where
     }
 
     fn score_below_threshold_from_scores(
-        peer_score: &Option<(PeerScore, PeerScoreThresholds, Ticker, GossipPromises)>,
+        peer_score: &Option<(PeerScore, PeerScoreThresholds, Ticker)>,
         peer_id: &PeerId,
         threshold: impl Fn(&PeerScoreThresholds) -> f64,
     ) -> (bool, f64) {
@@ -1257,10 +1261,7 @@ where
                 return false;
             }
 
-            self.peer_score
-                .as_ref()
-                .map(|(_, _, _, promises)| !promises.contains(id))
-                .unwrap_or(true)
+            !self.gossip_promises.contains(id)
         };
 
         for (topic, ids) in ihave_msgs {
@@ -1307,13 +1308,11 @@ where
             iwant_ids_vec.truncate(iask);
             *iasked += iask;
 
-            if let Some((_, _, _, gossip_promises)) = &mut self.peer_score {
-                gossip_promises.add_promise(
-                    *peer_id,
-                    &iwant_ids_vec,
-                    Instant::now() + self.config.iwant_followup_time(),
-                );
-            }
+            self.gossip_promises.add_promise(
+                *peer_id,
+                &iwant_ids_vec,
+                Instant::now() + self.config.iwant_followup_time(),
+            );
 
             if let Some(peer) = &mut self.connected_peers.get_mut(peer_id) {
                 tracing::trace!(
@@ -1720,14 +1719,15 @@ where
                 peer=%propagation_source,
                 "Rejecting message from blacklisted peer"
             );
-            if let Some((peer_score, .., gossip_promises)) = &mut self.peer_score {
+            self.gossip_promises
+                .reject_message(msg_id, &RejectReason::BlackListedPeer);
+            if let Some((peer_score, .., _)) = &mut self.peer_score {
                 peer_score.reject_message(
                     propagation_source,
                     msg_id,
                     &raw_message.topic,
                     RejectReason::BlackListedPeer,
                 );
-                gossip_promises.reject_message(msg_id, &RejectReason::BlackListedPeer);
             }
             return false;
         }
@@ -1837,11 +1837,12 @@ where
             metrics.msg_recvd(&message.topic);
         }
 
-        // Tells score that message arrived (but is maybe not fully validated yet).
         // Consider the message as delivered for gossip promises.
-        if let Some((peer_score, .., gossip_promises)) = &mut self.peer_score {
+        self.gossip_promises.message_delivered(&msg_id);
+
+        // Tells score that message arrived (but is maybe not fully validated yet).
+        if let Some((peer_score, .., _)) = &mut self.peer_score {
             peer_score.validate_message(propagation_source, &msg_id, &message.topic);
-            gossip_promises.message_delivered(&msg_id);
         }
 
         // Add the message to our memcache
@@ -1888,7 +1889,7 @@ where
         raw_message: &RawMessage,
         reject_reason: RejectReason,
     ) {
-        if let Some((peer_score, .., gossip_promises)) = &mut self.peer_score {
+        if let Some((peer_score, .., _)) = &mut self.peer_score {
             if let Some(metrics) = self.metrics.as_mut() {
                 metrics.register_invalid_message(&raw_message.topic);
             }
@@ -1903,7 +1904,8 @@ where
                     reject_reason,
                 );
 
-                gossip_promises.reject_message(&message_id, &reject_reason);
+                self.gossip_promises
+                    .reject_message(&message_id, &reject_reason);
             } else {
                 // The message is invalid, we reject it ignoring any gossip promises. If a peer is
                 // advertising this message via an IHAVE and it's invalid it will be double
@@ -2086,8 +2088,8 @@ where
 
     /// Applies penalties to peers that did not respond to our IWANT requests.
     fn apply_iwant_penalties(&mut self) {
-        if let Some((peer_score, .., gossip_promises)) = &mut self.peer_score {
-            for (peer, count) in gossip_promises.get_broken_promises() {
+        if let Some((peer_score, .., _)) = &mut self.peer_score {
+            for (peer, count) in self.gossip_promises.get_broken_promises() {
                 peer_score.add_penalty(&peer, count);
                 if let Some(metrics) = self.metrics.as_mut() {
                     metrics.register_score_penalty(Penalty::BrokenPromise);
@@ -2308,7 +2310,7 @@ where
                 && peers.len() > 1
                 && self.peer_score.is_some()
             {
-                if let Some((_, thresholds, _, _)) = &self.peer_score {
+                if let Some((_, thresholds, _)) = &self.peer_score {
                     // Opportunistic grafting works as follows: we check the median score of peers
                     // in the mesh; if this score is below the opportunisticGraftThreshold, we
                     // select a few peers at random with score over the median.
@@ -2401,7 +2403,7 @@ where
         for (topic_hash, peers) in self.fanout.iter_mut() {
             let mut to_remove_peers = Vec::new();
             let publish_threshold = match &self.peer_score {
-                Some((_, thresholds, _, _)) => thresholds.publish_threshold,
+                Some((_, thresholds, _)) => thresholds.publish_threshold,
                 _ => 0.0,
             };
             for peer_id in peers.iter() {
@@ -2697,11 +2699,7 @@ where
             return;
         };
 
-        let iwant_peers = self
-            .peer_score
-            .as_ref()
-            .map(|(_peer_score, .., gossip_promises)| gossip_promises.peers_for_message(msg_id))
-            .unwrap_or(vec![]);
+        let iwant_peers = self.gossip_promises.peers_for_message(msg_id);
 
         let recipient_peers = mesh_peers
             .iter()
@@ -3231,7 +3229,7 @@ where
             }
             HandlerEvent::MessageDropped(rpc) => {
                 // Account for this in the scoring logic
-                if let Some((peer_score, _, _, _)) = &mut self.peer_score {
+                if let Some((peer_score, _, _)) = &mut self.peer_score {
                     peer_score.failed_message_slow_peer(&propagation_source);
                 }
 
@@ -3380,7 +3378,7 @@ where
         }
 
         // update scores
-        if let Some((peer_score, _, interval, _)) = &mut self.peer_score {
+        if let Some((peer_score, _, interval)) = &mut self.peer_score {
             while let Poll::Ready(Some(_)) = interval.poll_next_unpin(cx) {
                 peer_score.refresh_scores();
             }
