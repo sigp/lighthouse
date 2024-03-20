@@ -1,18 +1,21 @@
 //! This service keeps track of which data column subnets the beacon node should be subscribed to at any
 //! given time. It schedules subscriptions to data column subnets and requests peer discoveries.
 
+use futures::prelude::*;
+use std::task::{Context, Poll};
 use std::{
     collections::{HashMap, VecDeque},
+    pin::Pin,
     sync::Arc,
     time::Duration,
 };
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::HashSetDelay;
-use lighthouse_network::{NetworkGlobals, Subnet, SubnetDiscovery};
-use slog::{debug, o, trace, warn};
+use lighthouse_network::{discovery::peer_id_to_node_id, NetworkGlobals, Subnet, SubnetDiscovery};
+use slog::{debug, o, trace, warn, error};
 use slot_clock::SlotClock;
-use types::{DataColumnSubnetId, Epoch, EthSpec};
+use types::{ChainSpec, DataColumnSubnetId, Epoch, EthSpec};
 
 use super::SubnetServiceMessage;
 
@@ -46,6 +49,11 @@ pub struct DataColumnService<T: BeaconChainTypes> {
     /// A collection of timeouts for when to unsubscribe from a subnet.
     unsubscriptions: HashSetDelay<DataColumnSubnetId>,
 
+    /// The waker for the current thread.
+    waker: Option<std::task::Waker>,
+
+    chain_spec: ChainSpec,
+
     /// The logger for the data column service.
     log: slog::Logger,
 }
@@ -54,6 +62,7 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+        chain_spec: &ChainSpec,
         log: &slog::Logger,
     ) -> Self {
         let log = log.new(o!("service" => "data_column_service"));
@@ -69,6 +78,8 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
             network_globals,
             subscriptions: HashMap::new(),
             unsubscriptions: HashSetDelay::new(Duration::from_secs(default_timeout)),
+            waker: None,
+            chain_spec: chain_spec.clone(),
             log,
         }
     }
@@ -78,13 +89,15 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
     /// - calculate the nodes data column custody requirements based on the epoch.
     /// - search for peers for the required subnets.
     /// - request data columns from the required subnets.
-    pub fn data_column_subscriptions(&mut self, epoch: Epoch) {
-        let local_enr = self.network_globals.local_enr();
+    pub fn data_column_subscriptions(&mut self, epoch: Epoch) -> Result<(), &'static str> {
+        let node_id = peer_id_to_node_id(&self.network_globals.local_peer_id())
+            .map_err(|_| "Could not get the local node id")?;
 
-        // TODO(das) the data columns returned here should be a function of epoch
-        // and local enr/node id
-        let data_column_subnet_ids: Vec<DataColumnSubnetId> = vec![];
         let mut subnets_to_discover = Vec::new();
+
+        let data_column_subnet_ids = DataColumnSubnetId::compute_subnets_for_data_column::<
+            T::EthSpec,
+        >(node_id.raw().into(), &self.chain_spec);
 
         // TODO(das) write column subscription requirements to the beacon chain
 
@@ -100,10 +113,25 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
                 until_epoch: epoch,
             };
 
-            subnets_to_discover.push(exact_subnet);
+            subnets_to_discover.push(exact_subnet.clone());
+
+            if let Err(e) = self.subscribe_to_subnet(exact_subnet.clone()) {
+                warn!(self.log,
+                    "Subscription to sync subnet error";
+                    "error" => e,
+                    "subnet_id" => *data_column_subnet_id
+                    ,
+                );
+            } else {
+                trace!(self.log,
+                    "Subscribed to subnet for sync committee duties";
+                    "exact_subnet" => ?exact_subnet,
+                    "subnet_id" => *data_column_subnet_id
+                );
+            }
         }
 
-        // TODO(das) finish this implementation
+        Ok(())
     }
 
     fn discover_peers_request<'a>(
@@ -248,5 +276,36 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
             .push_back(SubnetServiceMessage::EnrRemove(Subnet::DataColumn(
                 data_column_subnet_id,
             )));
+    }
+}
+
+impl<T: BeaconChainTypes> Stream for DataColumnService<T> {
+    type Item = SubnetServiceMessage;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // update the waker if needed
+        if let Some(waker) = &self.waker {
+            if waker.will_wake(cx.waker()) {
+                self.waker = Some(cx.waker().clone());
+            }
+        } else {
+            self.waker = Some(cx.waker().clone());
+        }
+
+        // process any un-subscription events
+        match self.unsubscriptions.poll_next_unpin(cx) {
+            Poll::Ready(Some(Ok(exact_subnet))) => self.handle_unsubscriptions(exact_subnet),
+            Poll::Ready(Some(Err(e))) => {
+                error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> e);
+            }
+            Poll::Ready(None) | Poll::Pending => {}
+        }
+
+        // process any generated events
+        if let Some(event) = self.events.pop_front() {
+            return Poll::Ready(Some(event));
+        }
+
+        Poll::Pending
     }
 }
