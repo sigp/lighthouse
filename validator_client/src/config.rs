@@ -78,8 +78,6 @@ pub struct Config {
     pub validator_registration_batch_size: usize,
     /// Enable slashing protection even while using web3signer keys.
     pub enable_web3signer_slashing_protection: bool,
-    /// Enables block production via the block v3 endpoint. This configuration option can be removed post deneb.
-    pub produce_block_v3: bool,
     /// Specifies the boost factor, a percentage multiplier to apply to the builder's payload value.
     pub builder_boost_factor: Option<u64>,
     /// If true, Lighthouse will prefer builder proposals, if available.
@@ -129,7 +127,6 @@ impl Default for Config {
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
             enable_web3signer_slashing_protection: true,
-            produce_block_v3: false,
             builder_boost_factor: None,
             prefer_builder_proposals: false,
             distributed: false,
@@ -377,10 +374,6 @@ impl Config {
 
         if cli_args.is_present("builder-proposals") {
             config.builder_proposals = true;
-        }
-
-        if cli_args.is_present("produce-block-v3") {
-            config.produce_block_v3 = true;
         }
 
         if cli_args.is_present("prefer-builder-proposals") {
