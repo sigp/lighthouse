@@ -78,7 +78,7 @@ To view the beacon, validator client and geth logs:
 
 ```bash
 tail -f ~/.lighthouse/local-testnet/testnet/beacon_node_1.log
-taif -f ~/.lighthouse/local-testnet/testnet/validator_node_1.log
+tail -f ~/.lighthouse/local-testnet/testnet/validator_node_1.log
 tail -f ~/.lighthouse/local-testnet/testnet/geth_1.log
 ```
 

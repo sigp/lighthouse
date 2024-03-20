@@ -11,10 +11,13 @@ source ./vars.env
 SUBSCRIBE_ALL_SUBNETS=
 DEBUG_LEVEL=${DEBUG_LEVEL:-info}
 
+lighthouse_binary=lighthouse
+
 # Get options
-while getopts "d:sh" flag; do
+while getopts "d:b:sh" flag; do
   case "${flag}" in
     d) DEBUG_LEVEL=${OPTARG};;
+    b) lighthouse_binary=${OPTARG};;
     s) SUBSCRIBE_ALL_SUBNETS="--subscribe-all-subnets";;
     h)
        echo "Start a beacon node"
@@ -24,6 +27,7 @@ while getopts "d:sh" flag; do
        echo "Options:"
        echo "   -s: pass --subscribe-all-subnets to 'lighthouse bn ...', default is not passed"
        echo "   -d: DEBUG_LEVEL, default info"
+       echo "   -b: lighthouse binary name, default is lighthouse"
        echo "   -h: this help"
        echo
        echo "Positional arguments:"
@@ -44,15 +48,14 @@ quic_port=${@:$OPTIND+2:1}
 http_port=${@:$OPTIND+3:1}
 execution_endpoint=${@:$OPTIND+4:1}
 execution_jwt=${@:$OPTIND+5:1}
-
-lighthouse_binary=lighthouse
+testnet_dir=${@:$OPTIND+6:1}
 
 exec $lighthouse_binary \
 	--debug-level $DEBUG_LEVEL \
 	bn \
 	$SUBSCRIBE_ALL_SUBNETS \
 	--datadir $data_dir \
-	--testnet-dir $TESTNET_DIR \
+	--testnet-dir $testnet_dir \
 	--enable-private-discovery \
   --disable-peer-scoring \
 	--staking \

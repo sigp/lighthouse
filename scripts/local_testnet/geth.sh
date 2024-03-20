@@ -3,9 +3,10 @@ set -Eeuo pipefail
 source ./vars.env
 
 # Get options
-while getopts "d:sh" flag; do
+while getopts "d:b:sh" flag; do
   case "${flag}" in
     d) DEBUG_LEVEL=${OPTARG};;
+    b) GETH_BINARY=${OPTARG};;
     s) SUBSCRIBE_ALL_SUBNETS="--subscribe-all-subnets";;
     h)
        echo "Start a geth node"
