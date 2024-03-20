@@ -1154,9 +1154,7 @@ fn test_same_chain_race_condition() {
 
 mod deneb_only {
     use super::*;
-    use crate::sync::block_lookups::common::ResponseType;
     use beacon_chain::data_availability_checker::AvailabilityCheckError;
-    use beacon_chain::test_utils::NumBlobs;
     use ssz_types::VariableList;
     use std::ops::IndexMut;
     use std::str::FromStr;

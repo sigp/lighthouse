@@ -13,10 +13,9 @@ use state_processing::{
     },
     EpochProcessingError,
 };
-use std::path::{Path, PathBuf};
 use types::{
     consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
-    BeaconState, EthSpec, ForkName,
+    BeaconState,
 };
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, CompareFields)]
