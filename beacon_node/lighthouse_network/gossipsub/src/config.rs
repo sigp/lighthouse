@@ -906,7 +906,6 @@ mod test {
     use crate::types::PeerKind;
     use crate::Topic;
     use libp2p::core::UpgradeInfo;
-    use libp2p::swarm::StreamProtocol;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 

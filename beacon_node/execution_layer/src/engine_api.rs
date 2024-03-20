@@ -17,7 +17,6 @@ pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{

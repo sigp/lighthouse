@@ -1,10 +1,5 @@
-use crate::beacon_block_body::{
-    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyDeneb, BeaconBlockBodyMerge,
-    BeaconBlockBodyRef, BeaconBlockBodyRefMut,
-};
 use crate::test_utils::TestRandom;
 use crate::*;
-use bls::Signature;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
@@ -762,8 +757,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{test_ssz_tree_hash_pair_with, SeedableRng, TestRandom, XorShiftRng};
-    use crate::{ForkName, MainnetEthSpec};
+    use crate::test_utils::{test_ssz_tree_hash_pair_with, SeedableRng, XorShiftRng};
     use ssz::Encode;
 
     type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;
