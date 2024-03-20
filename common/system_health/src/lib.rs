@@ -214,7 +214,7 @@ pub fn observe_nat() -> bool {
     .map(|g| g.get() == 1)
     .unwrap_or_default();
 
-    discv5_nat && libp2p_nat
+    discv5_nat || libp2p_nat
 }
 
 /// Observes the Beacon Node system health.
