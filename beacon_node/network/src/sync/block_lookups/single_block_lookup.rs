@@ -272,19 +272,16 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub(crate) fn missing_blob_ids(&self) -> MissingBlobs {
         let block_root = self.block_root();
         if let Some(components) = self.child_components.as_ref() {
-            self.da_checker.get_missing_blob_ids(block_root, components)
-        } else {
-            let Some(processing_availability_view) =
-                self.da_checker.get_processing_components(block_root)
-            else {
-                return MissingBlobs::new_without_block(block_root, self.da_checker.is_deneb());
-            };
             self.da_checker
-                .get_missing_blob_ids(block_root, &processing_availability_view)
+                .get_missing_blob_ids(block_root, Some(components))
+        } else {
+            // TODO: the da_checker should look into the availability cache, not only the processing
+            // cache.
+            self.da_checker.get_missing_blob_ids_with(block_root)
         }
     }
 
-    /// Penalizes a blob peer if it should have blobs but didn't return them to us.     
+    /// Penalizes a blob peer if it should have blobs but didn't return them to us.
     pub fn penalize_blob_peer(&mut self, cx: &SyncNetworkContext<T>) {
         if let Ok(blob_peer) = self.blob_request_state.state.processing_peer() {
             cx.report_peer(
