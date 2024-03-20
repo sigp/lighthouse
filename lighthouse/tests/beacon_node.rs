@@ -2103,7 +2103,6 @@ fn slasher_broadcast_flag_no_args() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("1"))
-        .flag("slasher-broadcast", None)
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -2271,7 +2270,7 @@ fn proposer_re_org_disallowed_offsets_default() {
 #[test]
 fn proposer_re_org_disallowed_offsets_override() {
     CommandLineTest::new()
-        .flag("--proposer-reorg-disallowed-offsets", Some("1,2,3"))
+        .flag("proposer-reorg-disallowed-offsets", Some("1,2,3"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
@@ -2285,7 +2284,7 @@ fn proposer_re_org_disallowed_offsets_override() {
 #[should_panic]
 fn proposer_re_org_disallowed_offsets_invalid() {
     CommandLineTest::new()
-        .flag("--proposer-reorg-disallowed-offsets", Some("32,33,34"))
+        .flag("proposer-reorg-disallowed-offsets", Some("32,33,34"))
         .run_with_zero_port();
 }
 

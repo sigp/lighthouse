@@ -29,7 +29,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
     let deposit_contract_deploy_block = parse_required(matches, "deposit-contract-deploy-block")?;
 
-    let overwrite_files = matches.is_present("force");
+    let overwrite_files = matches.get_flag("force");
 
     if testnet_dir_path.exists() && !overwrite_files {
         return Err(format!(
@@ -145,7 +145,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         (eth1_block_hash, genesis_time)
     };
 
-    let genesis_state_bytes = if matches.is_present("interop-genesis-state") {
+    let genesis_state_bytes = if matches.get_flag("interop-genesis-state") {
         let keypairs = generate_deterministic_keypairs(validator_count);
         let keypairs: Vec<_> = keypairs.into_iter().map(|kp| (kp.clone(), kp)).collect();
 
@@ -158,7 +158,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         )?;
 
         Some(genesis_state.as_ssz_bytes())
-    } else if matches.is_present("derived-genesis-state") {
+    } else if matches.get_flag("derived-genesis-state") {
         let mnemonic_phrase: String = clap_utils::parse_required(matches, "mnemonic-phrase")?;
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).map_err(|e| {
             format!(

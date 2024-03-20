@@ -55,7 +55,12 @@ impl<T> CommandLineTest<T> {
     }
 
     fn run(mut cmd: Command, should_succeed: bool) {
-        let output = cmd.output().expect("process should complete");
+        let output = cmd
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("process should complete");
         if output.status.success() != should_succeed {
             let stdout = String::from_utf8(output.stdout).unwrap();
             let stderr = String::from_utf8(output.stderr).unwrap();

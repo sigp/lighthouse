@@ -13,10 +13,22 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{Epoch, EthSpec};
 
 pub fn run_syncing_sim(matches: &ArgMatches) -> Result<(), String> {
-    let initial_delay = value_t!(matches, "initial_delay", u64).unwrap();
-    let sync_timeout = value_t!(matches, "sync_timeout", u64).unwrap();
-    let speed_up_factor = value_t!(matches, "speedup", u64).unwrap();
-    let strategy = value_t!(matches, "strategy", String).unwrap();
+    let initial_delay = matches
+        .get_one::<String>("initial_delay")
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    let sync_timeout = matches
+        .get_one::<String>("sync_timeout")
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    let speed_up_factor = matches
+        .get_one::<String>("speedup")
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    let strategy = matches.get_one::<String>("strategy").unwrap().clone();
 
     println!("Syncing Simulator:");
     println!(" initial_delay:{}", initial_delay);
