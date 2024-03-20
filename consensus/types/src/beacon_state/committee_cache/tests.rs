@@ -34,7 +34,7 @@ fn default_values() {
     assert!(cache.get_beacon_committees_at_slot(Slot::new(0)).is_err());
 }
 
-async fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
+async fn new_state<E: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<E> {
     let harness = get_harness(validator_count);
     let head_state = harness.get_current_state();
     if slot > Slot::new(0) {

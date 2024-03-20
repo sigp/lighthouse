@@ -4,10 +4,10 @@ use std::pin::Pin;
 
 /// Executes the function with a specified number of retries if the function returns an error.
 /// Once it exceeds `max_retries` and still fails, the error is returned.
-pub async fn with_retry<T, E, F>(max_retries: usize, mut func: F) -> Result<T, E>
+pub async fn with_retry<T, U, F>(max_retries: usize, mut func: F) -> Result<T, U>
 where
-    F: FnMut() -> Pin<Box<dyn Future<Output = Result<T, E>>>>,
-    E: Debug,
+    F: FnMut() -> Pin<Box<dyn Future<Output = Result<T, U>>>>,
+    U: Debug,
 {
     let mut retry_count = 0;
     loop {

@@ -24,9 +24,9 @@ use tree_hash::TreeHash;
     TestRandom,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct LightClientFinalityUpdate<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct LightClientFinalityUpdate<E: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     pub attested_header: LightClientHeader,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
@@ -34,23 +34,23 @@ pub struct LightClientFinalityUpdate<T: EthSpec> {
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
-    pub sync_aggregate: SyncAggregate<T>,
+    pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated singature
     pub signature_slot: Slot,
 }
 
-impl<T: EthSpec> LightClientFinalityUpdate<T> {
+impl<E: EthSpec> LightClientFinalityUpdate<E> {
     pub fn new(
         chain_spec: &ChainSpec,
-        beacon_state: &BeaconState<T>,
-        block: &SignedBeaconBlock<T>,
-        attested_state: &mut BeaconState<T>,
-        finalized_block: &SignedBlindedBeaconBlock<T>,
+        beacon_state: &BeaconState<E>,
+        block: &SignedBeaconBlock<E>,
+        attested_state: &mut BeaconState<E>,
+        finalized_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
             .altair_fork_epoch
             .ok_or(Error::AltairForkNotActive)?;
-        if beacon_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
+        if beacon_state.slot().epoch(E::slots_per_epoch()) < altair_fork_epoch {
             return Err(Error::AltairForkNotActive);
         }
 
@@ -80,14 +80,14 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
             ForkName::Altair | ForkName::Merge => Ok(serde_json::from_value::<
-                LightClientFinalityUpdate<T>,
+                LightClientFinalityUpdate<E>,
             >(value)
             .map_err(serde::de::Error::custom))?,
             ForkName::Base | ForkName::Capella | ForkName::Deneb => {

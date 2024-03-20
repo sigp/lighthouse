@@ -3,8 +3,8 @@ use std::cmp::max;
 use types::{BeaconStateError as Error, *};
 
 /// Initiate the exit of the validator of the given `index`.
-pub fn initiate_validator_exit<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn initiate_validator_exit<E: EthSpec>(
+    state: &mut BeaconState<E>,
     index: usize,
     spec: &ChainSpec,
 ) -> Result<(), Error> {

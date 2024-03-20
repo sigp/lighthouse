@@ -5,12 +5,12 @@ use types::{Checkpoint, EthSpec};
 
 /// Update the justified and finalized checkpoints for matching target attestations.
 #[allow(clippy::if_same_then_else)] // For readability and consistency with spec.
-pub fn weigh_justification_and_finalization<T: EthSpec>(
-    mut state: JustificationAndFinalizationState<T>,
+pub fn weigh_justification_and_finalization<E: EthSpec>(
+    mut state: JustificationAndFinalizationState<E>,
     total_active_balance: u64,
     previous_target_balance: u64,
     current_target_balance: u64,
-) -> Result<JustificationAndFinalizationState<T>, Error> {
+) -> Result<JustificationAndFinalizationState<E>, Error> {
     let previous_epoch = state.previous_epoch();
     let current_epoch = state.current_epoch();
 

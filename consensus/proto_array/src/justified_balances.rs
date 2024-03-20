@@ -15,7 +15,7 @@ pub struct JustifiedBalances {
 }
 
 impl JustifiedBalances {
-    pub fn from_justified_state<T: EthSpec>(state: &BeaconState<T>) -> Result<Self, ArithError> {
+    pub fn from_justified_state<E: EthSpec>(state: &BeaconState<E>) -> Result<Self, ArithError> {
         let current_epoch = state.current_epoch();
         let mut total_effective_balance = 0u64;
         let mut num_active_validators = 0u64;

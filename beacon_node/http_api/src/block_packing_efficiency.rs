@@ -53,24 +53,24 @@ impl CommitteeStore {
     }
 }
 
-struct PackingEfficiencyHandler<T: EthSpec> {
+struct PackingEfficiencyHandler<E: EthSpec> {
     current_slot: Slot,
     current_epoch: Epoch,
     prior_skip_slots: u64,
     available_attestations: HashSet<UniqueAttestation>,
     included_attestations: HashMap<UniqueAttestation, u64>,
     committee_store: CommitteeStore,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<E>,
 }
 
-impl<T: EthSpec> PackingEfficiencyHandler<T> {
+impl<E: EthSpec> PackingEfficiencyHandler<E> {
     fn new(
         start_epoch: Epoch,
-        starting_state: BeaconState<T>,
+        starting_state: BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<Self, PackingEfficiencyError> {
         let mut handler = PackingEfficiencyHandler {
-            current_slot: start_epoch.start_slot(T::slots_per_epoch()),
+            current_slot: start_epoch.start_slot(E::slots_per_epoch()),
             current_epoch: start_epoch,
             prior_skip_slots: 0,
             available_attestations: HashSet::new(),
@@ -85,27 +85,27 @@ impl<T: EthSpec> PackingEfficiencyHandler<T> {
 
     fn update_slot(&mut self, slot: Slot) {
         self.current_slot = slot;
-        if slot % T::slots_per_epoch() == 0 {
-            self.current_epoch = Epoch::new(slot.as_u64() / T::slots_per_epoch());
+        if slot % E::slots_per_epoch() == 0 {
+            self.current_epoch = Epoch::new(slot.as_u64() / E::slots_per_epoch());
         }
     }
 
     fn prune_included_attestations(&mut self) {
         let epoch = self.current_epoch;
         self.included_attestations.retain(|x, _| {
-            x.slot >= Epoch::new(epoch.as_u64().saturating_sub(2)).start_slot(T::slots_per_epoch())
+            x.slot >= Epoch::new(epoch.as_u64().saturating_sub(2)).start_slot(E::slots_per_epoch())
         });
     }
 
     fn prune_available_attestations(&mut self) {
         let slot = self.current_slot;
         self.available_attestations
-            .retain(|x| x.slot >= (slot.as_u64().saturating_sub(T::slots_per_epoch())));
+            .retain(|x| x.slot >= (slot.as_u64().saturating_sub(E::slots_per_epoch())));
     }
 
     fn apply_block(
         &mut self,
-        block: &SignedBeaconBlock<T, BlindedPayload<T>>,
+        block: &SignedBeaconBlock<E, BlindedPayload<E>>,
     ) -> Result<usize, PackingEfficiencyError> {
         let block_body = block.message().body();
         let attestations = block_body.attestations();
@@ -158,7 +158,7 @@ impl<T: EthSpec> PackingEfficiencyHandler<T> {
     fn compute_epoch(
         &mut self,
         epoch: Epoch,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), PackingEfficiencyError> {
         // Free some memory by pruning old attestations from the included set.

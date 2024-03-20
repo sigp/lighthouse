@@ -28,18 +28,18 @@ fn eth1_withdrawal_credentials(pubkey: &PublicKey, spec: &ChainSpec) -> Hash256 
 ///
 /// Reference:
 /// https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start
-pub fn interop_genesis_state<T: EthSpec>(
+pub fn interop_genesis_state<E: EthSpec>(
     keypairs: &[Keypair],
     genesis_time: u64,
     eth1_block_hash: Hash256,
-    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
+    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     spec: &ChainSpec,
-) -> Result<BeaconState<T>, String> {
+) -> Result<BeaconState<E>, String> {
     let withdrawal_credentials = keypairs
         .iter()
         .map(|keypair| bls_withdrawal_credentials(&keypair.pk, spec))
         .collect::<Vec<_>>();
-    interop_genesis_state_with_withdrawal_credentials::<T>(
+    interop_genesis_state_with_withdrawal_credentials::<E>(
         keypairs,
         &withdrawal_credentials,
         genesis_time,
@@ -51,13 +51,13 @@ pub fn interop_genesis_state<T: EthSpec>(
 
 // returns an interop genesis state except every other
 // validator has eth1 withdrawal credentials
-pub fn interop_genesis_state_with_eth1<T: EthSpec>(
+pub fn interop_genesis_state_with_eth1<E: EthSpec>(
     keypairs: &[Keypair],
     genesis_time: u64,
     eth1_block_hash: Hash256,
-    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
+    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     spec: &ChainSpec,
-) -> Result<BeaconState<T>, String> {
+) -> Result<BeaconState<E>, String> {
     let withdrawal_credentials = keypairs
         .iter()
         .enumerate()
@@ -69,7 +69,7 @@ pub fn interop_genesis_state_with_eth1<T: EthSpec>(
             }
         })
         .collect::<Vec<_>>();
-    interop_genesis_state_with_withdrawal_credentials::<T>(
+    interop_genesis_state_with_withdrawal_credentials::<E>(
         keypairs,
         &withdrawal_credentials,
         genesis_time,
@@ -79,14 +79,14 @@ pub fn interop_genesis_state_with_eth1<T: EthSpec>(
     )
 }
 
-pub fn interop_genesis_state_with_withdrawal_credentials<T: EthSpec>(
+pub fn interop_genesis_state_with_withdrawal_credentials<E: EthSpec>(
     keypairs: &[Keypair],
     withdrawal_credentials: &[Hash256],
     genesis_time: u64,
     eth1_block_hash: Hash256,
-    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
+    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     spec: &ChainSpec,
-) -> Result<BeaconState<T>, String> {
+) -> Result<BeaconState<E>, String> {
     if keypairs.len() != withdrawal_credentials.len() {
         return Err(format!(
             "wrong number of withdrawal credentials, expected: {}, got: {}",

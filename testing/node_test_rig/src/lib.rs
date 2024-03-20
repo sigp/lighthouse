@@ -181,8 +181,8 @@ impl ValidatorFiles {
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
-pub struct LocalValidatorClient<T: EthSpec> {
-    pub client: ProductionValidatorClient<T>,
+pub struct LocalValidatorClient<E: EthSpec> {
+    pub client: ProductionValidatorClient<E>,
     pub files: ValidatorFiles,
 }
 

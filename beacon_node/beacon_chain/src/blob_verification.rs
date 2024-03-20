@@ -22,7 +22,7 @@ use types::{
 
 /// An error occurred while validating a gossip blob.
 #[derive(Debug)]
-pub enum GossipBlobError<T: EthSpec> {
+pub enum GossipBlobError<E: EthSpec> {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
     ///
@@ -95,7 +95,7 @@ pub enum GossipBlobError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
-    BlobParentUnknown(Arc<BlobSidecar<T>>),
+    BlobParentUnknown(Arc<BlobSidecar<E>>),
 
     /// Invalid kzg commitment inclusion proof
     /// ## Peer scoring
@@ -152,7 +152,7 @@ pub enum GossipBlobError<T: EthSpec> {
     NotFinalizedDescendant { block_parent_root: Hash256 },
 }
 
-impl<T: EthSpec> std::fmt::Display for GossipBlobError<T> {
+impl<E: EthSpec> std::fmt::Display for GossipBlobError<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GossipBlobError::BlobParentUnknown(blob_sidecar) => {
@@ -167,13 +167,13 @@ impl<T: EthSpec> std::fmt::Display for GossipBlobError<T> {
     }
 }
 
-impl<T: EthSpec> From<BeaconChainError> for GossipBlobError<T> {
+impl<E: EthSpec> From<BeaconChainError> for GossipBlobError<E> {
     fn from(e: BeaconChainError) -> Self {
         GossipBlobError::BeaconChainError(e)
     }
 }
 
-impl<T: EthSpec> From<BeaconStateError> for GossipBlobError<T> {
+impl<E: EthSpec> From<BeaconStateError> for GossipBlobError<E> {
     fn from(e: BeaconStateError) -> Self {
         GossipBlobError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
@@ -258,34 +258,34 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
 #[derive(Debug, Derivative, Clone, Encode, Decode)]
 #[derivative(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
-pub struct KzgVerifiedBlob<T: EthSpec> {
-    blob: Arc<BlobSidecar<T>>,
+pub struct KzgVerifiedBlob<E: EthSpec> {
+    blob: Arc<BlobSidecar<E>>,
 }
 
-impl<T: EthSpec> PartialOrd for KzgVerifiedBlob<T> {
+impl<E: EthSpec> PartialOrd for KzgVerifiedBlob<E> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<T: EthSpec> Ord for KzgVerifiedBlob<T> {
+impl<E: EthSpec> Ord for KzgVerifiedBlob<E> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.blob.cmp(&other.blob)
     }
 }
 
-impl<T: EthSpec> KzgVerifiedBlob<T> {
-    pub fn new(blob: Arc<BlobSidecar<T>>, kzg: &Kzg) -> Result<Self, KzgError> {
+impl<E: EthSpec> KzgVerifiedBlob<E> {
+    pub fn new(blob: Arc<BlobSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_blob(blob, kzg)
     }
-    pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
+    pub fn to_blob(self) -> Arc<BlobSidecar<E>> {
         self.blob
     }
-    pub fn as_blob(&self) -> &BlobSidecar<T> {
+    pub fn as_blob(&self) -> &BlobSidecar<E> {
         &self.blob
     }
     /// This is cheap as we're calling clone on an Arc
-    pub fn clone_blob(&self) -> Arc<BlobSidecar<T>> {
+    pub fn clone_blob(&self) -> Arc<BlobSidecar<E>> {
         self.blob.clone()
     }
     pub fn blob_index(&self) -> u64 {
@@ -295,7 +295,7 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     ///
     /// This should ONLY be used for testing.
     #[cfg(test)]
-    pub fn __assumed_valid(blob: Arc<BlobSidecar<T>>) -> Self {
+    pub fn __assumed_valid(blob: Arc<BlobSidecar<E>>) -> Self {
         Self { blob }
     }
 }
@@ -303,11 +303,11 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
 /// Complete kzg verification for a `BlobSidecar`.
 ///
 /// Returns an error if the kzg verification check fails.
-pub fn verify_kzg_for_blob<T: EthSpec>(
-    blob: Arc<BlobSidecar<T>>,
+pub fn verify_kzg_for_blob<E: EthSpec>(
+    blob: Arc<BlobSidecar<E>>,
     kzg: &Kzg,
-) -> Result<KzgVerifiedBlob<T>, KzgError> {
-    validate_blob::<T>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)?;
+) -> Result<KzgVerifiedBlob<E>, KzgError> {
+    validate_blob::<E>(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)?;
     Ok(KzgVerifiedBlob { blob })
 }
 
@@ -345,17 +345,17 @@ impl<E: EthSpec> IntoIterator for KzgVerifiedBlobList<E> {
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_blob`
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
-pub fn verify_kzg_for_blob_list<'a, T: EthSpec, I>(
+pub fn verify_kzg_for_blob_list<'a, E: EthSpec, I>(
     blob_iter: I,
     kzg: &'a Kzg,
 ) -> Result<(), KzgError>
 where
-    I: Iterator<Item = &'a Arc<BlobSidecar<T>>>,
+    I: Iterator<Item = &'a Arc<BlobSidecar<E>>>,
 {
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_iter
         .map(|blob| (&blob.blob, (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
-    validate_blobs::<T>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
+    validate_blobs::<E>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
 }
 
 pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(

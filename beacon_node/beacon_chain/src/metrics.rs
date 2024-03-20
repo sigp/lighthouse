@@ -1255,7 +1255,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.
-fn scrape_head_state<T: EthSpec>(state: &BeaconState<T>, state_root: Hash256) {
+fn scrape_head_state<E: EthSpec>(state: &BeaconState<E>, state_root: Hash256) {
     set_gauge_by_slot(&HEAD_STATE_SLOT, state.slot());
     set_gauge_by_slot(&HEAD_STATE_SLOT_INTEROP, state.slot());
     set_gauge_by_hash(&HEAD_STATE_ROOT, state_root);

@@ -22,19 +22,19 @@ use test_random_derive::TestRandom;
     TestRandom,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct LightClientBootstrap<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct LightClientBootstrap<E: EthSpec> {
     /// The requested beacon block header.
     pub header: LightClientHeader,
     /// The `SyncCommittee` used in the requested period.
-    pub current_sync_committee: Arc<SyncCommittee<T>>,
+    pub current_sync_committee: Arc<SyncCommittee<E>>,
     /// Merkle proof for sync committee
     pub current_sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen>,
 }
 
-impl<T: EthSpec> LightClientBootstrap<T> {
-    pub fn from_beacon_state(beacon_state: &mut BeaconState<T>) -> Result<Self, Error> {
+impl<E: EthSpec> LightClientBootstrap<E> {
+    pub fn from_beacon_state(beacon_state: &mut BeaconState<E>) -> Result<Self, Error> {
         let mut header = beacon_state.latest_block_header().clone();
         header.state_root = beacon_state.update_tree_hash_cache()?;
         let current_sync_committee_branch =
@@ -47,14 +47,14 @@ impl<T: EthSpec> LightClientBootstrap<T> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientBootstrap<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientBootstrap<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
             ForkName::Altair | ForkName::Merge => {
-                Ok(serde_json::from_value::<LightClientBootstrap<T>>(value)
+                Ok(serde_json::from_value::<LightClientBootstrap<E>>(value)
                     .map_err(serde::de::Error::custom))?
             }
             ForkName::Base | ForkName::Capella | ForkName::Deneb => {

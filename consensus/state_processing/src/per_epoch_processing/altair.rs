@@ -22,10 +22,10 @@ pub mod participation_flag_updates;
 pub mod rewards_and_penalties;
 pub mod sync_committee_updates;
 
-pub fn process_epoch<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_epoch<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary<T>, Error> {
+) -> Result<EpochProcessingSummary<E>, Error> {
     // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
@@ -34,7 +34,7 @@ pub fn process_epoch<T: EthSpec>(
     // Pre-compute participating indices and total balances.
     let participation_cache = ParticipationCache::new(state, spec)?;
     let sync_committee = state.current_sync_committee()?.clone();
-    initialize_progressive_balances_cache::<T>(state, Some(&participation_cache), spec)?;
+    initialize_progressive_balances_cache::<E>(state, Some(&participation_cache), spec)?;
 
     // Justification and finalization.
     let justification_and_finalization_state =

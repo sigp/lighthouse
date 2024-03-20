@@ -78,8 +78,8 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
 }
 
 /// An attestation that failed validation by the `BeaconChain`.
-struct RejectedUnaggregate<T: EthSpec> {
-    attestation: Box<Attestation<T>>,
+struct RejectedUnaggregate<E: EthSpec> {
+    attestation: Box<Attestation<E>>,
     error: AttnError,
 }
 
@@ -112,26 +112,26 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
 }
 
 /// An attestation that failed validation by the `BeaconChain`.
-struct RejectedAggregate<T: EthSpec> {
-    signed_aggregate: Box<SignedAggregateAndProof<T>>,
+struct RejectedAggregate<E: EthSpec> {
+    signed_aggregate: Box<SignedAggregateAndProof<E>>,
     error: AttnError,
 }
 
 /// Data for an aggregated or unaggregated attestation that failed verification.
-enum FailedAtt<T: EthSpec> {
+enum FailedAtt<E: EthSpec> {
     Unaggregate {
-        attestation: Box<Attestation<T>>,
+        attestation: Box<Attestation<E>>,
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
     },
     Aggregate {
-        attestation: Box<SignedAggregateAndProof<T>>,
+        attestation: Box<SignedAggregateAndProof<E>>,
         seen_timestamp: Duration,
     },
 }
 
-impl<T: EthSpec> FailedAtt<T> {
+impl<E: EthSpec> FailedAtt<E> {
     pub fn beacon_block_root(&self) -> &Hash256 {
         &self.attestation().data.beacon_block_root
     }
@@ -143,7 +143,7 @@ impl<T: EthSpec> FailedAtt<T> {
         }
     }
 
-    pub fn attestation(&self) -> &Attestation<T> {
+    pub fn attestation(&self) -> &Attestation<E> {
         match self {
             FailedAtt::Unaggregate { attestation, .. } => attestation,
             FailedAtt::Aggregate { attestation, .. } => &attestation.message.aggregate,

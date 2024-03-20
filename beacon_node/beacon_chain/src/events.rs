@@ -6,24 +6,24 @@ use types::EthSpec;
 
 const DEFAULT_CHANNEL_CAPACITY: usize = 16;
 
-pub struct ServerSentEventHandler<T: EthSpec> {
-    attestation_tx: Sender<EventKind<T>>,
-    block_tx: Sender<EventKind<T>>,
-    blob_sidecar_tx: Sender<EventKind<T>>,
-    finalized_tx: Sender<EventKind<T>>,
-    head_tx: Sender<EventKind<T>>,
-    exit_tx: Sender<EventKind<T>>,
-    chain_reorg_tx: Sender<EventKind<T>>,
-    contribution_tx: Sender<EventKind<T>>,
-    payload_attributes_tx: Sender<EventKind<T>>,
-    late_head: Sender<EventKind<T>>,
-    light_client_finality_update_tx: Sender<EventKind<T>>,
-    light_client_optimistic_update_tx: Sender<EventKind<T>>,
-    block_reward_tx: Sender<EventKind<T>>,
+pub struct ServerSentEventHandler<E: EthSpec> {
+    attestation_tx: Sender<EventKind<E>>,
+    block_tx: Sender<EventKind<E>>,
+    blob_sidecar_tx: Sender<EventKind<E>>,
+    finalized_tx: Sender<EventKind<E>>,
+    head_tx: Sender<EventKind<E>>,
+    exit_tx: Sender<EventKind<E>>,
+    chain_reorg_tx: Sender<EventKind<E>>,
+    contribution_tx: Sender<EventKind<E>>,
+    payload_attributes_tx: Sender<EventKind<E>>,
+    late_head: Sender<EventKind<E>>,
+    light_client_finality_update_tx: Sender<EventKind<E>>,
+    light_client_optimistic_update_tx: Sender<EventKind<E>>,
+    block_reward_tx: Sender<EventKind<E>>,
     log: Logger,
 }
 
-impl<T: EthSpec> ServerSentEventHandler<T> {
+impl<E: EthSpec> ServerSentEventHandler<E> {
     pub fn new(log: Logger, capacity_multiplier: usize) -> Self {
         Self::new_with_capacity(
             log,
@@ -64,7 +64,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         }
     }
 
-    pub fn register(&self, kind: EventKind<T>) {
+    pub fn register(&self, kind: EventKind<E>) {
         let log_count = |name, count| {
             trace!(
                 self.log,
@@ -132,55 +132,55 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         }
     }
 
-    pub fn subscribe_attestation(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_attestation(&self) -> Receiver<EventKind<E>> {
         self.attestation_tx.subscribe()
     }
 
-    pub fn subscribe_block(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_block(&self) -> Receiver<EventKind<E>> {
         self.block_tx.subscribe()
     }
 
-    pub fn subscribe_blob_sidecar(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_blob_sidecar(&self) -> Receiver<EventKind<E>> {
         self.blob_sidecar_tx.subscribe()
     }
 
-    pub fn subscribe_finalized(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_finalized(&self) -> Receiver<EventKind<E>> {
         self.finalized_tx.subscribe()
     }
 
-    pub fn subscribe_head(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_head(&self) -> Receiver<EventKind<E>> {
         self.head_tx.subscribe()
     }
 
-    pub fn subscribe_exit(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_exit(&self) -> Receiver<EventKind<E>> {
         self.exit_tx.subscribe()
     }
 
-    pub fn subscribe_reorgs(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_reorgs(&self) -> Receiver<EventKind<E>> {
         self.chain_reorg_tx.subscribe()
     }
 
-    pub fn subscribe_contributions(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_contributions(&self) -> Receiver<EventKind<E>> {
         self.contribution_tx.subscribe()
     }
 
-    pub fn subscribe_payload_attributes(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_payload_attributes(&self) -> Receiver<EventKind<E>> {
         self.payload_attributes_tx.subscribe()
     }
 
-    pub fn subscribe_late_head(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_late_head(&self) -> Receiver<EventKind<E>> {
         self.late_head.subscribe()
     }
 
-    pub fn subscribe_light_client_finality_update(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_light_client_finality_update(&self) -> Receiver<EventKind<E>> {
         self.light_client_finality_update_tx.subscribe()
     }
 
-    pub fn subscribe_light_client_optimistic_update(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_light_client_optimistic_update(&self) -> Receiver<EventKind<E>> {
         self.light_client_optimistic_update_tx.subscribe()
     }
 
-    pub fn subscribe_block_reward(&self) -> Receiver<EventKind<T>> {
+    pub fn subscribe_block_reward(&self) -> Receiver<EventKind<E>> {
         self.block_reward_tx.subscribe()
     }
 

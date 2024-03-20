@@ -38,19 +38,19 @@ pub struct ConfigAndPreset {
 }
 
 impl ConfigAndPreset {
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec, fork_name: Option<ForkName>) -> Self {
-        let config = Config::from_chain_spec::<T>(spec);
-        let base_preset = BasePreset::from_chain_spec::<T>(spec);
-        let altair_preset = AltairPreset::from_chain_spec::<T>(spec);
-        let bellatrix_preset = BellatrixPreset::from_chain_spec::<T>(spec);
-        let capella_preset = CapellaPreset::from_chain_spec::<T>(spec);
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec, fork_name: Option<ForkName>) -> Self {
+        let config = Config::from_chain_spec::<E>(spec);
+        let base_preset = BasePreset::from_chain_spec::<E>(spec);
+        let altair_preset = AltairPreset::from_chain_spec::<E>(spec);
+        let bellatrix_preset = BellatrixPreset::from_chain_spec::<E>(spec);
+        let capella_preset = CapellaPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
         if spec.deneb_fork_epoch.is_some()
             || fork_name.is_none()
             || fork_name == Some(ForkName::Deneb)
         {
-            let deneb_preset = DenebPreset::from_chain_spec::<T>(spec);
+            let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
             ConfigAndPreset::Deneb(ConfigAndPresetDeneb {
                 config,
                 base_preset,

@@ -17,9 +17,9 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// invalidity.
 ///
 /// Spec v0.12.1
-pub fn verify_attester_slashing<T: EthSpec>(
-    state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing<T>,
+pub fn verify_attester_slashing<E: EthSpec>(
+    state: &BeaconState<E>,
+    attester_slashing: &AttesterSlashing<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
@@ -46,9 +46,9 @@ pub fn verify_attester_slashing<T: EthSpec>(
 /// Returns Ok(indices) if `indices.len() > 0`.
 ///
 /// Spec v0.12.1
-pub fn get_slashable_indices<T: EthSpec>(
-    state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing<T>,
+pub fn get_slashable_indices<E: EthSpec>(
+    state: &BeaconState<E>,
+    attester_slashing: &AttesterSlashing<E>,
 ) -> Result<Vec<u64>> {
     get_slashable_indices_modular(state, attester_slashing, |_, validator| {
         validator.is_slashable_at(state.current_epoch())
@@ -57,9 +57,9 @@ pub fn get_slashable_indices<T: EthSpec>(
 
 /// Same as `gather_attester_slashing_indices` but allows the caller to specify the criteria
 /// for determining whether a given validator should be considered slashable.
-pub fn get_slashable_indices_modular<F, T: EthSpec>(
-    state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing<T>,
+pub fn get_slashable_indices_modular<F, E: EthSpec>(
+    state: &BeaconState<E>,
+    attester_slashing: &AttesterSlashing<E>,
     is_slashable: F,
 ) -> Result<Vec<u64>>
 where

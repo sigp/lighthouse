@@ -3,8 +3,8 @@ use safe_arith::{SafeArith, SafeArithIter};
 use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec, Unsigned};
 
 /// Process slashings.
-pub fn process_slashings<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_slashings<E: EthSpec>(
+    state: &mut BeaconState<E>,
     total_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -19,7 +19,7 @@ pub fn process_slashings<T: EthSpec>(
     let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
     for (index, validator) in validators.iter().enumerate() {
         if validator.slashed
-            && epoch.safe_add(T::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?
+            && epoch.safe_add(E::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?
                 == validator.withdrawable_epoch
         {
             let increment = spec.effective_balance_increment;

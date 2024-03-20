@@ -50,7 +50,7 @@ struct SingleEpochParticipationCache {
 }
 
 impl SingleEpochParticipationCache {
-    fn new<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Self {
+    fn new<E: EthSpec>(state: &BeaconState<E>, spec: &ChainSpec) -> Self {
         let num_validators = state.validators().len();
         let zero_balance = Balance::zero(spec.effective_balance_increment);
 
@@ -104,10 +104,10 @@ impl SingleEpochParticipationCache {
     /// - The provided `state` **must** be Altair. An error will be returned otherwise.
     /// - An error will be returned if the `val_index` validator is inactive at the given
     ///     `relative_epoch`.
-    fn process_active_validator<T: EthSpec>(
+    fn process_active_validator<E: EthSpec>(
         &mut self,
         val_index: usize,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         current_epoch: Epoch,
         relative_epoch: RelativeEpoch,
     ) -> Result<(), BeaconStateError> {
@@ -173,8 +173,8 @@ impl ParticipationCache {
     /// ## Errors
     ///
     /// - The provided `state` **must** be an Altair state. An error will be returned otherwise.
-    pub fn new<T: EthSpec>(
-        state: &BeaconState<T>,
+    pub fn new<E: EthSpec>(
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
         let current_epoch = state.current_epoch();

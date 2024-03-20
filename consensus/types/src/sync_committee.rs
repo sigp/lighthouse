@@ -36,14 +36,14 @@ impl From<ArithError> for Error {
     TestRandom,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct SyncCommittee<T: EthSpec> {
-    pub pubkeys: FixedVector<PublicKeyBytes, T::SyncCommitteeSize>,
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct SyncCommittee<E: EthSpec> {
+    pub pubkeys: FixedVector<PublicKeyBytes, E::SyncCommitteeSize>,
     pub aggregate_pubkey: PublicKeyBytes,
 }
 
-impl<T: EthSpec> SyncCommittee<T> {
+impl<E: EthSpec> SyncCommittee<E> {
     /// Create a temporary sync committee that should *never* be included in a legitimate consensus object.
     pub fn temporary() -> Self {
         Self {
@@ -57,9 +57,9 @@ impl<T: EthSpec> SyncCommittee<T> {
         &self,
         subcommittee_index: usize,
     ) -> Result<Vec<PublicKeyBytes>, Error> {
-        let start_subcommittee_index = subcommittee_index.safe_mul(T::sync_subcommittee_size())?;
+        let start_subcommittee_index = subcommittee_index.safe_mul(E::sync_subcommittee_size())?;
         let end_subcommittee_index =
-            start_subcommittee_index.safe_add(T::sync_subcommittee_size())?;
+            start_subcommittee_index.safe_add(E::sync_subcommittee_size())?;
         self.pubkeys
             .get(start_subcommittee_index..end_subcommittee_index)
             .ok_or(Error::InvalidSubcommitteeRange {
@@ -80,9 +80,9 @@ impl<T: EthSpec> SyncCommittee<T> {
         let mut subnet_positions = HashMap::new();
         for (committee_index, validator_pubkey) in self.pubkeys.iter().enumerate() {
             if pubkey == validator_pubkey {
-                let subcommittee_index = committee_index.safe_div(T::sync_subcommittee_size())?;
+                let subcommittee_index = committee_index.safe_div(E::sync_subcommittee_size())?;
                 let position_in_subcommittee =
-                    committee_index.safe_rem(T::sync_subcommittee_size())?;
+                    committee_index.safe_rem(E::sync_subcommittee_size())?;
                 subnet_positions
                     .entry(SyncSubnetId::new(subcommittee_index as u64))
                     .or_insert_with(Vec::new)

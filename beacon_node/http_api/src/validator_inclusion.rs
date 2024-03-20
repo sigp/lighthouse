@@ -27,10 +27,10 @@ fn end_of_epoch_state<T: BeaconChainTypes>(
 /// ## Notes
 ///
 /// Will mutate `state`, transitioning it to the next epoch.
-fn get_epoch_processing_summary<T: EthSpec>(
-    state: &mut BeaconState<T>,
+fn get_epoch_processing_summary<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary<T>, warp::reject::Rejection> {
+) -> Result<EpochProcessingSummary<E>, warp::reject::Rejection> {
     process_epoch(state, spec)
         .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))
 }

@@ -6,7 +6,7 @@ use log::{debug, error, warn};
 
 const MAX_SIZE_SINGLE_REQUEST_BLOCKPRINT: u64 = 1600;
 
-impl<T: EthSpec> UpdateHandler<T> {
+impl<E: EthSpec> UpdateHandler<E> {
     /// Forward fills the `blockprint` table starting from the entry with the
     /// highest slot.
     ///

@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec};
 
-pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
+pub fn run<E: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let path = matches
         .value_of("ssz-state")
         .ok_or("ssz-state not specified")?
@@ -20,9 +20,9 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
         .map_err(|e| format!("Unable to parse genesis-time: {}", e))?;
 
     let eth2_network_config = Eth2NetworkConfig::load(testnet_dir)?;
-    let spec = &eth2_network_config.chain_spec::<T>()?;
+    let spec = &eth2_network_config.chain_spec::<E>()?;
 
-    let mut state: BeaconState<T> = {
+    let mut state: BeaconState<E> = {
         let mut file = File::open(&path).map_err(|e| format!("Unable to open file: {}", e))?;
 
         let mut ssz = vec![];

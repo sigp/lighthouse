@@ -207,13 +207,13 @@ pub struct ProposerHeadInfo {
 /// This type intentionally does not implement `Debug` so that callers are forced to handle the
 /// enum.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ProposerHeadError<E> {
+pub enum ProposerHeadError<T> {
     DoNotReOrg(DoNotReOrg),
-    Error(E),
+    Error(T),
 }
 
-impl<E> From<DoNotReOrg> for ProposerHeadError<E> {
-    fn from(e: DoNotReOrg) -> ProposerHeadError<E> {
+impl<T> From<DoNotReOrg> for ProposerHeadError<T> {
+    fn from(e: DoNotReOrg) -> ProposerHeadError<T> {
         Self::DoNotReOrg(e)
     }
 }
@@ -224,15 +224,15 @@ impl From<Error> for ProposerHeadError<Error> {
     }
 }
 
-impl<E1> ProposerHeadError<E1> {
-    pub fn convert_inner_error<E2>(self) -> ProposerHeadError<E2>
+impl<T1> ProposerHeadError<T1> {
+    pub fn convert_inner_error<T2>(self) -> ProposerHeadError<T2>
     where
-        E2: From<E1>,
+        T2: From<T1>,
     {
-        self.map_inner_error(E2::from)
+        self.map_inner_error(T2::from)
     }
 
-    pub fn map_inner_error<E2>(self, f: impl FnOnce(E1) -> E2) -> ProposerHeadError<E2> {
+    pub fn map_inner_error<T2>(self, f: impl FnOnce(T1) -> T2) -> ProposerHeadError<T2> {
         match self {
             ProposerHeadError::DoNotReOrg(reason) => ProposerHeadError::DoNotReOrg(reason),
             ProposerHeadError::Error(error) => ProposerHeadError::Error(f(error)),
