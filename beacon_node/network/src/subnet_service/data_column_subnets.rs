@@ -2,6 +2,7 @@
 //! given time. It schedules subscriptions to data column subnets and requests peer discoveries.
 
 use futures::prelude::*;
+use std::collections::HashSet;
 use std::task::{Context, Poll};
 use std::{
     collections::{HashMap, VecDeque},
@@ -9,11 +10,12 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tokio::time::sleep;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::HashSetDelay;
 use lighthouse_network::{discovery::peer_id_to_node_id, NetworkGlobals, Subnet, SubnetDiscovery};
-use slog::{debug, o, trace, warn, error};
+use slog::{debug, error, info, o, trace, warn};
 use slot_clock::SlotClock;
 use types::{ChainSpec, DataColumnSubnetId, Epoch, EthSpec};
 
@@ -82,6 +84,58 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
             chain_spec: chain_spec.clone(),
             log,
         }
+    }
+
+     /// Starts the service which periodically updates data column subscriptions.
+     pub fn start_data_column_update_service(mut self) -> Result<(), &'static str> {
+        let log = self.log.clone();
+        
+        let slot_duration = Duration::from_secs(self.chain_spec.seconds_per_slot);
+        let duration_to_next_epoch = self
+            .beacon_chain
+            .slot_clock
+            .duration_to_next_epoch(T::EthSpec::slots_per_epoch())
+            .ok_or("Unable to determine duration to next epoch")?;
+
+        info!(
+            log,
+            "Data column service started";
+            "next_update_millis" => duration_to_next_epoch.as_millis()
+        );
+
+        let executor = self.beacon_chain.task_executor.clone();
+
+        let interval_fut = async move {
+            if let Some(duration_to_next_epoch) = self
+                .beacon_chain
+                .slot_clock
+                .duration_to_next_epoch(T::EthSpec::slots_per_epoch())
+            {
+                // if we are two slots or less away from the current epoch boundary
+                // subscribe to the next epoch
+                if duration_to_next_epoch - 2 * slot_duration <= Duration::from_secs(0) {
+                    let current_epoch = self
+                        .beacon_chain
+                        .slot_clock
+                        .now()
+                        .map(|s| s.epoch(T::EthSpec::slots_per_epoch()));
+
+                    if let Some(current_epoch) = current_epoch {
+                        if let Err(e) = self.data_column_subscriptions(current_epoch + 1) {
+                            error!(
+                                log,
+                                "Data column service failed";
+                                "error" => e
+                            )
+                        }
+                    }
+                }
+
+            }
+        };
+
+        executor.spawn(interval_fut, "");
+        Ok(())
     }
 
     /// Process data column subscriptions for a given epoch
