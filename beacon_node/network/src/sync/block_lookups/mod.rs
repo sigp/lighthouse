@@ -217,7 +217,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Make sure this block is not already downloaded, and that neither it or its parent is
         // being searched for.
         if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
-            parent_req.contains_block(&block_root) || parent_req.is_for_block(block_root)
+            parent_req.contains_block(&parent_root) || parent_req.is_for_block(parent_root)
         }) {
             parent_lookup.add_peer(peer_id);
             // we are already searching for this block, ignore it

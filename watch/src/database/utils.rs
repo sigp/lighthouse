@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 use crate::database::config::Config;
-use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel_migrations::{FileBasedMigrations, MigrationHarness};
 

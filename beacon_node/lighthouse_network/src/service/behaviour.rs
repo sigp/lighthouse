@@ -5,6 +5,7 @@ use crate::types::SnappyTransform;
 
 use crate::gossipsub;
 use libp2p::identify;
+use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::upnp::tokio::Behaviour as Upnp;
 use types::EthSpec;
@@ -34,7 +35,7 @@ where
     /// Provides IP addresses and peer information.
     pub identify: identify::Behaviour,
     /// Libp2p UPnP port mapping.
-    pub upnp: Upnp,
+    pub upnp: Toggle<Upnp>,
     /// The routing pub-sub mechanism for eth2.
     pub gossipsub: Gossipsub,
 }

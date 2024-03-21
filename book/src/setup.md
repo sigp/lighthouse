@@ -16,7 +16,7 @@ The additional requirements for developers are:
   some dependencies. See [`Installation Guide`](./installation.md) for more info.
 - [`java 17 runtime`](https://openjdk.java.net/projects/jdk/). 17 is the minimum,
   used by web3signer_tests.
-- [`libpq-dev`](https://www.postgresql.org/docs/devel/libpq.html). Also know as
+- [`libpq-dev`](https://www.postgresql.org/docs/devel/libpq.html). Also known as
   `libpq-devel` on some systems. 
 - [`docker`](https://www.docker.com/). Some tests need docker installed and **running**.
 

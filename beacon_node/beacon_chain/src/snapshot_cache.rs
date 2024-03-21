@@ -367,10 +367,7 @@ impl<T: EthSpec> SnapshotCache<T> {
 mod test {
     use super::*;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use types::{
-        test_utils::generate_deterministic_keypair, BeaconBlock, Epoch, MainnetEthSpec,
-        SignedBeaconBlock, Slot,
-    };
+    use types::{test_utils::generate_deterministic_keypair, BeaconBlock, MainnetEthSpec};
 
     fn get_harness() -> BeaconChainHarness<EphemeralHarnessType<MainnetEthSpec>> {
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
