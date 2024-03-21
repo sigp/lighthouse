@@ -1,6 +1,5 @@
 #![allow(clippy::arithmetic_side_effects)]
 
-use super::BeaconState;
 use crate::*;
 use core::num::NonZeroUsize;
 use safe_arith::SafeArith;

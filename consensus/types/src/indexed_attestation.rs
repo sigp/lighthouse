@@ -106,7 +106,7 @@ mod quoted_variable_list_u64 {
 mod tests {
     use super::*;
     use crate::slot_epoch::Epoch;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use crate::test_utils::{SeedableRng, XorShiftRng};
     use crate::MainnetEthSpec;
 
     #[test]
