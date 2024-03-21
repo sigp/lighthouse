@@ -2,7 +2,9 @@ use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use tree_hash::Hash256;
-use types::{BeaconBlockBody, BeaconBlockBodyDeneb, BeaconState};
+use types::{
+    BeaconBlockBody, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState, FullPayload,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {
@@ -92,7 +94,7 @@ pub struct KzgInclusionMerkleProofValidity<E: EthSpec> {
 
 impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let block = match fork_name {
+        let block: BeaconBlockBody<E, FullPayload<E>> = match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                 return Err(Error::InternalError(format!(
                     "KZG inclusion merkle proof validity test skipped for {:?}",
@@ -100,7 +102,11 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
                 )))
             }
             ForkName::Deneb => {
-                ssz_decode_file::<BeaconBlockBodyDeneb<E>>(&path.join("object.ssz_snappy"))?
+                ssz_decode_file::<BeaconBlockBodyDeneb<E>>(&path.join("object.ssz_snappy"))?.into()
+            }
+            ForkName::Electra => {
+                ssz_decode_file::<BeaconBlockBodyElectra<E>>(&path.join("object.ssz_snappy"))?
+                    .into()
             }
         };
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;
@@ -114,7 +120,7 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
 
         Ok(Self {
             metadata,
-            block: block.into(),
+            block,
             merkle_proof,
         })
     }

@@ -27,6 +27,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_BLOCK,
             None,
             None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
             None,
@@ -39,6 +40,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         terminal_block: u64,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
+        prague_time: Option<u64>,
         jwt_key: Option<JwtKey>,
         spec: ChainSpec,
         kzg: Option<Kzg>,
@@ -54,6 +56,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             spec.terminal_block_hash,
             shanghai_time,
             cancun_time,
+            prague_time,
             kzg,
         );
 

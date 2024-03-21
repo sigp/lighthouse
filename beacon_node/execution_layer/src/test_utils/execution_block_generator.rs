@@ -22,8 +22,8 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256,
-    Transaction, Transactions, Uint256,
+    ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadHeader, ExecutionPayloadMerge,
+    ForkName, Hash256, Transaction, Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -130,8 +130,9 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * Post-merge fork triggers
      */
-    pub shanghai_time: Option<u64>, // withdrawals
+    pub shanghai_time: Option<u64>, // capella
     pub cancun_time: Option<u64>,   // deneb
+    pub prague_time: Option<u64>,   // electra
     /*
      * deneb stuff
      */
@@ -153,6 +154,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
+        prague_time: Option<u64>,
         kzg: Option<Kzg>,
     ) -> Self {
         let mut gen = Self {
@@ -168,6 +170,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             payload_ids: <_>::default(),
             shanghai_time,
             cancun_time,
+            prague_time,
             blobs_bundles: <_>::default(),
             kzg: kzg.map(Arc::new),
             rng: make_rng(),
@@ -203,11 +206,14 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn get_fork_at_timestamp(&self, timestamp: u64) -> ForkName {
-        match self.cancun_time {
-            Some(fork_time) if timestamp >= fork_time => ForkName::Deneb,
-            _ => match self.shanghai_time {
-                Some(fork_time) if timestamp >= fork_time => ForkName::Capella,
-                _ => ForkName::Merge,
+        match self.prague_time {
+            Some(fork_time) if timestamp >= fork_time => ForkName::Electra,
+            _ => match self.cancun_time {
+                Some(fork_time) if timestamp >= fork_time => ForkName::Deneb,
+                _ => match self.shanghai_time {
+                    Some(fork_time) if timestamp >= fork_time => ForkName::Capella,
+                    _ => ForkName::Merge,
+                },
             },
         }
     }
@@ -514,6 +520,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
                 let execution_payload =
                     self.build_new_execution_payload(head_block_hash, &parent, id, &attributes)?;
+
                 self.payload_ids.insert(id, execution_payload);
 
                 Some(id)
@@ -601,30 +608,52 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 }),
                 _ => unreachable!(),
             },
-            PayloadAttributes::V3(pa) => ExecutionPayload::Deneb(ExecutionPayloadDeneb {
-                parent_hash: head_block_hash,
-                fee_recipient: pa.suggested_fee_recipient,
-                receipts_root: Hash256::repeat_byte(42),
-                state_root: Hash256::repeat_byte(43),
-                logs_bloom: vec![0; 256].into(),
-                prev_randao: pa.prev_randao,
-                block_number: parent.block_number() + 1,
-                gas_limit: GAS_LIMIT,
-                gas_used: GAS_USED,
-                timestamp: pa.timestamp,
-                extra_data: "block gen was here".as_bytes().to_vec().into(),
-                base_fee_per_gas: Uint256::one(),
-                block_hash: ExecutionBlockHash::zero(),
-                transactions: vec![].into(),
-                withdrawals: pa.withdrawals.clone().into(),
-                blob_gas_used: 0,
-                excess_blob_gas: 0,
-            }),
+            PayloadAttributes::V3(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
+                ForkName::Deneb => ExecutionPayload::Deneb(ExecutionPayloadDeneb {
+                    parent_hash: head_block_hash,
+                    fee_recipient: pa.suggested_fee_recipient,
+                    receipts_root: Hash256::repeat_byte(42),
+                    state_root: Hash256::repeat_byte(43),
+                    logs_bloom: vec![0; 256].into(),
+                    prev_randao: pa.prev_randao,
+                    block_number: parent.block_number() + 1,
+                    gas_limit: GAS_LIMIT,
+                    gas_used: GAS_USED,
+                    timestamp: pa.timestamp,
+                    extra_data: "block gen was here".as_bytes().to_vec().into(),
+                    base_fee_per_gas: Uint256::one(),
+                    block_hash: ExecutionBlockHash::zero(),
+                    transactions: vec![].into(),
+                    withdrawals: pa.withdrawals.clone().into(),
+                    blob_gas_used: 0,
+                    excess_blob_gas: 0,
+                }),
+                ForkName::Electra => ExecutionPayload::Electra(ExecutionPayloadElectra {
+                    parent_hash: head_block_hash,
+                    fee_recipient: pa.suggested_fee_recipient,
+                    receipts_root: Hash256::repeat_byte(42),
+                    state_root: Hash256::repeat_byte(43),
+                    logs_bloom: vec![0; 256].into(),
+                    prev_randao: pa.prev_randao,
+                    block_number: parent.block_number() + 1,
+                    gas_limit: GAS_LIMIT,
+                    gas_used: GAS_USED,
+                    timestamp: pa.timestamp,
+                    extra_data: "block gen was here".as_bytes().to_vec().into(),
+                    base_fee_per_gas: Uint256::one(),
+                    block_hash: ExecutionBlockHash::zero(),
+                    transactions: vec![].into(),
+                    withdrawals: pa.withdrawals.clone().into(),
+                    blob_gas_used: 0,
+                    excess_blob_gas: 0,
+                }),
+                _ => unreachable!(),
+            },
         };
 
         match execution_payload.fork_name() {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {}
-            ForkName::Deneb => {
+            ForkName::Deneb | ForkName::Electra => {
                 // get random number between 0 and Max Blobs
                 let mut rng = self.rng.lock();
                 let num_blobs = rng.gen::<usize>() % (T::max_blobs_per_block() + 1);
@@ -758,6 +787,11 @@ pub fn generate_genesis_header<T: EthSpec>(
             *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
             Some(header)
         }
+        ForkName::Electra => {
+            let mut header = ExecutionPayloadHeader::Electra(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            Some(header)
+        }
     }
 }
 
@@ -827,6 +861,7 @@ mod test {
             TERMINAL_DIFFICULTY.into(),
             TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
+            None,
             None,
             None,
             None,

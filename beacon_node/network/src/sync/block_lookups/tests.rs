@@ -237,7 +237,7 @@ fn test_single_block_lookup_happy_path() {
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
@@ -285,7 +285,7 @@ fn test_single_block_lookup_empty_response() {
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
@@ -313,7 +313,7 @@ fn test_single_block_lookup_wrong_response() {
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
@@ -351,7 +351,7 @@ fn test_single_block_lookup_failure() {
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
@@ -383,7 +383,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
@@ -413,7 +413,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     rig.expect_parent_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_parent_request(ResponseType::Blob);
     }
     rig.expect_empty_network();
@@ -442,7 +442,7 @@ fn test_parent_lookup_happy_path() {
     let id = rig.expect_parent_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_parent_request(ResponseType::Blob);
     }
 
@@ -489,7 +489,7 @@ fn test_parent_lookup_wrong_response() {
     let id1 = rig.expect_parent_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_parent_request(ResponseType::Blob);
     }
 
@@ -555,7 +555,7 @@ fn test_parent_lookup_empty_response() {
     let id1 = rig.expect_parent_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_parent_request(ResponseType::Blob);
     }
 
@@ -610,7 +610,7 @@ fn test_parent_lookup_rpc_failure() {
     let id1 = rig.expect_parent_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_parent_request(ResponseType::Blob);
     }
 
@@ -672,7 +672,7 @@ fn test_parent_lookup_too_many_attempts() {
         let id = rig.expect_parent_request(response_type);
         // If we're in deneb, a blob request should have been triggered as well,
         // we don't require a response because we're generateing 0-blob blocks in this test.
-        if matches!(fork_name, ForkName::Deneb) && i == 1 {
+        if matches!(fork_name, ForkName::Deneb | ForkName::Electra) && i == 1 {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
         match i % 2 {
@@ -751,7 +751,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
         let id = rig.expect_parent_request(response_type);
         // If we're in deneb, a blob request should have been triggered as well,
         // we don't require a response because we're generateing 0-blob blocks in this test.
-        if matches!(fork_name, ForkName::Deneb) && i == 1 {
+        if matches!(fork_name, ForkName::Deneb | ForkName::Electra) && i == 1 {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
         if i % 2 != 0 {
@@ -819,7 +819,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         let id = rig.expect_parent_request(response_type);
         // If we're in deneb, a blob request should have been triggered as well,
         // we don't require a response because we're generateing 0-blob blocks in this test.
-        if matches!(fork_name, ForkName::Deneb) && i == 0 {
+        if matches!(fork_name, ForkName::Deneb | ForkName::Electra) && i == 0 {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
         // The request fails. It should be tried again.
@@ -837,7 +837,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     // Now fail processing a block in the parent request
     for i in 0..PROCESSING_FAILURES {
         let id = dbg!(rig.expect_parent_request(response_type));
-        if matches!(fork_name, ForkName::Deneb) && i != 0 {
+        if matches!(fork_name, ForkName::Deneb | ForkName::Electra) && i != 0 {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
         // If we're in deneb, a blob request should have been triggered as well,
@@ -897,7 +897,7 @@ fn test_parent_lookup_too_deep() {
         let id = rig.expect_parent_request(response_type);
         // If we're in deneb, a blob request should have been triggered as well,
         // we don't require a response because we're generateing 0-blob blocks in this test.
-        if matches!(fork_name, ForkName::Deneb) {
+        if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
         // the block
@@ -965,7 +965,7 @@ fn test_single_block_lookup_ignored_response() {
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_lookup_request(ResponseType::Blob);
     }
 
@@ -1020,7 +1020,7 @@ fn test_parent_lookup_ignored_response() {
 
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
-    if matches!(fork_name, ForkName::Deneb) {
+    if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
         let _ = rig.expect_parent_request(ResponseType::Blob);
     }
 
@@ -1099,7 +1099,7 @@ fn test_same_chain_race_condition() {
         let id = rig.expect_parent_request(response_type);
         // If we're in deneb, a blob request should have been triggered as well,
         // we don't require a response because we're generateing 0-blob blocks in this test.
-        if matches!(fork_name, ForkName::Deneb) {
+        if matches!(fork_name, ForkName::Deneb | ForkName::Electra) {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
         // the block

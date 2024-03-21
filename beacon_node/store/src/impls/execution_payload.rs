@@ -2,7 +2,7 @@ use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
     BlobSidecarList, EthSpec, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadMerge,
+    ExecutionPayloadElectra, ExecutionPayloadMerge,
 };
 
 macro_rules! impl_store_item {
@@ -25,6 +25,7 @@ macro_rules! impl_store_item {
 impl_store_item!(ExecutionPayloadMerge);
 impl_store_item!(ExecutionPayloadCapella);
 impl_store_item!(ExecutionPayloadDeneb);
+impl_store_item!(ExecutionPayloadElectra);
 impl_store_item!(BlobSidecarList);
 
 /// This fork-agnostic implementation should be only used for writing.
@@ -41,12 +42,18 @@ impl<E: EthSpec> StoreItem for ExecutionPayload<E> {
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        ExecutionPayloadDeneb::from_ssz_bytes(bytes)
-            .map(Self::Deneb)
+        ExecutionPayloadElectra::from_ssz_bytes(bytes)
+            .map(Self::Electra)
             .or_else(|_| {
-                ExecutionPayloadCapella::from_ssz_bytes(bytes)
-                    .map(Self::Capella)
-                    .or_else(|_| ExecutionPayloadMerge::from_ssz_bytes(bytes).map(Self::Merge))
+                ExecutionPayloadDeneb::from_ssz_bytes(bytes)
+                    .map(Self::Deneb)
+                    .or_else(|_| {
+                        ExecutionPayloadCapella::from_ssz_bytes(bytes)
+                            .map(Self::Capella)
+                            .or_else(|_| {
+                                ExecutionPayloadMerge::from_ssz_bytes(bytes).map(Self::Merge)
+                            })
+                    })
             })
             .map_err(Into::into)
     }
