@@ -3,7 +3,7 @@ use crate::rpc::{
     codec::base::OutboundCodec,
     protocol::{Encoding, ProtocolId, RPCError, SupportedProtocol, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
-use crate::rpc::{InboundRequest, OutboundRequest, RPCCodedResponse, RPCResponse};
+use crate::rpc::{InboundRequest, OutboundRequest};
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -690,21 +690,12 @@ fn context_bytes_to_fork_name(
 mod tests {
 
     use super::*;
-    use crate::rpc::{protocol::*, MetaData};
-    use crate::{
-        rpc::{methods::StatusMessage, Ping, RPCResponseErrorCode},
-        types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    };
-    use std::sync::Arc;
+    use crate::rpc::protocol::*;
+    use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockMerge, ChainSpec, EmptyBlock, Epoch, ForkContext, FullPayload, Hash256,
-        Signature, SignedBeaconBlock, Slot,
+        BeaconBlockMerge, EmptyBlock, Epoch, FullPayload, Signature, Slot,
     };
-
-    use snap::write::FrameEncoder;
-    use ssz::Encode;
-    use std::io::Write;
 
     type Spec = types::MainnetEthSpec;
 

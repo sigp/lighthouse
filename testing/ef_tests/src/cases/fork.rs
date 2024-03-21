@@ -7,7 +7,7 @@ use state_processing::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
     upgrade_to_electra,
 };
-use types::{BeaconState, ForkName};
+use types::BeaconState;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {

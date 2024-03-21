@@ -1,6 +1,5 @@
 use crate::beacon_block_body::format_kzg_commitments;
 use crate::*;
-use bls::Signature;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};

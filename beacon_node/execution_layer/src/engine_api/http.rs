@@ -11,7 +11,6 @@ use std::collections::HashSet;
 use tokio::sync::Mutex;
 
 use std::time::{Duration, Instant};
-use types::EthSpec;
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
@@ -1238,7 +1237,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{ExecutionPayloadMerge, MainnetEthSpec, Transactions, Unsigned, VariableList};
+    use types::{MainnetEthSpec, Unsigned};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,

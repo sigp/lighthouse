@@ -2,7 +2,6 @@ use crate::errors::BeaconChainError;
 use crate::{BeaconChainTypes, BeaconStore};
 use ssz::{Decode, Encode};
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
 use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
@@ -195,7 +194,7 @@ mod test {
     use logging::test_logger;
     use std::sync::Arc;
     use store::HotColdDB;
-    use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec};
+    use types::{EthSpec, Keypair, MainnetEthSpec};
 
     type E = MainnetEthSpec;
     type T = EphemeralHarnessType<E>;

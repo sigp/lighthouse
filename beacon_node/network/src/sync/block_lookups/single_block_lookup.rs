@@ -519,7 +519,6 @@ impl slog::Value for SingleLookupRequestState {
 mod tests {
     use super::*;
     use crate::sync::block_lookups::common::LookupType;
-    use crate::sync::block_lookups::common::{Lookup, RequestState};
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use sloggers::null::NullLoggerBuilder;
@@ -529,7 +528,7 @@ mod tests {
     use store::{HotColdDB, MemoryStore, StoreConfig};
     use types::{
         test_utils::{SeedableRng, TestRandom, XorShiftRng},
-        ChainSpec, EthSpec, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+        ChainSpec, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     };
 
     fn rand_block() -> SignedBeaconBlock<E> {

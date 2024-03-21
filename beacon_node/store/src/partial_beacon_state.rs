@@ -5,7 +5,6 @@ use crate::chunked_vector::{
 use crate::{get_key_for_col, DBColumn, Error, KeyValueStore, KeyValueStoreOp};
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
-use std::convert::TryInto;
 use std::sync::Arc;
 use types::historical_summary::HistoricalSummary;
 use types::superstruct;

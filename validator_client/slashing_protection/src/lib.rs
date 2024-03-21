@@ -17,8 +17,8 @@ pub use crate::slashing_database::{
     SUPPORTED_INTERCHANGE_FORMAT_VERSION,
 };
 use rusqlite::Error as SQLError;
+use std::fmt::Display;
 use std::io::{Error as IOError, ErrorKind};
-use std::string::ToString;
 use types::{Hash256, PublicKeyBytes};
 
 /// The filename within the `validators` directory that contains the slashing protection DB.
@@ -122,9 +122,9 @@ impl From<r2d2::Error> for NotSafe {
     }
 }
 
-impl ToString for NotSafe {
-    fn to_string(&self) -> String {
-        format!("{:?}", self)
+impl Display for NotSafe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 

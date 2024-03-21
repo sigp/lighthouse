@@ -1,7 +1,6 @@
 use serde::Deserialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use std::convert::TryFrom;
 use std::fmt::Debug;
 use tree_hash::TreeHash;
 use types::ForkName;

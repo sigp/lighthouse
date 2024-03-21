@@ -12,8 +12,6 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
-use std::convert::TryInto;
 use std::hash::Hash;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
@@ -1787,7 +1785,8 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Electra(inner) => BeaconState::Electra(inner.clone()),
         };
         if config.committee_caches {
-            *res.committee_caches_mut() = self.committee_caches().clone();
+            res.committee_caches_mut()
+                .clone_from(self.committee_caches());
             *res.total_active_balance_mut() = *self.total_active_balance();
         }
         if config.pubkey_cache {
