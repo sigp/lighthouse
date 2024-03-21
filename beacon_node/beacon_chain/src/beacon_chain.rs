@@ -72,7 +72,7 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
+use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
     FailedCondition, PayloadAttributes, PayloadStatus,
@@ -120,8 +120,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
-use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -414,14 +413,14 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of slashable message seen over the gossip network or RPC.
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
-    pub(crate) observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
+    pub observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
     /// Maintains a record of which validators we've seen proposer slashings for.
-    pub(crate) observed_proposer_slashings: Mutex<ObservedOperations<ProposerSlashing, T::EthSpec>>,
+    pub observed_proposer_slashings: Mutex<ObservedOperations<ProposerSlashing, T::EthSpec>>,
     /// Maintains a record of which validators we've seen attester slashings for.
-    pub(crate) observed_attester_slashings:
+    pub observed_attester_slashings:
         Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of which validators we've seen BLS to execution changes for.
-    pub(crate) observed_bls_to_execution_changes:
+    pub observed_bls_to_execution_changes:
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
@@ -4166,21 +4165,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 (re_org_state.pre_state, re_org_state.state_root)
             }
             // Normal case: proposing a block atop the current head using the cache.
-            else if let Some((_, cached_state)) = self
-                .block_production_state
-                .lock()
-                .take()
-                .filter(|(cached_block_root, _)| *cached_block_root == head_block_root)
+            else if let Some((_, cached_state)) =
+                self.get_state_from_block_production_cache(head_block_root)
             {
                 (cached_state.pre_state, cached_state.state_root)
             }
             // Fall back to a direct read of the snapshot cache.
-            else if let Some(pre_state) = self
-                .snapshot_cache
-                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .and_then(|snapshot_cache| {
-                    snapshot_cache.get_state_for_block_production(head_block_root)
-                })
+            else if let Some(pre_state) =
+                self.get_state_from_snapshot_cache_for_block_production(head_block_root)
             {
                 warn!(
                     self.log,
@@ -4219,6 +4211,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(state_load_timer);
 
         Ok((state, state_root_opt))
+    }
+
+    /// Get the state cached for block production *if* it matches `head_block_root`.
+    ///
+    /// This will clear the cache regardless of whether the block root matches, so only call this if
+    /// you think the `head_block_root` is likely to match!
+    fn get_state_from_block_production_cache(
+        &self,
+        head_block_root: Hash256,
+    ) -> Option<(Hash256, BlockProductionPreState<T::EthSpec>)> {
+        // Take care to drop the lock as quickly as possible.
+        let mut lock = self.block_production_state.lock();
+        let result = lock
+            .take()
+            .filter(|(cached_block_root, _)| *cached_block_root == head_block_root);
+        drop(lock);
+        result
+    }
+
+    /// Get a state for block production from the snapshot cache.
+    fn get_state_from_snapshot_cache_for_block_production(
+        &self,
+        head_block_root: Hash256,
+    ) -> Option<BlockProductionPreState<T::EthSpec>> {
+        if let Some(lock) = self
+            .snapshot_cache
+            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+        {
+            let result = lock.get_state_for_block_production(head_block_root);
+            drop(lock);
+            result
+        } else {
+            None
+        }
     }
 
     /// Fetch the beacon state to use for producing a block if a 1-slot proposer re-org is viable.
@@ -4313,12 +4339,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Only attempt a re-org if we hit the block production cache or snapshot cache.
         let pre_state = self
-            .block_production_state
-            .lock()
-            .take()
-            .and_then(|(cached_block_root, state)| {
-                (cached_block_root == re_org_parent_block).then_some(state)
-            })
+            .get_state_from_block_production_cache(re_org_parent_block)
+            .map(|(_, state)| state)
             .or_else(|| {
                 warn!(
                     self.log,
@@ -4327,11 +4349,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "slot" => slot,
                     "block_root" => ?re_org_parent_block
                 );
-                self.snapshot_cache
-                    .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                    .and_then(|snapshot_cache| {
-                        snapshot_cache.get_state_for_block_production(re_org_parent_block)
-                    })
+                self.get_state_from_snapshot_cache_for_block_production(re_org_parent_block)
             })
             .or_else(|| {
                 debug!(

@@ -5,7 +5,7 @@ use std::fs::{self};
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use types::{BeaconState, EthSpec};
+use types::BeaconState;
 
 /// See `log_file_access` for details.
 const ACCESSED_FILE_LOG_FILENAME: &str = ".accessed_file_log.txt";
@@ -71,9 +71,7 @@ where
     f(&bytes).map_err(|e| {
         match e {
             // NOTE: this is a bit hacky, but seemingly better than the alternatives
-            ssz::DecodeError::BytesInvalid(message)
-                if message.contains("Blst") || message.contains("Milagro") =>
-            {
+            ssz::DecodeError::BytesInvalid(message) if message.contains("Blst") => {
                 Error::InvalidBLSInput(message)
             }
             e => Error::FailedToParseTest(format!(

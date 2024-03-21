@@ -1,7 +1,6 @@
 use crate::{ChainSpec, Epoch};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use std::convert::TryFrom;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 

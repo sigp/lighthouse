@@ -38,7 +38,7 @@ const DEFAULT_MAX_TOPICS: usize = 300;
 
 // Default value that limits how many topics for which there has never been a subscription do we
 // store metrics.
-const DEFAULT_MAX_NEVER_SUBSCRIBED_TOPICS: usize = 50;
+const DEFAULT_MAX_NEVER_SUBSCRIBED_TOPICS: usize = 100;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -392,13 +392,21 @@ impl Metrics {
         }
     }
 
-    /// Increase the number of peers do we known are subscribed to this topic.
+    /// Registers a set of topics that we want to store calculate metrics for.
+    pub(crate) fn register_allowed_topics(&mut self, topics: Vec<TopicHash>) {
+        for topic_hash in topics {
+            self.topic_info.insert(topic_hash, true);
+        }
+    }
+
+    /// Increase the number of peers that are subscribed to this topic.
     pub(crate) fn inc_topic_peers(&mut self, topic: &TopicHash) {
         if self.register_topic(topic).is_ok() {
             self.topic_peers_count.get_or_create(topic).inc();
         }
     }
 
+    /// Decrease the number of peers that are subscribed to this topic.
     pub(crate) fn dec_topic_peers(&mut self, topic: &TopicHash) {
         if self.register_topic(topic).is_ok() {
             self.topic_peers_count.get_or_create(topic).dec();

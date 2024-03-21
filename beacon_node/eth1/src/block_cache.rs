@@ -196,7 +196,6 @@ impl BlockCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::Hash256;
 
     fn get_block(i: u64, interval_secs: u64) -> Eth1Block {
         Eth1Block {
