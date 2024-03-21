@@ -26,7 +26,7 @@ futures-timer = "3.0.2"
 getrandom = "0.2.12"
 hex_fmt = "0.3.0"
 instant = "0.1.12"
-libp2p = { version = "0.53", default-features = false, features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic", "upnp"]}
+libp2p = { version = "0.53", default-features = false }
 quick-protobuf = "0.8"
 quick-protobuf-codec = "0.3"
 rand = "0.8"
