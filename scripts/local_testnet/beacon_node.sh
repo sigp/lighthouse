@@ -61,6 +61,9 @@ exec $lighthouse_binary \
 	--enr-tcp-port $tcp_port \
 	--enr-quic-port $quic_port \
 	--port $tcp_port \
+    --gui \
+    --http \
+    --http-allow-origin "*" \
 	--quic-port $quic_port \
 	--http-port $http_port \
 	--disable-packet-filter \
