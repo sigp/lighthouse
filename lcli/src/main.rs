@@ -952,6 +952,15 @@ fn main() {
             SubCommand::with_name("rescue")
                 .about("Manual sync")
                 .arg(
+                    Arg::with_name("start-block")
+                        .long("start-block")
+                        .value_name("BLOCK_ID")
+                        .takes_value(true)
+                        .help("Block ID of source's head")
+                        .default_value("head")
+                        .required(true)
+                )
+                .arg(
                     Arg::with_name("source-url")
                         .long("source-url")
                         .value_name("URL")

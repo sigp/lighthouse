@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::EthSpec;
 
-const HTTP_TIMEOUT: Duration = Duration::from_secs(180);
+const HTTP_TIMEOUT: Duration = Duration::from_secs(3600);
 
 pub fn run<T: EthSpec>(
     env: Environment<T>,
@@ -32,13 +32,14 @@ pub async fn run_async<T: EthSpec>(
     let spec = &network_config.chain_spec::<T>()?;
     let source_url: SensitiveUrl = parse_required(matches, "source-url")?;
     let target_url: SensitiveUrl = parse_required(matches, "target-url")?;
+    let start_block: BlockId = parse_required(matches, "start-block")?;
 
     let source = BeaconNodeHttpClient::new(source_url, Timeouts::set_all(HTTP_TIMEOUT));
     let target = BeaconNodeHttpClient::new(target_url, Timeouts::set_all(HTTP_TIMEOUT));
 
     // 1. Download blocks back from head, looking for common ancestor.
     let mut blocks = vec![];
-    let mut next_block_id = BlockId::Head;
+    let mut next_block_id = start_block;
     loop {
         println!("downloading {next_block_id:?}");
         let block_from_source = source
