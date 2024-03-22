@@ -590,9 +590,18 @@ fn handle_rpc_response<T: EthSpec>(
         SupportedProtocol::MetaDataV1 => Ok(Some(RPCResponse::MetaData(MetaData::V1(
             MetaDataV1::from_ssz_bytes(decoded_buffer)?,
         )))),
-        SupportedProtocol::LightClientBootstrapV1 => Ok(Some(RPCResponse::LightClientBootstrap(
-            LightClientBootstrap::from_ssz_bytes(decoded_buffer)?,
-        ))),
+        SupportedProtocol::LightClientBootstrapV1 => match fork_name {
+            Some(fork_name) => Ok(Some(RPCResponse::LightClientBootstrap(Arc::new(
+                LightClientBootstrap::from_ssz_bytes(decoded_buffer, fork_name)?,
+            )))),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
         // MetaData V2 responses have no context bytes, so behave similarly to V1 responses
         SupportedProtocol::MetaDataV2 => Ok(Some(RPCResponse::MetaData(MetaData::V2(
             MetaDataV2::from_ssz_bytes(decoded_buffer)?,
