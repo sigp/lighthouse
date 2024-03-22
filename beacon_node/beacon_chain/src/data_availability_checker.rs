@@ -22,7 +22,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::beacon_block_body::KzgCommitmentOpts;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
-use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 mod availability_view;
 mod child_components;
@@ -356,41 +356,30 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// them here is useful to avoid duplicate downloads of blocks, as well as understanding
     /// our blob download requirements. We will also serve this over RPC.
     pub fn notify_block(&self, block_root: Hash256, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
-        let slot = block.slot();
         self.processing_cache
             .write()
             .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
+            .or_default()
             .merge_block(block);
     }
 
     /// Add a single blob commitment to the processing cache. This commitment is unverified but caching
     /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
     /// our block and blob download requirements.
-    pub fn notify_gossip_blob(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        blob: &GossipVerifiedBlob<T>,
-    ) {
+    pub fn notify_gossip_blob(&self, block_root: Hash256, blob: &GossipVerifiedBlob<T>) {
         let index = blob.index();
         let commitment = blob.kzg_commitment();
         self.processing_cache
             .write()
             .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
+            .or_default()
             .merge_single_blob(index as usize, commitment);
     }
 
     /// Adds blob commitments to the processing cache. These commitments are unverified but caching
     /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
     /// our block and blob download requirements.
-    pub fn notify_rpc_blobs(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        blobs: &FixedBlobSidecarList<T::EthSpec>,
-    ) {
+    pub fn notify_rpc_blobs(&self, block_root: Hash256, blobs: &FixedBlobSidecarList<T::EthSpec>) {
         let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
         for blob in blobs.iter().flatten() {
             if let Some(commitment) = commitments.get_mut(blob.index as usize) {
@@ -400,7 +389,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.processing_cache
             .write()
             .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
+            .or_default()
             .merge_blobs(commitments);
     }
 
