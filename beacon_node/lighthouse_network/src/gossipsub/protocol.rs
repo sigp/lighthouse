@@ -30,7 +30,6 @@ use super::ValidationError;
 use asynchronous_codec::{Decoder, Encoder, Framed};
 use byteorder::{BigEndian, ByteOrder};
 use bytes::BytesMut;
-use futures::future;
 use futures::prelude::*;
 use libp2p::core::{InboundUpgrade, OutboundUpgrade, UpgradeInfo};
 use libp2p::identity::{PeerId, PublicKey};
@@ -508,10 +507,8 @@ impl Decoder for GossipsubCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gossipsub::config::Config;
-    use crate::gossipsub::protocol::{BytesMut, GossipsubCodec, HandlerEvent};
+    use crate::gossipsub::IdentTopic as Topic;
     use crate::gossipsub::*;
-    use crate::gossipsub::{IdentTopic as Topic, Version};
     use libp2p::identity::Keypair;
     use quickcheck::*;
 

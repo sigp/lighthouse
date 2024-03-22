@@ -12,7 +12,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
-use std::convert::TryFrom;
 use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
 use std::sync::Arc;

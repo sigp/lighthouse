@@ -16,7 +16,7 @@ In order to initiate an exit, users can use the `lighthouse account validator ex
 
 - The `--keystore` flag is used to specify the path to the EIP-2335 voting keystore for the validator. The path should point directly to the validator key `.json` file, _not_ the folder containing the `.json` file.
 
-- The `--beacon-node` flag is used to specify a beacon chain HTTP endpoint that confirms to the [Beacon Node API](https://ethereum.github.io/beacon-APIs/) specifications. That beacon node will be used to validate and propagate the voluntary exit. The default value for this flag is `http://localhost:5052`.
+- The `--beacon-node` flag is used to specify a beacon chain HTTP endpoint that conforms to the [Beacon Node API](https://ethereum.github.io/beacon-APIs/) specifications. That beacon node will be used to validate and propagate the voluntary exit. The default value for this flag is `http://localhost:5052`.
 
 - The `--network` flag is used to specify the network (default is `mainnet`).
 

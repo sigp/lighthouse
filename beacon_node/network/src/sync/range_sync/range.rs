@@ -395,10 +395,9 @@ mod tests {
     use slog::{o, Drain};
     use slot_clock::TestingSlotClock;
     use std::collections::HashSet;
-    use std::sync::Arc;
     use store::MemoryStore;
     use tokio::sync::mpsc;
-    use types::{ForkName, Hash256, MinimalEthSpec as E};
+    use types::{ForkName, MinimalEthSpec as E};
 
     #[derive(Debug)]
     struct FakeStorage {
