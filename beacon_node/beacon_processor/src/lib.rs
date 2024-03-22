@@ -284,7 +284,7 @@ pub struct BeaconProcessorChannels<E: EthSpec> {
 impl<E: EthSpec> BeaconProcessorChannels<E> {
     pub fn new(config: &BeaconProcessorConfig) -> Self {
         let (beacon_processor_tx, beacon_processor_rx) =
-            mpsc::channel(config.max_scheduled_work_queue_len);
+            mpsc::channel(config.max_work_event_queue_len);
         let (work_reprocessing_tx, work_reprocessing_rx) =
             mpsc::channel(config.max_scheduled_work_queue_len);
 
