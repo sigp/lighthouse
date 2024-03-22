@@ -1245,7 +1245,7 @@ mod deneb_only {
                         (Some(block_req_id), Some(blob_req_id), None, None)
                     }
                     RequestTrigger::GossipUnknownParentBlock { .. } => {
-                        bl.search_child_block(
+                        bl.search_block(
                             block_root,
                             ChildComponents::new(block_root, Some(block.clone()), None),
                             &[peer_id],
@@ -1270,7 +1270,7 @@ mod deneb_only {
 
                         let mut lookup_blobs = FixedBlobSidecarList::default();
                         *lookup_blobs.index_mut(0) = Some(single_blob);
-                        bl.search_child_block(
+                        bl.search_block(
                             child_root,
                             ChildComponents::new(child_root, None, Some(lookup_blobs)),
                             &[peer_id],

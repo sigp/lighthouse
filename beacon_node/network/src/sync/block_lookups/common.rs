@@ -206,13 +206,6 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /// the blob parent if we don't end up getting any blobs in the response.
     fn get_parent_root(verified_response: &Self::VerifiedResponseType) -> Option<Hash256>;
 
-    /// Caches the verified response in the lookup if necessary. This is only necessary for lookups
-    /// triggered by `UnknownParent` errors.
-    fn add_to_child_components(
-        verified_response: Self::VerifiedResponseType,
-        components: &mut ChildComponents<T::EthSpec>,
-    );
-
     /// Convert a verified response to the type we send to the beacon processor.
     fn verified_to_reconstructed(
         block_root: Hash256,
@@ -301,13 +294,6 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
 
     fn get_parent_root(verified_response: &Arc<SignedBeaconBlock<T::EthSpec>>) -> Option<Hash256> {
         Some(verified_response.parent_root())
-    }
-
-    fn add_to_child_components(
-        verified_response: Arc<SignedBeaconBlock<T::EthSpec>>,
-        components: &mut ChildComponents<T::EthSpec>,
-    ) {
-        components.merge_block(verified_response);
     }
 
     fn verified_to_reconstructed(
@@ -407,13 +393,6 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
             .filter_map(|blob| blob.as_ref())
             .map(|blob| blob.block_parent_root())
             .next()
-    }
-
-    fn add_to_child_components(
-        verified_response: FixedBlobSidecarList<T::EthSpec>,
-        components: &mut ChildComponents<T::EthSpec>,
-    ) {
-        components.merge_blobs(verified_response);
     }
 
     fn verified_to_reconstructed(

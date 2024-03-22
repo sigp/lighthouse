@@ -63,13 +63,8 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         da_checker: Arc<DataAvailabilityChecker<T>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Self {
-        let current_parent_request = SingleBlockLookup::new(
-            parent_root,
-            Some(ChildComponents::empty(block_root)),
-            &[peer_id],
-            da_checker,
-            cx.next_id(),
-        );
+        let current_parent_request =
+            SingleBlockLookup::new(parent_root, &[peer_id], da_checker, cx.next_id());
 
         Self {
             chain_hash: block_root,
@@ -177,10 +172,6 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .blob_request_state
             .state
             .register_failure_processing();
-        if let Some(components) = self.current_parent_request.child_components.as_mut() {
-            components.downloaded_block = None;
-            components.downloaded_blobs = <_>::default();
-        }
     }
 
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for
