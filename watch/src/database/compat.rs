@@ -5,8 +5,6 @@ use diesel::pg::{Pg, PgValue};
 use diesel::serialize::{self, Output, ToSql};
 use diesel::sql_types::{Binary, Integer};
 
-use std::convert::TryFrom;
-
 macro_rules! impl_to_from_sql_int {
     ($type:ty) => {
         impl ToSql<Integer, Pg> for $type

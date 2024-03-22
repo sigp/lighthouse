@@ -182,6 +182,13 @@ lighthouse \
 	--validators 0x9096aab771e44da149bd7c9926d6f7bb96ef465c0eeb4918be5178cd23a1deb4aec232c61d85ff329b54ed4a3bdfff3a,0x90fc4f72d898a8f01ab71242e36f4545aaf87e3887be81632bb8ba4b2ae8fb70753a62f866344d7905e9a07f5a9cdda1
 ```
 
+> Note: If you have the `validator-monitor-auto` turned on, the source beacon node may still be reporting the attestation status of the validators that have been moved:
+```
+INFO Previous epoch attestation(s) success   validators: ["validator_index"], epoch: 100000, service: val_mon, service: beacon
+```
+> This is fine as the validator monitor does not know that the validators have been moved (it *does not* mean that the validators have attested twice for the same slot). A restart of the beacon node will resolve this. 
+
+
 Any errors encountered during the operation should include information on how to
 proceed. Assistance is also available on our
 [Discord](https://discord.gg/cyAszAh).
