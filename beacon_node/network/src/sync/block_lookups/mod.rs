@@ -5,16 +5,16 @@ use super::BatchProcessResult;
 use super::{manager::BlockProcessType, network_context::SyncNetworkContext};
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
-use crate::sync::block_lookups::common::LookupType;
+
 use crate::sync::block_lookups::parent_lookup::{ParentLookup, RequestError};
 use crate::sync::block_lookups::single_block_lookup::LookupRequestError;
 use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-pub use beacon_chain::data_availability_checker::ChildComponents;
+
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckErrorCategory, DataAvailabilityChecker,
 };
-use beacon_chain::validator_monitor::timestamp_now;
+
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::Current;
 pub use common::Lookup;
@@ -27,7 +27,7 @@ use lru_cache::LRUTimeCache;
 pub use single_block_lookup::{BlobRequestState, BlockRequestState};
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
@@ -159,7 +159,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         debug!(
             self.log,
-            "{}", todo!();
+            "Searching for block components";
             "peer_ids" => ?peers,
             "block" => ?block_root,
         );

@@ -8,7 +8,7 @@ use crate::sync::block_lookups::{
 use crate::sync::manager::{BlockProcessType, Id, SingleLookupReqId};
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponents};
+
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::rpc::BlocksByRootRequest;

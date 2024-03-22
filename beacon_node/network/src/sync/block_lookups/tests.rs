@@ -1245,12 +1245,7 @@ mod deneb_only {
                         (Some(block_req_id), Some(blob_req_id), None, None)
                     }
                     RequestTrigger::GossipUnknownParentBlock { .. } => {
-                        bl.search_block(
-                            block_root,
-                            ChildComponents::new(block_root, Some(block.clone()), None),
-                            &[peer_id],
-                            &mut cx,
-                        );
+                        bl.search_block(block_root, &[peer_id], &mut cx);
 
                         let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
                         rig.expect_empty_network(); // expect no block request
@@ -1270,12 +1265,7 @@ mod deneb_only {
 
                         let mut lookup_blobs = FixedBlobSidecarList::default();
                         *lookup_blobs.index_mut(0) = Some(single_blob);
-                        bl.search_block(
-                            child_root,
-                            ChildComponents::new(child_root, None, Some(lookup_blobs)),
-                            &[peer_id],
-                            &mut cx,
-                        );
+                        bl.search_block(child_root, &[peer_id], &mut cx);
 
                         let block_req_id = rig.expect_lookup_request(ResponseType::Block);
                         let blobs_req_id = rig.expect_lookup_request(ResponseType::Blob);

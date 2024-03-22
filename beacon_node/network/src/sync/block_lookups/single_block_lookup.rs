@@ -3,7 +3,7 @@ use crate::sync::block_lookups::common::{Lookup, RequestState};
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::data_availability_checker::{
-    AvailabilityCheckError, DataAvailabilityChecker, MissingBlobs,
+    DataAvailabilityChecker, MissingBlobs,
 };
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerAction;
