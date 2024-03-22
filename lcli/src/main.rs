@@ -15,6 +15,7 @@ mod mock_el;
 mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
+mod rescue;
 mod skip_slots;
 mod state_root;
 mod transition_blocks;
@@ -947,6 +948,44 @@ fn main() {
                                 until Cancun is triggered on mainnet.")
                 )
         )
+        .subcommand(
+            SubCommand::with_name("rescue")
+                .about("Manual sync")
+                .arg(
+                    Arg::with_name("source-url")
+                        .long("source-url")
+                        .value_name("URL")
+                        .takes_value(true)
+                        .help("URL to a synced beacon-API provider")
+                        .required(true)
+                )
+                .arg(
+                    Arg::with_name("target-url")
+                        .long("target-url")
+                        .value_name("URL")
+                        .takes_value(true)
+                        .help("URL to an unsynced beacon-API provider")
+                        .required(true)
+                )
+                .arg(
+                    Arg::with_name("testnet-dir")
+                        .short("d")
+                        .long("testnet-dir")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .global(true)
+                        .help("The testnet dir."),
+                )
+                .arg(
+                    Arg::with_name("network")
+                        .long("network")
+                        .value_name("NAME")
+                        .takes_value(true)
+                        .global(true)
+                        .help("The network to use. Defaults to mainnet.")
+                        .conflicts_with("testnet-dir")
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -1090,6 +1129,11 @@ fn run<T: EthSpec>(
         }
         ("mock-el", Some(matches)) => mock_el::run::<T>(env, matches)
             .map_err(|e| format!("Failed to run mock-el command: {}", e)),
+        ("rescue", Some(matches)) => {
+            let network_config = get_network_config()?;
+            rescue::run::<T>(env, network_config, matches)
+                .map_err(|e| format!("Failed to run rescue command: {}", e))
+        }
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }
