@@ -2651,7 +2651,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
                 // If the block is already known, simply ignore this block.
-                Err(BlockError::BlockIsAlreadyKnown) => continue,
+                Err(BlockError::BlockIsAlreadyKnown(_)) => continue,
                 // If the block is the genesis block, simply ignore this block.
                 Err(BlockError::GenesisBlock) => continue,
                 // If the block is is for a finalized slot, simply ignore this block.
@@ -2879,7 +2879,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown);
+            return Err(BlockError::BlockIsAlreadyKnown(blob.block_root()));
         }
 
         if let Some(event_handler) = self.event_handler.as_ref() {
@@ -2911,7 +2911,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown);
+            return Err(BlockError::BlockIsAlreadyKnown(block_root));
         }
 
         if let Some(event_handler) = self.event_handler.as_ref() {
