@@ -71,23 +71,6 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
 ];
 
-/// This is necessary because a user might run a capella-enabled version of
-/// lighthouse before they update to a capella-enabled execution engine.
-// TODO (mark): rip this out once we are post-capella on mainnet
-pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
-    new_payload_v1: true,
-    new_payload_v2: false,
-    new_payload_v3: false,
-    forkchoice_updated_v1: true,
-    forkchoice_updated_v2: false,
-    forkchoice_updated_v3: false,
-    get_payload_bodies_by_hash_v1: false,
-    get_payload_bodies_by_range_v1: false,
-    get_payload_v1: true,
-    get_payload_v2: false,
-    get_payload_v3: false,
-};
-
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
     use ssz::Decode;
@@ -1012,38 +995,29 @@ impl HttpJsonRpc {
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
         let params = json!([LIGHTHOUSE_CAPABILITIES]);
 
-        let response: Result<HashSet<String>, _> = self
+        let capabilities: HashSet<String> = self
             .rpc_request(
                 ENGINE_EXCHANGE_CAPABILITIES,
                 params,
                 ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT * self.execution_timeout_multiplier,
             )
-            .await;
+            .await?;
 
-        match response {
-            // TODO (mark): rip this out once we are post capella on mainnet
-            Err(error) => match error {
-                Error::ServerMessage { code, message: _ } if code == METHOD_NOT_FOUND_CODE => {
-                    Ok(PRE_CAPELLA_ENGINE_CAPABILITIES)
-                }
-                _ => Err(error),
-            },
-            Ok(capabilities) => Ok(EngineCapabilities {
-                new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
-                new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
-                new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
-                forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
-                forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
-                forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
-                get_payload_bodies_by_hash_v1: capabilities
-                    .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
-                get_payload_bodies_by_range_v1: capabilities
-                    .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
-                get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
-                get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
-                get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
-            }),
-        }
+        Ok(EngineCapabilities {
+            new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
+            new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
+            new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
+            forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
+            forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
+            forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
+            get_payload_bodies_by_hash_v1: capabilities
+                .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
+            get_payload_bodies_by_range_v1: capabilities
+                .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
+            get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
+            get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
+            get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
+        })
     }
 
     pub async fn clear_exchange_capabilties_cache(&self) {
