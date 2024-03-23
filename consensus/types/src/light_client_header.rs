@@ -9,7 +9,6 @@ use crate::{
 };
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
