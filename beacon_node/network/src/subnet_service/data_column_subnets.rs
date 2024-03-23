@@ -2,7 +2,7 @@
 //! given time. It schedules subscriptions to data column subnets and requests peer discoveries.
 
 use futures::prelude::*;
-use std::collections::HashSet;
+use itertools::Itertools;
 use std::task::{Context, Poll};
 use std::{
     collections::{HashMap, VecDeque},
@@ -10,7 +10,6 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::time::sleep;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::HashSetDelay;
@@ -54,8 +53,6 @@ pub struct DataColumnService<T: BeaconChainTypes> {
     /// The waker for the current thread.
     waker: Option<std::task::Waker>,
 
-    chain_spec: ChainSpec,
-
     /// The logger for the data column service.
     log: slog::Logger,
 }
@@ -64,7 +61,6 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-        chain_spec: &ChainSpec,
         log: &slog::Logger,
     ) -> Self {
         let log = log.new(o!("service" => "data_column_service"));
@@ -81,16 +77,15 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
             subscriptions: HashMap::new(),
             unsubscriptions: HashSetDelay::new(Duration::from_secs(default_timeout)),
             waker: None,
-            chain_spec: chain_spec.clone(),
             log,
         }
     }
 
-     /// Starts the service which periodically updates data column subscriptions.
-     pub fn start_data_column_update_service(mut self) -> Result<(), &'static str> {
+    /// Starts the service which periodically updates data column subscriptions.
+    pub fn start_data_column_update_service(mut self) -> Result<(), &'static str> {
         let log = self.log.clone();
-        
-        let slot_duration = Duration::from_secs(self.chain_spec.seconds_per_slot);
+
+        let slot_duration = Duration::from_secs(self.beacon_chain.spec.seconds_per_slot);
         let duration_to_next_epoch = self
             .beacon_chain
             .slot_clock
@@ -130,7 +125,6 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
                         }
                     }
                 }
-
             }
         };
 
@@ -149,11 +143,19 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
 
         let mut subnets_to_discover = Vec::new();
 
-        let data_column_subnet_ids = DataColumnSubnetId::compute_subnets_for_data_column::<
+        let mut data_column_subnet_ids = DataColumnSubnetId::compute_subnets_for_data_column::<
             T::EthSpec,
-        >(node_id.raw().into(), &self.chain_spec);
+        >(node_id.raw().into(), &self.beacon_chain.spec);
 
-        // TODO(das) write column subscription requirements to the beacon chain
+        self.beacon_chain
+            .data_column_custody_tracker
+            .register_epoch(
+                epoch,
+                data_column_subnet_ids
+                    .by_ref()
+                    .map(|data_column| *data_column)
+                    .collect_vec(),
+            );
 
         for data_column_subnet_id in data_column_subnet_ids {
             // TODO(das) update required metrics values
@@ -281,14 +283,11 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
                 + slot_duration
         };
 
-        if !self
-            .subscriptions
-            .contains_key(&exact_subnet.data_column_subnet_id)
+        if let std::collections::hash_map::Entry::Vacant(e) =
+            self.subscriptions.entry(exact_subnet.data_column_subnet_id)
         {
-            self.subscriptions.insert(
-                exact_subnet.data_column_subnet_id.clone(),
-                exact_subnet.until_epoch.clone(),
-            );
+            e.insert(exact_subnet.until_epoch);
+
             self.events
                 .push_back(SubnetServiceMessage::Subscribe(Subnet::DataColumn(
                     exact_subnet.data_column_subnet_id,
@@ -313,14 +312,21 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
             );
         }
 
-        return Ok(());
+        Ok(())
     }
 
     /// A queued unsubscription is ready.
     fn handle_unsubscriptions(&mut self, data_column_subnet_id: DataColumnSubnetId) {
         debug!(self.log, "Unsubscribing from subnet"; "subnet" => *data_column_subnet_id);
 
-        self.subscriptions.remove(&data_column_subnet_id);
+        let epoch = self.subscriptions.remove(&data_column_subnet_id);
+
+        if let Some(epoch) = epoch {
+            self.beacon_chain
+                .data_column_custody_tracker
+                .prune_epoch(&epoch);
+        }
+
         self.events
             .push_back(SubnetServiceMessage::Unsubscribe(Subnet::DataColumn(
                 data_column_subnet_id,

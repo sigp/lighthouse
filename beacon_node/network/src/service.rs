@@ -336,7 +336,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let data_column_service = DataColumnService::new(
             beacon_chain.clone(),
             network_globals.clone(),
-            &beacon_chain.spec,
             &network_log,
         );
 
