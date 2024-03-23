@@ -116,3 +116,4 @@ OPTIONS:
         --validators <STRING>
             The validators to be moved. Either a list of 0x-prefixed validator pubkeys or the keyword "all".
 ```
+<style> .content main {max-width:88%;} </style>
