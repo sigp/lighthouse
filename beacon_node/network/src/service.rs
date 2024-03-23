@@ -6,7 +6,7 @@ use crate::router::{Router, RouterMessage};
 use crate::subnet_service::SyncCommitteeService;
 use crate::{error, metrics};
 use crate::{
-    subnet_service::{AttestationService, SubnetServiceMessage},
+    subnet_service::{AttestationService, DataColumnService, SubnetServiceMessage},
     NetworkConfig,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -173,6 +173,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     attestation_service: AttestationService<T>,
     /// A sync committeee subnet manager service.
     sync_committee_service: SyncCommitteeService<T>,
+    /// A data column subnet manager service.
+    _data_column_service: DataColumnService<T>,
     /// The receiver channel for lighthouse to communicate with the network service.
     network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
     /// The receiver channel for lighthouse to send validator subscription requests.
@@ -326,9 +328,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             config,
             &network_log,
         );
+
         // sync committee subnet service
         let sync_committee_service =
             SyncCommitteeService::new(beacon_chain.clone(), config, &network_log);
+
+        // data column subnet service
+        let data_column_service =
+            DataColumnService::new(beacon_chain.clone(), network_globals.clone(), &network_log);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
@@ -348,6 +355,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             libp2p,
             attestation_service,
             sync_committee_service,
+            _data_column_service: data_column_service,
             network_recv,
             validator_subscription_recv,
             router_send,
