@@ -1,6 +1,8 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
-use operation_pool::{AttMaxCover, MaxCover, RewardCache, SplitAttestation};
+use operation_pool::{
+    AttMaxCover, MaxCover, RewardCache, SplitAttestation, PROPOSER_REWARD_DENOMINATOR,
+};
 use state_processing::{
     common::get_attesting_indices_from_state,
     per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards,
@@ -63,13 +65,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut curr_epoch_total = 0;
 
         for cover in &per_attestation_rewards {
-            for &reward in cover.fresh_validators_rewards.values() {
-                if cover.att.data.slot.epoch(T::EthSpec::slots_per_epoch()) == state.current_epoch()
-                {
-                    curr_epoch_total += reward;
-                } else {
-                    prev_epoch_total += reward;
-                }
+            if cover.att.data.slot.epoch(T::EthSpec::slots_per_epoch()) == state.current_epoch() {
+                curr_epoch_total += cover.score() as u64;
+            } else {
+                prev_epoch_total += cover.score() as u64;
             }
         }
 
@@ -78,7 +77,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Drop the covers.
         let per_attestation_rewards = per_attestation_rewards
             .into_iter()
-            .map(|cover| cover.fresh_validators_rewards)
+            .map(|cover| {
+                // Divide each reward numerator by the denominator. This can lead to the total being
+                // less than the sum of the individual rewards due to the fact that integer division
+                // does not distribute over addition.
+                let mut rewards = cover.fresh_validators_rewards;
+                rewards
+                    .values_mut()
+                    .for_each(|reward| *reward /= PROPOSER_REWARD_DENOMINATOR);
+                rewards
+            })
             .collect();
 
         // Add the attestation data if desired.
