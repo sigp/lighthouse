@@ -53,12 +53,11 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Derivative, TreeHash, arbitrary::Arbitrary)]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative, arbitrary::Arbitrary)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
 #[arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
-#[tree_hash(enum_behaviour = "transparent")]
 pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
