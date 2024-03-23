@@ -7,8 +7,7 @@ use std::sync::Arc;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{discovery::peer_id_to_node_id, NetworkGlobals};
 use slog::o;
-use types::{DataColumnSubnetId,EthSpec};
-
+use types::{DataColumnSubnetId, EthSpec};
 
 pub struct DataColumnService<T: BeaconChainTypes> {
     /// A reference to the beacon chain to process data columns.
@@ -37,10 +36,12 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
             if let Ok(node_id) = peer_id_to_node_id(&peer_id) {
                 let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
-                let mut data_column_subnet_ids = DataColumnSubnetId::compute_subnets_for_data_column::<
-                    T::EthSpec,
-                >(node_id.raw().into(), &beacon_chain.spec);
-    
+                let mut data_column_subnet_ids =
+                    DataColumnSubnetId::compute_subnets_for_data_column::<T::EthSpec>(
+                        node_id.raw().into(),
+                        &beacon_chain.spec,
+                    );
+
                 beacon_chain.data_column_custody_tracker.register_epoch(
                     epoch,
                     data_column_subnet_ids
