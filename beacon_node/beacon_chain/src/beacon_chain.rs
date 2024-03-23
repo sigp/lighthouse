@@ -72,7 +72,7 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
+use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
     FailedCondition, PayloadAttributes, PayloadStatus,
@@ -120,8 +120,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
-use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobSidecarList, FixedBlobSidecarList};
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -414,14 +413,14 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of slashable message seen over the gossip network or RPC.
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
-    pub(crate) observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
+    pub observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
     /// Maintains a record of which validators we've seen proposer slashings for.
-    pub(crate) observed_proposer_slashings: Mutex<ObservedOperations<ProposerSlashing, T::EthSpec>>,
+    pub observed_proposer_slashings: Mutex<ObservedOperations<ProposerSlashing, T::EthSpec>>,
     /// Maintains a record of which validators we've seen attester slashings for.
-    pub(crate) observed_attester_slashings:
+    pub observed_attester_slashings:
         Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of which validators we've seen BLS to execution changes for.
-    pub(crate) observed_bls_to_execution_changes:
+    pub observed_bls_to_execution_changes:
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
@@ -2568,7 +2567,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         epoch: Epoch,
         validator_indices: &[u64],
-    ) -> Result<Vec<Option<SyncDuty>>, Error> {
+    ) -> Result<Vec<Result<Option<SyncDuty>, BeaconStateError>>, Error> {
         self.with_head(move |head| {
             head.beacon_state
                 .get_sync_committee_duties(epoch, validator_indices, &self.spec)
@@ -2653,7 +2652,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
                 // If the block is already known, simply ignore this block.
-                Err(BlockError::BlockIsAlreadyKnown) => continue,
+                Err(BlockError::BlockIsAlreadyKnown(_)) => continue,
                 // If the block is the genesis block, simply ignore this block.
                 Err(BlockError::GenesisBlock) => continue,
                 // If the block is is for a finalized slot, simply ignore this block.
@@ -2881,7 +2880,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown);
+            return Err(BlockError::BlockIsAlreadyKnown(blob.block_root()));
         }
 
         if let Some(event_handler) = self.event_handler.as_ref() {
@@ -2893,7 +2892,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         self.data_availability_checker
-            .notify_gossip_blob(blob.slot(), block_root, &blob);
+            .notify_gossip_blob(block_root, &blob);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
         self.remove_notified(&block_root, r)
     }
@@ -2913,7 +2912,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown);
+            return Err(BlockError::BlockIsAlreadyKnown(block_root));
         }
 
         if let Some(event_handler) = self.event_handler.as_ref() {
@@ -2927,7 +2926,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         self.data_availability_checker
-            .notify_rpc_blobs(slot, block_root, &blobs);
+            .notify_rpc_blobs(block_root, &blobs);
         let r = self
             .check_rpc_blob_availability_and_import(slot, block_root, blobs)
             .await;

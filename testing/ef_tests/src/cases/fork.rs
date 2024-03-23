@@ -6,7 +6,7 @@ use serde::Deserialize;
 use state_processing::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
 };
-use types::{BeaconState, ForkName};
+use types::BeaconState;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {

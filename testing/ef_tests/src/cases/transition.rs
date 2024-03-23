@@ -7,7 +7,7 @@ use state_processing::{
     ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::str::FromStr;
-use types::{BeaconState, Epoch, ForkName, SignedBeaconBlock};
+use types::{BeaconState, Epoch, SignedBeaconBlock};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {

@@ -903,10 +903,8 @@ impl std::fmt::Debug for Config {
 mod test {
     use super::*;
     use crate::gossipsub::topic::IdentityHash;
-    use crate::gossipsub::types::PeerKind;
     use crate::gossipsub::Topic;
     use libp2p::core::UpgradeInfo;
-    use libp2p::swarm::StreamProtocol;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
