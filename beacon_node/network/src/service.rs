@@ -3,6 +3,7 @@ use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
+use crate::subnet_service::data_column_subnets::DataColumnService;
 use crate::subnet_service::SyncCommitteeService;
 use crate::{error, metrics};
 use crate::{
@@ -173,6 +174,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     attestation_service: AttestationService<T>,
     /// A sync committeee subnet manager service.
     sync_committee_service: SyncCommitteeService<T>,
+    /// A data column subnet manager service.
+    data_column_service: DataColumnService<T>,
     /// The receiver channel for lighthouse to communicate with the network service.
     network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
     /// The receiver channel for lighthouse to send validator subscription requests.
@@ -326,9 +329,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             config,
             &network_log,
         );
+
         // sync committee subnet service
         let sync_committee_service =
             SyncCommitteeService::new(beacon_chain.clone(), config, &network_log);
+
+        // data column subnet service
+        let data_column_service = DataColumnService::new(
+            beacon_chain.clone(),
+            network_globals.local_enr().node_id(),
+            &network_log,
+        );
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
@@ -348,6 +359,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             libp2p,
             attestation_service,
             sync_committee_service,
+            data_column_service,
             network_recv,
             validator_subscription_recv,
             router_send,
@@ -463,6 +475,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
                     // process any attestation service events
                     Some(msg) = self.attestation_service.next() => self.on_attestation_service_msg(msg),
+
+                    // process any data column service event
+                    Some(msg) = self.data_column_service.next() => self.on_data_column_service_message(msg),
 
                     // process any sync committee service events
                     Some(msg) = self.sync_committee_service.next() => self.on_sync_committee_service_message(msg),
@@ -731,31 +746,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         }
                     }
                 }
-
-                if !self.subscribe_all_subnets {
-                    for column_subnet in
-                        DataColumnSubnetId::compute_subnets_for_data_column::<T::EthSpec>(
-                            self.network_globals.local_enr().node_id().raw().into(),
-                            &self.beacon_chain.spec,
-                        )
-                    {
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let gossip_kind = Subnet::DataColumn(column_subnet).into();
-                            let topic = GossipTopic::new(
-                                gossip_kind,
-                                GossipEncoding::default(),
-                                fork_digest,
-                            );
-                            if self.libp2p.subscribe(topic.clone()) {
-                                subscribed_topics.push(topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                            }
-                        }
-                    }
-                }
-
                 // If we are to subscribe to all subnets we do it here
+                // TODO(das) handle the "super node" logic for subscribing to all data column subnets
                 if self.subscribe_all_subnets {
                     for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
                         let subnet = Subnet::Attestation(SubnetId::new(subnet_id));
@@ -867,6 +859,34 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     "Active validator count unavailable";
                     "info" => "please report this bug"
                 );
+            }
+        }
+    }
+
+    fn on_data_column_service_message(&mut self, msg: SubnetServiceMessage) {
+        match msg {
+            SubnetServiceMessage::Subscribe(subnet) => {
+                for fork_digest in self.required_gossip_fork_digests() {
+                    let topic =
+                        GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
+                    self.libp2p.subscribe(topic);
+                }
+            }
+            SubnetServiceMessage::Unsubscribe(subnet) => {
+                for fork_digest in self.required_gossip_fork_digests() {
+                    let topic =
+                        GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
+                    self.libp2p.unsubscribe(topic);
+                }
+            }
+            SubnetServiceMessage::EnrAdd(subnet) => {
+                self.libp2p.update_enr_subnet(subnet, true);
+            }
+            SubnetServiceMessage::EnrRemove(subnet) => {
+                self.libp2p.update_enr_subnet(subnet, false);
+            }
+            SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
+                self.libp2p.discover_subnet_peers(subnets_to_discover);
             }
         }
     }

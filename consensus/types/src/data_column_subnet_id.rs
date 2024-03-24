@@ -1,5 +1,5 @@
 //! Identifies each data column subnet by an integer identifier.
-use crate::{ChainSpec, EthSpec};
+use crate::{ChainSpec, Epoch, EthSpec};
 use ethereum_types::U256;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
@@ -47,17 +47,24 @@ impl DataColumnSubnetId {
     /// Compute required subnets to subscribe to given the node id.
     /// TODO(das): Add epoch param
     /// TODO(das): Add num of subnets (from ENR)
+    /// TODO(das): Check valid until epoch calc
     pub fn compute_subnets_for_data_column<T: EthSpec>(
         node_id: U256,
+        epoch: Epoch,
         spec: &ChainSpec,
-    ) -> impl Iterator<Item = DataColumnSubnetId> {
+    ) -> Result<(impl Iterator<Item = DataColumnSubnetId>, Epoch), &'static str> {
         let num_of_column_subnets = T::data_column_subnet_count() as u64;
-        (0..spec.custody_requirement)
+
+        let valid_until_epoch = epoch.as_u64() + 1;
+
+        let subnet_generator = (0..spec.custody_requirement)
             .map(move |i| {
                 let node_offset = (node_id % U256::from(num_of_column_subnets)).as_u64();
                 node_offset.saturating_add(i) % num_of_column_subnets
             })
-            .map(DataColumnSubnetId::new)
+            .map(DataColumnSubnetId::new);
+
+        Ok((subnet_generator, valid_until_epoch.into()))
     }
 }
 
@@ -119,7 +126,7 @@ impl From<ArithError> for Error {
 #[cfg(test)]
 mod test {
     use crate::data_column_subnet_id::DataColumnSubnetId;
-    use crate::ChainSpec;
+    use crate::{ChainSpec, Epoch};
 
     #[test]
     fn test_compute_subnets_for_data_column() {
@@ -155,9 +162,10 @@ mod test {
         let spec = ChainSpec::mainnet();
 
         for x in 0..node_ids.len() {
-            let computed_subnets = DataColumnSubnetId::compute_subnets_for_data_column::<
+            let (computed_subnets, _) = DataColumnSubnetId::compute_subnets_for_data_column::<
                 crate::MainnetEthSpec,
-            >(node_ids[x], &spec);
+            >(node_ids[x], Epoch::new(1), &spec)
+            .unwrap();
 
             assert_eq!(
                 expected_subnets[x],
