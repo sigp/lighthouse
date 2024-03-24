@@ -2,10 +2,14 @@ use clap::ArgMatches;
 use clap_utils::parse_required;
 use environment::Environment;
 use eth2::{
-    types::{BlockId, PublishBlockRequest, SignedBlockContents},
+    types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use eth2_network_config::Eth2NetworkConfig;
+use ssz::Encode;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use types::EthSpec;
@@ -25,6 +29,7 @@ pub fn run<T: EthSpec>(
         .unwrap();
     Ok(())
 }
+
 pub async fn run_async<T: EthSpec>(
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches<'_>,
@@ -42,34 +47,12 @@ pub async fn run_async<T: EthSpec>(
     let mut next_block_id = start_block;
     loop {
         println!("downloading {next_block_id:?}");
-        let block_from_source = source
-            .get_beacon_blocks_ssz::<T>(next_block_id, spec)
-            .await
-            .unwrap()
-            .unwrap();
-        let blobs_from_source = source
-            .get_blobs::<T>(next_block_id, None)
-            .await
-            .unwrap()
-            .unwrap()
-            .data;
 
-        next_block_id = BlockId::Root(block_from_source.parent_root());
+        let publish_block_req = get_block_from_source::<T>(&source, next_block_id, spec).await;
+        let block = publish_block_req.signed_block();
 
-        let (kzg_proofs, blobs): (Vec<_>, Vec<_>) = blobs_from_source
-            .iter()
-            .cloned()
-            .map(|sidecar| (sidecar.kzg_proof, sidecar.blob.clone()))
-            .unzip();
-
-        let slot = block_from_source.slot();
-        let block_contents = SignedBlockContents {
-            signed_block: Arc::new(block_from_source),
-            kzg_proofs: kzg_proofs.into(),
-            blobs: blobs.into(),
-        };
-        let publish_block_req = PublishBlockRequest::BlockContents(block_contents);
-        blocks.push((slot, publish_block_req));
+        next_block_id = BlockId::Root(block.parent_root());
+        blocks.push((block.slot(), publish_block_req));
 
         let block_exists_in_target = target
             .get_beacon_blocks_ssz::<T>(next_block_id, spec)
@@ -85,11 +68,61 @@ pub async fn run_async<T: EthSpec>(
     // 2. Apply blocks to target.
     for (slot, block) in blocks.iter().rev() {
         println!("posting block at slot {slot}");
-        target.post_beacon_blocks(block).await.unwrap();
-        println!("success");
+        if let Err(e) = target.post_beacon_blocks(block).await {
+            println!("error posting {slot}: {e:?}");
+        } else {
+            println!("success");
+        }
     }
 
     println!("SYNCED!!!!");
 
     Ok(())
+}
+
+async fn get_block_from_source<T: EthSpec>(
+    source: &BeaconNodeHttpClient,
+    block_id: BlockId,
+    spec: &ChainSpec,
+) -> PublishBlockRequest<T> {
+    let mut cache_path = PathBuf::from(format!("./cache/block_{block_id}"));
+
+    if cache_path.exists() {
+        let mut f = File::open(&cache_path).unwrap();
+        let mut bytes = vec![];
+        f.read_to_end(&mut bytes).unwrap();
+        PublishBlockRequest::from_ssz_bytes(&bytes, ForkName::Deneb).unwrap()
+    } else {
+        let block_from_source = source
+            .get_beacon_blocks_ssz::<T>(block_id, spec)
+            .await
+            .unwrap()
+            .unwrap();
+        let blobs_from_source = source
+            .get_blobs::<T>(block_id, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .data;
+
+        let (kzg_proofs, blobs): (Vec<_>, Vec<_>) = blobs_from_source
+            .iter()
+            .cloned()
+            .map(|sidecar| (sidecar.kzg_proof, sidecar.blob.clone()))
+            .unzip();
+
+        let block_root = block_from_source.canonical_root();
+        let block_contents = SignedBlockContents {
+            signed_block: Arc::new(block_from_source),
+            kzg_proofs: kzg_proofs.into(),
+            blobs: blobs.into(),
+        };
+        let publish_block_req = PublishBlockRequest::BlockContents(block_contents);
+
+        cache_path = PathBuf::from(format!("./cache/block_{block_root:?}"));
+        let mut f = File::create(&cache_path).unwrap();
+        f.write_all(&publish_block_req.as_ssz_bytes()).unwrap();
+
+        publish_block_req
+    }
 }
