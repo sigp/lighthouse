@@ -107,8 +107,7 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
                 current_epoch,
                 &self.beacon_chain.spec,
             )
-            .unwrap();
-        //.map_or(|_| error!(self.log, "Failed to compute subnets"))?;
+            .map_err(|_| error!(self.log, "Failed to compute subnets"))?;
 
         let next_subscription_slot =
             next_subscription_epoch.start_slot(T::EthSpec::slots_per_epoch());
@@ -195,6 +194,7 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
 
+        // TODO(das) discovery logic needs to be updated to match das requirements
         let discovery_subnets: Vec<SubnetDiscovery> = exact_subnets
             .filter_map(|exact_subnet| {
                 let until_slot = exact_subnet.until_epoch.end_slot(slots_per_epoch);
