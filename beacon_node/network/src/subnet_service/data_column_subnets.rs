@@ -31,25 +31,20 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
 
         // TODO(das) temporary logic so we can have data column ids avail on the beacon chain
         // future iteration of the data column subnet service will introduce data column rotation
-        // at epoch boundaries and other relevant logic.
-        if let Ok(slot) = beacon_chain.slot() {
-            if let Ok(node_id) = peer_id_to_node_id(&peer_id) {
-                let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        // and other relevant logic.
+        if let Ok(node_id) = peer_id_to_node_id(&peer_id) {
+            let mut data_column_subnet_ids = DataColumnSubnetId::compute_subnets_for_data_column::<
+                T::EthSpec,
+            >(node_id.raw().into(), &beacon_chain.spec);
 
-                let mut data_column_subnet_ids =
-                    DataColumnSubnetId::compute_subnets_for_data_column::<T::EthSpec>(
-                        node_id.raw().into(),
-                        &beacon_chain.spec,
-                    );
-
-                beacon_chain.data_column_custody_tracker.register_epoch(
-                    epoch,
+            beacon_chain
+                .data_column_custody_tracker
+                .set_custody_requirements(
                     data_column_subnet_ids
                         .by_ref()
                         .map(|data_column| *data_column)
                         .collect_vec(),
                 );
-            }
         }
         Self {
             _beacon_chain: beacon_chain,
