@@ -1,8 +1,5 @@
 use super::methods::*;
-use crate::rpc::{
-    codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec},
-    methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
-};
+use crate::rpc::codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec};
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};

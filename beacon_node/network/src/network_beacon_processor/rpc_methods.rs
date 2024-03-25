@@ -6,7 +6,6 @@ use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, Whe
 use beacon_processor::SendOnDrop;
 use itertools::process_results;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
-use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
@@ -305,7 +304,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match self.chain.get_light_client_bootstrap(&block_root) {
             Ok(Some((bootstrap, _))) => self.send_response(
                 peer_id,
-                Response::LightClientBootstrap(bootstrap),
+                Response::LightClientBootstrap(Arc::new(bootstrap)),
                 request_id,
             ),
             Ok(None) => self.send_error_response(

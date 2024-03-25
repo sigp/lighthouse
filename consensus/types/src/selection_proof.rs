@@ -5,7 +5,6 @@ use ethereum_hashing::hash;
 use safe_arith::{ArithError, SafeArith};
 use ssz::Encode;
 use std::cmp;
-use std::convert::TryInto;
 
 #[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
 pub struct SelectionProof(Signature);

@@ -4,7 +4,6 @@ use derivative::Derivative;
 use merkle_proof::{MerkleTree, MerkleTreeError};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -16,6 +15,13 @@ pub type KzgCommitments<T> =
 pub type KzgCommitmentOpts<T> =
     FixedVector<Option<KzgCommitment>, <T as EthSpec>::MaxBlobsPerBlock>;
 
+/// The number of leaves (including padding) on the `BeaconBlockBody` Merkle tree.
+///
+/// ## Note
+///
+/// This constant is set with the assumption that there are `> 8` and `<= 16` fields on the
+/// `BeaconBlockBody`. **Tree hashing will fail if this value is set incorrectly.**
+pub const NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES: usize = 16;
 /// Index of the `blob_kzg_commitments` leaf in the `BeaconBlockBody` tree post-deneb.
 pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
 
@@ -589,6 +595,56 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
             let (block, payload) = inner.into();
             (cons(block), payload.map(Into::into))
         })
+    }
+}
+
+impl<T: EthSpec> BeaconBlockBody<T> {
+    pub fn block_body_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
+        let field_index = match generalized_index {
+            light_client_update::EXECUTION_PAYLOAD_INDEX => {
+                // Execution payload is a top-level field, subtract off the generalized indices
+                // for the internal nodes. Result should be 9, the field offset of the execution
+                // payload in the `BeaconBlockBody`:
+                // https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#beaconblockbody
+                generalized_index
+                    .checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
+                    .ok_or(Error::IndexNotSupported(generalized_index))?
+            }
+            _ => return Err(Error::IndexNotSupported(generalized_index)),
+        };
+
+        let mut leaves = vec![
+            self.randao_reveal().tree_hash_root(),
+            self.eth1_data().tree_hash_root(),
+            self.graffiti().tree_hash_root(),
+            self.proposer_slashings().tree_hash_root(),
+            self.attester_slashings().tree_hash_root(),
+            self.attestations().tree_hash_root(),
+            self.deposits().tree_hash_root(),
+            self.voluntary_exits().tree_hash_root(),
+        ];
+
+        if let Ok(sync_aggregate) = self.sync_aggregate() {
+            leaves.push(sync_aggregate.tree_hash_root())
+        }
+
+        if let Ok(execution_payload) = self.execution_payload() {
+            leaves.push(execution_payload.tree_hash_root())
+        }
+
+        if let Ok(bls_to_execution_changes) = self.bls_to_execution_changes() {
+            leaves.push(bls_to_execution_changes.tree_hash_root())
+        }
+
+        if let Ok(blob_kzg_commitments) = self.blob_kzg_commitments() {
+            leaves.push(blob_kzg_commitments.tree_hash_root())
+        }
+
+        let depth = light_client_update::EXECUTION_PAYLOAD_PROOF_LEN;
+        let tree = merkle_proof::MerkleTree::create(&leaves, depth);
+        let (_, proof) = tree.generate_proof(field_index, depth)?;
+
+        Ok(proof)
     }
 }
 

@@ -276,7 +276,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "slot" => %slot,
                 );
             }
-            Err(BlockError::BlockIsAlreadyKnown) => {
+            Err(BlockError::BlockIsAlreadyKnown(_)) => {
                 debug!(
                     self.log,
                     "Blobs have already been imported";
@@ -639,7 +639,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: Some(PeerAction::LowToleranceError),
                 })
             }
-            BlockError::BlockIsAlreadyKnown => {
+            BlockError::BlockIsAlreadyKnown(_) => {
                 // This can happen for many reasons. Head sync's can download multiples and parent
                 // lookups can download blocks before range sync
                 Ok(())
