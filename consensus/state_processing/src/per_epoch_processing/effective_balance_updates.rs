@@ -3,13 +3,16 @@ use crate::per_epoch_processing::altair::ParticipationCache;
 use safe_arith::SafeArith;
 use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;
-use types::{BeaconStateError, EthSpec, ProgressiveBalancesCache};
+use types::{BeaconStateError, EthSpec, ForkName, ProgressiveBalancesCache};
 
 pub fn process_effective_balance_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     maybe_participation_cache: Option<&ParticipationCache>,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
+    let state_fork = state
+        .fork_name(spec)
+        .map_err(EpochProcessingError::InconsistentStateFork)?;
     let hysteresis_increment = spec
         .effective_balance_increment
         .safe_div(spec.hysteresis_quotient)?;
@@ -27,12 +30,31 @@ pub fn process_effective_balance_updates<T: EthSpec>(
             || validator.effective_balance.safe_add(upward_threshold)? < balance
         {
             let old_effective_balance = validator.effective_balance;
-            let new_effective_balance = std::cmp::min(
-                balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
-                spec.max_effective_balance,
-            );
+            let new_effective_balance = match state_fork {
+                ForkName::Base
+                | ForkName::Altair
+                | ForkName::Merge
+                | ForkName::Capella
+                | ForkName::Deneb => std::cmp::min(
+                    balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
+                    spec.max_effective_balance,
+                ),
+                ForkName::Electra => {
+                    let effective_balance_limit =
+                        if validator.has_compounding_withdrawal_credential(spec) {
+                            spec.max_effective_balance_eip7251
+                        } else {
+                            spec.min_activation_balance
+                        };
+                    std::cmp::min(
+                        balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
+                        effective_balance_limit,
+                    )
+                }
+            };
 
             if let Some(participation_cache) = maybe_participation_cache {
+                // TODO: consider changes to progressive balances cache
                 update_progressive_balances(
                     participation_cache,
                     progressive_balances_cache,

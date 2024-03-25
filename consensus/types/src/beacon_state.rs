@@ -1389,10 +1389,13 @@ impl<T: EthSpec> BeaconState<T> {
             | BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_) => self.get_churn_limit(spec)?,
-            BeaconState::Deneb(_) | BeaconState::Electra(_) => std::cmp::min(
+            BeaconState::Deneb(_) => std::cmp::min(
                 spec.max_per_epoch_activation_churn_limit,
                 self.get_churn_limit(spec)?,
             ),
+            // TODO: check this..
+            // EIP-7251: activation churn limit controlled by pending deposits
+            BeaconState::Electra(_) => usize::MAX as u64,
         })
     }
 

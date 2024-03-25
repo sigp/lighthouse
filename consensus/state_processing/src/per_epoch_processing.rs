@@ -11,6 +11,7 @@ pub use slashings::process_slashings;
 pub use weigh_justification_and_finalization::weigh_justification_and_finalization;
 
 pub mod altair;
+pub mod balance_deposits;
 pub mod base;
 pub mod capella;
 pub mod effective_balance_updates;
