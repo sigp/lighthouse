@@ -426,10 +426,17 @@ fn context_bytes<T: EthSpec>(
                 RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) => {
                     return fork_context.to_context_bytes(ForkName::Deneb);
                 }
-                RPCResponse::LightClientBootstrap(_)
-                | RPCResponse::LightClientOptimisticUpdate(_)
-                | RPCResponse::LightClientFinalityUpdate(_) => {
-                    return fork_context.to_context_bytes(fork_context.current_fork());
+                RPCResponse::LightClientBootstrap(lc_bootstrap) => {
+                    return lc_bootstrap
+                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
+                }
+                RPCResponse::LightClientOptimisticUpdate(lc_optimistic_update) => {
+                    return lc_optimistic_update
+                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
+                }
+                RPCResponse::LightClientFinalityUpdate(lc_finality_update) => {
+                    return lc_finality_update
+                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
                 }
                 // These will not pass the has_context_bytes() check
                 RPCResponse::Status(_) | RPCResponse::Pong(_) | RPCResponse::MetaData(_) => {

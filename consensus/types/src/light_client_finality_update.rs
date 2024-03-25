@@ -126,6 +126,17 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         Ok(finality_update)
     }
 
+    pub fn map_with_fork_name<F, R>(&self, func: F) -> R
+    where
+        F: Fn(ForkName) -> R,
+    {
+        match self {
+            Self::Altair(_) => func(ForkName::Altair),
+            Self::Capella(_) => func(ForkName::Capella),
+            Self::Deneb(_) => func(ForkName::Deneb),
+        }
+    }
+
     pub fn get_attested_header_slot<'a>(&'a self) -> Slot {
         map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
             cons(inner);
