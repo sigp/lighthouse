@@ -3,7 +3,6 @@ use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
-use crate::type_name::TypeName;
 use serde::Deserialize;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
@@ -20,8 +19,7 @@ use state_processing::per_epoch_processing::{
 };
 use state_processing::EpochProcessingError;
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
-use types::{BeaconState, ChainSpec, EthSpec, ForkName};
+use types::BeaconState;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {

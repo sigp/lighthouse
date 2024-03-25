@@ -1510,7 +1510,7 @@ pub struct PersistedForkChoice {
 
 #[cfg(test)]
 mod tests {
-    use types::{EthSpec, MainnetEthSpec};
+    use types::MainnetEthSpec;
 
     use super::*;
 
