@@ -147,19 +147,6 @@ pub enum Error {
         current_epoch: Epoch,
         epoch: Epoch,
     },
-    CommitteeCacheDiffInvalidEpoch {
-        prev_current_epoch: Epoch,
-        current_epoch: Epoch,
-    },
-    CommitteeCacheDiffUninitialized {
-        expected_epoch: Epoch,
-    },
-    DiffAcrossFork {
-        prev_fork: ForkName,
-        current_fork: ForkName,
-    },
-    TotalActiveBalanceDiffUninitialized,
-    MissingImmutableValidator(usize),
     IndexNotSupported(usize),
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
@@ -1476,7 +1463,7 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(cache.get_attestation_duties(validator_index))
     }
 
-    /// Build the total active balance cache from scratch.
+    /// Compute the total active balance cache from scratch.
     ///
     /// This method should rarely be invoked because single-pass epoch processing keeps the total
     /// active balance cache up to date.
