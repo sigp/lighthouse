@@ -20,13 +20,15 @@ echo "slot_per_epoch=$SLOT_PER_EPOCH"
 genesis_file=$1
 
 # Update future hardforks time in the EL genesis file based on the CL genesis time
-GENESIS_TIME=$(lcli pretty-ssz --spec $SPEC_PRESET --testnet-dir $TESTNET_DIR BeaconState $TESTNET_DIR/genesis.ssz | jq | grep -Po 'genesis_time": "\K.*\d')
-echo $GENESIS_TIME
-CAPELLA_TIME=$((GENESIS_TIME + (CAPELLA_FORK_EPOCH * $SLOT_PER_EPOCH * SECONDS_PER_SLOT)))
-echo $CAPELLA_TIME
-sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $genesis_file
-CANCUN_TIME=$((GENESIS_TIME + (DENEB_FORK_EPOCH * $SLOT_PER_EPOCH * SECONDS_PER_SLOT)))
-echo $CANCUN_TIME
-sed -i 's/"cancunTime".*$/"cancunTime": '"$CANCUN_TIME"',/g' $genesis_file
-cat $genesis_file
+GENESIS_TIME=$(lcli pretty-ssz --spec $SPEC_PRESET --testnet-dir $TESTNET_DIR BeaconState $TESTNET_DIR/genesis.ssz | jq | sed -n 's/.*genesis_time": "\([0-9]*\).*/\1/p')
+echo "GENESIS_TIME: $GENESIS_TIME"
 
+CAPELLA_TIME=$((GENESIS_TIME + (CAPELLA_FORK_EPOCH * $SLOT_PER_EPOCH * SECONDS_PER_SLOT)))
+echo "SHANGHAI_TIME: $CAPELLA_TIME"
+sed 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $genesis_file > "/tmp/genesis.json"
+mv "/tmp/genesis.json" $genesis_file
+
+CANCUN_TIME=$((GENESIS_TIME + (DENEB_FORK_EPOCH * $SLOT_PER_EPOCH * SECONDS_PER_SLOT)))
+echo "CANCUN_TIME: $CANCUN_TIME"
+sed 's/"cancunTime".*$/"cancunTime": '"$CANCUN_TIME"',/g' $genesis_file > "/tmp/genesis.json"
+mv "/tmp/genesis.json" $genesis_file
