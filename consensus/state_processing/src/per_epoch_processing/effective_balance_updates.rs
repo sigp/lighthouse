@@ -48,7 +48,7 @@ pub fn process_effective_balance_updates<T: EthSpec>(
         }
     }
 
-    state.set_total_active_balance(next_epoch, new_total_active_balance);
+    state.set_total_active_balance(next_epoch, new_total_active_balance, spec);
 
     Ok(())
 }

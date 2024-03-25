@@ -278,7 +278,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     }
 
     if conf.effective_balance_updates {
-        state.set_total_active_balance(next_epoch, next_epoch_total_active_balance);
+        state.set_total_active_balance(next_epoch, next_epoch_total_active_balance, spec);
         *state.epoch_cache_mut() = next_epoch_cache.into_epoch_cache(
             next_epoch_total_active_balance,
             next_epoch_activation_queue,

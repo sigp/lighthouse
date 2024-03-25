@@ -35,7 +35,7 @@ pub struct CommitteeCache {
 ///
 /// It can happen that states from different epochs computing the same cache have different
 /// numbers of validators in `state.validators()` due to recent deposits. These new validators
-/// cannot be active however and will always be ommitted from the shuffling. This function checks
+/// cannot be active however and will always be omitted from the shuffling. This function checks
 /// that two lists of shuffling positions are equivalent by ensuring that they are identical on all
 /// common entries, and that new entries at the end are all `None`.
 ///

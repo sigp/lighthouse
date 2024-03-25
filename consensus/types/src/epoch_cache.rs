@@ -40,7 +40,7 @@ pub struct EpochCacheKey {
 pub enum EpochCacheError {
     IncorrectEpoch { cache: Epoch, state: Epoch },
     IncorrectDecisionBlock { cache: Hash256, state: Hash256 },
-    ZeroDecisionBlock,
+    ZeroStateRoot,
     ValidatorIndexOutOfBounds { validator_index: usize },
     EffectiveBalanceOutOfBounds { effective_balance_eth: usize },
     InvalidSlot { slot: Slot },

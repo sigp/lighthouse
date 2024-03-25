@@ -502,12 +502,6 @@ impl ChainSpec {
         epoch.safe_add(1)?.safe_add(self.max_seed_lookahead)
     }
 
-    #[allow(clippy::arithmetic_side_effects)]
-    pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
-        let attestation_subnet_count_bits = self.attestation_subnet_count.ilog2();
-        self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
-    }
-
     pub fn maximum_gossip_clock_disparity(&self) -> Duration {
         Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
     }

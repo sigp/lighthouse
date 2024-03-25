@@ -18,10 +18,10 @@ impl PreEpochCache {
 
         // State root should already have been filled in by `process_slot`, except in the case
         // of a `partial_state_advance`.
-        let decision_block_root = latest_block_header.canonical_root();
-        if decision_block_root.is_zero() {
-            return Err(EpochCacheError::ZeroDecisionBlock);
+        if latest_block_header.state_root.is_zero() {
+            return Err(EpochCacheError::ZeroStateRoot);
         }
+        let decision_block_root = latest_block_header.canonical_root();
 
         let epoch_key = EpochCacheKey {
             epoch: state.next_epoch()?,

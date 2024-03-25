@@ -373,7 +373,6 @@ where
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
     pub epoch_cache: EpochCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -1513,8 +1512,11 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// This should only be called when the total active balance has been computed as part of
     /// single-pass epoch processing (or `process_rewards_and_penalties` for phase0).
-    pub fn set_total_active_balance(&mut self, epoch: Epoch, balance: u64) {
-        *self.total_active_balance_mut() = Some((epoch, balance));
+    ///
+    /// This function will ensure the balance is never set to 0, thus conforming to the spec.
+    pub fn set_total_active_balance(&mut self, epoch: Epoch, balance: u64, spec: &ChainSpec) {
+        let safe_balance = std::cmp::max(balance, spec.effective_balance_increment);
+        *self.total_active_balance_mut() = Some((epoch, safe_balance));
     }
 
     /// Build the total active balance cache for the current epoch if it is not already built.
@@ -1883,9 +1885,6 @@ impl<T: EthSpec> BeaconState<T> {
         }
         if config.slashings_cache {
             *res.slashings_cache_mut() = self.slashings_cache().clone();
-        }
-        if config.epoch_cache {
-            *res.epoch_cache_mut() = self.epoch_cache().clone();
         }
         if config.tree_hash_cache {
             *res.tree_hash_cache_mut() = self.tree_hash_cache().clone();

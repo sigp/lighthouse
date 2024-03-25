@@ -5,7 +5,6 @@ pub struct CloneConfig {
     pub pubkey_cache: bool,
     pub exit_cache: bool,
     pub slashings_cache: bool,
-    pub epoch_cache: bool,
     pub tree_hash_cache: bool,
     pub progressive_balances_cache: bool,
 }
@@ -17,7 +16,6 @@ impl CloneConfig {
             pubkey_cache: true,
             exit_cache: true,
             slashings_cache: true,
-            epoch_cache: true,
             tree_hash_cache: true,
             progressive_balances_cache: true,
         }
