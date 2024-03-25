@@ -23,6 +23,7 @@ use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
 };
+use crate::data_column_custody_tracker::DataColumnCustodyTracker;
 use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
@@ -471,6 +472,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub light_client_server_cache: LightClientServerCache<T>,
     /// Sender to signal the light_client server to produce new updates
     pub light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
+    /// Used to keep track of column custody requirements for a given epoch
+    pub data_column_custody_tracker: Arc<DataColumnCustodyTracker>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,

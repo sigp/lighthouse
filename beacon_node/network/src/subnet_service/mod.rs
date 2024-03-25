@@ -1,9 +1,11 @@
 pub mod attestation_subnets;
+pub mod data_column_subnets;
 pub mod sync_subnets;
 
 use lighthouse_network::{Subnet, SubnetDiscovery};
 
 pub use attestation_subnets::AttestationService;
+pub use data_column_subnets::DataColumnService;
 pub use sync_subnets::SyncCommitteeService;
 
 #[cfg(test)]
