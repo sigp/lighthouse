@@ -1,6 +1,4 @@
 use parking_lot::RwLock;
-use std::collections::HashMap;
-use types::Epoch;
 
 /// Maintains a list of data column custody requirements for a given epoch.
 ///

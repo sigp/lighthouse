@@ -7,7 +7,7 @@ use std::sync::Arc;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{discovery::peer_id_to_node_id, NetworkGlobals};
 use slog::o;
-use types::{DataColumnSubnetId, EthSpec};
+use types::DataColumnSubnetId;
 
 pub struct DataColumnService<T: BeaconChainTypes> {
     /// A reference to the beacon chain to process data columns.
