@@ -110,8 +110,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.processing_cache.read().get(&block_root).cloned()
     }
 
-    /// A `None` indicates blobs are not required.
-    ///
     /// If there's no block, all possible ids will be returned that don't exist in the given blobs.
     /// If there no blobs, all possible ids will be returned.
     pub fn get_missing_blob_ids<V: AvailabilityView<T::EthSpec>>(

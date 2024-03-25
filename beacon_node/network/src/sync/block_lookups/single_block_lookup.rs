@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::EthSpec;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -31,7 +31,7 @@ pub enum LookupVerifyError {
     RootMismatch,
     NoBlockReturned,
     ExtraBlocksReturned,
-    UnrequestedBlobId,
+    UnrequestedBlobId(BlobIdentifier),
     ExtraBlobsReturned,
     NotEnoughBlobsReturned,
     InvalidIndex(u64),
