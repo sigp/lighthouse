@@ -532,7 +532,8 @@ where
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
-        re_org_threshold: ReOrgThreshold,
+        re_org_head_threshold: ReOrgThreshold,
+        re_org_parent_threshold: ReOrgThreshold,
         disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
@@ -564,7 +565,8 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
-                re_org_threshold,
+                re_org_head_threshold,
+                re_org_parent_threshold,
                 disallowed_offsets,
                 max_epochs_since_finalization,
             )
@@ -574,7 +576,8 @@ where
     pub fn get_preliminary_proposer_head(
         &self,
         canonical_head: Hash256,
-        re_org_threshold: ReOrgThreshold,
+        re_org_head_threshold: ReOrgThreshold,
+        re_org_parent_threshold: ReOrgThreshold,
         disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
@@ -584,7 +587,8 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
-                re_org_threshold,
+                re_org_head_threshold,
+                re_org_parent_threshold,
                 disallowed_offsets,
                 max_epochs_since_finalization,
             )
@@ -723,6 +727,7 @@ where
         // Add proposer score boost if the block is timely.
         let is_before_attesting_interval =
             block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
+
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
         if current_slot == block.slot() && is_before_attesting_interval && is_first_block {
             self.fc_store.set_proposer_boost_root(block_root);

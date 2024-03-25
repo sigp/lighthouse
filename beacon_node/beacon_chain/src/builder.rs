@@ -172,8 +172,8 @@ where
     }
 
     /// Sets the proposer re-org threshold.
-    pub fn proposer_re_org_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
-        self.chain_config.re_org_threshold = threshold;
+    pub fn proposer_re_org_head_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
+        self.chain_config.re_org_head_threshold = threshold;
         self
     }
 
