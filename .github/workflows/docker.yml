@@ -5,7 +5,6 @@ on:
         branches:
             - unstable
             - stable
-            - rework-docker-builds
         tags:
             - v*
 
@@ -17,7 +16,7 @@ env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
     # Enable self-hosted runners for your own repo only.
-    SELF_HOSTED_RUNNERS: ${{ github.repository == 'github.repository_owner/lighthouse' }}
+    SELF_HOSTED_RUNNERS: ${{ github.repository == github.repository_owner'/lighthouse' }}
 
 jobs:
     # Extract the VERSION which is either `latest` or `vX.Y.Z`, and the VERSION_SUFFIX
@@ -39,11 +38,6 @@ jobs:
               run: |
                     echo "VERSION=latest" >> $GITHUB_ENV
                     echo "VERSION_SUFFIX=-unstable" >> $GITHUB_ENV
-            - name: Extract version (if rework)
-              if: github.event.ref == 'refs/heads/rework-docker-builds'
-              run: |
-                    echo "VERSION=latest" >> $GITHUB_ENV
-                    echo "VERSION_SUFFIX=-rework" >> $GITHUB_ENV
             - name: Extract version (if tagged release)
               if: startsWith(github.event.ref, 'refs/tags')
               run: |
@@ -55,7 +49,7 @@ jobs:
     build-docker-single-arch:
         name: build-docker-${{ matrix.binary }}-${{ matrix.cpu_arch }}${{ matrix.features.version_suffix }}
         # Use self-hosted runners only on your own repo.
-        runs-on: ${{ github.repository == 'github.repository_owner/lighthouse' && fromJson('["self-hosted", "linux", "X64", "large"]') || 'ubuntu-22.04'  }}
+        runs-on: ${{ github.repository == github.repository_owner'/lighthouse' && fromJson('["self-hosted", "linux", "X64", "large"]') || 'ubuntu-22.04' }}
         strategy:
             matrix:
                 binary:   [lighthouse,
@@ -99,7 +93,6 @@ jobs:
 
             - name: Make bin dir
               run: mkdir ./bin
-
             - name: Move cross-built binary into Docker scope
               run: mv ./target/${{ matrix.cpu_arch }}-unknown-linux-gnu/${{ matrix.profile }}/${{ matrix.binary }} ./bin
 
@@ -125,7 +118,6 @@ jobs:
                 context: .
                 platforms: linux/${{ env.SHORT_ARCH }}
                 push: true
-
                 tags: |
                   ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}
                   ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-dev
@@ -169,27 +161,3 @@ jobs:
                   docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}${VERSION_SUFFIX} \
                       ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${VERSION_SUFFIX} \
                       ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-amd64${VERSION_SUFFIX};
-#                  docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}${VERSION_SUFFIX}-modern \
-#                      ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${VERSION_SUFFIX}-modern \
-#                      ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-amd64${VERSION_SUFFIX}-modern;
-
-#    build-docker-lcli:
-#        runs-on: ubuntu-22.04
-#        needs: [extract-version]
-#        env:
-#            VERSION: ${{ needs.extract-version.outputs.VERSION }}
-#            VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
-#        steps:
-#            - uses: actions/checkout@v4
-#            - name: Dockerhub login
-#              run: |
-#                  echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-#            - name: Build lcli and push
-#              uses: docker/build-push-action@v5
-#              with:
-#                  build-args: |
-#                      FEATURES=portable
-#                  context: .
-#                  push: true
-#                  file: ./lcli/Dockerfile
-#                  tags: ${{ env.LCLI_IMAGE_NAME }}:${{ env.VERSION }}${{ env.VERSION_SUFFIX }}
