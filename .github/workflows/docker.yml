@@ -16,7 +16,7 @@ env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
     # Enable self-hosted runners for your own repo only.
-    SELF_HOSTED_RUNNERS: ${{ github.repository == github.repository_owner'/lighthouse' }}
+    SELF_HOSTED_RUNNERS: ${{ github.repository == format('{0}/{1}',github.repository_owner ,'lighthouse') }}
 
 jobs:
     # Extract the VERSION which is either `latest` or `vX.Y.Z`, and the VERSION_SUFFIX
@@ -49,7 +49,7 @@ jobs:
     build-docker-single-arch:
         name: build-docker-${{ matrix.binary }}-${{ matrix.cpu_arch }}${{ matrix.features.version_suffix }}
         # Use self-hosted runners only on your own repo.
-        runs-on: ${{ github.repository == github.repository_owner'/lighthouse' && fromJson('["self-hosted", "linux", "X64", "large"]') || 'ubuntu-22.04' }}
+        runs-on: ${{ github.repository == format('{0}/{1}',github.repository_owner ,'lighthouse') && fromJson('["self-hosted", "linux", "X64", "large"]') || 'ubuntu-22.04' }}
         strategy:
             matrix:
                 binary:   [lighthouse,
