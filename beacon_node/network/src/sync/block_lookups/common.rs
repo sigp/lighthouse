@@ -396,6 +396,8 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
             None => {
                 self.state.state = State::Processing { peer_id };
                 let blobs = std::mem::take(&mut self.blob_download_queue);
+                self.requested_ids.clear();
+
                 Ok(Some(blobs))
             }
         }
