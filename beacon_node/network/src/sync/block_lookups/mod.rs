@@ -152,16 +152,20 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             if let Some(components) = child_components {
                 lookup.add_child_components(components);
             }
+            debug!(self.log, "Already searching for block"; "block_root" => ?block_root);
             return;
         }
 
         if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
-            parent_req.is_for_block(block_root) || parent_req.contains_block(&block_root)
+            parent_req.is_for_block(block_root)
+                || parent_req.contains_block(&block_root)
+                || parent_req.chain_hash() == block_root
         }) {
             parent_lookup.add_peers(peers);
 
             // If the block was already downloaded, or is being downloaded in this moment, do not
             // request it.
+            debug!(self.log, "Already searching for block in a parent lookup request"; "block_root" => ?block_root);
             return;
         }
 
@@ -171,6 +175,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .any(|(hashes, _last_parent_request)| hashes.contains(&block_root))
         {
             // we are already processing this block, ignore it.
+            debug!(self.log, "Already processing block in a parent from request"; "block_root" => ?block_root);
             return;
         }
 
@@ -217,19 +222,29 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Make sure this block is not already downloaded, and that neither it or its parent is
         // being searched for.
         if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
-            parent_req.contains_block(&parent_root) || parent_req.is_for_block(parent_root)
+            block_root == parent_req.chain_hash()
+                || parent_req.contains_block(&parent_root)
+                || parent_req.is_for_block(parent_root)
         }) {
             parent_lookup.add_peer(peer_id);
             // we are already searching for this block, ignore it
+            debug!(self.log, "Already searching for parent block";
+                "block_root" => ?block_root, "parent_root" => ?parent_root);
             return;
         }
 
         if self
             .processing_parent_lookups
-            .values()
-            .any(|(hashes, _peers)| hashes.contains(&block_root) || hashes.contains(&parent_root))
+            .iter()
+            .any(|(chain_hash, (hashes, _peers))| {
+                chain_hash == &block_root
+                    || hashes.contains(&block_root)
+                    || hashes.contains(&parent_root)
+            })
         {
             // we are already processing this block, ignore it.
+            debug!(self.log, "Already processing parent block";
+                "block_root" => ?block_root, "parent_root" => ?parent_root);
             return;
         }
         let parent_lookup = ParentLookup::new(
