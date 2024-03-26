@@ -115,19 +115,13 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         let block_already_downloaded = self.block_already_downloaded();
-        let should_request_blobs = if self.blob_request_state.requested_ids.is_empty() {
-            let blob_ids = self.missing_blob_ids();
-            self.blob_request_state.requested_ids = blob_ids;
-            !self.blob_request_state.requested_ids.is_empty()
-        } else {
-            false
-        };
+        let blobs_already_downloaded = self.blobs_already_downloaded();
 
         if !block_already_downloaded {
             self.block_request_state
                 .build_request_and_send(self.id, cx)?;
         }
-        if should_request_blobs {
+        if !blobs_already_downloaded {
             self.blob_request_state
                 .build_request_and_send(self.id, cx)?;
         }
@@ -257,6 +251,21 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         } else {
             self.da_checker.has_block(&self.block_root())
         }
+    }
+
+    /// Updates the `requested_ids` field of the `BlockRequestState` with the most recent picture
+    /// of which blobs still need to be requested. Returns `true` if there are no more blobs to
+    /// request.
+    pub(crate) fn blobs_already_downloaded(&mut self) -> bool {
+        if matches!(self.blob_request_state.state.state, State::AwaitingDownload) {
+            self.update_blobs_request();
+        }
+        self.blob_request_state.requested_ids.is_empty()
+    }
+
+    /// Updates this request with the most recent picture of which blobs still need to be requested.
+    pub fn update_blobs_request(&mut self) {
+        self.blob_request_state.requested_ids = self.missing_blob_ids();
     }
 
     /// If `child_components` is `Some`, we know block components won't hit the data

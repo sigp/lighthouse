@@ -655,14 +655,6 @@ impl MissingBlobs {
             MissingBlobs::BlobsNotRequired => vec![],
         }
     }
-
-    pub fn clear(&mut self) {
-        match self {
-            MissingBlobs::KnownMissing(ref mut v) => v.clear(),
-            MissingBlobs::PossibleMissing(ref mut v) => v.clear(),
-            MissingBlobs::BlobsNotRequired => (),
-        }
-    }
 }
 
 impl Into<Vec<BlobIdentifier>> for MissingBlobs {
