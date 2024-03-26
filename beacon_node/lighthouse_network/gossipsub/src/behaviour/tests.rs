@@ -21,13 +21,17 @@
 // Collection of tests for the gossipsub network behaviour
 
 use super::*;
-use crate::gossipsub::subscription_filter::WhitelistSubscriptionFilter;
-use crate::gossipsub::types::RpcReceiver;
-use crate::gossipsub::{config::ConfigBuilder, types::Rpc, IdentTopic as Topic};
-use async_std::net::Ipv4Addr;
+use crate::subscription_filter::WhitelistSubscriptionFilter;
+use crate::transform::{DataTransform, IdentityTransform};
+use crate::types::{RpcOut, RpcReceiver};
+use crate::ValidationError;
+use crate::{
+    config::Config, config::ConfigBuilder, types::Rpc, IdentTopic as Topic, TopicScoreParams,
+};
 use byteorder::{BigEndian, ByteOrder};
 use libp2p::core::ConnectedPoint;
 use rand::Rng;
+use std::net::Ipv4Addr;
 use std::thread::sleep;
 
 #[derive(Default, Debug)]

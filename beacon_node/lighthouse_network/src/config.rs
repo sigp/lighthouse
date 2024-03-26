@@ -1,4 +1,3 @@
-use crate::gossipsub;
 use crate::listen_addr::{ListenAddr, ListenAddress};
 use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
