@@ -1790,20 +1790,6 @@ mod deneb_only {
     }
 
     #[test]
-    fn single_block_response_then_too_many_blobs_response_attestation() {
-        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
-            return;
-        };
-
-        tester
-            .block_response_triggering_process()
-            .invalidate_blobs_too_many()
-            .blobs_response()
-            .expect_penalty()
-            .expect_blobs_request()
-            .expect_no_block_request();
-    }
-    #[test]
     fn too_few_blobs_response_then_block_response_attestation() {
         let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
             return;
@@ -1815,21 +1801,6 @@ mod deneb_only {
             .blobs_response_was_valid()
             .expect_no_penalty()
             .expect_no_blobs_request()
-            .expect_no_block_request()
-            .block_response_triggering_process();
-    }
-
-    #[test]
-    fn too_many_blobs_response_then_block_response_attestation() {
-        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
-            return;
-        };
-
-        tester
-            .invalidate_blobs_too_many()
-            .blobs_response()
-            .expect_penalty()
-            .expect_blobs_request()
             .expect_no_block_request()
             .block_response_triggering_process();
     }

@@ -371,7 +371,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
 
     fn verify_response_inner(
         &mut self,
-        _expected_block_root: Hash256,
+        expected_block_root: Hash256,
         blob: Option<Self::ResponseType>,
         peer_id: PeerId,
     ) -> Result<Option<FixedBlobSidecarList<T::EthSpec>>, LookupVerifyError> {
@@ -379,8 +379,13 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
             Some(blob) => {
                 let received_id = blob.id();
                 if !self.requested_ids.contains(&received_id) {
+                    if expected_block_root == received_id.block_root {
+                        // We may have already received this blob via gossip since the lookup,
+                        // so don't return an error here.
+                        return Ok(None);
+                    }
                     self.state.register_failure_downloading();
-                    Err(LookupVerifyError::UnrequestedBlobId)
+                    Err(LookupVerifyError::UnrequestedBlobId(received_id))
                 } else {
                     // State should remain downloading until we receive the stream terminator.
                     self.requested_ids.remove(&received_id);
