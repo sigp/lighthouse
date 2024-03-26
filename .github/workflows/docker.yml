@@ -121,11 +121,11 @@ jobs:
                 context: .
                 platforms: linux/${{ env.SHORT_ARCH }}
                 push: true
-                tags: 
-                  - ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}
-                  - ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-dev
-                  - ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-modern
-                  - ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-modern-dev
+                tags: |
+                  ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}
+                  ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-dev
+                  ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-modern
+                  ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-modern-dev
 
     build-docker-multiarch:
         name: build-docker-multiarch${{ matrix.modernity }}
