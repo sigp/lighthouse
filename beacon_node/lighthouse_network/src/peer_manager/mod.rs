@@ -803,9 +803,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // start a ping and status timer for the peer
         self.status_peers.insert(*peer_id);
 
-        // increment prometheus metrics
-        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-
         true
     }
 
