@@ -5,6 +5,7 @@ on:
         branches:
             - unstable
             - stable
+            - rework-docker-builds
         tags:
             - v*
 
@@ -18,7 +19,7 @@ env:
     IMAGE_NAME: ${{ github.repository_owner}}/lighthouse
     LCLI_IMAGE_NAME: ${{ github.repository_owner }}/lcli
     # Enable self-hosted runners for the sigp repo only.
-    SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
+    SELF_HOSTED_RUNNERS: ${{ github.repository == 'antondlr/lighthouse' }}
 
 jobs:
     # Extract the VERSION which is either `latest` or `vX.Y.Z`, and the VERSION_SUFFIX
@@ -40,6 +41,11 @@ jobs:
               run: |
                     echo "VERSION=latest" >> $GITHUB_ENV
                     echo "VERSION_SUFFIX=-unstable" >> $GITHUB_ENV
+            - name: Extract version (if rework)
+              if: github.event.ref == 'refs/heads/rework-docker-builds'
+              run: |
+                    echo "VERSION=latest" >> $GITHUB_ENV
+                    echo "VERSION_SUFFIX=-rework" >> $GITHUB_ENV
             - name: Extract version (if tagged release)
               if: startsWith(github.event.ref, 'refs/tags')
               run: |
@@ -51,16 +57,13 @@ jobs:
     build-docker-single-arch:
         name: build-docker-${{ matrix.binary }}${{ matrix.features.version_suffix }}
         # Use self-hosted runners only on the sigp repo.
-        runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release"]') || 'ubuntu-22.04'  }}
+        runs-on: ${{ github.repository == 'antondlr/lighthouse' && fromJson('["self-hosted", "linux", "release"]') || 'ubuntu-22.04'  }}
         strategy:
             matrix:
                 binary: [aarch64,
-                         aarch64-portable,
-                         x86_64,
-                         x86_64-portable]
+                         x86_64]
                 features: [
-                    {version_suffix: "", env: "gnosis,slasher-lmdb,slasher-mdbx,jemalloc"},
-                    {version_suffix: "-dev", env: "jemalloc,spec-minimal"}
+                    {env: "gnosis,spec-minimal,portable,slasher-lmdb,jemalloc"},
                 ]
                 include:
                     - profile: maxperf
@@ -69,7 +72,6 @@ jobs:
         env:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
-            FEATURE_SUFFIX: ${{ matrix.features.version_suffix }}
         steps:
             - uses: actions/checkout@v4
             - name: Update Rust
@@ -82,23 +84,27 @@ jobs:
               run: |
                   cargo install cross
                   env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ matrix.features.env }} make build-${{ matrix.binary }}
-            - name: Make bin dir
-              run: mkdir ./bin
-            - name: Move cross-built binary into Docker scope (if ARM)
-              if: startsWith(matrix.binary, 'aarch64')
-              run: mv ./target/aarch64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin
-            - name: Move cross-built binary into Docker scope (if x86_64)
-              if: startsWith(matrix.binary, 'x86_64')
-              run: mv ./target/x86_64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin
+
+            - name: move binary
+              run: |
+                mkdir ./bin; \
+                find ./target -type f -name "lighthouse" -exec mv {} /bin/ \;
+
+#            - name: Make bin dir
+#              run: mkdir ./bin
+#            - name: Move cross-built binary into Docker scope (if ARM)
+#              if: startsWith(matrix.binary, 'aarch64')
+#              run: mv ./target/aarch64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin
+#            - name: Move cross-built binary into Docker scope (if x86_64)
+#              if: startsWith(matrix.binary, 'x86_64')
+#              run: mv ./target/x86_64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin
+
             - name: Map aarch64 to arm64 short arch
               if: startsWith(matrix.binary, 'aarch64')
               run: echo "SHORT_ARCH=arm64" >> $GITHUB_ENV
             - name: Map x86_64 to amd64 short arch
               if: startsWith(matrix.binary, 'x86_64')
               run: echo "SHORT_ARCH=amd64" >> $GITHUB_ENV;
-            - name: Set modernity suffix
-              if: endsWith(matrix.binary, '-portable') != true
-              run: echo "MODERNITY_SUFFIX=-modern" >> $GITHUB_ENV;
 
             - name: Install QEMU
               if: env.SELF_HOSTED_RUNNERS == 'false'
@@ -115,15 +121,16 @@ jobs:
                 context: .
                 platforms: linux/${{ env.SHORT_ARCH }}
                 push: true
-                tags: ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}${{ env.MODERNITY_SUFFIX }}${{ env.FEATURE_SUFFIX }}
+                tags: 
+                  - ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}
+                  - ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-dev
+                  - ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-modern
+                  - ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-modern-dev
 
     build-docker-multiarch:
         name: build-docker-multiarch${{ matrix.modernity }}
         runs-on: ubuntu-22.04
         needs: [build-docker-single-arch, extract-version]
-        strategy:
-            matrix:
-                modernity: ["", "-modern"]
         env:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
@@ -136,10 +143,12 @@ jobs:
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
 
             - name: Create and push multiarch manifest
+              # not making multiarch manifests for deprecated tags
               run: |
-                  docker buildx imagetools create -t ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }} \
-                      ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX}${{ matrix.modernity }} \
-                      ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX}${{ matrix.modernity }};
+                  docker buildx imagetools create -t ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX} \
+                      ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX} \
+                      ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX};
+
 
     build-docker-lcli:
         runs-on: ubuntu-22.04
