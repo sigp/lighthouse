@@ -61,9 +61,9 @@ jobs:
         strategy:
             matrix:
                 binary: [aarch64,
-                         x86_64]
+                         x86_64-portable]
                 features: [
-                    {env: "gnosis,spec-minimal,portable,slasher-lmdb,jemalloc"},
+                    {env: "gnosis,spec-minimal,slasher-lmdb,jemalloc"},
                 ]
                 include:
                     - profile: maxperf
