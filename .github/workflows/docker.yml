@@ -60,7 +60,7 @@ jobs:
         runs-on: ${{ github.repository == 'antondlr/lighthouse' && fromJson('["self-hosted", "linux", "release"]') || 'ubuntu-22.04'  }}
         strategy:
             matrix:
-                binary: [aarch64,
+                binary: [aarch64-portable,
                          x86_64-portable]
                 features: [
                     {env: "gnosis,spec-minimal,slasher-lmdb,jemalloc"},
@@ -85,11 +85,6 @@ jobs:
                   cargo install cross
                   env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ matrix.features.env }} make build-${{ matrix.binary }}
 
-#            - name: move binary
-#              run: |
-#                mkdir ./bin; \
-#                find ./target -type f -name "lighthouse" -exec mv {} /bin/ \;
-
             - name: Make bin dir
               run: mkdir ./bin
             - name: Move cross-built binary into Docker scope (if ARM)
@@ -98,7 +93,6 @@ jobs:
             - name: Move cross-built binary into Docker scope (if x86_64)
               if: startsWith(matrix.binary, 'x86_64')
               run: mv ./target/x86_64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin
-
             - name: Map aarch64 to arm64 short arch
               if: startsWith(matrix.binary, 'aarch64')
               run: echo "SHORT_ARCH=arm64" >> $GITHUB_ENV
@@ -142,13 +136,14 @@ jobs:
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
 
-            - name: Create and push multiarch manifest
-              # not making multiarch manifests for deprecated tags
+            - name: Create and push multiarch manifests
               run: |
                   docker buildx imagetools create -t ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX} \
                       ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX} \
                       ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX};
-
+                  docker buildx imagetools create -t ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}-modern \
+                      ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX}-modern \
+                      ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX}-modern;
 
     build-docker-lcli:
         runs-on: ubuntu-22.04
