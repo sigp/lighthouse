@@ -153,6 +153,11 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
             self.current_fork = head_fork;
         }
     }
+
+    /// Reset the cache. MUST ONLY BE USED IN TESTS.
+    pub fn __reset_for_testing_only(&mut self) {
+        self.observed_validator_indices.clear();
+    }
 }
 
 impl<T: ObservableOperation<E> + VerifyOperationAt<E>, E: EthSpec> ObservedOperations<T, E> {

@@ -24,11 +24,12 @@ use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
-    self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
+    IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
     TopicScoreParams,
 };
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
+use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::{identify, PeerId, SwarmBuilder};
 use slog::{crit, debug, info, o, trace, warn};
@@ -379,6 +380,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             libp2p::connection_limits::Behaviour::new(limits)
         };
 
+        let upnp = Toggle::from(
+            config
+                .upnp_enabled
+                .then_some(libp2p::upnp::tokio::Behaviour::default()),
+        );
         let behaviour = {
             Behaviour {
                 gossipsub,
@@ -387,7 +393,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 identify,
                 peer_manager,
                 connection_limits,
-                upnp: Default::default(),
+                upnp,
             }
         };
 

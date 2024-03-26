@@ -231,11 +231,9 @@ pub fn process_attester_slashings<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
-        verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
-            .map_err(|e| e.into_with_index(i))?;
-
         let slashable_indices =
-            get_slashable_indices(state, attester_slashing).map_err(|e| e.into_with_index(i))?;
+            verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
+                .map_err(|e| e.into_with_index(i))?;
 
         for i in slashable_indices {
             slash_validator(state, i as usize, None, ctxt, spec)?;
