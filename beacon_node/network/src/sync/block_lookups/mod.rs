@@ -157,9 +157,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
-            parent_req.is_for_block(block_root)
-                || parent_req.contains_block(&block_root)
-                || parent_req.chain_hash() == block_root
+            parent_req.is_for_block(block_root) || parent_req.contains_block(&block_root)
         }) {
             parent_lookup.add_peers(peers);
 
