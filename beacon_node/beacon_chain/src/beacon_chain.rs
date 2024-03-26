@@ -2795,6 +2795,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             }
                         }
                     }
+                    Err(BlockError::BlockIsAlreadyKnown(block_root)) => {
+                        debug!(self.log,
+                            "Ignoring already known blocks while processing chain segment";
+                            "block_root" => ?block_root);
+                        continue;
+                    }
                     Err(error) => {
                         return ChainSegmentResult::Failed {
                             imported_blocks,
