@@ -379,11 +379,6 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
             Some(blob) => {
                 let received_id = blob.id();
                 if !self.requested_ids.contains(&received_id) {
-                    if expected_block_root == received_id.block_root {
-                        // We may have already received this blob via gossip since the lookup,
-                        // so don't return an error here.
-                        return Ok(None);
-                    }
                     self.state.register_failure_downloading();
                     Err(LookupVerifyError::UnrequestedBlobId(received_id))
                 } else {
