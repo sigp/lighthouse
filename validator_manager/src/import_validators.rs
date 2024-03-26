@@ -283,6 +283,10 @@ pub mod tests {
             self
         }
 
+        pub fn get_import_config(&self) -> ImportConfig {
+            self.import_config.clone()
+        }
+
         pub async fn create_validators(mut self, count: u32, first_index: u32) -> Self {
             let create_result = CreateTestBuilder::default()
                 .mutate_config(|config| {
