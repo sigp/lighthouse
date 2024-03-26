@@ -267,6 +267,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "slot" => %slot,
                     "block_hash" => %hash,
                 );
+                self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 debug!(
