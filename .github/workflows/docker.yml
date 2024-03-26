@@ -81,7 +81,7 @@ jobs:
             - name: Sets env vars for Lighthouse
               if: startsWith(matrix.binary, 'lighthouse')
               run: |
-                echo "CROSS_FEATURES="gnosis,spec-minimal,slasher-lmdb,jemalloc" >> $GITHUB_ENV
+                echo "CROSS_FEATURES=gnosis,spec-minimal,slasher-lmdb,jemalloc" >> $GITHUB_ENV
 
             - name: Set `make` command for lighthouse
               if: startsWith(matrix.binary, 'lighthouse')
