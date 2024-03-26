@@ -135,25 +135,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             match block {
                 Some(cached_block) => {
                     let block_commitments = cached_block.get_commitments();
-
-                    let num_blobs_expected = block_commitments.len();
-                    let mut blob_ids = Vec::with_capacity(num_blobs_expected);
-
-                    // Zip here will always limit the number of iterations to the size of
-                    // `block_commitment` because `blob_commitments` will always be populated
-                    // with `Option` values up to `MAX_BLOBS_PER_BLOCK`.
-                    for (index, (_, blob_commitment_opt)) in
-                        block_commitments.into_iter().zip(blobs.iter()).enumerate()
-                    {
-                        // Always add a missing blob.
-                        if blob_commitment_opt.is_none() {
-                            blob_ids.push(BlobIdentifier {
+                    let blob_ids = blobs
+                        .iter()
+                        .take(block_commitments.len())
+                        .enumerate()
+                        .filter_map(|(index, blob_commitment_opt)| {
+                            blob_commitment_opt.is_none().then_some(BlobIdentifier {
                                 block_root,
                                 index: index as u64,
-                            });
-                            continue;
-                        };
-                    }
+                            })
+                        })
+                        .collect();
                     MissingBlobs::KnownMissing(blob_ids)
                 }
                 None => {

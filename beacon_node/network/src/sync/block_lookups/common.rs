@@ -17,7 +17,7 @@ use std::ops::IndexMut;
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
-use types::{BlobSidecar, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BlobSidecar, ChainSpec, Hash256, SignedBeaconBlock};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {
@@ -378,24 +378,26 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         match blob {
             Some(blob) => {
                 let received_id = blob.id();
-                if !self.requested_ids.contains(&received_id) {
-                    self.state.register_failure_downloading();
-                    return Err(LookupVerifyError::UnrequestedBlobId);
-                }
 
-                blob.verify_blob_sidecar_inclusion_proof()
-                    .map_err(|_| LookupVerifyError::InvalidInclusionProof)?;
-                if blob.block_root() != expected_block_root {
-                    return Err(LookupVerifyError::UnrequestedHeader);
+                if !self.requested_ids.contains(&received_id) {
+                    Err(LookupVerifyError::UnrequestedBlobId)
+                } else if blob.verify_blob_sidecar_inclusion_proof().unwrap_or(false) {
+                    Err(LookupVerifyError::InvalidInclusionProof)
+                } else if blob.block_root() != expected_block_root {
+                    Err(LookupVerifyError::UnrequestedHeader)
+                } else {
+                    Ok(())
                 }
+                .map_err(|e| {
+                    self.state.register_failure_downloading();
+                    e
+                })?;
 
                 // State should remain downloading until we receive the stream terminator.
                 self.requested_ids.remove(&received_id);
-                let blob_index = blob.index;
 
-                if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
-                    return Err(LookupVerifyError::InvalidIndex(blob.index));
-                }
+                // The inclusion proof check above ensures `blob.index` is < MAX_BLOBS_PER_BLOCK
+                let blob_index = blob.index;
                 *self.blob_download_queue.index_mut(blob_index as usize) = Some(blob);
                 Ok(None)
             }
