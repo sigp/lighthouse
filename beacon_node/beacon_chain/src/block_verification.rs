@@ -50,7 +50,7 @@
 
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_verification_types::{
-    AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
+    AsBlock, BlobVerificationError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
@@ -73,6 +73,7 @@ use derivative::Derivative;
 use eth2::types::{EventKind, PublishBlockRequest};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
+use kzg::KzgProof;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
@@ -99,9 +100,9 @@ use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
-    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, Blob, BlobsList, ChainSpec, CloneConfig, Epoch,
+    EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, KzgProofs, PublicKey, PublicKeyBytes,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 use types::{BlobSidecar, ExecPayload};
 
@@ -678,57 +679,72 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
 
-pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
+pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>>;
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>>;
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec>;
 }
 
-impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedBlockContents<T> {
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for GossipVerifiedBlock<T> {
     fn into_gossip_verified_block(
         self,
         _chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         Ok(self)
     }
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        self.0.block.as_block()
+        self.block.as_block()
     }
 }
 
-impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockRequest<T::EthSpec> {
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
-        let (block, blobs) = self.deconstruct();
-
-        let gossip_verified_blobs = blobs
-            .map(|(kzg_proofs, blobs)| {
-                let mut gossip_verified_blobs = vec![];
-                for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
-                    let _timer =
-                        metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
-                    let blob = BlobSidecar::new(i, blob, &block, *kzg_proof)
-                        .map_err(BlockContentsError::SidecarError)?;
-                    drop(_timer);
-                    let gossip_verified_blob =
-                        GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
-                    gossip_verified_blobs.push(gossip_verified_blob);
-                }
-                let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
-                Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
-            })
-            .transpose()?;
-        let gossip_verified_block = GossipVerifiedBlock::new(block, chain)?;
-
-        Ok((gossip_verified_block, gossip_verified_blobs))
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
+        GossipVerifiedBlock::new(self, chain)
     }
 
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        self.signed_block()
+        self.as_ref()
+    }
+}
+
+pub trait IntoGossipVerifiedBlob<T: BeaconChainTypes>: Sized {
+    fn into_gossip_verified_block(
+        self,
+        blob_index: usize,
+        block: &SignedBeaconBlock<T::EthSpec>,
+        chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedBlob<T>, BlobVerificationError<T::EthSpec>>;
+}
+
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlob<T> for GossipVerifiedBlob<T> {
+    fn into_gossip_verified_block(
+        self,
+        _blob_index: usize,
+        _block: &SignedBeaconBlock<T::EthSpec>,
+        _chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedBlob<T>, BlobVerificationError<T::EthSpec>> {
+        Ok(self)
+    }
+}
+
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlob<T> for (Blob<T::EthSpec>, KzgProof) {
+    fn into_gossip_verified_block(
+        self,
+        blob_index: usize,
+        block: &SignedBeaconBlock<T::EthSpec>,
+        chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedBlob<T>, BlobVerificationError<T::EthSpec>> {
+        let _timer = metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
+        let blob = BlobSidecar::new(blob_index, self.0, &block, self.1)
+            .map_err(BlobVerificationError::SidecarError)?;
+        drop(_timer);
+        GossipVerifiedBlob::new(Arc::new(blob), blob_index as u64, chain)
+            .map_err(BlobVerificationError::BlobError)
     }
 }
 

@@ -313,34 +313,24 @@ pub type GossipVerifiedBlockContents<T> =
     (GossipVerifiedBlock<T>, Option<GossipVerifiedBlobList<T>>);
 
 #[derive(Debug)]
-pub enum BlockContentsError<T: EthSpec> {
-    BlockError(BlockError<T>),
+pub enum BlobVerificationError<T: EthSpec> {
     BlobError(GossipBlobError<T>),
     SidecarError(BlobSidecarError),
 }
 
-impl<T: EthSpec> From<BlockError<T>> for BlockContentsError<T> {
-    fn from(value: BlockError<T>) -> Self {
-        Self::BlockError(value)
-    }
-}
-
-impl<T: EthSpec> From<GossipBlobError<T>> for BlockContentsError<T> {
+impl<T: EthSpec> From<GossipBlobError<T>> for BlobVerificationError<T> {
     fn from(value: GossipBlobError<T>) -> Self {
         Self::BlobError(value)
     }
 }
 
-impl<T: EthSpec> std::fmt::Display for BlockContentsError<T> {
+impl<T: EthSpec> std::fmt::Display for BlobVerificationError<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BlockContentsError::BlockError(err) => {
-                write!(f, "BlockError({})", err)
-            }
-            BlockContentsError::BlobError(err) => {
+            BlobVerificationError::BlobError(err) => {
                 write!(f, "BlobError({})", err)
             }
-            BlockContentsError::SidecarError(err) => {
+            BlobVerificationError::SidecarError(err) => {
                 write!(f, "SidecarError({:?})", err)
             }
         }
