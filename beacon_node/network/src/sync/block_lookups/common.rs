@@ -1,10 +1,7 @@
-use crate::sync::block_lookups::parent_lookup::PARENT_FAIL_TOLERANCE;
 use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, LookupVerifyError, SingleBlockLookup, SingleLookupRequestState,
 };
-use crate::sync::block_lookups::{
-    BlobRequestState, BlockRequestState, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
-};
+use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, PeerId};
 use crate::sync::manager::{BlockProcessType, Id, SingleLookupReqId};
 use crate::sync::network_context::SyncNetworkContext;
 
@@ -18,47 +15,12 @@ use std::time::Duration;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{BlobSidecar, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
+use super::SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
+
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {
     Block,
     Blob,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum LookupType {
-    Current,
-    Parent,
-}
-
-/// This trait helps differentiate `SingleBlockLookup`s from `ParentLookup`s .This is useful in
-/// ensuring requests and responses are handled separately and enables us to use different failure
-/// tolerances for each, while re-using the same basic request and retry logic.
-pub trait Lookup {
-    const MAX_ATTEMPTS: u8;
-    fn lookup_type() -> LookupType;
-    fn max_attempts() -> u8 {
-        Self::MAX_ATTEMPTS
-    }
-}
-
-/// A `Lookup` that is a part of a `ParentLookup`.
-pub struct Parent;
-
-impl Lookup for Parent {
-    const MAX_ATTEMPTS: u8 = PARENT_FAIL_TOLERANCE;
-    fn lookup_type() -> LookupType {
-        LookupType::Parent
-    }
-}
-
-/// A `Lookup` that part of a single block lookup.
-pub struct Current;
-
-impl Lookup for Current {
-    const MAX_ATTEMPTS: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
-    fn lookup_type() -> LookupType {
-        LookupType::Current
-    }
 }
 
 /// This trait unifies common single block lookup functionality across blocks and blobs. This
@@ -69,7 +31,7 @@ impl Lookup for Current {
 /// The use of the `ResponseType` associated type gives us a degree of type
 /// safety when handling a block/blob response ensuring we only mutate the correct corresponding
 /// state.
-pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
+pub trait RequestState<T: BeaconChainTypes> {
     /// The type of the request .
     type RequestType;
 
@@ -117,7 +79,10 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
 
     /// Verify the current request has not exceeded the maximum number of attempts.
     fn too_many_attempts(&self) -> Result<(), LookupRequestError> {
-        let max_attempts = L::max_attempts();
+        // TODO: If it's necessary to have difference tolerance between parent and regular
+        // lookups, add an argument here to track if the parent of this lookup is known or
+        // not.
+        let max_attempts = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
         let request_state = self.get_state();
 
         if request_state.failed_attempts() >= max_attempts {
@@ -205,7 +170,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         if let Some((verified_response, seen_timestamp)) =
             self.get_state_mut().resolve_unknown_parent()
         {
-            <Self as RequestState<L, T>>::send_for_processing(
+            <Self as RequestState<T>>::send_for_processing(
                 id,
                 block_root,
                 verified_response,
@@ -248,7 +213,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     fn response_type() -> ResponseType;
 
     /// A getter for the `BlockRequestState` or `BlobRequestState` associated with this trait.
-    fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self;
+    fn request_state_mut(request: &mut SingleBlockLookup<T>) -> &mut Self;
 
     /// A getter for a reference to the `SingleLookupRequestState` associated with this trait.
     fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType>;
@@ -257,7 +222,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     fn get_state_mut(&mut self) -> &mut SingleLookupRequestState<Self::VerifiedResponseType>;
 }
 
-impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L, T::EthSpec> {
+impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
     type RequestType = BlocksByRootRequest;
     type ResponseType = Arc<SignedBeaconBlock<T::EthSpec>>;
     type VerifiedResponseType = Arc<SignedBeaconBlock<T::EthSpec>>;
@@ -272,7 +237,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L,
         request: Self::RequestType,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
-        cx.block_lookup_request(id, peer_id, request, L::lookup_type())
+        cx.block_lookup_request(id, peer_id, request)
             .map_err(LookupRequestError::SendFailed)
     }
 
@@ -322,7 +287,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L,
     fn response_type() -> ResponseType {
         ResponseType::Block
     }
-    fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self {
+    fn request_state_mut(request: &mut SingleBlockLookup<T>) -> &mut Self {
         &mut request.block_request_state
     }
     fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType> {
@@ -333,7 +298,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L,
     }
 }
 
-impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, T::EthSpec> {
+impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
     type RequestType = BlobsByRootRequest;
     type ResponseType = Arc<BlobSidecar<T::EthSpec>>;
     type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
@@ -349,7 +314,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         request: Self::RequestType,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
-        cx.blob_lookup_request(id, peer_id, request, L::lookup_type())
+        cx.blob_lookup_request(id, peer_id, request)
             .map_err(LookupRequestError::SendFailed)
     }
 
@@ -408,7 +373,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
     fn response_type() -> ResponseType {
         ResponseType::Blob
     }
-    fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self {
+    fn request_state_mut(request: &mut SingleBlockLookup<T>) -> &mut Self {
         &mut request.blob_request_state
     }
     fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType> {

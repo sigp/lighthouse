@@ -7,7 +7,6 @@ use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::common::LookupType;
 use crate::sync::block_lookups::LookupRequestError;
 use crate::sync::manager::SingleLookupReqId;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -440,12 +439,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: SingleLookupReqId,
         peer_id: PeerId,
         request: BlocksByRootRequest,
-        lookup_type: LookupType,
     ) -> Result<(), &'static str> {
-        let sync_id = match lookup_type {
-            LookupType::Current => SyncRequestId::SingleBlock { id },
-            LookupType::Parent => SyncRequestId::ParentLookup { id },
-        };
+        let sync_id = SyncRequestId::SingleBlock { id };
         let request_id = RequestId::Sync(sync_id);
 
         debug!(
@@ -454,7 +449,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "method" => "BlocksByRoot",
             "block_roots" => ?request.block_roots().to_vec(),
             "peer" => %peer_id,
-            "lookup_type" => ?lookup_type
         );
 
         self.send_network_msg(NetworkMessage::SendRequest {
@@ -470,12 +464,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: SingleLookupReqId,
         blob_peer_id: PeerId,
         blob_request: BlobsByRootRequest,
-        lookup_type: LookupType,
     ) -> Result<(), &'static str> {
-        let sync_id = match lookup_type {
-            LookupType::Current => SyncRequestId::SingleBlob { id },
-            LookupType::Parent => SyncRequestId::ParentLookupBlob { id },
-        };
+        let sync_id = SyncRequestId::SingleBlob { id };
         let request_id = RequestId::Sync(sync_id);
 
         if let Some(block_root) = blob_request
@@ -497,7 +487,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "block_root" => ?block_root,
                 "blob_indices" => ?indices,
                 "peer" => %blob_peer_id,
-                "lookup_type" => ?lookup_type
             );
 
             self.send_network_msg(NetworkMessage::SendRequest {

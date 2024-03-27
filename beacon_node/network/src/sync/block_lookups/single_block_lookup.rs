@@ -1,5 +1,5 @@
 use super::PeerId;
-use crate::sync::block_lookups::common::{Lookup, RequestState};
+use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::data_availability_checker::{DataAvailabilityChecker, MissingBlobs};
@@ -8,7 +8,6 @@ use lighthouse_network::PeerAction;
 use slog::{trace, Logger};
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
@@ -60,14 +59,14 @@ pub enum LookupRequestError {
     PreviousFailure,
 }
 
-pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {
+pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
-    pub block_request_state: BlockRequestState<L, T::EthSpec>,
-    pub blob_request_state: BlobRequestState<L, T::EthSpec>,
+    pub block_request_state: BlockRequestState<T::EthSpec>,
+    pub blob_request_state: BlobRequestState<T::EthSpec>,
     pub da_checker: Arc<DataAvailabilityChecker<T>>,
 }
 
-impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
+impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn new(
         requested_block_root: Hash256,
         peers: &[PeerId],
@@ -94,10 +93,10 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     }
 
     /// Get all unique peers across block and blob requests.
-    pub fn all_peers(&self) -> HashSet<PeerId> {
+    pub fn all_peers(&self) -> Vec<PeerId> {
         let mut all_peers = self.block_request_state.state.used_peers.clone();
         all_peers.extend(self.blob_request_state.state.used_peers.clone());
-        all_peers
+        all_peers.iter().cloned().collect()
     }
 
     /// Send the necessary requests for blocks and/or blobs. This will check whether we have
@@ -245,7 +244,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
-pub struct BlobRequestState<L: Lookup, E: EthSpec> {
+pub struct BlobRequestState<E: EthSpec> {
     /// The latest picture of which blobs still need to be requested. This includes information
     /// from both block/blobs downloaded in the network layer and any blocks/blobs that exist in
     /// the data availability checker.
@@ -253,34 +252,30 @@ pub struct BlobRequestState<L: Lookup, E: EthSpec> {
     /// Where we store blobs until we receive the stream terminator.
     pub blob_download_queue: FixedBlobSidecarList<E>,
     pub state: SingleLookupRequestState<FixedBlobSidecarList<E>>,
-    _phantom: PhantomData<L>,
 }
 
-impl<L: Lookup, E: EthSpec> BlobRequestState<L, E> {
+impl<E: EthSpec> BlobRequestState<E> {
     pub fn new(block_root: Hash256, peer_source: &[PeerId], is_deneb: bool) -> Self {
         let default_ids = MissingBlobs::new_without_block(block_root, is_deneb);
         Self {
             requested_ids: default_ids,
             blob_download_queue: <_>::default(),
             state: SingleLookupRequestState::new(peer_source),
-            _phantom: PhantomData,
         }
     }
 }
 
 /// The state of the block request component of a `SingleBlockLookup`.
-pub struct BlockRequestState<L: Lookup, E: EthSpec> {
+pub struct BlockRequestState<E: EthSpec> {
     pub requested_block_root: Hash256,
     pub state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
-    _phantom: PhantomData<L>,
 }
 
-impl<L: Lookup, E: EthSpec> BlockRequestState<L, E> {
+impl<E: EthSpec> BlockRequestState<E> {
     pub fn new(block_root: Hash256, peers: &[PeerId]) -> Self {
         Self {
             requested_block_root: block_root,
             state: SingleLookupRequestState::new(peers),
-            _phantom: PhantomData,
         }
     }
 }
@@ -470,7 +465,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
     }
 }
 
-impl<L: Lookup, T: BeaconChainTypes> slog::Value for SingleBlockLookup<L, T> {
+impl<T: BeaconChainTypes> slog::Value for SingleBlockLookup<T> {
     fn serialize(
         &self,
         _record: &slog::Record,
@@ -478,7 +473,6 @@ impl<L: Lookup, T: BeaconChainTypes> slog::Value for SingleBlockLookup<L, T> {
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         serializer.emit_str("request", key)?;
-        serializer.emit_arguments("lookup_type", &format_args!("{:?}", L::lookup_type()))?;
         serializer.emit_arguments("hash", &format_args!("{}", self.block_root()))?;
         serializer.emit_arguments(
             "blob_ids",
