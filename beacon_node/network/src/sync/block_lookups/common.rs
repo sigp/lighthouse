@@ -371,7 +371,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
 
     fn verify_response_inner(
         &mut self,
-        expected_block_root: Hash256,
+        _expected_block_root: Hash256,
         blob: Option<Self::ResponseType>,
         peer_id: PeerId,
     ) -> Result<Option<FixedBlobSidecarList<T::EthSpec>>, LookupVerifyError> {

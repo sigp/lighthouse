@@ -173,7 +173,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .any(|(hashes, _last_parent_request)| hashes.contains(&block_root))
         {
             // we are already processing this block, ignore it.
-            debug!(self.log, "Already processing block in a parent from request"; "block_root" => ?block_root);
+            debug!(self.log, "Already processing block in a parent request"; "block_root" => ?block_root);
             return;
         }
 
