@@ -167,11 +167,11 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request
             .block_request_state
             .state
-            .register_failure_processing();
+            .on_processing_failure();
         self.current_parent_request
             .blob_request_state
             .state
-            .register_failure_processing();
+            .on_processing_failure();
     }
 
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for

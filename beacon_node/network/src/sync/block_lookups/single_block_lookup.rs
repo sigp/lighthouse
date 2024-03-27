@@ -83,8 +83,6 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.block_request_state.requested_block_root = block_root;
         self.block_request_state.state.state = State::AwaitingDownload;
         self.blob_request_state.state.state = State::AwaitingDownload;
-        self.block_request_state.state.component_downloaded = false;
-        self.blob_request_state.state.component_downloaded = false;
         self.block_request_state.state.component_processed = false;
         self.blob_request_state.state.component_processed = false;
     }
@@ -214,7 +212,12 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// and clear the blob cache.
     pub fn handle_availability_check_failure(&mut self, cx: &SyncNetworkContext<T>) {
         self.penalize_blob_peer(cx);
-        self.blob_request_state.state.register_failure_processing()
+        self.blob_request_state.state.on_processing_failure()
+    }
+
+    pub fn progress(&mut self, cx: &SyncNetworkContext<T>) {
+        // If ready for processing send
+        // self.block_request_state;
     }
 }
 
@@ -263,25 +266,23 @@ impl<L: Lookup> BlockRequestState<L> {
 #[derive(PartialEq, Eq, Debug)]
 pub struct SingleLookupRequestState {
     /// State of this request.
-    pub state: State,
+    state: State,
     /// Peers that should have this block or blob.
     pub available_peers: HashSet<PeerId>,
     /// Peers from which we have requested this block.
     pub used_peers: HashSet<PeerId>,
     /// How many times have we attempted to process this block or blob.
-    pub failed_processing: u8,
+    failed_processing: u8,
     /// How many times have we attempted to download this block or blob.
-    pub failed_downloading: u8,
-    /// Whether or not we have downloaded this block or blob.
-    pub component_downloaded: bool,
+    failed_downloading: u8,
     /// Whether or not we have processed this block or blob.
-    pub component_processed: bool,
+    component_processed: bool,
     /// Should be incremented everytime this request is retried. The purpose of this is to
     /// differentiate retries of the same block/blob request within a lookup. We currently penalize
     /// peers and retry requests prior to receiving the stream terminator. This means responses
     /// from a prior request may arrive after a new request has been sent, this counter allows
     /// us to differentiate these two responses.
-    pub req_counter: u32,
+    req_counter: u32,
 }
 
 impl SingleLookupRequestState {
@@ -297,28 +298,61 @@ impl SingleLookupRequestState {
             used_peers: HashSet::default(),
             failed_processing: 0,
             failed_downloading: 0,
-            component_downloaded: false,
             component_processed: false,
             req_counter: 0,
         }
     }
 
+    pub fn is_current_req_counter(&self, req_counter: u32) -> bool {
+        self.req_counter == req_counter
+    }
+
+    pub fn on_download_start(&mut self, peer_id: PeerId) -> u32 {
+        self.state = State::Downloading { peer_id };
+        self.req_counter += 1;
+        self.req_counter
+    }
+
+    pub fn is_awaiting_download(&self) -> bool {
+        matches!(self.state, State::AwaitingDownload)
+    }
+
+    pub fn get_downloading_peer(&self) -> Option<PeerId> {
+        if let State::Downloading { peer_id } = self.state {
+            Some(peer_id)
+        } else {
+            None
+        }
+    }
+
+    pub fn on_download_success(&mut self, peer_id: PeerId) {
+        self.state = State::Processing { peer_id }
+    }
+
     /// Registers a failure in processing a block.
-    pub fn register_failure_processing(&mut self) {
+    pub fn on_processing_failure(&mut self) {
         self.failed_processing = self.failed_processing.saturating_add(1);
         self.state = State::AwaitingDownload;
     }
 
     /// Registers a failure in downloading a block. This might be a peer disconnection or a wrong
     /// block.
-    pub fn register_failure_downloading(&mut self) {
+    pub fn on_download_failure(&mut self) {
         self.failed_downloading = self.failed_downloading.saturating_add(1);
         self.state = State::AwaitingDownload;
+    }
+
+    pub fn on_component_processed(&mut self) {
+        self.component_processed = true;
     }
 
     /// The total number of failures, whether it be processing or downloading.
     pub fn failed_attempts(&self) -> u8 {
         self.failed_processing + self.failed_downloading
+    }
+
+    pub fn more_failed_processing(&self) -> bool {
+        self.failed_processing >= self.failed_downloading
     }
 
     /// This method should be used for peers wrapped in `PeerId::BlockAndBlobs`.
@@ -332,7 +366,7 @@ impl SingleLookupRequestState {
         if let State::Downloading { peer_id } = &self.state {
             if peer_id == dc_peer_id {
                 // Peer disconnected before providing a block
-                self.register_failure_downloading();
+                self.on_download_failure();
                 return Err(());
             }
         }
@@ -522,7 +556,7 @@ mod tests {
                 &spec,
             )
             .unwrap();
-            sl.block_request_state.state.register_failure_downloading();
+            sl.block_request_state.state.on_download_failure();
         }
 
         // Now we receive the block and send it for processing
@@ -542,7 +576,7 @@ mod tests {
         .unwrap();
 
         // One processing failure maxes the available attempts
-        sl.block_request_state.state.register_failure_processing();
+        sl.block_request_state.state.on_processing_failure();
         assert_eq!(
             <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
                 &mut sl.block_request_state,

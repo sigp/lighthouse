@@ -229,7 +229,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut lookup = self.single_block_lookups.remove(&id.id)?;
 
         let request_state = R::request_state_mut(&mut lookup);
-        if id.req_counter != request_state.get_state().req_counter {
+        if !request_state
+            .get_state()
+            .is_current_req_counter(id.req_counter)
+        {
             // We don't want to drop the lookup, just ignore the old response.
             self.single_block_lookups.insert(id.id, lookup);
             return None;
@@ -338,10 +341,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let id = lookup.id;
         let block_root = lookup.block_root();
 
-        R::request_state_mut(lookup)
-            .get_state_mut()
-            .component_downloaded = true;
-
         R::send_reconstructed_for_processing(
             id,
             block_root,
@@ -370,10 +369,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return None;
         };
 
-        if R::request_state_mut(&mut parent_lookup.current_parent_request)
+        if !R::request_state_mut(&mut parent_lookup.current_parent_request)
             .get_state()
-            .req_counter
-            != id.req_counter
+            .is_current_req_counter(id.req_counter)
         {
             self.parent_lookups.push(parent_lookup);
             return None;
@@ -830,7 +828,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     .current_parent_request
                     .blob_request_state
                     .state
-                    .register_failure_processing();
+                    .on_processing_failure();
                 match parent_lookup
                     .current_parent_request
                     .request_block_and_blobs(cx)
