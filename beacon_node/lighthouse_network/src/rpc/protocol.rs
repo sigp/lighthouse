@@ -18,7 +18,8 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
+    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, MainnetEthSpec, Signature,
     SignedBeaconBlock,
 };
 
@@ -171,6 +172,12 @@ pub enum Protocol {
     /// The `LightClientBootstrap` protocol name.
     #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
+    /// The `LightClientOptimisticUpdate` protocol name.
+    #[strum(serialize = "light_client_optimistic_update")]
+    LightClientOptimisticUpdate,
+    /// The `LightClientFinalityUpdate` protocol name.
+    #[strum(serialize = "light_client_finality_update")]
+    LightClientFinalityUpdate,
 }
 
 impl Protocol {
@@ -185,6 +192,8 @@ impl Protocol {
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
+            Protocol::LightClientOptimisticUpdate => None,
+            Protocol::LightClientFinalityUpdate => None,
         }
     }
 }
@@ -210,6 +219,8 @@ pub enum SupportedProtocol {
     MetaDataV1,
     MetaDataV2,
     LightClientBootstrapV1,
+    LightClientOptimisticUpdateV1,
+    LightClientFinalityUpdateV1,
 }
 
 impl SupportedProtocol {
@@ -227,6 +238,8 @@ impl SupportedProtocol {
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
             SupportedProtocol::LightClientBootstrapV1 => "1",
+            SupportedProtocol::LightClientOptimisticUpdateV1 => "1",
+            SupportedProtocol::LightClientFinalityUpdateV1 => "1",
         }
     }
 
@@ -244,6 +257,10 @@ impl SupportedProtocol {
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
             SupportedProtocol::LightClientBootstrapV1 => Protocol::LightClientBootstrap,
+            SupportedProtocol::LightClientOptimisticUpdateV1 => {
+                Protocol::LightClientOptimisticUpdate
+            }
+            SupportedProtocol::LightClientFinalityUpdateV1 => Protocol::LightClientFinalityUpdate,
         }
     }
 
@@ -298,6 +315,14 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
                 SupportedProtocol::LightClientBootstrapV1,
+                Encoding::SSZSnappy,
+            ));
+            supported_protocols.push(ProtocolId::new(
+                SupportedProtocol::LightClientOptimisticUpdateV1,
+                Encoding::SSZSnappy,
+            ));
+            supported_protocols.push(ProtocolId::new(
+                SupportedProtocol::LightClientFinalityUpdateV1,
                 Encoding::SSZSnappy,
             ));
         }
@@ -374,6 +399,8 @@ impl ProtocolId {
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
+            Protocol::LightClientOptimisticUpdate => RpcLimits::new(0, 0),
+            Protocol::LightClientFinalityUpdate => RpcLimits::new(0, 0),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
@@ -399,8 +426,16 @@ impl ProtocolId {
                 <MetaDataV2<T> as Encode>::ssz_fixed_len(),
             ),
             Protocol::LightClientBootstrap => RpcLimits::new(
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
+                <LightClientBootstrap<T> as Encode>::ssz_fixed_len(),
+                <LightClientBootstrap<T> as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::LightClientOptimisticUpdate => RpcLimits::new(
+                <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
+                <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::LightClientFinalityUpdate => RpcLimits::new(
+                <LightClientFinalityUpdate<T> as Encode>::ssz_fixed_len(),
+                <LightClientFinalityUpdate<T> as Encode>::ssz_fixed_len(),
             ),
         }
     }
@@ -413,7 +448,9 @@ impl ProtocolId {
             | SupportedProtocol::BlocksByRootV2
             | SupportedProtocol::BlobsByRangeV1
             | SupportedProtocol::BlobsByRootV1
-            | SupportedProtocol::LightClientBootstrapV1 => true,
+            | SupportedProtocol::LightClientBootstrapV1
+            | SupportedProtocol::LightClientOptimisticUpdateV1
+            | SupportedProtocol::LightClientFinalityUpdateV1 => true,
             SupportedProtocol::StatusV1
             | SupportedProtocol::BlocksByRootV1
             | SupportedProtocol::BlocksByRangeV1
@@ -497,6 +534,12 @@ where
                 SupportedProtocol::MetaDataV2 => {
                     Ok((InboundRequest::MetaData(MetadataRequest::new_v2()), socket))
                 }
+                SupportedProtocol::LightClientOptimisticUpdateV1 => {
+                    Ok((InboundRequest::LightClientOptimisticUpdate, socket))
+                }
+                SupportedProtocol::LightClientFinalityUpdateV1 => {
+                    Ok((InboundRequest::LightClientFinalityUpdate, socket))
+                }
                 _ => {
                     match tokio::time::timeout(
                         Duration::from_secs(REQUEST_TIMEOUT),
@@ -525,6 +568,8 @@ pub enum InboundRequest<TSpec: EthSpec> {
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
+    LightClientOptimisticUpdate,
+    LightClientFinalityUpdate,
     Ping(Ping),
     MetaData(MetadataRequest<TSpec>),
 }
@@ -545,6 +590,8 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
+            InboundRequest::LightClientOptimisticUpdate => 1,
+            InboundRequest::LightClientFinalityUpdate => 1,
         }
     }
 
@@ -569,6 +616,12 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
                 MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
             },
             InboundRequest::LightClientBootstrap(_) => SupportedProtocol::LightClientBootstrapV1,
+            InboundRequest::LightClientOptimisticUpdate => {
+                SupportedProtocol::LightClientOptimisticUpdateV1
+            }
+            InboundRequest::LightClientFinalityUpdate => {
+                SupportedProtocol::LightClientFinalityUpdateV1
+            }
         }
     }
 
@@ -587,6 +640,8 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Ping(_) => unreachable!(),
             InboundRequest::MetaData(_) => unreachable!(),
             InboundRequest::LightClientBootstrap(_) => unreachable!(),
+            InboundRequest::LightClientFinalityUpdate => unreachable!(),
+            InboundRequest::LightClientOptimisticUpdate => unreachable!(),
         }
     }
 }
@@ -693,7 +748,13 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {
-                write!(f, "LightClientBootstrap: {}", bootstrap.root)
+                write!(f, "Light client boostrap: {}", bootstrap.root)
+            }
+            InboundRequest::LightClientOptimisticUpdate => {
+                write!(f, "Light client optimistic update request")
+            }
+            InboundRequest::LightClientFinalityUpdate => {
+                write!(f, "Light client finality update request")
             }
         }
     }

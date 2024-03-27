@@ -53,9 +53,9 @@ pub struct LightClientOptimisticUpdate<E: EthSpec> {
     pub attested_header: LightClientHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "attested_header_deneb"))]
     pub attested_header: LightClientHeaderDeneb<E>,
-    /// current sync aggreggate
+    /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
-    /// Slot of the sync aggregated singature
+    /// Slot of the sync aggregated signature
     pub signature_slot: Slot,
 }
 
@@ -104,6 +104,17 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
         };
 
         Ok(optimistic_update)
+    }
+
+    pub fn map_with_fork_name<F, R>(&self, func: F) -> R
+    where
+        F: Fn(ForkName) -> R,
+    {
+        match self {
+            Self::Altair(_) => func(ForkName::Altair),
+            Self::Capella(_) => func(ForkName::Capella),
+            Self::Deneb(_) => func(ForkName::Deneb),
+        }
     }
 
     pub fn get_slot<'a>(&'a self) -> Slot {

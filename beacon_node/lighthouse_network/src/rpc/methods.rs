@@ -15,7 +15,8 @@ use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, LightClientBootstrap,
-    RuntimeVariableList, SignedBeaconBlock, Slot,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock,
+    Slot,
 };
 
 /// Maximum length of error message.
@@ -390,6 +391,12 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(Arc<LightClientBootstrap<T>>),
 
+    /// A response to a get LIGHT_CLIENT_OPTIMISTIC_UPDATE request.
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<T>>),
+
+    /// A response to a get LIGHT_CLIENT_FINALITY_UPDATE request.
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<T>>),
+
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<T>>),
 
@@ -488,6 +495,8 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
                 RPCResponse::LightClientBootstrap(_) => false,
+                RPCResponse::LightClientOptimisticUpdate(_) => false,
+                RPCResponse::LightClientFinalityUpdate(_) => false,
             },
             RPCCodedResponse::Error(_, _) => true,
             // Stream terminations are part of responses that have chunks
@@ -526,6 +535,8 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            RPCResponse::LightClientOptimisticUpdate(_) => Protocol::LightClientOptimisticUpdate,
+            RPCResponse::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
         }
     }
 }
@@ -570,6 +581,20 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
             RPCResponse::LightClientBootstrap(bootstrap) => {
                 write!(f, "LightClientBootstrap Slot: {}", bootstrap.get_slot())
+            }
+            RPCResponse::LightClientOptimisticUpdate(update) => {
+                write!(
+                    f,
+                    "LightClientOptimisticUpdate Slot: {}",
+                    update.signature_slot()
+                )
+            }
+            RPCResponse::LightClientFinalityUpdate(update) => {
+                write!(
+                    f,
+                    "LightClientFinalityUpdate Slot: {}",
+                    update.signature_slot()
+                )
             }
         }
     }
