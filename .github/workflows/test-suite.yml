@@ -426,8 +426,12 @@ jobs:
     - name: Run Makefile to trigger the bash script
       run: make cli
   markdown-linter:
-      name: Super-Linter
-      uses: super-linter/super-linter@v5.7.2
+    name: Markdown Linter
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Super-linter
+      uses: super-linter/super-linter@v6.3.0
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
   test-suite-success:
