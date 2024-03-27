@@ -1,6 +1,6 @@
 use std::mem;
 use types::{
-    BeaconState, BeaconStateError as Error, BeaconStateMerge, ChainSpec, EthSpec,
+    BeaconState, BeaconStateError as Error, BeaconStateMerge, ChainSpec, EpochCache, EthSpec,
     ExecutionPayloadHeaderMerge, Fork,
 };
 
@@ -64,6 +64,8 @@ pub fn upgrade_to_bellatrix<E: EthSpec>(
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
+        slashings_cache: mem::take(&mut pre.slashings_cache),
+        epoch_cache: EpochCache::default(),
         tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
     });
 

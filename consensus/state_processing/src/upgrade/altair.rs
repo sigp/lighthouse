@@ -3,8 +3,8 @@ use crate::common::{get_attestation_participation_flag_indices, get_attesting_in
 use std::mem;
 use std::sync::Arc;
 use types::{
-    BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EthSpec, Fork,
-    ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VariableList,
+    BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
+    Fork, ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VariableList,
 };
 
 /// Translate the participation information from the epoch prior to the fork into Altair's format.
@@ -106,13 +106,15 @@ pub fn upgrade_to_altair<E: EthSpec>(
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
+        slashings_cache: mem::take(&mut pre.slashings_cache),
+        epoch_cache: EpochCache::default(),
         tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
     });
 
     // Fill in previous epoch participation from the pre state's pending attestations.
     translate_participation(&mut post, &pre.previous_epoch_attestations, spec)?;
 
-    initialize_progressive_balances_cache(&mut post, None, spec)?;
+    initialize_progressive_balances_cache(&mut post, spec)?;
 
     // Fill in sync committees
     // Note: A duplicate committee is assigned for the current and next committee at the fork

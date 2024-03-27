@@ -3,7 +3,6 @@ use eth2::lighthouse::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
 };
 use state_processing::{
-    per_epoch_processing::altair::participation_cache::Error as ParticipationCacheError,
     per_epoch_processing::EpochProcessingSummary, BlockReplayError, BlockReplayer,
 };
 use std::sync::Arc;
@@ -18,7 +17,6 @@ const BLOCK_ROOT_CHUNK_SIZE: usize = 100;
 enum AttestationPerformanceError {
     BlockReplay(#[allow(dead_code)] BlockReplayError),
     BeaconState(#[allow(dead_code)] BeaconStateError),
-    ParticipationCache(#[allow(dead_code)] ParticipationCacheError),
     UnableToFindValidator(#[allow(dead_code)] usize),
 }
 
@@ -31,12 +29,6 @@ impl From<BlockReplayError> for AttestationPerformanceError {
 impl From<BeaconStateError> for AttestationPerformanceError {
     fn from(e: BeaconStateError) -> Self {
         Self::BeaconState(e)
-    }
-}
-
-impl From<ParticipationCacheError> for AttestationPerformanceError {
-    fn from(e: ParticipationCacheError) -> Self {
-        Self::ParticipationCache(e)
     }
 }
 
