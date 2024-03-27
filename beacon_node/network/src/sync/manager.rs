@@ -850,7 +850,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             RequestId::ParentLookup { id } => {
                 debug!(self.log,
-                    "Peer returned block for single lookup";
+                    "Peer returned block for parent lookup";
                     "peer_id" => %peer_id ,
                 );
                 self.block_lookups
