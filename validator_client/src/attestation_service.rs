@@ -364,6 +364,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
             // Ensure that the attestation matches the duties.
             #[allow(clippy::suspicious_operation_groupings)]
+            // TODO(attestation_data) check fork here, as attestation_data will no longer have the index
             if duty.slot != attestation_data.slot || duty.committee_index != attestation_data.index
             {
                 crit!(
@@ -378,6 +379,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 return None;
             }
 
+            // TODO(attestation_data) populate index here for electra
             let mut attestation = Attestation {
                 aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
                 data: attestation_data.clone(),
@@ -537,6 +539,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let selection_proof = duty_and_proof.selection_proof.as_ref()?;
 
             let slot = attestation_data.slot;
+            // TODO(attestation_data) check attestation index here for the corect fork
             let committee_index = attestation_data.index;
 
             if duty.slot != slot || duty.committee_index != committee_index {
@@ -606,6 +609,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 Ok(()) => {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {
                         let attestation = &signed_aggregate_and_proof.message.aggregate;
+                        // TODO(attestation_data) check fork here, as attestation_data will no longer have the index
                         info!(
                             log,
                             "Successfully published attestation";
