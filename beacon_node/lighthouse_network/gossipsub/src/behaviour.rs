@@ -3342,6 +3342,9 @@ where
                                     "Could not handle IDONTWANT, peer doesn't exist in connected peer list");
                                 continue;
                             };
+                            if let Some(metrics) = self.metrics.as_mut() {
+                                metrics.register_idontwant(message_ids.len());
+                            }
                             for message_id in message_ids {
                                 peer.dont_send.insert(message_id, Instant::now());
                                 // Don't exceed capacity.
