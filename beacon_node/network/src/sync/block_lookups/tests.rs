@@ -1803,6 +1803,7 @@ mod deneb_only {
             .expect_blobs_request()
             .expect_no_block_request();
     }
+
     #[test]
     fn too_few_blobs_response_then_block_response_attestation() {
         let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
