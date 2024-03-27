@@ -2,9 +2,7 @@ use super::PeerId;
 use crate::sync::block_lookups::common::{Lookup, RequestState};
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::data_availability_checker::{
-    DataAvailabilityChecker, MissingBlobs,
-};
+use beacon_chain::data_availability_checker::{DataAvailabilityChecker, MissingBlobs};
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerAction;
 use slog::{trace, Logger};
@@ -201,7 +199,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
             .get_missing_blob_ids(block_root, &processing_availability_view)
     }
 
-    /// Penalizes a blob peer if it should have blobs but didn't return them to us.     
+    /// Penalizes a blob peer if it should have blobs but didn't return them to us.
     pub fn penalize_blob_peer(&mut self, cx: &SyncNetworkContext<T>) {
         if let Ok(blob_peer) = self.blob_request_state.state.processing_peer() {
             cx.report_peer(

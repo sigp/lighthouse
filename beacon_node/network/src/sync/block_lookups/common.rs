@@ -3,7 +3,7 @@ use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, LookupVerifyError, SingleBlockLookup, SingleLookupRequestState, State,
 };
 use crate::sync::block_lookups::{
-    BlobRequestState, BlockLookups, BlockRequestState, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
+    BlobRequestState, BlockRequestState, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
 };
 use crate::sync::manager::{BlockProcessType, Id, SingleLookupReqId};
 use crate::sync::network_context::SyncNetworkContext;
@@ -215,7 +215,6 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /// Send the response to the beacon processor.
     fn send_reconstructed_for_processing(
         id: Id,
-        bl: &BlockLookups<T>,
         block_root: Hash256,
         verified: Self::ReconstructedResponseType,
         duration: Duration,
@@ -305,18 +304,16 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
 
     fn send_reconstructed_for_processing(
         id: Id,
-        bl: &BlockLookups<T>,
         block_root: Hash256,
         constructed: RpcBlock<T::EthSpec>,
         duration: Duration,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
-        bl.send_block_for_processing(
+        cx.send_block_for_processing(
             block_root,
             constructed,
             duration,
             BlockProcessType::SingleBlock { id },
-            cx,
         )
     }
 
@@ -404,18 +401,16 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
 
     fn send_reconstructed_for_processing(
         id: Id,
-        bl: &BlockLookups<T>,
         block_root: Hash256,
         verified: FixedBlobSidecarList<T::EthSpec>,
         duration: Duration,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
-        bl.send_blobs_for_processing(
+        cx.send_blobs_for_processing(
             block_root,
             verified,
             duration,
             BlockProcessType::SingleBlob { id },
-            cx,
         )
     }
 

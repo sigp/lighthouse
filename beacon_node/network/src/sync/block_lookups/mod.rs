@@ -1,13 +1,13 @@
 use self::parent_lookup::ParentVerifyError;
 use self::single_block_lookup::SingleBlockLookup;
 use super::manager::BlockProcessingResult;
+use super::network_context::SyncNetworkContext;
 use super::BatchProcessResult;
-use super::{manager::BlockProcessType, network_context::SyncNetworkContext};
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 
 use crate::sync::block_lookups::parent_lookup::{ParentLookup, RequestError};
-use crate::sync::block_lookups::single_block_lookup::LookupRequestError;
+pub use crate::sync::block_lookups::single_block_lookup::LookupRequestError;
 use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 
@@ -20,6 +20,7 @@ pub use common::Current;
 pub use common::Lookup;
 pub use common::Parent;
 pub use common::RequestState;
+use ethereum_types::H256;
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::{PeerAction, PeerId};
@@ -31,7 +32,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
-use types::blob_sidecar::FixedBlobSidecarList;
 use types::Slot;
 
 pub mod common;
@@ -60,6 +60,12 @@ pub struct BlockLookups<T: BeaconChainTypes> {
 
     /// The logger for the import manager.
     log: Logger,
+}
+
+enum Action {
+    Continue,
+    ParentUnknown { slot: Slot, parent_root: H256 },
+    Drop,
 }
 
 impl<T: BeaconChainTypes> BlockLookups<T> {
@@ -338,7 +344,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         R::send_reconstructed_for_processing(
             id,
-            self,
             block_root,
             R::verified_to_reconstructed(block_root, verified_response),
             seen_timestamp,
@@ -624,7 +629,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: BlockProcessingResult<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let Some(mut lookup) = self.single_block_lookups.remove(&target_id) else {
+        let Some(mut lookup) = self.single_block_lookups.get_mut(&target_id) else {
             return;
         };
 
@@ -641,20 +646,30 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "block_root" => ?root,
         );
 
-        match result {
+        let action = match result {
             BlockProcessingResult::Ok(status) => match status {
                 AvailabilityProcessingStatus::Imported(root) => {
                     trace!(self.log, "Single block processing succeeded"; "block" => %root);
+                    Action::Drop
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _block_root) => {
-                    match self.handle_missing_components::<R>(cx, &mut lookup) {
-                        Ok(()) => {
-                            self.single_block_lookups.insert(target_id, lookup);
-                        }
-                        Err(e) => {
-                            // Drop with an additional error.
-                            warn!(self.log, "Single block lookup failed"; "block" => %root, "error" => ?e);
-                        }
+                    // Handles a `MissingComponents` block processing error. Handles peer scoring and retries.
+                    //
+                    // If this was the result of a block request, we can't determined if the block peer did anything
+                    // wrong. If we already had both a block and blobs response processed, we should penalize the
+                    // blobs peer because they did not provide all blobs on the initial request.
+
+                    let request_state = R::request_state_mut(&mut lookup);
+
+                    request_state.get_state_mut().on_component_processed();
+                    if lookup.both_components_processed() {
+                        lookup.penalize_blob_peer(cx);
+
+                        // Try it again if possible.
+                        lookup.blob_request_state.state.on_processing_failure();
+                        Action::Continue
+                    } else {
+                        Action::Drop
                     }
                 }
             },
@@ -666,126 +681,91 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     "Single block processing was ignored, cpu might be overloaded";
                     "action" => "dropping single block request"
                 );
+                Action::Drop
             }
             BlockProcessingResult::Err(e) => {
-                match self.handle_single_lookup_block_error(cx, lookup, peer_id, e) {
-                    Ok(Some(lookup)) => {
-                        self.single_block_lookups.insert(target_id, lookup);
+                // Handles peer scoring and retries related to a `BlockError` in response to a single block
+                // or blob lookup processing result.
+                let root = lookup.block_root();
+                trace!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
+                match e {
+                    BlockError::BlockIsAlreadyKnown => {
+                        // No error here
+                        Action::Drop
                     }
-                    Ok(None) => {
-                        // Drop without an additional error.
+                    BlockError::BeaconChainError(e) => {
+                        // Internal error
+                        error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
+                        Action::Drop
                     }
-                    Err(e) => {
-                        // Drop with an additional error.
-                        warn!(self.log, "Single block lookup failed"; "block" => %root, "error" => ?e);
+                    BlockError::ParentUnknown(block) => {
+                        let slot = block.slot();
+                        let parent_root = block.parent_root();
+                        // TODO: add block to downloaded blocks
+                        Action::ParentUnknown { slot, parent_root }
+                    }
+                    ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
+                        // These errors indicate that the execution layer is offline
+                        // and failed to validate the execution payload. Do not downscore peer.
+                        debug!(
+                            self.log,
+                            "Single block lookup failed. Execution layer is offline / unsynced / misconfigured";
+                            "root" => %root,
+                            "error" => ?e
+                        );
+                        Action::Drop
+                    }
+                    BlockError::AvailabilityCheck(e) => match e.category() {
+                        AvailabilityCheckErrorCategory::Internal => {
+                            warn!(self.log, "Internal availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
+                            lookup.block_request_state.state.on_download_failure();
+                            lookup.blob_request_state.state.on_download_failure();
+                            // Next step: Retry download with different peer
+                            Action::Continue
+                        }
+                        AvailabilityCheckErrorCategory::Malicious => {
+                            warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
+                            lookup.handle_availability_check_failure(cx);
+                            // Next step: Retry download with different peer
+                            Action::Continue
+                        }
+                    },
+                    other => {
+                        warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
+                        if let Ok(block_peer) = lookup.block_request_state.state.processing_peer() {
+                            cx.report_peer(
+                                block_peer,
+                                PeerAction::MidToleranceError,
+                                "single_block_failure",
+                            );
+
+                            // Try it again if possible.
+                            lookup.block_request_state.state.on_processing_failure();
+                            // Next step: Retry download with different peer
+                            Action::Continue
+                        } else {
+                            // Next step: Retry download with different peer
+                            Action::Continue
+                        }
                     }
                 }
             }
         };
-    }
 
-    /// Handles a `MissingComponents` block processing error. Handles peer scoring and retries.
-    ///
-    /// If this was the result of a block request, we can't determined if the block peer did anything
-    /// wrong. If we already had both a block and blobs response processed, we should penalize the
-    /// blobs peer because they did not provide all blobs on the initial request.
-    fn handle_missing_components<R: RequestState<Current, T>>(
-        &self,
-        cx: &SyncNetworkContext<T>,
-        lookup: &mut SingleBlockLookup<Current, T>,
-    ) -> Result<(), LookupRequestError> {
-        let request_state = R::request_state_mut(lookup);
-
-        request_state.get_state_mut().component_processed = true;
-        if lookup.both_components_processed() {
-            lookup.penalize_blob_peer(cx);
-
-            // Try it again if possible.
-            lookup
-                .blob_request_state
-                .state
-                .register_failure_processing();
-            lookup.request_block_and_blobs(cx)?;
-        }
-        Ok(())
-    }
-
-    /// Handles peer scoring and retries related to a `BlockError` in response to a single block
-    /// or blob lookup processing result.
-    fn handle_single_lookup_block_error(
-        &mut self,
-        cx: &mut SyncNetworkContext<T>,
-        mut lookup: SingleBlockLookup<Current, T>,
-        peer_id: PeerId,
-        e: BlockError<T::EthSpec>,
-    ) -> Result<Option<SingleBlockLookup<Current, T>>, LookupRequestError> {
-        let root = lookup.block_root();
-        trace!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
-        match e {
-            BlockError::BlockIsAlreadyKnown => {
-                // No error here
-                return Ok(None);
+        match action {
+            Action::Continue => {
+                if let Err(e) = lookup.request_block_and_blobs(cx) {
+                    warn!(self.log, "Single block lookup failed"; "block" => %root, "error" => ?e);
+                    self.single_block_lookups.remove(&target_id);
+                }
             }
-            BlockError::BeaconChainError(e) => {
-                // Internal error
-                error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
-                return Ok(None);
-            }
-            BlockError::ParentUnknown(block) => {
-                let slot = block.slot();
-                let parent_root = block.parent_root();
-                //TODO: add block to downloaded blocks
+            Action::ParentUnknown { slot, parent_root } => {
                 self.search_parent(slot, root, parent_root, peer_id, cx);
             }
-            ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
-                // These errors indicate that the execution layer is offline
-                // and failed to validate the execution payload. Do not downscore peer.
-                debug!(
-                    self.log,
-                    "Single block lookup failed. Execution layer is offline / unsynced / misconfigured";
-                    "root" => %root,
-                    "error" => ?e
-                );
-                return Ok(None);
-            }
-            BlockError::AvailabilityCheck(e) => match e.category() {
-                AvailabilityCheckErrorCategory::Internal => {
-                    warn!(self.log, "Internal availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
-                    lookup
-                        .block_request_state
-                        .state
-                        .register_failure_downloading();
-                    lookup
-                        .blob_request_state
-                        .state
-                        .register_failure_downloading();
-                    lookup.request_block_and_blobs(cx)?
-                }
-                AvailabilityCheckErrorCategory::Malicious => {
-                    warn!(self.log, "Availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
-                    lookup.handle_availability_check_failure(cx);
-                    lookup.request_block_and_blobs(cx)?
-                }
-            },
-            other => {
-                warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
-                if let Ok(block_peer) = lookup.block_request_state.state.processing_peer() {
-                    cx.report_peer(
-                        block_peer,
-                        PeerAction::MidToleranceError,
-                        "single_block_failure",
-                    );
-
-                    // Try it again if possible.
-                    lookup
-                        .block_request_state
-                        .state
-                        .register_failure_processing();
-                    lookup.request_block_and_blobs(cx)?
-                }
+            Action::Drop => {
+                self.single_block_lookups.remove(&target_id);
             }
         }
-        Ok(Some(lookup))
     }
 
     pub fn parent_block_processed(
@@ -1020,79 +1000,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /* Helper functions */
-
-    fn send_block_for_processing(
-        &self,
-        block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
-        duration: Duration,
-        process_type: BlockProcessType,
-        cx: &SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
-        match cx.beacon_processor_if_enabled() {
-            Some(beacon_processor) => {
-                trace!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
-                if let Err(e) = beacon_processor.send_rpc_beacon_block(
-                    block_root,
-                    block,
-                    duration,
-                    process_type,
-                ) {
-                    error!(
-                        self.log,
-                        "Failed to send sync block to processor";
-                        "error" => ?e
-                    );
-                    Err(LookupRequestError::SendFailed(
-                        "beacon processor send failure",
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            None => {
-                trace!(self.log, "Dropping block ready for processing. Beacon processor not available"; "block" => %block_root);
-                Err(LookupRequestError::SendFailed(
-                    "beacon processor unavailable",
-                ))
-            }
-        }
-    }
-
-    fn send_blobs_for_processing(
-        &self,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        duration: Duration,
-        process_type: BlockProcessType,
-        cx: &SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
-        match cx.beacon_processor_if_enabled() {
-            Some(beacon_processor) => {
-                trace!(self.log, "Sending blobs for processing"; "block" => ?block_root, "process_type" => ?process_type);
-                if let Err(e) =
-                    beacon_processor.send_rpc_blobs(block_root, blobs, duration, process_type)
-                {
-                    error!(
-                        self.log,
-                        "Failed to send sync blobs to processor";
-                        "error" => ?e
-                    );
-                    Err(LookupRequestError::SendFailed(
-                        "beacon processor send failure",
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            None => {
-                trace!(self.log, "Dropping blobs ready for processing. Beacon processor not available"; "block_root" => %block_root);
-                Err(LookupRequestError::SendFailed(
-                    "beacon processor unavailable",
-                ))
-            }
-        }
-    }
 
     /// Attempts to request the next unknown parent. This method handles peer scoring and dropping
     /// the lookup in the event of failure.
