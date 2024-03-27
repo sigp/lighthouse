@@ -256,6 +256,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 config.network_load,
                 ctx.fork_context.clone(),
                 gossipsub_config_params,
+                ctx.chain_spec.seconds_per_slot,
+                TSpec::slots_per_epoch(),
             );
 
             // If metrics are enabled for libp2p build the configuration
