@@ -94,8 +94,6 @@ fn syncing_sim(
     beacon_config.dummy_eth1_backend = true;
     beacon_config.sync_eth1_chain = true;
 
-    beacon_config.http_api.allow_sync_stalled = true;
-
     beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
 
     // Generate the directories and keystores required for the validator clients.
