@@ -480,7 +480,6 @@ pub fn serve<T: BeaconChainTypes>(
                         | SyncState::BackFillSyncing { .. } => Ok(()),
                         SyncState::Synced => Ok(()),
                         SyncState::Stalled => Ok(()),
-                        
                     }
                 },
             )
