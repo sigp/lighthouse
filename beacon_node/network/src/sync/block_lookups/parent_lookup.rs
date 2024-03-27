@@ -96,27 +96,32 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     }
 
     pub fn check_peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), ()> {
-        self.current_parent_request
-            .block_request_state
-            .state
-            .check_peer_disconnected(peer_id)
-            .and_then(|()| {
-                self.current_parent_request
-                    .blob_request_state
-                    .state
-                    .check_peer_disconnected(peer_id)
-            })
+        self.current_parent_request.remove_peer(peer_id)
     }
 
-    pub fn add_unknown_parent_block(&mut self, block: RpcBlock<T::EthSpec>) {
+    pub fn add_unknown_parent_block(
+        &mut self,
+        block: RpcBlock<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
+        da_checker: Arc<DataAvailabilityChecker<T>>,
+    ) {
         let next_parent = block.parent_root();
         // Cache the block.
         let current_root = self.current_parent_request.block_root();
         self.downloaded_blocks.push((current_root, block));
 
         // Update the parent request.
-        self.current_parent_request
-            .update_requested_parent_block(next_parent)
+        self.current_parent_request = SingleBlockLookup::new(
+            next_parent,
+            &self
+                .current_parent_request
+                .all_peers()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+            da_checker,
+            cx.next_id(),
+        );
     }
 
     pub fn block_processing_peer(&self) -> Result<PeerId, ()> {

@@ -832,7 +832,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
             BlockProcessingResult::Err(BlockError::ParentUnknown(block)) => {
-                parent_lookup.add_unknown_parent_block(block);
+                parent_lookup.add_unknown_parent_block(block, cx, self.da_checker.clone());
                 self.request_parent(parent_lookup, cx);
             }
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))

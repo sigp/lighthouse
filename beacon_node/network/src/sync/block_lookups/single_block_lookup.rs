@@ -77,16 +77,6 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.block_root() == block_root
     }
 
-    /// Update the requested block, this should only be used in a chain of parent lookups to request
-    /// the next parent.
-    pub fn update_requested_parent_block(&mut self, block_root: Hash256) {
-        self.block_request_state.requested_block_root = block_root;
-        self.block_request_state.state.state = State::AwaitingDownload;
-        self.blob_request_state.state.state = State::AwaitingDownload;
-        self.block_request_state.state.component_processed = false;
-        self.blob_request_state.state.component_processed = false;
-    }
-
     /// Get all unique peers across block and blob requests.
     pub fn all_peers(&self) -> HashSet<PeerId> {
         let mut all_peers = self.block_request_state.state.used_peers.clone();
@@ -127,6 +117,15 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         for peer in peers {
             self.add_peer(*peer);
         }
+    }
+
+    pub fn remove_peer(&mut self, peer_id: &PeerId) -> Result<(), ()> {
+        self.block_request_state
+            .state
+            .check_peer_disconnected(peer_id)?;
+        self.blob_request_state
+            .state
+            .check_peer_disconnected(peer_id)
     }
 
     /// Returns true if the block has already been downloaded.
