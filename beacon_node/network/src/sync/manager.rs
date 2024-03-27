@@ -47,7 +47,7 @@ use crate::sync::network_context::BlocksAndBlobsByRangeRequest;
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_availability_checker::ChildComponents;
+
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
@@ -619,13 +619,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
-                self.handle_unknown_parent(
-                    peer_id,
-                    block_root,
-                    parent_root,
-                    block_slot,
-                    block.into(),
-                );
+                self.handle_unknown_parent(peer_id, block_root, parent_root, block_slot, block);
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
                 let blob_slot = blob.slot();
@@ -638,13 +632,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 let mut blobs = FixedBlobSidecarList::default();
                 *blobs.index_mut(blob_index as usize) = Some(blob);
-                self.handle_unknown_parent(
-                    peer_id,
-                    block_root,
-                    parent_root,
-                    blob_slot,
-                    ChildComponents::new(block_root, None, Some(blobs)),
-                );
+                self.handle_unknown_parent(peer_id, block_root, parent_root, blob_slot, blobs);
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
                 // If we are not synced, ignore this block.
@@ -715,13 +703,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn handle_unknown_parent(
+    fn handle_unknown_parent<C>(
         &mut self,
         peer_id: PeerId,
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        child_components: ChildComponents<T::EthSpec>,
+        _child_component: C,
     ) {
         if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(
@@ -731,12 +719,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 peer_id,
                 &mut self.network,
             );
-            self.block_lookups.search_child_block(
-                block_root,
-                child_components,
-                &[peer_id],
-                &mut self.network,
-            );
+            //TODO add child to downloaded
+            self.block_lookups
+                .search_block(block_root, &[peer_id], &mut self.network);
         }
     }
 
