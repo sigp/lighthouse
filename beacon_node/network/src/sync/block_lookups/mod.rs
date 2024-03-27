@@ -65,6 +65,7 @@ pub struct BlockLookups<T: BeaconChainTypes> {
 enum Action {
     Continue,
     ParentUnknown { slot: Slot, parent_root: H256 },
+    Imported,
     Drop,
 }
 
@@ -193,6 +194,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         }
 
+        // TODO: Ensure that any chain does not reach the maximum when triggering this extra request
+
         if self
             .processing_parent_lookups
             .values()
@@ -284,7 +287,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Consolidates error handling for `single_lookup_response`. An `Err` here should always mean
     /// the lookup is dropped.
     fn single_lookup_response_inner<R: RequestState<Current, T>>(
-        &self,
+        &mut self,
         peer_id: PeerId,
         response: Option<R::ResponseType>,
         seen_timestamp: Duration,
@@ -296,8 +299,31 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let expected_block_root = lookup.block_root();
         let request_state = R::request_state_mut(&mut lookup);
 
-        match request_state.verify_response(expected_block_root, response) {
+        match request_state.verify_response(expected_block_root, response, seen_timestamp) {
             Ok(Some(verified_response)) => {
+                // Now that the block is verified, check if the parent_root in a failed chain
+                // If so, register failure downloading, downscore peer and drop the request
+                // Add the new block root to the failed chains cache
+                if let Some(parent_root) = R::get_parent_root(&verified_response) {
+                    if self.failed_chains.contains(&parent_root) {
+                        request_state.register_failure_downloading();
+
+                        debug!(
+                            self.log,
+                            "Lookup ignored due to past failure";
+                            "block" => %expected_block_root,
+                            "parent_root" => %parent_root,
+                        );
+
+                        self.failed_chains.insert(expected_block_root);
+                        cx.report_peer(peer_id, PeerAction::MidToleranceError, "failed_chains");
+
+                        return Err(LookupRequestError::PreviousFailure);
+                    }
+                }
+
+                // Check if this block is part of chain of blocks that become too long
+
                 self.handle_verified_response::<Current, R>(
                     seen_timestamp,
                     cx,
@@ -335,13 +361,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let id = lookup.id;
         let block_root = lookup.block_root();
 
-        R::send_reconstructed_for_processing(
-            id,
-            block_root,
-            R::verified_to_reconstructed(block_root, verified_response),
-            seen_timestamp,
-            cx,
-        )?;
+        R::send_for_processing(id, block_root, verified_response, seen_timestamp, cx)?;
 
         Ok(())
     }
@@ -420,7 +440,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &SyncNetworkContext<T>,
         parent_lookup: &mut ParentLookup<T>,
     ) -> Result<(), RequestError> {
-        match parent_lookup.verify_response::<R>(response, &mut self.failed_chains) {
+        match parent_lookup.verify_response::<R>(response, &mut self.failed_chains, seen_timestamp)
+        {
             Ok(Some(verified_response)) => {
                 self.handle_verified_response::<Parent, R>(
                     seen_timestamp,
@@ -639,32 +660,36 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
 
         let action = match result {
-            BlockProcessingResult::Ok(status) => match status {
-                AvailabilityProcessingStatus::Imported(root) => {
-                    trace!(self.log, "Single block processing succeeded"; "block" => %root);
+            BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
+            | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
+                // Successfully imported
+                trace!(self.log, "Single block processing succeeded"; "block" => %root);
+                Action::Imported
+            }
+
+            BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
+                _,
+                _block_root,
+            )) => {
+                // Handles a `MissingComponents` block processing error. Handles peer scoring and retries.
+                //
+                // If this was the result of a block request, we can't determined if the block peer did anything
+                // wrong. If we already had both a block and blobs response processed, we should penalize the
+                // blobs peer because they did not provide all blobs on the initial request.
+
+                let request_state = R::request_state_mut(&mut lookup);
+
+                request_state.get_state_mut().on_component_processed();
+                if lookup.both_components_processed() {
+                    lookup.penalize_blob_peer(cx);
+
+                    // Try it again if possible.
+                    lookup.blob_request_state.state.on_processing_failure();
+                    Action::Continue
+                } else {
                     Action::Drop
                 }
-                AvailabilityProcessingStatus::MissingComponents(_, _block_root) => {
-                    // Handles a `MissingComponents` block processing error. Handles peer scoring and retries.
-                    //
-                    // If this was the result of a block request, we can't determined if the block peer did anything
-                    // wrong. If we already had both a block and blobs response processed, we should penalize the
-                    // blobs peer because they did not provide all blobs on the initial request.
-
-                    let request_state = R::request_state_mut(&mut lookup);
-
-                    request_state.get_state_mut().on_component_processed();
-                    if lookup.both_components_processed() {
-                        lookup.penalize_blob_peer(cx);
-
-                        // Try it again if possible.
-                        lookup.blob_request_state.state.on_processing_failure();
-                        Action::Continue
-                    } else {
-                        Action::Drop
-                    }
-                }
-            },
+            }
             BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
                 // This implies that the cpu is overloaded. Drop the request.
@@ -678,7 +703,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessingResult::Err(e) => {
                 // Handles peer scoring and retries related to a `BlockError` in response to a single block
                 // or blob lookup processing result.
-                let root = lookup.block_root();
                 trace!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
                 match e {
                     BlockError::BlockIsAlreadyKnown => {
@@ -690,10 +714,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
                         Action::Drop
                     }
+                    // Note: blob import will never trigger a ParentUnknown error. Blobs with
+                    // unknown parent are just happily imported and stored in the availability cache
                     BlockError::ParentUnknown(block) => {
                         let slot = block.slot();
                         let parent_root = block.parent_root();
                         // TODO: add block to downloaded blocks
+                        request_state.get_state_mut().on_unknown_parent();
+
                         Action::ParentUnknown { slot, parent_root }
                     }
                     ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
@@ -745,6 +773,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         match action {
+            Action::Imported => {
+                let block_root = lookup.block_root();
+                self.single_block_lookups.remove(&target_id);
+
+                // TODO: Trigger download of pending children that have unknown parent
+                for child_lookup in self.single_block_lookups.values_mut() {
+                    if let Some(parent_root) = child_lookup.parent_root() {
+                        if parent_root == block_root {
+                            if let Err(e) = child_lookup.process_block_and_blobs(cx) {
+                                warn!(self.log, "Error sending child lookup for processing"; "block" => %child_lookup.block_root(), "error" => ?e);
+                            }
+                        }
+                    }
+                }
+            }
             Action::Continue => {
                 if let Err(e) = lookup.request_block_and_blobs(cx) {
                     warn!(self.log, "Single block lookup failed"; "block" => %root, "error" => ?e);

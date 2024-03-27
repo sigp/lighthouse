@@ -622,8 +622,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn send_block_for_processing(
         &self,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
-        duration: Duration,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), LookupRequestError> {
         match self.beacon_processor_if_enabled() {
@@ -631,8 +631,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 trace!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
                 if let Err(e) = beacon_processor.send_rpc_beacon_block(
                     block_root,
-                    block,
-                    duration,
+                    RpcBlock::new_without_blobs(Some(block_root), block),
+                    seen_timestamp,
                     process_type,
                 ) {
                     error!(
@@ -660,14 +660,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
-        duration: Duration,
+        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), LookupRequestError> {
         match self.beacon_processor_if_enabled() {
             Some(beacon_processor) => {
                 trace!(self.log, "Sending blobs for processing"; "block" => ?block_root, "process_type" => ?process_type);
                 if let Err(e) =
-                    beacon_processor.send_rpc_blobs(block_root, blobs, duration, process_type)
+                    beacon_processor.send_rpc_blobs(block_root, blobs, seen_timestamp, process_type)
                 {
                     error!(
                         self.log,

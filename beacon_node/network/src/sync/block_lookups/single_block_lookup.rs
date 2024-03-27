@@ -10,16 +10,31 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::time::Duration;
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::EthSpec;
+use types::{EthSpec, SignedBeaconBlock};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum State {
+pub enum State<T> {
     AwaitingDownload,
-    Downloading { peer_id: PeerId },
-    Processing { peer_id: PeerId },
+    Downloading {
+        peer_id: PeerId,
+    },
+    UnknownParent {
+        peer_id: PeerId,
+        value: T,
+        parent_root: Option<Hash256>,
+        seen_timestamp: Duration,
+    },
+    Processing {
+        peer_id: PeerId,
+        value: T,
+        parent_root: Option<Hash256>,
+        seen_timestamp: Duration,
+    },
+    Poisoned,
 }
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -42,11 +57,12 @@ pub enum LookupRequestError {
     },
     NoPeers,
     SendFailed(&'static str),
+    PreviousFailure,
 }
 
 pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {
     pub id: Id,
-    pub block_request_state: BlockRequestState<L>,
+    pub block_request_state: BlockRequestState<L, T::EthSpec>,
     pub blob_request_state: BlobRequestState<L, T::EthSpec>,
     pub da_checker: Arc<DataAvailabilityChecker<T>>,
 }
@@ -103,6 +119,17 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
             self.blob_request_state
                 .build_request_and_send(self.id, cx)?;
         }
+        Ok(())
+    }
+
+    pub fn process_block_and_blobs(
+        &mut self,
+        cx: &SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        self.block_request_state
+            .send_cached_for_processing(self.id, self.block_root(), cx)?;
+        self.block_request_state
+            .send_cached_for_processing(self.id, self.block_root(), cx)?;
         Ok(())
     }
 
@@ -204,17 +231,28 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.penalize_blob_peer(cx);
         self.blob_request_state.state.on_processing_failure()
     }
+
+    /// Return the parent root of this reques's block header, if known
+    pub fn parent_root(&self) -> Option<Hash256> {
+        if let Some(parent_root) = self.block_request_state.state.parent_root() {
+            Some(parent_root)
+        } else if let Some(parent_root) = self.blob_request_state.state.parent_root() {
+            Some(parent_root)
+        } else {
+            None
+        }
+    }
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
-pub struct BlobRequestState<L: Lookup, T: EthSpec> {
+pub struct BlobRequestState<L: Lookup, E: EthSpec> {
     /// The latest picture of which blobs still need to be requested. This includes information
     /// from both block/blobs downloaded in the network layer and any blocks/blobs that exist in
     /// the data availability checker.
     pub requested_ids: MissingBlobs,
     /// Where we store blobs until we receive the stream terminator.
-    pub blob_download_queue: FixedBlobSidecarList<T>,
-    pub state: SingleLookupRequestState,
+    pub blob_download_queue: FixedBlobSidecarList<E>,
+    pub state: SingleLookupRequestState<FixedBlobSidecarList<E>>,
     _phantom: PhantomData<L>,
 }
 
@@ -231,13 +269,13 @@ impl<L: Lookup, E: EthSpec> BlobRequestState<L, E> {
 }
 
 /// The state of the block request component of a `SingleBlockLookup`.
-pub struct BlockRequestState<L: Lookup> {
+pub struct BlockRequestState<L: Lookup, E: EthSpec> {
     pub requested_block_root: Hash256,
-    pub state: SingleLookupRequestState,
+    pub state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
     _phantom: PhantomData<L>,
 }
 
-impl<L: Lookup> BlockRequestState<L> {
+impl<L: Lookup, E: EthSpec> BlockRequestState<L, E> {
     pub fn new(block_root: Hash256, peers: &[PeerId]) -> Self {
         Self {
             requested_block_root: block_root,
@@ -249,9 +287,9 @@ impl<L: Lookup> BlockRequestState<L> {
 
 /// Object representing the state of a single block or blob lookup request.
 #[derive(PartialEq, Eq, Debug)]
-pub struct SingleLookupRequestState {
+pub struct SingleLookupRequestState<T> {
     /// State of this request.
-    state: State,
+    state: State<T>,
     /// Peers that should have this block or blob.
     pub available_peers: HashSet<PeerId>,
     /// Peers from which we have requested this block.
@@ -270,7 +308,7 @@ pub struct SingleLookupRequestState {
     req_counter: u32,
 }
 
-impl SingleLookupRequestState {
+impl<T: Clone> SingleLookupRequestState<T> {
     pub fn new(peers: &[PeerId]) -> Self {
         let mut available_peers = HashSet::default();
         for peer in peers.iter().copied() {
@@ -310,8 +348,19 @@ impl SingleLookupRequestState {
         }
     }
 
-    pub fn on_download_success(&mut self, peer_id: PeerId) {
-        self.state = State::Processing { peer_id }
+    pub fn on_download_success(
+        &mut self,
+        peer_id: PeerId,
+        parent_root: Option<Hash256>,
+        value: T,
+        seen_timestamp: Duration,
+    ) {
+        self.state = State::Processing {
+            peer_id,
+            parent_root,
+            value,
+            seen_timestamp,
+        }
     }
 
     /// Registers a failure in processing a block.
@@ -325,6 +374,49 @@ impl SingleLookupRequestState {
     pub fn on_download_failure(&mut self) {
         self.failed_downloading = self.failed_downloading.saturating_add(1);
         self.state = State::AwaitingDownload;
+    }
+
+    pub fn on_unknown_parent(&mut self) {
+        // TODO: What if the state is not correct? Handle this case
+        match std::mem::replace(&mut self.state, State::Poisoned) {
+            State::Processing {
+                peer_id,
+                value,
+                parent_root,
+                seen_timestamp,
+            } => {
+                self.state = State::UnknownParent {
+                    peer_id,
+                    value,
+                    parent_root,
+                    seen_timestamp,
+                }
+            }
+            other => self.state = other,
+        }
+    }
+
+    pub fn resolve_unknown_parent(&mut self) -> Option<(T, Duration)> {
+        match std::mem::replace(&mut self.state, State::Poisoned) {
+            State::UnknownParent {
+                peer_id,
+                value,
+                parent_root,
+                seen_timestamp,
+            } => {
+                self.state = State::Processing {
+                    peer_id,
+                    value: value.clone(),
+                    parent_root,
+                    seen_timestamp,
+                };
+                Some((value, seen_timestamp))
+            }
+            other => {
+                self.state = other;
+                None
+            }
+        }
     }
 
     pub fn on_component_processed(&mut self) {
@@ -361,10 +453,19 @@ impl SingleLookupRequestState {
     /// Returns the id peer we downloaded from if we have downloaded a verified block, otherwise
     /// returns an error.
     pub fn processing_peer(&self) -> Result<PeerId, ()> {
-        if let State::Processing { peer_id } = &self.state {
+        if let State::Processing { peer_id, .. } = &self.state {
             Ok(*peer_id)
         } else {
             Err(())
+        }
+    }
+
+    pub fn parent_root(&self) -> Option<Hash256> {
+        match self.state {
+            State::AwaitingDownload | State::Downloading { .. } | State::Poisoned => None,
+            State::UnknownParent { parent_root, .. } | State::Processing { parent_root, .. } => {
+                parent_root
+            }
         }
     }
 }
@@ -395,7 +496,7 @@ impl<L: Lookup, T: BeaconChainTypes> slog::Value for SingleBlockLookup<L, T> {
     }
 }
 
-impl slog::Value for SingleLookupRequestState {
+impl<T> slog::Value for SingleLookupRequestState<T> {
     fn serialize(
         &self,
         record: &slog::Record,
@@ -410,9 +511,13 @@ impl slog::Value for SingleLookupRequestState {
             State::Downloading { peer_id } => {
                 serializer.emit_arguments("downloading_peer", &format_args!("{}", peer_id))?
             }
-            State::Processing { peer_id } => {
+            State::UnknownParent { peer_id, .. } => {
+                serializer.emit_arguments("awaiting_process_peer", &format_args!("{}", peer_id))?
+            }
+            State::Processing { peer_id, .. } => {
                 serializer.emit_arguments("processing_peer", &format_args!("{}", peer_id))?
             }
+            State::Poisoned => {} // Should never happen
         }
         serializer.emit_u8("failed_downloads", self.failed_downloading)?;
         serializer.emit_u8("failed_processing", self.failed_processing)?;

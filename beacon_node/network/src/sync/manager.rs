@@ -301,7 +301,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match request_id {
             RequestId::SingleBlock { id } => {
                 self.block_lookups
-                    .single_block_lookup_failed::<BlockRequestState<Current>>(
+                    .single_block_lookup_failed::<BlockRequestState<Current, T::EthSpec>>(
                         id,
                         &peer_id,
                         &self.network,
@@ -319,7 +319,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             RequestId::ParentLookup { id } => {
                 self.block_lookups
-                    .parent_lookup_failed::<BlockRequestState<Parent>>(
+                    .parent_lookup_failed::<BlockRequestState<Parent, T::EthSpec>>(
                         id,
                         peer_id,
                         &self.network,
@@ -661,7 +661,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => match process_type {
                 BlockProcessType::SingleBlock { id } => self
                     .block_lookups
-                    .single_block_component_processed::<BlockRequestState<Current>>(
+                    .single_block_component_processed::<BlockRequestState<Current, T::EthSpec>>(
                         id,
                         result,
                         &mut self.network,
@@ -718,6 +718,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_or_blob: BlockOrBlob<T::EthSpec>,
     ) {
         if self.should_search_for_block(slot, &peer_id) {
+            // Create a single block lookup for the parent
             self.block_lookups.search_parent(
                 slot,
                 block_root,
@@ -726,6 +727,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 &mut self.network,
             );
 
+            // Register a lookup for the component that referenced the unknown parent root.
+            // If there's such lookup attached the associated component to skip a re-download
             if let Some(lookup_id) =
                 self.block_lookups
                     .search_block(block_root, &[peer_id], &mut self.network)
@@ -739,7 +742,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 match block_or_blob {
                     BlockOrBlob::Block(block) => self
                         .block_lookups
-                        .single_lookup_response::<BlockRequestState<Current>>(
+                        .single_lookup_response::<BlockRequestState<Current, T::EthSpec>>(
                             id,
                             peer_id,
                             block,
@@ -853,7 +856,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match request_id {
             RequestId::SingleBlock { id } => self
                 .block_lookups
-                .single_lookup_response::<BlockRequestState<Current>>(
+                .single_lookup_response::<BlockRequestState<Current, T::EthSpec>>(
                     id,
                     peer_id,
                     block,
@@ -865,7 +868,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             RequestId::ParentLookup { id } => self
                 .block_lookups
-                .parent_lookup_response::<BlockRequestState<Parent>>(
+                .parent_lookup_response::<BlockRequestState<Parent, T::EthSpec>>(
                     id,
                     peer_id,
                     block,

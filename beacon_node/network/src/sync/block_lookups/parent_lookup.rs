@@ -10,6 +10,7 @@ use beacon_chain::BeaconChainTypes;
 use itertools::Itertools;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Duration;
 use store::Hash256;
 use strum::IntoStaticStr;
 
@@ -26,6 +27,8 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     chain_hash: Hash256,
     /// The blocks that have currently been downloaded.
     downloaded_blocks: Vec<DownloadedBlock<T::EthSpec>>,
+    /// Blocks that are current downloading or downloaded, ordered by ancestor
+    blocks: Vec<Hash256>,
     /// Request of the last parent.
     pub current_parent_request: SingleBlockLookup<Parent, T>,
 }
@@ -69,6 +72,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         Self {
             chain_hash: block_root,
             downloaded_blocks: vec![],
+            blocks: vec![parent_root],
             current_parent_request,
         }
     }
@@ -152,6 +156,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             chain_hash,
             downloaded_blocks,
             current_parent_request,
+            ..
         } = self;
         let block_count = downloaded_blocks.len();
         let mut blocks = VecDeque::with_capacity(block_count);
@@ -185,10 +190,12 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         &mut self,
         block: Option<R::ResponseType>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
+        seen_timestamp: Duration,
     ) -> Result<Option<R::VerifiedResponseType>, ParentVerifyError> {
         let expected_block_root = self.current_parent_request.block_root();
         let request_state = R::request_state_mut(&mut self.current_parent_request);
-        let root_and_verified = request_state.verify_response(expected_block_root, block)?;
+        let root_and_verified =
+            request_state.verify_response(expected_block_root, block, seen_timestamp)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should
         // be dropped and the peer downscored.
@@ -255,6 +262,7 @@ impl From<LookupRequestError> for RequestError {
             }
             E::NoPeers => RequestError::NoPeers,
             E::SendFailed(msg) => RequestError::SendFailed(msg),
+            E::PreviousFailure => todo!(),
         }
     }
 }

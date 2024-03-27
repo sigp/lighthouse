@@ -7,7 +7,6 @@ use crate::sync::block_lookups::{
 };
 use crate::sync::manager::{BlockProcessType, Id, SingleLookupReqId};
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::block_verification_types::RpcBlock;
 
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
@@ -79,9 +78,6 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
 
     /// The type created after validation.
     type VerifiedResponseType: Clone;
-
-    /// We convert a `VerifiedResponseType` to this type prior to sending it to the beacon processor.
-    type ReconstructedResponseType;
 
     /* Request building methods */
 
@@ -164,11 +160,18 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         &mut self,
         expected_block_root: Hash256,
         response: Option<Self::ResponseType>,
+        seen_timestamp: Duration,
     ) -> Result<Option<Self::VerifiedResponseType>, LookupVerifyError> {
         match self.get_state().get_downloading_peer() {
             Some(peer_id) => match self.verify_response_inner(expected_block_root, response) {
                 Ok(Some(verified_response)) => {
-                    self.get_state_mut().on_download_success(peer_id);
+                    let parent_root = Self::get_parent_root(&verified_response);
+                    self.get_state_mut().on_download_success(
+                        peer_id,
+                        parent_root,
+                        verified_response.clone(),
+                        seen_timestamp,
+                    );
                     Ok(Some(verified_response))
                 }
                 Ok(None) => Ok(None),
@@ -193,6 +196,27 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         }
     }
 
+    fn send_cached_for_processing(
+        &mut self,
+        id: Id,
+        block_root: Hash256,
+        cx: &SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        if let Some((verified_response, seen_timestamp)) =
+            self.get_state_mut().resolve_unknown_parent()
+        {
+            <Self as RequestState<L, T>>::send_for_processing(
+                id,
+                block_root,
+                verified_response,
+                seen_timestamp,
+                cx,
+            )
+        } else {
+            Ok(())
+        }
+    }
+
     /// The response verification unique to block or blobs.
     fn verify_response_inner(
         &mut self,
@@ -204,18 +228,12 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /// the blob parent if we don't end up getting any blobs in the response.
     fn get_parent_root(verified_response: &Self::VerifiedResponseType) -> Option<Hash256>;
 
-    /// Convert a verified response to the type we send to the beacon processor.
-    fn verified_to_reconstructed(
-        block_root: Hash256,
-        verified: Self::VerifiedResponseType,
-    ) -> Self::ReconstructedResponseType;
-
     /// Send the response to the beacon processor.
-    fn send_reconstructed_for_processing(
+    fn send_for_processing(
         id: Id,
         block_root: Hash256,
-        verified: Self::ReconstructedResponseType,
-        duration: Duration,
+        verified: Self::VerifiedResponseType,
+        seen_timestamp: Duration,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError>;
 
@@ -233,17 +251,16 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self;
 
     /// A getter for a reference to the `SingleLookupRequestState` associated with this trait.
-    fn get_state(&self) -> &SingleLookupRequestState;
+    fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType>;
 
     /// A getter for a mutable reference to the SingleLookupRequestState associated with this trait.
-    fn get_state_mut(&mut self) -> &mut SingleLookupRequestState;
+    fn get_state_mut(&mut self) -> &mut SingleLookupRequestState<Self::VerifiedResponseType>;
 }
 
-impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L> {
+impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L, T::EthSpec> {
     type RequestType = BlocksByRootRequest;
     type ResponseType = Arc<SignedBeaconBlock<T::EthSpec>>;
     type VerifiedResponseType = Arc<SignedBeaconBlock<T::EthSpec>>;
-    type ReconstructedResponseType = RpcBlock<T::EthSpec>;
 
     fn new_request(&self, spec: &ChainSpec) -> BlocksByRootRequest {
         BlocksByRootRequest::new(vec![self.requested_block_root], spec)
@@ -287,24 +304,17 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
         Some(verified_response.parent_root())
     }
 
-    fn verified_to_reconstructed(
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    ) -> RpcBlock<T::EthSpec> {
-        RpcBlock::new_without_blobs(Some(block_root), block)
-    }
-
-    fn send_reconstructed_for_processing(
+    fn send_for_processing(
         id: Id,
         block_root: Hash256,
-        constructed: RpcBlock<T::EthSpec>,
-        duration: Duration,
+        verified_response: Self::VerifiedResponseType,
+        seen_timestamp: Duration,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         cx.send_block_for_processing(
             block_root,
-            constructed,
-            duration,
+            verified_response,
+            seen_timestamp,
             BlockProcessType::SingleBlock { id },
         )
     }
@@ -315,10 +325,10 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
     fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self {
         &mut request.block_request_state
     }
-    fn get_state(&self) -> &SingleLookupRequestState {
+    fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType> {
         &self.state
     }
-    fn get_state_mut(&mut self) -> &mut SingleLookupRequestState {
+    fn get_state_mut(&mut self) -> &mut SingleLookupRequestState<Self::VerifiedResponseType> {
         &mut self.state
     }
 }
@@ -327,7 +337,6 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
     type RequestType = BlobsByRootRequest;
     type ResponseType = Arc<BlobSidecar<T::EthSpec>>;
     type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
-    type ReconstructedResponseType = FixedBlobSidecarList<T::EthSpec>;
 
     fn new_request(&self, spec: &ChainSpec) -> BlobsByRootRequest {
         let blob_id_vec: Vec<BlobIdentifier> = self.requested_ids.clone().into();
@@ -381,24 +390,17 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
             .next()
     }
 
-    fn verified_to_reconstructed(
-        _block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-    ) -> FixedBlobSidecarList<T::EthSpec> {
-        blobs
-    }
-
-    fn send_reconstructed_for_processing(
+    fn send_for_processing(
         id: Id,
         block_root: Hash256,
         verified: FixedBlobSidecarList<T::EthSpec>,
-        duration: Duration,
+        seen_timestamp: Duration,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         cx.send_blobs_for_processing(
             block_root,
             verified,
-            duration,
+            seen_timestamp,
             BlockProcessType::SingleBlob { id },
         )
     }
@@ -409,10 +411,10 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
     fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self {
         &mut request.blob_request_state
     }
-    fn get_state(&self) -> &SingleLookupRequestState {
+    fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType> {
         &self.state
     }
-    fn get_state_mut(&mut self) -> &mut SingleLookupRequestState {
+    fn get_state_mut(&mut self) -> &mut SingleLookupRequestState<Self::VerifiedResponseType> {
         &mut self.state
     }
 }
