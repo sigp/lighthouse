@@ -214,11 +214,6 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         self.penalize_blob_peer(cx);
         self.blob_request_state.state.on_processing_failure()
     }
-
-    pub fn progress(&mut self, cx: &SyncNetworkContext<T>) {
-        // If ready for processing send
-        // self.block_request_state;
-    }
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.

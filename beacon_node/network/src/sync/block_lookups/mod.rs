@@ -84,16 +84,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Lookup requests */
 
-    /// Creates a lookup for the block with the given `block_root` and immediately triggers it.
-    pub fn search_block(
-        &mut self,
-        block_root: Hash256,
-        peer_source: &[PeerId],
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        self.new_current_lookup(block_root, peer_source, cx)
-    }
-
     /// Attempts to trigger the request matching the given `block_root`.
     pub fn trigger_single_lookup(
         &mut self,
@@ -125,12 +115,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
     /// constructed.
-    pub fn new_current_lookup(
+    pub fn search_block(
         &mut self,
         block_root: Hash256,
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
-    ) {
+    ) -> Option<Id> {
         // Do not re-request a block that is already being requested
         if let Some((_, lookup)) = self
             .single_block_lookups
@@ -138,7 +128,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .find(|(_id, lookup)| lookup.is_for_block(block_root))
         {
             lookup.add_peers(peers);
-            return;
+            return Some(lookup.id);
         }
 
         if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
@@ -148,7 +138,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
             // If the block was already downloaded, or is being downloaded in this moment, do not
             // request it.
-            return;
+            // TODO: Ignore child components for parent lookups
+            return None;
         }
 
         if self
@@ -157,11 +148,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .any(|(hashes, _last_parent_request)| hashes.contains(&block_root))
         {
             // we are already processing this block, ignore it.
-            return;
+            return None;
         }
 
         let lookup =
             SingleBlockLookup::new(block_root, peers, self.da_checker.clone(), cx.next_id());
+        let lookup_id = lookup.id;
 
         debug!(
             self.log,
@@ -170,6 +162,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "block" => ?block_root,
         );
         self.trigger_single_lookup(lookup, cx);
+
+        Some(lookup_id)
     }
 
     /// If a block is attempted to be processed but we do not know its parent, this function is

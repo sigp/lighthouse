@@ -48,6 +48,7 @@ use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
 
+use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
@@ -57,12 +58,10 @@ use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
-use std::ops::IndexMut;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -619,20 +618,27 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
-                self.handle_unknown_parent(peer_id, block_root, parent_root, block_slot, block);
+                self.handle_unknown_parent(
+                    peer_id,
+                    block_root,
+                    parent_root,
+                    block_slot,
+                    // TODO: This block type is an RpcBlock, but how can it have blobs if the
+                    // UnknownParentBlock event is only sent from gossip for the block topic?
+                    BlockOrBlob::Block(Some(block.block_cloned())),
+                );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
                 let blob_slot = blob.slot();
                 let block_root = blob.block_root();
                 let parent_root = blob.block_parent_root();
-                let blob_index = blob.index;
-                if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
-                    warn!(self.log, "Peer sent blob with invalid index"; "index" => blob_index, "peer_id" => %peer_id);
-                    return;
-                }
-                let mut blobs = FixedBlobSidecarList::default();
-                *blobs.index_mut(blob_index as usize) = Some(blob);
-                self.handle_unknown_parent(peer_id, block_root, parent_root, blob_slot, blobs);
+                self.handle_unknown_parent(
+                    peer_id,
+                    block_root,
+                    parent_root,
+                    blob_slot,
+                    BlockOrBlob::Blob(Some(blob)),
+                );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
                 // If we are not synced, ignore this block.
@@ -703,13 +709,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn handle_unknown_parent<C>(
+    fn handle_unknown_parent(
         &mut self,
         peer_id: PeerId,
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        _child_component: C,
+        block_or_blob: BlockOrBlob<T::EthSpec>,
     ) {
         if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(
@@ -719,9 +725,38 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 peer_id,
                 &mut self.network,
             );
-            //TODO add child to downloaded
-            self.block_lookups
-                .search_block(block_root, &[peer_id], &mut self.network);
+
+            if let Some(lookup_id) =
+                self.block_lookups
+                    .search_block(block_root, &[peer_id], &mut self.network)
+            {
+                // Only allow to replace the first request
+                let id = SingleLookupReqId {
+                    id: lookup_id,
+                    req_counter: 0,
+                };
+
+                match block_or_blob {
+                    BlockOrBlob::Block(block) => self
+                        .block_lookups
+                        .single_lookup_response::<BlockRequestState<Current>>(
+                            id,
+                            peer_id,
+                            block,
+                            timestamp_now(),
+                            &mut self.network,
+                        ),
+                    BlockOrBlob::Blob(blob) => self
+                        .block_lookups
+                        .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
+                            id,
+                            peer_id,
+                            blob,
+                            timestamp_now(),
+                            &mut self.network,
+                        ),
+                }
+            }
         }
     }
 
