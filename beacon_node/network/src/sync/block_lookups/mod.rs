@@ -152,7 +152,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             if let Some(components) = child_components {
                 lookup.add_child_components(components);
             }
-            debug!(self.log, "Already searching for block"; "block_root" => ?block_root);
             return;
         }
 
@@ -163,7 +162,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
             // If the block was already downloaded, or is being downloaded in this moment, do not
             // request it.
-            debug!(self.log, "Already searching for block in a parent lookup request"; "block_root" => ?block_root);
+            trace!(self.log, "Already searching for block in a parent lookup request"; "block_root" => ?block_root);
             return;
         }
 
@@ -173,7 +172,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .any(|(hashes, _last_parent_request)| hashes.contains(&block_root))
         {
             // we are already processing this block, ignore it.
-            debug!(self.log, "Already processing block in a parent request"; "block_root" => ?block_root);
+            trace!(self.log, "Already processing block in a parent request"; "block_root" => ?block_root);
             return;
         }
 
@@ -309,12 +308,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         let expected_block_root = lookup.block_root();
-        debug!(self.log,
-            "Peer returned block for single lookup";
-            "peer_id" => %peer_id ,
-            "id" => ?id,
-            "block_root" => ?expected_block_root,
-        );
+        if response.is_some() {
+            debug!(self.log,
+                "Peer returned response for single lookup";
+                "peer_id" => %peer_id ,
+                "id" => ?id,
+                "block_root" => ?expected_block_root,
+                "response_type" => ?response_type,
+            );
+        }
 
         match self.single_lookup_response_inner::<R>(peer_id, response, seen_timestamp, cx, lookup)
         {
@@ -495,12 +497,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         };
 
-        debug!(self.log,
-            "Peer returned block for parent lookup";
-            "peer_id" => %peer_id ,
-            "id" => ?id,
-            "block_root" => ?parent_lookup.current_parent_request.block_request_state.requested_block_root,
-        );
+        if response.is_some() {
+            debug!(self.log,
+                "Peer returned response for parent lookup";
+                "peer_id" => %peer_id ,
+                "id" => ?id,
+                "block_root" => ?parent_lookup.current_parent_request.block_request_state.requested_block_root,
+                "response_type" => ?R::response_type(),
+            );
+        }
 
         match self.parent_lookup_response_inner::<R>(
             peer_id,
