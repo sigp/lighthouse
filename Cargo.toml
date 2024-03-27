@@ -153,7 +153,7 @@ slog = { version = "2", features = ["max_level_trace", "release_max_level_trace"
 slog-async = "2"
 slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
-smallvec = "1.11.2"
+smallvec = "1.13.2"
 snap = "1"
 ssz_types = "0.5"
 strum = { version = "0.24", features = ["derive"] }
@@ -235,6 +235,7 @@ warp_utils = { path = "common/warp_utils" }
 
 [patch.crates-io]
 yamux = { git = "https://github.com/sigp/rust-yamux.git" }
+libp2p-upnp = { git = "https://github.com/sigp/rust-libp2p.git", branch = "fix-upnp" }
 
 [profile.maxperf]
 inherits = "release"
