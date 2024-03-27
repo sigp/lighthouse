@@ -165,13 +165,22 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         expected_block_root: Hash256,
         response: Option<Self::ResponseType>,
     ) -> Result<Option<Self::VerifiedResponseType>, LookupVerifyError> {
-        let request_state = self.get_state_mut();
-        match request_state.get_downloading_peer() {
-            Some(peer_id) => self.verify_response_inner(expected_block_root, response, peer_id),
+        match self.get_state().get_downloading_peer() {
+            Some(peer_id) => match self.verify_response_inner(expected_block_root, response) {
+                Ok(Some(verified_response)) => {
+                    self.get_state_mut().on_download_success(peer_id);
+                    Ok(Some(verified_response))
+                }
+                Ok(None) => Ok(None),
+                Err(e) => {
+                    self.get_state_mut().on_download_failure();
+                    Err(e)
+                }
+            },
             None => match response {
                 Some(_) => {
                     // We sent the block for processing and received an extra block.
-                    request_state.on_download_failure();
+                    self.get_state_mut().on_download_failure();
                     Err(LookupVerifyError::ExtraBlocksReturned)
                 }
                 None => {
@@ -189,7 +198,6 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         &mut self,
         expected_block_root: Hash256,
         response: Option<Self::ResponseType>,
-        peer_id: PeerId,
     ) -> Result<Option<Self::VerifiedResponseType>, LookupVerifyError>;
 
     /// A getter for the parent root of the response. Returns an `Option` because we won't know
@@ -255,7 +263,6 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
         &mut self,
         expected_block_root: Hash256,
         response: Option<Self::ResponseType>,
-        peer_id: PeerId,
     ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, LookupVerifyError> {
         match response {
             Some(block) => {
@@ -266,18 +273,13 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
                     // return an error and drop the block
                     // NOTE: we take this is as a download failure to prevent counting the
                     // attempt as a chain failure, but simply a peer failure.
-                    self.state.on_download_failure();
                     Err(LookupVerifyError::RootMismatch)
                 } else {
                     // Return the block for processing.
-                    self.state.on_download_success(peer_id);
                     Ok(Some(block))
                 }
             }
-            None => {
-                self.state.on_download_failure();
-                Err(LookupVerifyError::NoBlockReturned)
-            }
+            None => Err(LookupVerifyError::NoBlockReturned),
         }
     }
 
@@ -346,13 +348,11 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         &mut self,
         _expected_block_root: Hash256,
         blob: Option<Self::ResponseType>,
-        peer_id: PeerId,
     ) -> Result<Option<FixedBlobSidecarList<T::EthSpec>>, LookupVerifyError> {
         match blob {
             Some(blob) => {
                 let received_id = blob.id();
                 if !self.requested_ids.contains(&received_id) {
-                    self.state.on_download_failure();
                     Err(LookupVerifyError::UnrequestedBlobId)
                 } else {
                     // State should remain downloading until we receive the stream terminator.
@@ -367,7 +367,6 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
                 }
             }
             None => {
-                self.state.on_download_success(peer_id);
                 let blobs = std::mem::take(&mut self.blob_download_queue);
                 Ok(Some(blobs))
             }

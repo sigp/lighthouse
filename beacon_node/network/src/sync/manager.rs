@@ -865,6 +865,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             RequestId::RangeBlocks { id } => {
                 let is_stream_terminator = block.is_none();
+                // TODO: Is ReqResp guaranteed to always emit an event with the stream terminator?
+                // Otherwise this call will leak memory tracking batches
                 if let Some((chain_id, batch_id)) = self
                     .network
                     .range_sync_block_only_response(id, is_stream_terminator)
