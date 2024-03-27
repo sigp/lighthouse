@@ -420,7 +420,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         }
                     }
                     (imported_blocks, Ok(_)) => {
-                        debug!(self.log, "Parent lookup processed successfully");
+                        debug!(
+                            self.log, "Parent lookup processed successfully";
+                            "chain_hash" => %chain_head,
+                            "imported_blocks" => imported_blocks
+                        );
                         BatchProcessResult::Success {
                             was_non_empty: imported_blocks > 0,
                         }
