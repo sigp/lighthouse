@@ -96,7 +96,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     }
 
     pub fn check_peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), ()> {
-        self.current_parent_request.remove_peer(peer_id)
+        self.current_parent_request.check_peer_disconnected(peer_id)
     }
 
     pub fn add_unknown_parent_block(

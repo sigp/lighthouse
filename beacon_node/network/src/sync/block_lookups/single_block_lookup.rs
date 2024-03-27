@@ -119,7 +119,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         }
     }
 
-    pub fn remove_peer(&mut self, peer_id: &PeerId) -> Result<(), ()> {
+    pub fn check_peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), ()> {
         self.block_request_state
             .state
             .check_peer_disconnected(peer_id)?;
@@ -144,18 +144,9 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         log: &Logger,
     ) -> bool {
         let block_root = self.block_root();
-        let block_peer_disconnected = self
-            .block_request_state
-            .state
-            .check_peer_disconnected(peer_id)
-            .is_err();
-        let blob_peer_disconnected = self
-            .blob_request_state
-            .state
-            .check_peer_disconnected(peer_id)
-            .is_err();
+        let request_peer_disconnected = self.check_peer_disconnected(peer_id).is_err();
 
-        if block_peer_disconnected || blob_peer_disconnected {
+        if request_peer_disconnected {
             if let Err(e) = self.request_block_and_blobs(cx) {
                 trace!(log, "Single lookup failed on peer disconnection"; "block_root" => ?block_root, "error" => ?e);
                 return true;
