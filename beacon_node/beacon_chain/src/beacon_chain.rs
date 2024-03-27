@@ -3038,7 +3038,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match import_block.await {
             // The block was successfully verified and imported. Yay.
             Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
-                trace!(
+                debug!(
                     self.log,
                     "Beacon block imported";
                     "block_root" => ?block_root,
@@ -3051,7 +3051,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(status)
             }
             Ok(status @ AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                trace!(
+                debug!(
                     self.log,
                     "Beacon block awaiting blobs";
                     "block_root" => ?block_root,

@@ -831,37 +831,27 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id } => {
-                debug!(self.log,
-                    "Peer returned block for single lookup";
-                    "peer_id" => %peer_id ,
-                );
-                self.block_lookups
-                    .single_lookup_response::<BlockRequestState<Current>>(
-                        id,
-                        peer_id,
-                        block,
-                        seen_timestamp,
-                        &self.network,
-                    )
-            }
+            RequestId::SingleBlock { id } => self
+                .block_lookups
+                .single_lookup_response::<BlockRequestState<Current>>(
+                    id,
+                    peer_id,
+                    block,
+                    seen_timestamp,
+                    &self.network,
+                ),
             RequestId::SingleBlob { .. } => {
                 crit!(self.log, "Block received during blob request"; "peer_id" => %peer_id  );
             }
-            RequestId::ParentLookup { id } => {
-                debug!(self.log,
-                    "Peer returned block for parent lookup";
-                    "peer_id" => %peer_id ,
-                );
-                self.block_lookups
-                    .parent_lookup_response::<BlockRequestState<Parent>>(
-                        id,
-                        peer_id,
-                        block,
-                        seen_timestamp,
-                        &self.network,
-                    )
-            }
+            RequestId::ParentLookup { id } => self
+                .block_lookups
+                .parent_lookup_response::<BlockRequestState<Parent>>(
+                    id,
+                    peer_id,
+                    block,
+                    seen_timestamp,
+                    &self.network,
+                ),
             RequestId::ParentLookupBlob { id: _ } => {
                 crit!(self.log, "Block received during parent blob request"; "peer_id" => %peer_id  );
             }

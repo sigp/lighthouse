@@ -309,6 +309,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         let expected_block_root = lookup.block_root();
+        debug!(self.log,
+            "Peer returned block for single lookup";
+            "peer_id" => %peer_id ,
+            "id" => ?id,
+            "block_root" => ?expected_block_root,
+        );
 
         match self.single_lookup_response_inner::<R>(peer_id, response, seen_timestamp, cx, lookup)
         {
@@ -488,6 +494,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             return;
         };
+
+        debug!(self.log,
+            "Peer returned block for parent lookup";
+            "peer_id" => %peer_id ,
+            "id" => ?id,
+            "block_root" => ?parent_lookup.current_parent_request.block_request_state.requested_block_root,
+        );
 
         match self.parent_lookup_response_inner::<R>(
             peer_id,
@@ -739,6 +752,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "Block component processed for lookup";
             "response_type" => ?R::response_type(),
             "block_root" => ?root,
+            "result" => ?result,
+            "id" => target_id,
         );
 
         match result {
@@ -912,7 +927,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     debug!(self.log, "Parent block processing succeeded"; &parent_lookup, "block_root" => ?block_root)
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
-                    debug!(self.log, "Parent missing parts, triggering single block lookup "; &parent_lookup,"block_root" => ?block_root)
+                    debug!(self.log, "Parent missing parts, triggering single block lookup"; &parent_lookup,"block_root" => ?block_root)
                 }
             },
             BlockProcessingResult::Err(e) => {
@@ -1234,7 +1249,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) -> Result<(), LookupRequestError> {
         match cx.beacon_processor_if_enabled() {
             Some(beacon_processor) => {
-                trace!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
+                debug!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
                 if let Err(e) = beacon_processor.send_rpc_beacon_block(
                     block_root,
                     block,
