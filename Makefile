@@ -82,6 +82,11 @@ build-aarch64:
 build-aarch64-portable:
 	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 
+build-lcli-x86_64:
+	cross build --bin lcli --target x86_64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+build-lcli-aarch64:
+	cross build --bin lcli --target aarch64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
 	cp $(1)/lighthouse $(BIN_DIR)/lighthouse
