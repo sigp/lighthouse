@@ -223,3 +223,4 @@ OPTIONS:
         --web3-signer-max-idle-connections <COUNT>
             Maximum number of idle connections to maintain per web3signer host. Default is unlimited.
 ```
+<style> .content main {max-width:88%;} </style>

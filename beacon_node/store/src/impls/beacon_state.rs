@@ -1,8 +1,6 @@
 use crate::*;
 use ssz::{DecodeError, Encode};
 use ssz_derive::Encode;
-use std::convert::TryInto;
-use types::beacon_state::{CloneConfig, CommitteeCache, CACHED_EPOCHS};
 
 pub fn store_full_state<E: EthSpec>(
     state_root: &Hash256,

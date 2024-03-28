@@ -175,6 +175,9 @@ pub fn get_config<E: EthSpec>(
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
     }
+    if let Some(cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
+        client_config.chain.snapshot_cache_size = cache_size;
+    }
 
     /*
      * Prometheus metrics HTTP server
@@ -347,7 +350,9 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
-        el_config.default_datadir = client_config.data_dir().clone();
+        el_config
+            .default_datadir
+            .clone_from(client_config.data_dir());
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);

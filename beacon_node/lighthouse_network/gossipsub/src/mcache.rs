@@ -221,7 +221,7 @@ impl MessageCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gossipsub::types::RawMessage;
+    use crate::types::RawMessage;
     use crate::{IdentTopic as Topic, TopicHash};
     use libp2p::identity::PeerId;
 

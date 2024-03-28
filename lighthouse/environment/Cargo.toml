@@ -5,6 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [dependencies]
+async-channel = { workspace = true }
 tokio = { workspace = true }
 slog = { workspace = true }
 sloggers = { workspace = true }
@@ -17,7 +18,6 @@ slog-term = { workspace = true }
 slog-async = { workspace = true }
 futures = { workspace = true }
 slog-json = "2.3.0"
-exit-future = { workspace = true }
 serde = { workspace = true }
 
 [target.'cfg(not(target_family = "unix"))'.dependencies]

@@ -68,7 +68,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use sysinfo::{System, SystemExt};
-use system_health::observe_system_health_bn;
+use system_health::{observe_nat, observe_system_health_bn};
 use task_spawner::{Priority, TaskSpawner};
 use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
@@ -2337,7 +2337,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let fork_name = chain
                         .spec
-                        .fork_name_at_slot::<T::EthSpec>(update.signature_slot);
+                        .fork_name_at_slot::<T::EthSpec>(*update.signature_slot());
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -2384,7 +2384,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let fork_name = chain
                         .spec
-                        .fork_name_at_slot::<T::EthSpec>(update.signature_slot);
+                        .fork_name_at_slot::<T::EthSpec>(*update.signature_slot());
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -3448,34 +3448,34 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    for subscription in &subscriptions {
-                        chain
-                            .validator_monitor
-                            .write()
-                            .auto_register_local_validator(subscription.validator_index);
-
-                        let validator_subscription = api_types::ValidatorSubscription {
-                            validator_index: subscription.validator_index,
-                            attestation_committee_index: subscription.committee_index,
-                            slot: subscription.slot,
-                            committee_count_at_slot: subscription.committees_at_slot,
-                            is_aggregator: subscription.is_aggregator,
-                        };
-
-                        let message = ValidatorSubscriptionMessage::AttestationSubscribe {
-                            subscriptions: vec![validator_subscription],
-                        };
-                        if let Err(e) = validator_subscription_tx.try_send(message) {
-                            warn!(
-                                log,
-                                "Unable to process committee subscriptions";
-                                "info" => "the host may be overloaded or resource-constrained",
-                                "error" => ?e,
-                            );
-                            return Err(warp_utils::reject::custom_server_error(
-                                "unable to queue subscription, host may be overloaded or shutting down".to_string(),
-                            ));
-                        }
+                    let subscriptions: std::collections::BTreeSet<_> = subscriptions
+                        .iter()
+                        .map(|subscription| {
+                            chain
+                                .validator_monitor
+                                .write()
+                                .auto_register_local_validator(subscription.validator_index);
+                            api_types::ValidatorSubscription {
+                                attestation_committee_index: subscription.committee_index,
+                                slot: subscription.slot,
+                                committee_count_at_slot: subscription.committees_at_slot,
+                                is_aggregator: subscription.is_aggregator,
+                            }
+                        })
+                        .collect();
+                    let message =
+                        ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions };
+                    if let Err(e) = validator_subscription_tx.try_send(message) {
+                        warn!(
+                            log,
+                            "Unable to process committee subscriptions";
+                            "info" => "the host may be overloaded or resource-constrained",
+                            "error" => ?e,
+                        );
+                        return Err(warp_utils::reject::custom_server_error(
+                            "unable to queue subscription, host may be overloaded or shutting down"
+                                .to_string(),
+                        ));
                     }
 
                     Ok(())
@@ -3965,13 +3965,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .then(|task_spawner: TaskSpawner<T::EthSpec>| {
             task_spawner.blocking_json_task(Priority::P1, move || {
-                Ok(api_types::GenericResponse::from(
-                    lighthouse_network::metrics::NAT_OPEN
-                        .as_ref()
-                        .map(|v| v.get())
-                        .unwrap_or(0)
-                        != 0,
-                ))
+                Ok(api_types::GenericResponse::from(observe_nat()))
             })
         });
 

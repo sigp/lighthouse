@@ -2,7 +2,7 @@
 
 use crate::test_utils::*;
 use crate::*;
-use types::{AttestationData, Checkpoint, Epoch, Hash256, Slot};
+use types::{AttestationData, Checkpoint, Epoch, Slot};
 
 pub fn build_checkpoint(epoch_num: u64) -> Checkpoint {
     Checkpoint {

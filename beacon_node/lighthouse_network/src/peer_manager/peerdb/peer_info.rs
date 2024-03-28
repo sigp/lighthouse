@@ -307,13 +307,13 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Checks if the peer is outbound-only
     pub fn is_outbound_only(&self) -> bool {
-        matches!(self.connection_status, Connected {n_in, n_out} if n_in == 0 && n_out > 0)
+        matches!(self.connection_status, Connected {n_in, n_out, ..} if n_in == 0 && n_out > 0)
     }
 
     /// Returns the number of connections with this peer.
     pub fn connections(&self) -> (u8, u8) {
         match self.connection_status {
-            Connected { n_in, n_out } => (n_in, n_out),
+            Connected { n_in, n_out, .. } => (n_in, n_out),
             _ => (0, 0),
         }
     }
@@ -421,7 +421,9 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Modifies the status to Connected and increases the number of ingoing
     /// connections by one
-    pub(super) fn connect_ingoing(&mut self, seen_multiaddr: Option<Multiaddr>) {
+    pub(super) fn connect_ingoing(&mut self, multiaddr: Multiaddr) {
+        self.seen_multiaddrs.insert(multiaddr.clone());
+
         match &mut self.connection_status {
             Connected { n_in, .. } => *n_in += 1,
             Disconnected { .. }
@@ -429,19 +431,20 @@ impl<T: EthSpec> PeerInfo<T> {
             | Dialing { .. }
             | Disconnecting { .. }
             | Unknown => {
-                self.connection_status = Connected { n_in: 1, n_out: 0 };
+                self.connection_status = Connected {
+                    n_in: 1,
+                    n_out: 0,
+                    multiaddr,
+                };
                 self.connection_direction = Some(ConnectionDirection::Incoming);
             }
-        }
-
-        if let Some(multiaddr) = seen_multiaddr {
-            self.seen_multiaddrs.insert(multiaddr);
         }
     }
 
     /// Modifies the status to Connected and increases the number of outgoing
     /// connections by one
-    pub(super) fn connect_outgoing(&mut self, seen_multiaddr: Option<Multiaddr>) {
+    pub(super) fn connect_outgoing(&mut self, multiaddr: Multiaddr) {
+        self.seen_multiaddrs.insert(multiaddr.clone());
         match &mut self.connection_status {
             Connected { n_out, .. } => *n_out += 1,
             Disconnected { .. }
@@ -449,12 +452,13 @@ impl<T: EthSpec> PeerInfo<T> {
             | Dialing { .. }
             | Disconnecting { .. }
             | Unknown => {
-                self.connection_status = Connected { n_in: 0, n_out: 1 };
+                self.connection_status = Connected {
+                    n_in: 0,
+                    n_out: 1,
+                    multiaddr,
+                };
                 self.connection_direction = Some(ConnectionDirection::Outgoing);
             }
-        }
-        if let Some(multiaddr) = seen_multiaddr {
-            self.seen_multiaddrs.insert(multiaddr);
         }
     }
 
@@ -487,6 +491,8 @@ pub enum ConnectionDirection {
 pub enum PeerConnectionStatus {
     /// The peer is connected.
     Connected {
+        /// The multiaddr that we are connected via.
+        multiaddr: Multiaddr,
         /// number of ingoing connections.
         n_in: u8,
         /// number of outgoing connections.
@@ -522,7 +528,12 @@ impl Serialize for PeerConnectionStatus {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("connection_status", 6)?;
         match self {
-            Connected { n_in, n_out } => {
+            Connected {
+                n_in,
+                n_out,
+                multiaddr,
+            } => {
+                s.serialize_field("multiaddr", multiaddr)?;
                 s.serialize_field("status", "connected")?;
                 s.serialize_field("connections_in", n_in)?;
                 s.serialize_field("connections_out", n_out)?;
