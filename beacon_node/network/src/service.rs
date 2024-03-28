@@ -2,6 +2,7 @@ use super::sync::manager::RequestId as SyncId;
 use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
+use crate::prefix_mapping::PrefixMapping;
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::SyncCommitteeService;
 use crate::{error, metrics};
@@ -16,7 +17,7 @@ use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
 use lighthouse_network::service::Network;
-use lighthouse_network::types::GossipKind;
+use lighthouse_network::types::{DiscoveryTarget, GossipKind, TargetedSubnetDiscovery};
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode},
@@ -26,7 +27,9 @@ use lighthouse_network::{
     types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
+use rand::seq::SliceRandom;
 use slog::{crit, debug, error, info, o, trace, warn};
+use slot_clock::SlotClock;
 use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -204,6 +207,10 @@ pub struct NetworkService<T: BeaconChainTypes> {
     enable_light_client_server: bool,
     /// The logger for the network service.
     fork_context: Arc<ForkContext>,
+    /// Prefix search for attestation subnets.
+    prefix_search_for_subnet: bool,
+    /// Mappings of `SubnetId` to `NodeId`s for subnet discovery.
+    prefix_mapping: PrefixMapping,
     log: slog::Logger,
 }
 
@@ -343,6 +350,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // create the network service and spawn the task
         let network_log = network_log.new(o!("service" => "network"));
+        let prefix_mapping = PrefixMapping::new(beacon_chain.spec.clone());
         let network_service = NetworkService {
             beacon_chain,
             libp2p,
@@ -362,6 +370,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             metrics_update,
             gossipsub_parameter_update,
             fork_context,
+            prefix_search_for_subnet: config.prefix_search_for_subnet,
+            prefix_mapping,
             log: network_log,
             enable_light_client_server: config.enable_light_client_server,
         };
@@ -854,7 +864,46 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.libp2p.update_enr_subnet(subnet, false);
             }
             SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
-                self.libp2p.discover_subnet_peers(subnets_to_discover);
+                let current_epoch = match self.beacon_chain.slot_clock.now() {
+                    Some(slot) => slot.epoch(T::EthSpec::slots_per_epoch()),
+                    None => {
+                        warn!(self.log, "Failed to read slot clock");
+                        return;
+                    }
+                };
+                let subnet_discoveries = subnets_to_discover
+                    .into_iter()
+                    .map(|s| {
+                        let target = if self.prefix_search_for_subnet {
+                            let subnet_id = match &s.subnet {
+                                Subnet::Attestation(subnet_id) => subnet_id,
+                                Subnet::SyncCommittee(_) => unreachable!("sync committee subnet should not be here"),
+                            };
+                            match self.prefix_mapping.get_target_nodes::<T::EthSpec>(subnet_id, current_epoch) {
+                                Ok(mut node_ids) => {
+                                    node_ids.shuffle(&mut rand::thread_rng());
+                                    DiscoveryTarget::Prefix(node_ids)
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        self.log,
+                                        "Failed to get target NodeIds for prefix search. Falling back to random id."; "error" => %e, "subnet_id" => ?subnet_id, "current_epoch" => %current_epoch
+                                    );
+                                    DiscoveryTarget::Random
+                                }
+                            }
+                        } else {
+                            DiscoveryTarget::Random
+                        };
+
+                        TargetedSubnetDiscovery {
+                            subnet: s.subnet,
+                            min_ttl: s.min_ttl,
+                            target,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                self.libp2p.discover_subnet_peers(subnet_discoveries);
             }
         }
     }
@@ -882,7 +931,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.libp2p.update_enr_subnet(subnet, false);
             }
             SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
-                self.libp2p.discover_subnet_peers(subnets_to_discover);
+                let subnet_discoveries = subnets_to_discover
+                    .into_iter()
+                    .map(|s| TargetedSubnetDiscovery {
+                        subnet: s.subnet,
+                        min_ttl: s.min_ttl,
+                        target: DiscoveryTarget::Random,
+                    })
+                    .collect::<Vec<_>>();
+                self.libp2p.discover_subnet_peers(subnet_discoveries);
             }
         }
     }

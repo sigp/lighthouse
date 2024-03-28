@@ -8,7 +8,7 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 use crate::service::TARGET_SUBNET_PEERS;
-use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
+use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet};
 use crate::{metrics, ClearDialError};
 use discv5::{enr::NodeId, Discv5};
 pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2Enr};
@@ -46,6 +46,7 @@ use tokio::sync::mpsc;
 use types::{EnrForkId, EthSpec};
 
 mod subnet_predicate;
+use crate::types::{DiscoveryTarget, TargetedSubnetDiscovery};
 pub use subnet_predicate::subnet_predicate;
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -97,6 +98,7 @@ struct SubnetQuery {
     subnet: Subnet,
     min_ttl: Option<Instant>,
     retries: usize,
+    target: DiscoveryTarget,
 }
 
 impl SubnetQuery {
@@ -121,6 +123,7 @@ impl std::fmt::Debug for SubnetQuery {
             .field("subnet", &self.subnet)
             .field("min_ttl_secs", &min_ttl_secs)
             .field("retries", &self.retries)
+            .field("target", &self.target)
             .finish()
     }
 }
@@ -355,11 +358,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let target_peers = std::cmp::min(FIND_NODE_QUERY_CLOSEST_PEERS, target_peers);
         debug!(self.log, "Starting a peer discovery request"; "target_peers" => target_peers );
         self.find_peer_active = true;
-        self.start_query(QueryType::FindPeers, target_peers, |_| true);
+        self.start_query(QueryType::FindPeers, NodeId::random(), target_peers, |_| {
+            true
+        });
     }
 
     /// Processes a request to search for more peers on a subnet.
-    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
+    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<TargetedSubnetDiscovery>) {
         // If the discv5 service isn't running, ignore queries
         if !self.started {
             return;
@@ -370,7 +375,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>()
         );
         for subnet in subnets_to_discover {
-            self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0);
+            self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0, subnet.target);
         }
     }
 
@@ -597,7 +602,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /// Adds a subnet query if one doesn't exist. If a subnet query already exists, this
     /// updates the min_ttl field.
-    fn add_subnet_query(&mut self, subnet: Subnet, min_ttl: Option<Instant>, retries: usize) {
+    fn add_subnet_query(
+        &mut self,
+        subnet: Subnet,
+        min_ttl: Option<Instant>,
+        retries: usize,
+        target: DiscoveryTarget,
+    ) {
         // remove the entry and complete the query if greater than the maximum search count
         if retries > MAX_DISCOVERY_RETRY {
             debug!(
@@ -629,6 +640,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 subnet,
                 min_ttl,
                 retries,
+                target,
             });
             metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
         }
@@ -680,8 +692,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /// Runs a discovery request for a given group of subnets.
     fn start_subnet_query(&mut self, subnet_queries: Vec<SubnetQuery>) {
-        let mut filtered_subnets: Vec<Subnet> = Vec::new();
-
         // find subnet queries that are still necessary
         let filtered_subnet_queries: Vec<SubnetQuery> = subnet_queries
             .into_iter()
@@ -709,27 +719,81 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     "connected_peers_on_subnet" => peers_on_subnet,
                     "peers_to_find" => target_peers,
                 );
-
-                filtered_subnets.push(subnet_query.subnet);
                 true
             })
             .collect();
 
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
-            // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate = subnet_predicate::<TSpec>(filtered_subnets, &self.log);
+            let (random_search, prefix_search): (Vec<_>, Vec<_>) = filtered_subnet_queries
+                .into_iter()
+                .partition(|q| q.target == DiscoveryTarget::Random);
 
-            debug!(
-                self.log,
-                "Starting grouped subnet query";
-                "subnets" => ?filtered_subnet_queries,
-            );
-            self.start_query(
-                QueryType::Subnet(filtered_subnet_queries),
-                TARGET_PEERS_FOR_GROUPED_QUERY,
-                subnet_predicate,
-            );
+            if !random_search.is_empty() {
+                // Build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
+                let subnet_predicate = subnet_predicate::<TSpec>(
+                    random_search.iter().map(|q| q.subnet).collect::<Vec<_>>(),
+                    &self.log,
+                );
+                debug!(
+                    self.log,
+                    "Starting grouped subnet query";
+                    "subnets" => ?random_search,
+                );
+                self.start_query(
+                    QueryType::Subnet(random_search),
+                    NodeId::random(),
+                    TARGET_PEERS_FOR_GROUPED_QUERY,
+                    subnet_predicate,
+                );
+            }
+
+            if !prefix_search.is_empty() {
+                // Split the grouped subnet query into individual queries in order to prefix search.
+                for prefix_query in prefix_search {
+                    // Target node
+                    let target_node = match &prefix_query.target {
+                        DiscoveryTarget::Random => unreachable!("target should be Prefix here"),
+                        DiscoveryTarget::Prefix(node_ids) if node_ids.is_empty() => {
+                            warn!(
+                                self.log,
+                                "No NodeIds given for prefix search, falling back to random search.";
+                                "subnet" => ?prefix_query,
+                            );
+                            NodeId::random()
+                        }
+                        DiscoveryTarget::Prefix(node_ids) => {
+                            let pos = prefix_query.retries % node_ids.len();
+                            if let Some(id) = node_ids.get(pos) {
+                                *id
+                            } else {
+                                warn!(
+                                    self.log,
+                                    "NodeIds were given for prefix search, but the offset was wrong. Choosing the first one instead.";
+                                    "subnet" => ?prefix_query,
+                                );
+                                *node_ids
+                                    .first()
+                                    .expect("Already checked that `node_ids` is not empty.")
+                            }
+                        }
+                    };
+                    // Build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
+                    let subnet_predicate =
+                        subnet_predicate::<TSpec>(vec![prefix_query.subnet], &self.log);
+                    debug!(
+                        self.log,
+                        "Starting prefix search query";
+                        "subnet" => ?prefix_query,
+                    );
+                    self.start_query(
+                        QueryType::Subnet(vec![prefix_query]),
+                        target_node,
+                        TARGET_PEERS_FOR_GROUPED_QUERY,
+                        subnet_predicate,
+                    );
+                }
+            }
         }
     }
 
@@ -740,7 +804,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// ENR.
     fn start_query(
         &mut self,
-        query: QueryType,
+        query_type: QueryType,
+        target_node: NodeId,
         target_peers: usize,
         additional_predicate: impl Fn(&Enr) -> bool + Send + 'static,
     ) {
@@ -763,14 +828,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // General predicate
         let predicate: Box<dyn Fn(&Enr) -> bool + Send> =
             Box::new(move |enr: &Enr| eth2_fork_predicate(enr) && additional_predicate(enr));
-
         // Build the future
         let query_future = self
             .discv5
             // Generate a random target node id.
-            .find_node_predicate(NodeId::random(), predicate, target_peers)
+            .find_node_predicate(target_node, predicate, target_peers)
             .map(|v| QueryResult {
-                query_type: query,
+                query_type,
                 result: v,
             });
 
@@ -814,7 +878,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     Ok(r) if r.is_empty() => {
                         debug!(self.log, "Grouped subnet discovery query yielded no results."; "subnets_searched_for" => ?subnets_searched_for);
                         queries.iter().for_each(|query| {
-                            self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
+                            self.add_subnet_query(
+                                query.subnet,
+                                query.min_ttl,
+                                query.retries + 1,
+                                query.target.clone(),
+                            );
                         })
                     }
                     Ok(r) => {
@@ -841,7 +910,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                                 v.inc();
                             }
                             // A subnet query has completed. Add back to the queue, incrementing retries.
-                            self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
+                            self.add_subnet_query(
+                                query.subnet,
+                                query.min_ttl,
+                                query.retries + 1,
+                                query.target.clone(),
+                            );
 
                             // Check the specific subnet against the enr
                             let subnet_predicate =
@@ -1189,17 +1263,24 @@ mod tests {
             subnet: Subnet::Attestation(SubnetId::new(1)),
             min_ttl: Some(now),
             retries: 0,
+            target: DiscoveryTarget::Prefix(vec![NodeId::random(), NodeId::random()]),
         };
         discovery.add_subnet_query(
             subnet_query.subnet,
             subnet_query.min_ttl,
             subnet_query.retries,
+            subnet_query.target.clone(),
         );
         assert_eq!(discovery.queued_queries.back(), Some(&subnet_query));
 
         // New query should replace old query
         subnet_query.min_ttl = Some(now + Duration::from_secs(1));
-        discovery.add_subnet_query(subnet_query.subnet, subnet_query.min_ttl, 1);
+        discovery.add_subnet_query(
+            subnet_query.subnet,
+            subnet_query.min_ttl,
+            1,
+            subnet_query.target.clone(),
+        );
 
         subnet_query.retries += 1;
 
@@ -1215,6 +1296,7 @@ mod tests {
             subnet_query.subnet,
             subnet_query.min_ttl,
             MAX_DISCOVERY_RETRY + 1,
+            subnet_query.target.clone(),
         );
 
         assert_eq!(discovery.queued_queries.len(), 0);
@@ -1247,11 +1329,13 @@ mod tests {
                 subnet: Subnet::Attestation(SubnetId::new(1)),
                 min_ttl: instant1,
                 retries: 0,
+                target: DiscoveryTarget::Prefix(vec![NodeId::random(), NodeId::random()]),
             },
             SubnetQuery {
                 subnet: Subnet::Attestation(SubnetId::new(2)),
                 min_ttl: instant2,
                 retries: 0,
+                target: DiscoveryTarget::Prefix(vec![NodeId::random(), NodeId::random()]),
             },
         ]);
 

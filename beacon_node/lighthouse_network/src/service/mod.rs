@@ -14,9 +14,10 @@ use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
-    attestation_sync_committee_topics, fork_core_topics, subnet_from_topic_hash, GossipEncoding,
-    GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS,
-    BASE_CORE_TOPICS, CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
+    attestation_sync_committee_topics, fork_core_topics, subnet_from_topic_hash, DiscoveryTarget,
+    GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet, TargetedSubnetDiscovery,
+    ALTAIR_CORE_TOPICS, BASE_CORE_TOPICS, CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS,
+    LIGHT_CLIENT_GOSSIP_TOPICS,
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
@@ -50,6 +51,7 @@ mod behaviour;
 mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
 pub mod utils;
+
 /// The number of peers we target per subnet for discovery queries.
 pub const TARGET_SUBNET_PEERS: usize = 3;
 
@@ -995,13 +997,13 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
     /// would like to retain the peers for.
-    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
+    pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<TargetedSubnetDiscovery>) {
         // If discovery is not started or disabled, ignore the request
         if !self.discovery().started {
             return;
         }
 
-        let filtered: Vec<SubnetDiscovery> = subnets_to_discover
+        let filtered: Vec<TargetedSubnetDiscovery> = subnets_to_discover
             .into_iter()
             .filter(|s| {
                 // Extend min_ttl of connected peers on required subnets
@@ -1625,7 +1627,15 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             }
             PeerManagerEvent::DiscoverSubnetPeers(subnets_to_discover) => {
                 // Peer manager has requested a subnet discovery query for more peers.
-                self.discover_subnet_peers(subnets_to_discover);
+                let subnet_discoveries = subnets_to_discover
+                    .into_iter()
+                    .map(|s| TargetedSubnetDiscovery {
+                        subnet: s.subnet,
+                        min_ttl: s.min_ttl,
+                        target: DiscoveryTarget::Random,
+                    })
+                    .collect::<Vec<_>>();
+                self.discover_subnet_peers(subnet_discoveries);
                 None
             }
             PeerManagerEvent::Ping(peer_id) => {
