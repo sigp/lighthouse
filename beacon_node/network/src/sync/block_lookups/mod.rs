@@ -176,39 +176,70 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         lookup_id: SingleLookupReqId,
         peer_id: PeerId,
-        response: Option<R::ResponseType>,
+        response: Result<Option<R::ResponseType>, RPCError>,
         seen_timestamp: Duration,
         cx: &SyncNetworkContext<T>,
     ) {
         let id = lookup_id.id;
         let response_type = R::response_type();
 
-        let Some(lookup) = self.get_single_lookup::<R>(lookup_id) else {
-            if response.is_some() {
-                // We don't have the ability to cancel in-flight RPC requests. So this can happen
-                // if we started this RPC request, and later saw the block/blobs via gossip.
-                debug!(
-                    self.log,
-                    "Block returned for single block lookup not present";
-                        "response_type" => ?response_type,
-                );
+        let Some(mut lookup) = self.get_single_lookup::<R>(lookup_id) else {
+            if let Ok(response) = response {
+                if response.is_some() {
+                    // We don't have the ability to cancel in-flight RPC requests. So this can happen
+                    // if we started this RPC request, and later saw the block/blobs via gossip.
+                    debug!(
+                        self.log,
+                        "Block returned for single block lookup not present";
+                            "response_type" => ?response_type,
+                    );
+                }
             }
             return;
         };
 
-        let expected_block_root = lookup.block_root();
+        let block_root = lookup.block_root();
 
-        match self.single_lookup_response_inner::<R>(peer_id, response, seen_timestamp, cx, lookup)
-        {
-            Ok(lookup) => {
-                self.single_block_lookups.insert(id, lookup);
+        match response {
+            Ok(response) => {
+                match self.single_lookup_response_inner::<R>(
+                    peer_id,
+                    response,
+                    seen_timestamp,
+                    cx,
+                    lookup,
+                ) {
+                    Ok(lookup) => {
+                        self.single_block_lookups.insert(id, lookup);
+                    }
+                    Err(e) => {
+                        debug!(self.log,
+                            "Single lookup request failed";
+                            "error" => ?e,
+                            "block_root" => ?block_root,
+                        );
+                    }
+                }
             }
-            Err(e) => {
-                debug!(self.log,
-                    "Single lookup request failed";
-                    "error" => ?e,
-                    "block_root" => ?expected_block_root,
+            Err(error) => {
+                trace!(self.log,
+                    "Single lookup failed";
+                    "block_root" => ?block_root,
+                    "error" => error.as_static_str(),
+                    "peer_id" => %peer_id,
+                    "response_type" => ?response_type
                 );
+
+                let request_state = R::request_state_mut(&mut lookup);
+                request_state.register_failure_downloading();
+                if let Err(e) = lookup.request_block_and_blobs(cx) {
+                    debug!(self.log,
+                        "Single lookup retry failed";
+                        "error" => ?e,
+                        "block_root" => ?block_root,
+                    );
+                    self.single_block_lookups.remove(&id);
+                }
             }
         }
 
@@ -310,47 +341,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
             !should_drop_lookup
         });
-    }
-
-    /// An RPC error has occurred during a single lookup. This function handles this case.\
-    pub fn single_block_lookup_failed<R: RequestState<T>>(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: &PeerId,
-        cx: &SyncNetworkContext<T>,
-        error: RPCError,
-    ) {
-        let msg = error.as_static_str();
-        let log = self.log.clone();
-        let Some(mut lookup) = self.get_single_lookup::<R>(id) else {
-            debug!(log, "Error response to dropped lookup"; "error" => ?error);
-            return;
-        };
-        let block_root = lookup.block_root();
-        let request_state = R::request_state_mut(&mut lookup);
-        let response_type = R::response_type();
-        trace!(log,
-            "Single lookup failed";
-            "block_root" => ?block_root,
-            "error" => msg,
-            "peer_id" => %peer_id,
-            "response_type" => ?response_type
-        );
-        let id = id.id;
-        request_state.register_failure_downloading();
-        if let Err(e) = lookup.request_block_and_blobs(cx) {
-            debug!(self.log,
-                "Single lookup retry failed";
-                "error" => ?e,
-                "block_root" => ?block_root,
-            );
-            self.single_block_lookups.remove(&id);
-        }
-
-        metrics::set_gauge(
-            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
-            self.single_block_lookups.len() as i64,
-        );
     }
 
     /* Processing responses */

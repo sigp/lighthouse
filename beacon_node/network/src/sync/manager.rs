@@ -293,20 +293,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match request_id {
             RequestId::SingleBlock { id } => {
                 self.block_lookups
-                    .single_block_lookup_failed::<BlockRequestState<T::EthSpec>>(
+                    .single_lookup_response::<BlockRequestState<T::EthSpec>>(
                         id,
-                        &peer_id,
+                        peer_id,
+                        Err(error),
+                        timestamp_now(),
                         &self.network,
-                        error,
                     );
             }
             RequestId::SingleBlob { id } => {
                 self.block_lookups
-                    .single_block_lookup_failed::<BlobRequestState<T::EthSpec>>(
+                    .single_lookup_response::<BlobRequestState<T::EthSpec>>(
                         id,
-                        &peer_id,
+                        peer_id,
+                        Err(error),
+                        timestamp_now(),
                         &self.network,
-                        error,
                     );
             }
             RequestId::BackFillBlocks { id } => {
@@ -715,7 +717,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .single_lookup_response::<BlockRequestState<T::EthSpec>>(
                         id,
                         peer_id,
-                        block,
+                        Ok(block),
                         timestamp_now(),
                         &mut self.network,
                     ),
@@ -724,7 +726,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .single_lookup_response::<BlobRequestState<T::EthSpec>>(
                         id,
                         peer_id,
-                        blob,
+                        Ok(blob),
                         timestamp_now(),
                         &mut self.network,
                     ),
@@ -822,7 +824,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .single_lookup_response::<BlockRequestState<T::EthSpec>>(
                     id,
                     peer_id,
-                    block,
+                    Ok(block),
                     seen_timestamp,
                     &self.network,
                 ),
@@ -903,7 +905,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .single_lookup_response::<BlobRequestState<T::EthSpec>>(
                         id,
                         peer_id,
-                        blob,
+                        Ok(blob),
                         seen_timestamp,
                         &self.network,
                     )
