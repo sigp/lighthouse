@@ -1653,11 +1653,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 let mut iter = addr.iter();
                 let is_ip6 = {
                     let addr = iter.next();
-                    if let Some(MProtocol::Ip6(_)) = addr {
-                        true
-                    } else {
-                        false
-                    }
+                    matches!(addr, Some(MProtocol::Ip6(_)))
                 };
                 match iter.next() {
                     Some(multiaddr::Protocol::Udp(udp_port)) => match iter.next() {
