@@ -401,14 +401,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     ///
     /// This returns Ok(true) if the ENR was updated, otherwise Ok(false) if nothing was done.
     pub fn update_enr_tcp_port(&mut self, port: u16, v6: bool) -> Result<bool, String> {
-
         let enr_field = if v6 {
             if self.discv5.external_enr().read().tcp6() == Some(port) {
                 // The field is already set to the same value, nothing to do
                 return Ok(false);
             }
             "tcp6"
-            } else {
+        } else {
             if self.discv5.external_enr().read().tcp4() == Some(port) {
                 // The field is already set to the same value, nothing to do
                 return Ok(false);
@@ -433,14 +432,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     // addressed properly in the following issue.
     // https://github.com/sigp/lighthouse/issues/4706
     pub fn update_enr_quic_port(&mut self, port: u16, v6: bool) -> Result<bool, String> {
-
         let enr_field = if v6 {
             if self.discv5.external_enr().read().quic6() == Some(port) {
                 // The field is already set to the same value, nothing to do
                 return Ok(false);
             }
             "quic6"
-            } else {
+        } else {
             if self.discv5.external_enr().read().quic4() == Some(port) {
                 // The field is already set to the same value, nothing to do
                 return Ok(false);

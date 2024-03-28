@@ -1653,7 +1653,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 let mut iter = addr.iter();
                 let is_ip6 = {
                     let addr = iter.next();
-                    if let Some(MProtocol::Ip6(_)) = addr  {
+                    if let Some(MProtocol::Ip6(_)) = addr {
                         true
                     } else {
                         false
@@ -1662,7 +1662,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 match iter.next() {
                     Some(multiaddr::Protocol::Udp(udp_port)) => match iter.next() {
                         Some(multiaddr::Protocol::QuicV1) => {
-                            if let Err(e) = self.discovery_mut().update_enr_quic_port(udp_port, is_ip6) {
+                            if let Err(e) =
+                                self.discovery_mut().update_enr_quic_port(udp_port, is_ip6)
+                            {
                                 warn!(self.log, "Failed to update ENR"; "error" => e);
                             }
                         }
