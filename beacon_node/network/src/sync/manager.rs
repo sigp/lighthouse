@@ -298,7 +298,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         peer_id,
                         Err(error),
                         timestamp_now(),
-                        &self.network,
+                        &mut self.network,
                     );
             }
             RequestId::SingleBlob { id } => {
@@ -308,7 +308,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         peer_id,
                         Err(error),
                         timestamp_now(),
-                        &self.network,
+                        &mut self.network,
                     );
             }
             RequestId::BackFillBlocks { id } => {
@@ -826,7 +826,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     peer_id,
                     Ok(block),
                     seen_timestamp,
-                    &self.network,
+                    &mut self.network,
                 ),
             RequestId::SingleBlob { .. } => {
                 crit!(self.log, "Block received during blob request"; "peer_id" => %peer_id  );
@@ -907,7 +907,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         peer_id,
                         Ok(blob),
                         seen_timestamp,
-                        &self.network,
+                        &mut self.network,
                     )
             }
 
