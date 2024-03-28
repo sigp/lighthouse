@@ -434,7 +434,7 @@ jobs:
       uses: super-linter/super-linter@v6.3.0
       env:
         VALIDATE_MARKDOWN: true
-
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
   test-suite-success:
