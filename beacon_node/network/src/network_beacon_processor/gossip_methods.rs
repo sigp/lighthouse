@@ -754,7 +754,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        match self.chain.process_gossip_blob(verified_blob).await {
+        match self
+            .chain
+            .process_gossip_blob(verified_blob, || Ok(()))
+            .await
+        {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 // Note: Reusing block imported metric here
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);

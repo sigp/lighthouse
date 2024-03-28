@@ -1803,12 +1803,13 @@ impl<T: EthSpec> PublishBlockRequest<T> {
 pub fn into_full_block_and_blobs<T: EthSpec>(
     blinded_block: SignedBlindedBeaconBlock<T>,
     maybe_full_payload_contents: Option<FullPayloadContents<T>>,
-) -> Result<PublishBlockRequest<T>, String> {
+) -> Result<(Arc<SignedBeaconBlock<T>>, Option<(Vec<Blob<T>>, Vec<KzgProof)>)>, String> {
     match maybe_full_payload_contents {
         None => {
             let signed_block = blinded_block
                 .try_into_full_block(None)
                 .ok_or("Failed to build full block with payload".to_string())?;
+
             Ok(PublishBlockRequest::new(Arc::new(signed_block), None))
         }
         // This variant implies a pre-deneb block

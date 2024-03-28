@@ -1,5 +1,4 @@
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlobList};
-use crate::block_verification::BlockError;
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
@@ -312,6 +311,7 @@ pub struct BlockImportData<E: EthSpec> {
 pub type GossipVerifiedBlockContents<T> =
     (GossipVerifiedBlock<T>, Option<GossipVerifiedBlobList<T>>);
 
+// FIXME(sproul): delete?
 #[derive(Debug)]
 pub enum BlobVerificationError<T: EthSpec> {
     BlobError(GossipBlobError<T>),

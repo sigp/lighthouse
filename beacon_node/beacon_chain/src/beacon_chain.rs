@@ -2876,6 +2876,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let block_root = blob.block_root();
 
@@ -2899,7 +2900,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.data_availability_checker
             .notify_gossip_blob(block_root, &blob);
-        let r = self.check_gossip_blob_availability_and_import(blob).await;
+        let r = self
+            .check_gossip_blob_availability_and_import(blob, publish_fn)
+            .await;
         self.remove_notified(&block_root, r)
     }
 
@@ -3157,7 +3160,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let availability = self
             .data_availability_checker
             .put_pending_executed_block(block)?;
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability, || Ok(()))
+            .await
     }
 
     /// Checks if the provided blob can make any cached blocks available, and imports immediately
@@ -3165,6 +3169,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn check_gossip_blob_availability_and_import(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let slot = blob.slot();
         if let Some(slasher) = self.slasher.as_ref() {
@@ -3172,7 +3177,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         let availability = self.data_availability_checker.put_gossip_blob(blob)?;
 
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability, publish_fn)
+            .await
     }
 
     /// Checks if the provided blobs can make any cached blocks available, and imports immediately
@@ -3210,7 +3216,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .data_availability_checker
             .put_rpc_blobs(block_root, blobs)?;
 
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability, || Ok(()))
+            .await
     }
 
     /// Imports a fully available block. Otherwise, returns `AvailabilityProcessingStatus::MissingComponents`
@@ -3221,6 +3228,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         availability: Availability<T::EthSpec>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         match availability {
             Availability::Available(block) => {
@@ -3228,6 +3236,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let delay =
                     get_slot_delay_ms(timestamp_now(), block.block.slot(), &self.slot_clock);
                 metrics::observe_duration(&metrics::BLOCK_AVAILABILITY_DELAY, delay);
+                publish_fn()?;
                 // Block is fully available, import into fork choice
                 self.import_available_block(block).await
             }
