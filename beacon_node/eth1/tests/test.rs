@@ -99,7 +99,6 @@ async fn new_anvil_instance() -> Result<AnvilEth1Instance, String> {
 
 mod eth1_cache {
     use super::*;
-    use types::{EthSpec, MainnetEthSpec};
 
     #[tokio::test]
     async fn simple_scenario() {

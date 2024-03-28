@@ -3,7 +3,6 @@ use crate::*;
 
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::FixedVector;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 

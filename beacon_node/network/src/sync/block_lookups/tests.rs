@@ -458,7 +458,11 @@ fn test_parent_lookup_happy_path() {
     rig.expect_empty_network();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx);
+    bl.parent_block_processed(
+        chain_hash,
+        BlockError::BlockIsAlreadyKnown(block_root).into(),
+        &mut cx,
+    );
     rig.expect_parent_chain_process();
     let process_result = BatchProcessResult::Success {
         was_non_empty: true,
@@ -1117,7 +1121,11 @@ fn test_same_chain_race_condition() {
         // the processing result
         if i + 2 == depth {
             // one block was removed
-            bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx)
+            bl.parent_block_processed(
+                chain_hash,
+                BlockError::BlockIsAlreadyKnown(block.canonical_root()).into(),
+                &mut cx,
+            )
         } else {
             bl.parent_block_processed(
                 chain_hash,
@@ -1154,9 +1162,7 @@ fn test_same_chain_race_condition() {
 
 mod deneb_only {
     use super::*;
-    use crate::sync::block_lookups::common::ResponseType;
     use beacon_chain::data_availability_checker::AvailabilityCheckError;
-    use beacon_chain::test_utils::NumBlobs;
     use ssz_types::VariableList;
     use std::ops::IndexMut;
     use std::str::FromStr;
@@ -1625,6 +1631,16 @@ mod deneb_only {
             self.rig.expect_block_process(ResponseType::Block);
             self
         }
+        fn search_parent_dup(mut self) -> Self {
+            self.bl.search_parent(
+                self.slot,
+                self.block_root,
+                self.block.parent_root(),
+                self.peer_id,
+                &mut self.cx,
+            );
+            self
+        }
     }
 
     fn get_fork_name() -> ForkName {
@@ -1787,6 +1803,7 @@ mod deneb_only {
             .expect_blobs_request()
             .expect_no_block_request();
     }
+
     #[test]
     fn too_few_blobs_response_then_block_response_attestation() {
         let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
@@ -2087,5 +2104,33 @@ mod deneb_only {
             .parent_blob_response()
             .expect_no_penalty()
             .expect_block_process();
+    }
+
+    #[test]
+    fn unknown_parent_block_dup() {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlock { num_parents: 1 })
+        else {
+            return;
+        };
+
+        tester
+            .search_parent_dup()
+            .expect_no_blobs_request()
+            .expect_no_block_request();
+    }
+
+    #[test]
+    fn unknown_parent_blob_dup() {
+        let Some(tester) =
+            DenebTester::new(RequestTrigger::GossipUnknownParentBlob { num_parents: 1 })
+        else {
+            return;
+        };
+
+        tester
+            .search_parent_dup()
+            .expect_no_blobs_request()
+            .expect_no_block_request();
     }
 }

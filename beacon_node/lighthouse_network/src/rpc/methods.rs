@@ -6,6 +6,7 @@ use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::U256, VariableList};
+use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -44,11 +45,13 @@ impl Deref for ErrorType {
     }
 }
 
-impl ToString for ErrorType {
-    fn to_string(&self) -> String {
+impl Display for ErrorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         #[allow(clippy::invalid_regex)]
         let re = Regex::new("\\p{C}").expect("Regex is valid");
-        String::from_utf8_lossy(&re.replace_all(self.0.deref(), &b""[..])).to_string()
+        let error_type_str =
+            String::from_utf8_lossy(&re.replace_all(self.0.deref(), &b""[..])).to_string();
+        write!(f, "{}", error_type_str)
     }
 }
 
@@ -385,7 +388,7 @@ pub enum RPCResponse<T: EthSpec> {
     BlobsByRange(Arc<BlobSidecar<T>>),
 
     /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
-    LightClientBootstrap(LightClientBootstrap<T>),
+    LightClientBootstrap(Arc<LightClientBootstrap<T>>),
 
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<T>>),
@@ -566,11 +569,7 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
             RPCResponse::LightClientBootstrap(bootstrap) => {
-                write!(
-                    f,
-                    "LightClientBootstrap Slot: {}",
-                    bootstrap.header.beacon.slot
-                )
+                write!(f, "LightClientBootstrap Slot: {}", bootstrap.get_slot())
             }
         }
     }
@@ -580,7 +579,7 @@ impl<T: EthSpec> std::fmt::Display for RPCCodedResponse<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCCodedResponse::Success(res) => write!(f, "{}", res),
-            RPCCodedResponse::Error(code, err) => write!(f, "{}: {}", code, err.to_string()),
+            RPCCodedResponse::Error(code, err) => write!(f, "{}: {}", code, err),
             RPCCodedResponse::StreamTermination(_) => write!(f, "Stream Termination"),
         }
     }

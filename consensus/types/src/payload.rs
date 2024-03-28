@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::borrow::Cow;
-use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::hash::Hash;
 use test_random_derive::TestRandom;

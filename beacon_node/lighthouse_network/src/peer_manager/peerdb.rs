@@ -1251,7 +1251,6 @@ impl BannedPeersCount {
 mod tests {
     use super::*;
     use libp2p::core::multiaddr::Protocol;
-    use libp2p::core::Multiaddr;
     use slog::{o, Drain};
     use std::net::{Ipv4Addr, Ipv6Addr};
     use types::MinimalEthSpec;
