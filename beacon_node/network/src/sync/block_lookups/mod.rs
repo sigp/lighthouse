@@ -47,7 +47,7 @@ pub struct BlockLookups<T: BeaconChainTypes> {
 enum Action {
     Retry,
     ParentUnknown { parent_root: H256 },
-    Imported,
+    Continue,
     Drop,
 }
 
@@ -209,29 +209,28 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
                             Action::Drop
                         } else {
-                            // Check if this block is part of chain of blocks that become too long
-
-                            if let Err(e) = R::send_for_processing(
+                            match R::send_for_processing(
                                 id,
                                 block_root,
                                 verified_response,
                                 seen_timestamp,
                                 cx,
                             ) {
-                                debug!(self.log,
-                                    "Single lookup request failed";
-                                    "error" => ?e,
-                                    "block_root" => ?block_root,
-                                );
-                                Action::Drop
-                            } else {
-                                Action::Retry
+                                Ok(_) => Action::Continue,
+                                Err(e) => {
+                                    debug!(self.log,
+                                        "Single lookup request failed";
+                                        "error" => ?e,
+                                        "block_root" => ?block_root,
+                                    );
+                                    Action::Drop
+                                }
                             }
                         }
                     }
                     // Downloaded contents are valid, but are not complete to send to the processor.
                     // Wait for the rest of requests to complete, and do nothing now.
-                    Ok(None) => return,
+                    Ok(None) => Action::Continue,
                     Err(e) => {
                         debug!(
                             self.log,
@@ -277,7 +276,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     self.single_block_lookups.len() as i64,
                 );
             }
-            Action::Imported => unreachable!(),
+            Action::Continue => {} // No action
             Action::ParentUnknown { .. } => unreachable!(),
         }
     }
@@ -324,7 +323,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                 // Successfully imported
                 trace!(self.log, "Single block processing succeeded"; "block" => %block_root);
-                Action::Imported
+                Action::Continue
             }
 
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
@@ -433,20 +432,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         match action {
-            Action::Imported => {
-                let block_root = lookup.block_root();
+            Action::Continue => {
+                // Lookup imported: drop,
                 self.single_block_lookups.remove(&target_id);
 
-                // TODO: Trigger download of pending children that have unknown parent
-                for child_lookup in self.single_block_lookups.values_mut() {
-                    if let Some(parent_root) = child_lookup.parent_root() {
-                        if parent_root == block_root {
-                            if let Err(e) = child_lookup.process_block_and_blobs(cx) {
-                                warn!(self.log, "Error sending child lookup for processing"; "block_root" => %child_lookup.block_root(), "error" => ?e);
-                            }
-                        }
-                    }
-                }
+                // and trigger processing of pending children
+                self.process_pending_children_of(block_root, cx);
             }
             Action::Retry => {
                 if let Err(e) = lookup.request_block_and_blobs(cx) {
@@ -472,6 +463,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /* Helper functions */
+
+    fn process_pending_children_of(&mut self, block_root: Hash256, cx: &mut SyncNetworkContext<T>) {
+        let lookups_to_remove = self
+            .single_block_lookups
+            .iter_mut()
+            .filter_map(|(child_lookup_id, child_lookup)| {
+                if let Some(parent_root) = child_lookup.parent_root() {
+                    if parent_root == block_root {
+                        if let Err(e) = child_lookup.process_block_and_blobs(cx) {
+                            warn!(self.log,
+                                "Error sending child lookup for processing";
+                                "block_root" => %child_lookup.block_root(),
+                                "error" => ?e
+                            );
+                            return Some(*child_lookup_id);
+                        }
+                    }
+                }
+                None
+            })
+            .collect::<Vec<_>>();
+
+        for id in lookups_to_remove {
+            self.single_block_lookups.remove(&id);
+        }
+    }
 
     /// Drops all the single block requests and returns how many requests were dropped.
     pub fn drop_single_block_requests(&mut self) -> usize {
