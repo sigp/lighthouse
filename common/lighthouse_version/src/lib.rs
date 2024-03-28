@@ -21,6 +21,24 @@ pub const VERSION: &str = git_version!(
     fallback = "Lighthouse/v5.1.3"
 );
 
+/// Returns the first eight characters of the latest commit hash for this build.
+///
+/// No indication is given if the tree is dirty. This is part of the standard
+/// for reporting the client version to the execution engine.
+pub const COMMIT_PREFIX: &str = git_version!(
+    args = [
+        "--always",
+        "--abbrev=8",
+        // NOTE: using --match instead of --exclude for compatibility with old Git
+        "--match=thiswillnevermatchlol"
+    ],
+    prefix = "",
+    suffix = "",
+    cargo_prefix = "",
+    cargo_suffix = "",
+    fallback = "00000000"
+);
+
 /// Returns `VERSION`, but with platform information appended to the end.
 ///
 /// ## Example

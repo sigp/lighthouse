@@ -19,6 +19,7 @@ environment = { workspace = true }
 serde_json = { workspace = true }
 
 [dependencies]
+clap = { workspace = true }
 serde_json = { workspace = true }
 eth2_network_config = { workspace = true }
 merkle_proof = { workspace = true }
@@ -31,6 +32,7 @@ operation_pool = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 ethereum_serde_utils = { workspace = true }
+lighthouse_version = { workspace = true }
 slog = { workspace = true }
 sloggers = { workspace = true }
 slot_clock = { workspace = true }
