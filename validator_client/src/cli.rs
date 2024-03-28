@@ -67,13 +67,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("secrets-dir")
                 .value_name("SECRETS_DIRECTORY")
                 .help(
-                    "The directory which contains the password to unlock the validator \
-                    voting keypairs. Each password should be contained in a file where the \
-                    name is the 0x-prefixed hex representation of the validators voting public \
-                    key. Defaults to ~/.lighthouse/{network}/secrets.",
+                    "This flag is not meant to be used together with the validator client. \
+                    This flag has been hidden and will be deprecated in the future.",
                 )
                 .takes_value(true)
                 .conflicts_with("datadir")
+                .hidden(true)
         )
         .arg(
             Arg::with_name("init-slashing-protection")
