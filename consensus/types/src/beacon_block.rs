@@ -353,6 +353,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
         let attestation: Attestation<T> = Attestation {
             aggregation_bits: BitList::with_capacity(T::MaxValidatorsPerCommittee::to_usize())
                 .unwrap(),
+            index: <_>::default(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
         };

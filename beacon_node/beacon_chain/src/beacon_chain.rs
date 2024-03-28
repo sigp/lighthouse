@@ -1933,17 +1933,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
         drop(cache_timer);
 
-        Ok(Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)?,
-            data: AttestationData {
-                slot: request_slot,
+        match self.spec.fork_name_at_slot::<T::EthSpec>(request_slot) {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb => Ok(Attestation {
+                aggregation_bits: BitList::with_capacity(committee_len)?,
+                index: <_>::default(),
+                data: AttestationData {
+                    slot: request_slot,
+                    index: request_index,
+                    beacon_block_root,
+                    source: justified_checkpoint,
+                    target,
+                },
+                signature: AggregateSignature::empty(),
+            }),
+            ForkName::Electra => Ok(Attestation {
+                aggregation_bits: BitList::with_capacity(committee_len)?,
                 index: request_index,
-                beacon_block_root,
-                source: justified_checkpoint,
-                target,
-            },
-            signature: AggregateSignature::empty(),
-        })
+                data: AttestationData {
+                    slot: request_slot,
+                    index: <_>::default(),
+                    beacon_block_root,
+                    source: justified_checkpoint,
+                    target,
+                },
+                signature: AggregateSignature::empty(),
+            }),
+        }
     }
 
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for

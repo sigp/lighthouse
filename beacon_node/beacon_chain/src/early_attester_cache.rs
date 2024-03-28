@@ -98,6 +98,16 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         spec: &ChainSpec,
     ) -> Result<Option<Attestation<E>>, Error> {
         let lock = self.item.read();
+
+        let is_electra = match spec.fork_name_at_slot::<E>(request_slot) {
+            types::ForkName::Base
+            | types::ForkName::Altair
+            | types::ForkName::Merge
+            | types::ForkName::Capella
+            | types::ForkName::Deneb => false,
+            types::ForkName::Electra => true,
+        };
+
         let Some(item) = lock.as_ref() else {
             return Ok(None);
         };
@@ -122,17 +132,34 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.committee_lengths
                 .get_committee_length::<E>(request_slot, request_index, spec)?;
 
-        let attestation = Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)
-                .map_err(BeaconStateError::from)?,
-            data: AttestationData {
-                slot: request_slot,
+        let attestation = if is_electra {
+            Attestation {
+                aggregation_bits: BitList::with_capacity(committee_len)
+                    .map_err(BeaconStateError::from)?,
                 index: request_index,
-                beacon_block_root: item.beacon_block_root,
-                source: item.source,
-                target: item.target,
-            },
-            signature: AggregateSignature::empty(),
+                data: AttestationData {
+                    slot: request_slot,
+                    index: <_>::default(),
+                    beacon_block_root: item.beacon_block_root,
+                    source: item.source,
+                    target: item.target,
+                },
+                signature: AggregateSignature::empty(),
+            }
+        } else {
+            Attestation {
+                aggregation_bits: BitList::with_capacity(committee_len)
+                    .map_err(BeaconStateError::from)?,
+                index: <_>::default(),
+                data: AttestationData {
+                    slot: request_slot,
+                    index: request_index,
+                    beacon_block_root: item.beacon_block_root,
+                    source: item.source,
+                    target: item.target,
+                },
+                signature: AggregateSignature::empty(),
+            }
         };
 
         metrics::inc_counter(&metrics::BEACON_EARLY_ATTESTER_CACHE_HITS);

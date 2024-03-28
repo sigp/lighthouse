@@ -1241,6 +1241,7 @@ fn make_attestation(source_epoch: u64, target_epoch: u64) -> Attestation<E> {
             <E as EthSpec>::MaxValidatorsPerCommittee::to_usize(),
         )
         .unwrap(),
+        index: <_>::default(),
         data: AttestationData {
             source: Checkpoint {
                 epoch: Epoch::new(source_epoch),

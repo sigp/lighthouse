@@ -24,6 +24,7 @@ pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     duties_service: Option<Arc<DutiesService<T, E>>>,
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
     slot_clock: Option<T>,
+    spec: Option<ChainSpec>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
 }
@@ -34,6 +35,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
             duties_service: None,
             validator_store: None,
             slot_clock: None,
+            spec: None,
             beacon_nodes: None,
             context: None,
         }
@@ -76,6 +78,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
                 slot_clock: self
                     .slot_clock
                     .ok_or("Cannot build AttestationService without slot_clock")?,
+                spec: self
+                    .spec
+                    .ok_or("Cannot build AttestationService without spec")?,
                 beacon_nodes: self
                     .beacon_nodes
                     .ok_or("Cannot build AttestationService without beacon_nodes")?,
@@ -94,6 +99,7 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
+    spec: ChainSpec,
 }
 
 /// Attempts to produce attestations for all known validators 1/3rd of the way through each slot.
@@ -290,17 +296,21 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             // Then download, sign and publish a `SignedAggregateAndProof` for each
             // validator that is elected to aggregate for this `slot` and
             // `committee_index`.
-            self.produce_and_publish_aggregates(&attestation_data, &validator_duties)
-                .await
-                .map_err(move |e| {
-                    crit!(
-                        log,
-                        "Error during attestation routine";
-                        "error" => format!("{:?}", e),
-                        "committee_index" => committee_index,
-                        "slot" => slot.as_u64(),
-                    )
-                })?;
+            self.produce_and_publish_aggregates(
+                &attestation_data,
+                committee_index,
+                &validator_duties,
+            )
+            .await
+            .map_err(move |e| {
+                crit!(
+                    log,
+                    "Error during attestation routine";
+                    "error" => format!("{:?}", e),
+                    "committee_index" => committee_index,
+                    "slot" => slot.as_u64(),
+                )
+            })?;
         }
 
         Ok(())
@@ -325,6 +335,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         validator_duties: &[DutyAndProof],
     ) -> Result<Option<AttestationData>, String> {
         let log = self.context.log();
+
+        let is_electra = match self.spec.fork_name_at_slot::<E>(slot) {
+            types::ForkName::Base
+            | types::ForkName::Altair
+            | types::ForkName::Merge
+            | types::ForkName::Capella
+            | types::ForkName::Deneb => false,
+            types::ForkName::Electra => true,
+        };
 
         if validator_duties.is_empty() {
             return Ok(None);
@@ -364,9 +383,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
             // Ensure that the attestation matches the duties.
             #[allow(clippy::suspicious_operation_groupings)]
-            // TODO(attestation_data) check fork here, as attestation_data will no longer have the index
-            if duty.slot != attestation_data.slot || duty.committee_index != attestation_data.index
-            {
+            let committee_index = if is_electra {
+                committee_index
+            } else {
+                attestation_data.index
+            };
+
+            if duty.slot != attestation_data.slot || duty.committee_index != committee_index {
                 crit!(
                     log,
                     "Inconsistent validator duties during signing";
@@ -380,10 +403,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             }
 
             // TODO(attestation_data) populate index here for electra
-            let mut attestation = Attestation {
-                aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
-                data: attestation_data.clone(),
-                signature: AggregateSignature::infinity(),
+            let mut attestation = if is_electra {
+                Attestation {
+                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
+                        .unwrap(),
+                    index: committee_index,
+                    data: attestation_data.clone(),
+                    signature: AggregateSignature::infinity(),
+                }
+            } else {
+                Attestation {
+                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
+                        .unwrap(),
+                    index: <_>::default(),
+                    data: attestation_data.clone(),
+                    signature: AggregateSignature::infinity(),
+                }
             };
 
             match self
@@ -462,7 +497,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 "count" => attestations.len(),
                 "validator_indices" => ?validator_indices,
                 "head_block" => ?attestation_data.beacon_block_root,
-                "committee_index" => attestation_data.index,
+                "committee_index" => committee_index,
                 "slot" => attestation_data.slot.as_u64(),
                 "type" => "unaggregated",
             ),
@@ -470,7 +505,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 log,
                 "Unable to publish attestations";
                 "error" => %e,
-                "committee_index" => attestation_data.index,
+                "committee_index" => committee_index,
                 "slot" => slot.as_u64(),
                 "type" => "unaggregated",
             ),
@@ -495,9 +530,19 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     async fn produce_and_publish_aggregates(
         &self,
         attestation_data: &AttestationData,
+        committee_index: u64,
         validator_duties: &[DutyAndProof],
     ) -> Result<(), String> {
         let log = self.context.log();
+
+        let is_electra = match self.spec.fork_name_at_slot::<E>(attestation_data.slot) {
+            types::ForkName::Base
+            | types::ForkName::Altair
+            | types::ForkName::Merge
+            | types::ForkName::Capella
+            | types::ForkName::Deneb => false,
+            types::ForkName::Electra => true,
+        };
 
         if !validator_duties
             .iter()
@@ -539,8 +584,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let selection_proof = duty_and_proof.selection_proof.as_ref()?;
 
             let slot = attestation_data.slot;
-            // TODO(attestation_data) check attestation index here for the corect fork
-            let committee_index = attestation_data.index;
+            let committee_index = if is_electra {
+                duty.committee_index
+            } else {
+                attestation_data.index
+            };
 
             if duty.slot != slot || duty.committee_index != committee_index {
                 crit!(log, "Inconsistent validator duties during signing");
@@ -609,14 +657,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 Ok(()) => {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {
                         let attestation = &signed_aggregate_and_proof.message.aggregate;
-                        // TODO(attestation_data) check fork here, as attestation_data will no longer have the index
                         info!(
                             log,
                             "Successfully published attestation";
                             "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
                             "signatures" => attestation.aggregation_bits.num_set_bits(),
                             "head_block" => format!("{:?}", attestation.data.beacon_block_root),
-                            "committee_index" => attestation.data.index,
+                            "committee_index" => committee_index,
                             "slot" => attestation.data.slot.as_u64(),
                             "type" => "aggregated",
                         );

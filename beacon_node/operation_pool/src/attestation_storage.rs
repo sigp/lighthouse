@@ -23,6 +23,7 @@ pub struct CompactAttestationData {
 #[derive(Debug, PartialEq)]
 pub struct CompactIndexedAttestation<T: EthSpec> {
     pub attesting_indices: Vec<u64>,
+    pub index: u64,
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub signature: AggregateSignature,
 }
@@ -65,6 +66,7 @@ impl<T: EthSpec> SplitAttestation<T> {
         };
         let indexed = CompactIndexedAttestation {
             attesting_indices,
+            index: attestation.index,
             aggregation_bits: attestation.aggregation_bits,
             signature: attestation.signature,
         };
@@ -101,6 +103,7 @@ impl<'a, T: EthSpec> AttestationRef<'a, T> {
     pub fn clone_as_attestation(&self) -> Attestation<T> {
         Attestation {
             aggregation_bits: self.indexed.aggregation_bits.clone(),
+            index: self.indexed.index,
             data: self.attestation_data(),
             signature: self.indexed.signature.clone(),
         }

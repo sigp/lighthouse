@@ -42,6 +42,8 @@ pub struct Attestation<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
 }
 
 impl<T: EthSpec> Attestation<T> {

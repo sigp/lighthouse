@@ -544,6 +544,7 @@ mod tests {
     fn get_attestation() -> Attestation<E> {
         Attestation {
             aggregation_bits: BitList::with_capacity(1).unwrap(),
+            index: <_>::default(),
             data: AttestationData {
                 slot: <_>::default(),
                 index: <_>::default(),

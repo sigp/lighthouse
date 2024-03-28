@@ -3271,6 +3271,7 @@ impl ApiTester {
 
         let mut attestation = Attestation {
             aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
+            index: <_>::default(),
             data: attestation_data,
             signature: AggregateSignature::infinity(),
         };

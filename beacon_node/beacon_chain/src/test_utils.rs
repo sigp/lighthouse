@@ -1011,6 +1011,15 @@ where
     ) -> Result<Attestation<E>, BeaconChainError> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
+        let is_electra = match self.spec.fork_name_at_slot::<E>(slot) {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb => false,
+            ForkName::Electra => true,
+        };
+
         if state.slot() > slot {
             return Err(BeaconChainError::CannotAttestToFutureState);
         } else if state.current_epoch() < epoch {
@@ -1035,20 +1044,39 @@ where
             *state.get_block_root(target_slot)?
         };
 
-        Ok(Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)?,
-            data: AttestationData {
-                slot,
+        if is_electra {
+            Ok(Attestation {
+                aggregation_bits: BitList::with_capacity(committee_len)?,
                 index,
-                beacon_block_root,
-                source: state.current_justified_checkpoint(),
-                target: Checkpoint {
-                    epoch,
-                    root: target_root,
+                data: AttestationData {
+                    slot,
+                    index: <_>::default(),
+                    beacon_block_root,
+                    source: state.current_justified_checkpoint(),
+                    target: Checkpoint {
+                        epoch,
+                        root: target_root,
+                    },
                 },
-            },
-            signature: AggregateSignature::empty(),
-        })
+                signature: AggregateSignature::empty(),
+            })
+        } else {
+            Ok(Attestation {
+                aggregation_bits: BitList::with_capacity(committee_len)?,
+                index: <_>::default(),
+                data: AttestationData {
+                    slot,
+                    index,
+                    beacon_block_root,
+                    source: state.current_justified_checkpoint(),
+                    target: Checkpoint {
+                        epoch,
+                        root: target_root,
+                    },
+                },
+                signature: AggregateSignature::empty(),
+            })
+        }
     }
 
     /// A list of attestations for each committee for the given slot.
