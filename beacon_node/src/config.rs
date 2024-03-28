@@ -127,10 +127,6 @@ pub fn get_config<E: EthSpec>(
             client_config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
-        if let Some(fork_name) = clap_utils::parse_optional(cli_args, "http-spec-fork")? {
-            client_config.http_api.spec_fork_name = Some(fork_name);
-        }
-
         if cli_args.is_present("http-enable-tls") {
             client_config.http_api.tls_config = Some(TlsConfig {
                 cert: cli_args
@@ -144,10 +140,6 @@ pub fn get_config<E: EthSpec>(
                     .parse::<PathBuf>()
                     .map_err(|_| "http-tls-key is not a valid path name.")?,
             });
-        }
-
-        if cli_args.is_present("http-allow-sync-stalled") {
-            client_config.http_api.allow_sync_stalled = true;
         }
 
         client_config.http_api.sse_capacity_multiplier =
