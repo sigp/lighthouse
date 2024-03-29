@@ -1,11 +1,9 @@
 //! Handles the encoding and decoding of pubsub messages.
 
-use crate::gossipsub;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::TopicHash;
 use snap::raw::{decompress_len, Decoder, Encoder};
 use ssz::{Decode, Encode};
-use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
@@ -265,17 +263,31 @@ impl<T: EthSpec> PubsubMessage<T> {
                         )))
                     }
                     GossipKind::LightClientFinalityUpdate => {
-                        let light_client_finality_update =
-                            LightClientFinalityUpdate::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
+                        let light_client_finality_update = match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                            Some(&fork_name) => {
+                                    LightClientFinalityUpdate::from_ssz_bytes(data, fork_name)
+                                    .map_err(|e| format!("{:?}", e))?
+                            },
+                            None => return Err(format!(
+                                "light_client_finality_update topic invalid for given fork digest {:?}",
+                                gossip_topic.fork_digest
+                            )),
+                        };
                         Ok(PubsubMessage::LightClientFinalityUpdate(Box::new(
                             light_client_finality_update,
                         )))
                     }
                     GossipKind::LightClientOptimisticUpdate => {
-                        let light_client_optimistic_update =
-                            LightClientOptimisticUpdate::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
+                        let light_client_optimistic_update = match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                            Some(&fork_name) => {
+                                LightClientOptimisticUpdate::from_ssz_bytes(data, fork_name)
+                                .map_err(|e| format!("{:?}", e))?
+                            },
+                            None => return Err(format!(
+                                "light_client_optimistic_update topic invalid for given fork digest {:?}",
+                                gossip_topic.fork_digest
+                            )),
+                        };
                         Ok(PubsubMessage::LightClientOptimisticUpdate(Box::new(
                             light_client_optimistic_update,
                         )))

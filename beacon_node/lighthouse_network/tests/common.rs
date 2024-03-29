@@ -1,5 +1,4 @@
 #![cfg(test)]
-use lighthouse_network::gossipsub;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;

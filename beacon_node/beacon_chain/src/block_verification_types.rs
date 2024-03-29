@@ -7,6 +7,7 @@ use crate::{get_block_root, GossipVerifiedBlock, PayloadVerificationOutcome};
 use derivative::Derivative;
 use ssz_types::VariableList;
 use state_processing::ConsensusContext;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecarError, FixedBlobSidecarList};
 use types::{
@@ -27,11 +28,17 @@ use types::{
 /// Note: We make a distinction over blocks received over gossip because
 /// in a post-deneb world, the blobs corresponding to a given block that are received
 /// over rpc do not contain the proposer signature for dos resistance.
-#[derive(Debug, Clone, Derivative)]
+#[derive(Clone, Derivative)]
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub struct RpcBlock<E: EthSpec> {
     block_root: Hash256,
     block: RpcBlockInner<E>,
+}
+
+impl<E: EthSpec> Debug for RpcBlock<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RpcBlock({:?})", self.block_root)
+    }
 }
 
 impl<E: EthSpec> RpcBlock<E> {

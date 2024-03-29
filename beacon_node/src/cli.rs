@@ -1249,6 +1249,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         this value may increase resource consumption. Reducing the value \
                         may result in decreased resource usage and diminished performance. The \
                         default value is the number of logical CPU cores on the host.")
+                .hidden(true)
                 .takes_value(true)
         )
         .arg(
@@ -1259,6 +1260,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         Higher values may prevent messages from being dropped while lower values \
                         may help protect the node from becoming overwhelmed.")
                 .default_value("16384")
+                .hidden(true)
                 .takes_value(true)
         )
         .arg(
@@ -1268,6 +1270,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies the length of the queue for messages requiring delayed processing. \
                         Higher values may prevent messages from being dropped while lower values \
                         may help protect the node from becoming overwhelmed.")
+                .hidden(true)
                 .default_value("12288")
                 .takes_value(true)
         )
@@ -1278,6 +1281,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies the number of gossip attestations in a signature verification batch. \
                        Higher values may reduce CPU usage in a healthy network whilst lower values may \
                        increase CPU usage in an unhealthy or hostile network.")
+                .hidden(true)
                 .default_value("64")
                 .takes_value(true)
         )
@@ -1289,6 +1293,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        verification batch. \
                        Higher values may reduce CPU usage in a healthy network while lower values may \
                        increase CPU usage in an unhealthy or hostile network.")
+                .hidden(true)
                 .default_value("64")
                 .takes_value(true)
         )

@@ -3,7 +3,7 @@ use crate::rpc::{
     codec::base::OutboundCodec,
     protocol::{Encoding, ProtocolId, RPCError, SupportedProtocol, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
-use crate::rpc::{InboundRequest, OutboundRequest, RPCCodedResponse, RPCResponse};
+use crate::rpc::{InboundRequest, OutboundRequest};
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -590,9 +590,18 @@ fn handle_rpc_response<T: EthSpec>(
         SupportedProtocol::MetaDataV1 => Ok(Some(RPCResponse::MetaData(MetaData::V1(
             MetaDataV1::from_ssz_bytes(decoded_buffer)?,
         )))),
-        SupportedProtocol::LightClientBootstrapV1 => Ok(Some(RPCResponse::LightClientBootstrap(
-            LightClientBootstrap::from_ssz_bytes(decoded_buffer)?,
-        ))),
+        SupportedProtocol::LightClientBootstrapV1 => match fork_name {
+            Some(fork_name) => Ok(Some(RPCResponse::LightClientBootstrap(Arc::new(
+                LightClientBootstrap::from_ssz_bytes(decoded_buffer, fork_name)?,
+            )))),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
         // MetaData V2 responses have no context bytes, so behave similarly to V1 responses
         SupportedProtocol::MetaDataV2 => Ok(Some(RPCResponse::MetaData(MetaData::V2(
             MetaDataV2::from_ssz_bytes(decoded_buffer)?,
@@ -676,21 +685,12 @@ fn context_bytes_to_fork_name(
 mod tests {
 
     use super::*;
-    use crate::rpc::{protocol::*, MetaData};
-    use crate::{
-        rpc::{methods::StatusMessage, Ping, RPCResponseErrorCode},
-        types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    };
-    use std::sync::Arc;
+    use crate::rpc::protocol::*;
+    use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockMerge, ChainSpec, EmptyBlock, Epoch, ForkContext, FullPayload, Hash256,
-        Signature, SignedBeaconBlock, Slot,
+        BeaconBlockMerge, EmptyBlock, Epoch, FullPayload, Signature, Slot,
     };
-
-    use snap::write::FrameEncoder;
-    use ssz::Encode;
-    use std::io::Write;
 
     type Spec = types::MainnetEthSpec;
 

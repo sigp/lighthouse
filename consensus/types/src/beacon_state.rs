@@ -12,8 +12,6 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
-use std::convert::TryInto;
 use std::hash::Hash;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
@@ -962,10 +960,10 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         validator_indices: &[u64],
         spec: &ChainSpec,
-    ) -> Result<Vec<Option<SyncDuty>>, Error> {
+    ) -> Result<Vec<Result<Option<SyncDuty>, Error>>, Error> {
         let sync_committee = self.get_built_sync_committee(epoch, spec)?;
 
-        validator_indices
+        Ok(validator_indices
             .iter()
             .map(|&validator_index| {
                 let pubkey = self.get_validator(validator_index as usize)?.pubkey;
@@ -976,7 +974,7 @@ impl<T: EthSpec> BeaconState<T> {
                     sync_committee,
                 ))
             })
-            .collect()
+            .collect())
     }
 
     /// Get the canonical root of the `latest_block_header`, filling in its state root if necessary.
@@ -1767,7 +1765,8 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Deneb(inner) => BeaconState::Deneb(inner.clone()),
         };
         if config.committee_caches {
-            *res.committee_caches_mut() = self.committee_caches().clone();
+            res.committee_caches_mut()
+                .clone_from(self.committee_caches());
             *res.total_active_balance_mut() = *self.total_active_balance();
         }
         if config.pubkey_cache {
