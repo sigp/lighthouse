@@ -770,8 +770,6 @@ pub fn get_config<E: EthSpec>(
                 .unwrap_or(DEFAULT_RE_ORG_PARENT_THRESHOLD),
         );
 
-        // TODO(is_parent_strong) do we want re_org_parent_threshold settable?
-
         if let Some(disallowed_offsets_str) =
             clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
         {

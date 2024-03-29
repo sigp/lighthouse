@@ -307,7 +307,7 @@ impl std::fmt::Display for DoNotReOrg {
             } => {
                 write!(
                     f,
-                    "parent not weak ({parent_weight}/{re_org_parent_weight_threshold})"
+                    "parent not strong ({parent_weight}/{re_org_parent_weight_threshold})"
                 )
             }
             Self::HeadNotLate => {
