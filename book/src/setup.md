@@ -16,7 +16,7 @@ The additional requirements for developers are:
   some dependencies. See [`Installation Guide`](./installation.md) for more info.
 - [`java 17 runtime`](https://openjdk.java.net/projects/jdk/). 17 is the minimum,
   used by web3signer_tests.
-- [`libpq-dev`](https://www.postgresql.org/docs/devel/libpq.html). Also know as
+- [`libpq-dev`](https://www.postgresql.org/docs/devel/libpq.html). Also known as
   `libpq-devel` on some systems. 
 - [`docker`](https://www.docker.com/). Some tests need docker installed and **running**.
 
@@ -25,7 +25,8 @@ Commands to run the test suite are available via the `Makefile` in the
 project root for the benefit of CI/CD. We list some of these commands below so
 you can run them locally and avoid CI failures:
 
-- `$ make cargo-fmt`: (fast) runs a Rust code linter.
+- `$ make cargo-fmt`: (fast) runs a Rust code formatting check.
+- `$ make lint`: (fast) runs a Rust code linter.
 - `$ make test`: (medium) runs unit tests across the whole project.
 - `$ make test-ef`: (medium) runs the Ethereum Foundation test vectors.
 - `$ make test-full`: (slow) runs the full test suite (including all previous

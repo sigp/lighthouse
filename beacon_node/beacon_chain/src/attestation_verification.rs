@@ -55,7 +55,7 @@ use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, BeaconCommittee, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
+    Attestation, BeaconCommittee, ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName, Hash256,
     IndexedAttestation, SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
 };
 
@@ -539,8 +539,8 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
         };
 
-        let indexed_attestation =
-            match map_attestation_committee(chain, attestation, |(committee, _)| {
+        let get_indexed_attestation_with_committee =
+            |(committee, _): (BeaconCommittee, CommitteesPerSlot)| {
                 // Note: this clones the signature which is known to be a relatively slow operation.
                 //
                 // Future optimizations should remove this clone.
@@ -561,10 +561,16 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
 
                 get_indexed_attestation(committee.committee, attestation)
                     .map_err(|e| BeaconChainError::from(e).into())
-            }) {
-                Ok(indexed_attestation) => indexed_attestation,
-                Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
             };
+
+        let indexed_attestation = match map_attestation_committee(
+            chain,
+            attestation,
+            get_indexed_attestation_with_committee,
+        ) {
+            Ok(indexed_attestation) => indexed_attestation,
+            Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
+        };
 
         Ok(IndexedAggregatedAttestation {
             signed_aggregate,
@@ -1049,10 +1055,21 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     }
 
     // Taking advantage of saturating subtraction on `Slot`.
-    let earliest_permissible_slot = slot_clock
+    let one_epoch_prior = slot_clock
         .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?
         - E::slots_per_epoch();
+
+    let current_fork =
+        spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
+    let earliest_permissible_slot = match current_fork {
+        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => one_epoch_prior,
+        // EIP-7045
+        ForkName::Deneb => one_epoch_prior
+            .epoch(E::slots_per_epoch())
+            .start_slot(E::slots_per_epoch()),
+    };
+
     if attestation_slot < earliest_permissible_slot {
         return Err(Error::PastSlot {
             attestation_slot,

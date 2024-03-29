@@ -75,7 +75,34 @@ lighthouse bn \
 Prior to v3.2.0 fallback beacon nodes also required the `--subscribe-all-subnets` and
 `--import-all-attestations` flags. These flags are no longer required as the validator client will
 now broadcast subscriptions to all connected beacon nodes by default. This broadcast behaviour
-can be disabled using the `--disable-run-on-all` flag for `lighthouse vc`.
+can be disabled using the `--broadcast none` flag for `lighthouse vc` (or `--disable-run-on-all`
+[deprecated]).
+
+### Broadcast modes
+
+Since v4.6.0, the Lighthouse VC can be configured to broadcast messages to all configured beacon
+nodes rather than just the first available.
+
+The flag to control this behaviour is `--broadcast`, which takes multiple comma-separated values
+from this list:
+
+- `subscriptions`: Send subnet subscriptions & other control messages which keep the beacon nodes
+  primed and ready to process messages. It is recommended to leave this enabled.
+- `attestations`: Send attestations & aggregates to all beacon nodes. This can improve
+  propagation of attestations throughout the network, at the cost of increased load on the beacon
+  nodes and increased bandwidth between the VC and the BNs.
+- `blocks`: Send proposed blocks to all beacon nodes. This can improve propagation of blocks
+  throughout the network, at the cost of slightly increased load on the beacon nodes and increased
+  bandwidth between the VC and the BNs. If you are looking to improve performance in a multi-BN
+  setup this is the first option we would recommend enabling.
+- `sync-committee`: Send sync committee signatures & aggregates to all beacon nodes. This can
+  improve propagation of sync committee messages with similar tradeoffs to broadcasting
+  attestations, although occurring less often due to the infrequency of sync committee duties.
+- `none`: Disable all broadcasting. This option only has an effect when provided alone, otherwise
+   it is ignored. Not recommended except for expert tweakers.
+
+The default is `--broadcast subscriptions`. To also broadcast blocks for example, use
+`--broadcast subscriptions,blocks`.
 
 ## Redundant execution nodes
 

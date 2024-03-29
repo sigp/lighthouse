@@ -6,7 +6,6 @@ use crate::common::{
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
-use safe_arith::SafeArith;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
 pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
@@ -95,7 +94,7 @@ pub mod base {
     }
 }
 
-pub mod altair {
+pub mod altair_deneb {
     use super::*;
     use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
     use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
@@ -232,11 +231,9 @@ pub fn process_attester_slashings<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
-        verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
-            .map_err(|e| e.into_with_index(i))?;
-
         let slashable_indices =
-            get_slashable_indices(state, attester_slashing).map_err(|e| e.into_with_index(i))?;
+            verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
+                .map_err(|e| e.into_with_index(i))?;
 
         for i in slashable_indices {
             slash_validator(state, i as usize, None, ctxt, spec)?;
@@ -267,8 +264,9 @@ pub fn process_attestations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         }
         BeaconBlockBodyRef::Altair(_)
         | BeaconBlockBodyRef::Merge(_)
-        | BeaconBlockBodyRef::Capella(_) => {
-            altair::process_attestations(
+        | BeaconBlockBodyRef::Capella(_)
+        | BeaconBlockBodyRef::Deneb(_) => {
+            altair_deneb::process_attestations(
                 state,
                 block_body.attestations(),
                 verify_signatures,

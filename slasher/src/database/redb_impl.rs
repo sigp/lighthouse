@@ -7,9 +7,9 @@ use crate::{
     Config, Error,
 };
 use derivative::Derivative;
-use redb::{ReadableTable, Table, TableDefinition};
+use redb::{ReadableTable, TableDefinition};
 use std::{
-    borrow::{Borrow, Cow},
+    borrow::Cow,
     path::PathBuf,
 };
 
@@ -31,7 +31,7 @@ pub struct Database<'env> {
 #[derivative(Debug)]
 pub struct RwTransaction<'env> {
     #[derivative(Debug = "ignore")]
-    txn: redb::WriteTransaction<'env>,
+    txn: redb::WriteTransaction,
     current_key: Option<Cow<'env, [u8]>>,
 }
 
@@ -94,8 +94,10 @@ impl Environment {
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+        let mut txn = self.db.begin_write()?;
+        txn.set_durability(redb::Durability::Eventual);
         Ok(RwTransaction {
-            txn: self.db.begin_write()?,
+            txn,
             current_key: None,
         })
     }
@@ -110,7 +112,7 @@ impl<'env> RwTransaction<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&db.table_name);
         let table = self.txn.open_table(table_definition)?;
-        let result = table.get(key.as_ref().borrow())?;
+        let result = table.get(key.as_ref())?;
         if let Some(access_guard) = result {
             let value = access_guard.value().to_vec();
             Ok(Some(Cow::from(value)))
@@ -128,7 +130,7 @@ impl<'env> RwTransaction<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&db.table_name);
         let mut table = self.txn.open_table(table_definition)?;
-        table.insert(key.as_ref().borrow(), value.as_ref().borrow())?;
+        table.insert(key.as_ref(), value.as_ref())?;
 
         Ok(())
     }
@@ -137,7 +139,7 @@ impl<'env> RwTransaction<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&db.table_name);
         let mut table = self.txn.open_table(table_definition)?;
-        table.remove(key.as_ref().borrow())?;
+        table.remove(key.as_ref())?;
 
         Ok(())
     }
@@ -234,9 +236,9 @@ impl<'env> RwTransaction<'env> {
                 TableDefinition::new(&db.table_name);
 
             let mut table = self.txn.open_table(table_definition)?;
-
+            
             let deleted =
-                table.drain_filter(current_key.as_ref().., |key, _| f(&key).unwrap_or(false))?;
+                table.extract_from_if(current_key.as_ref().., |key, _| f(&key).unwrap_or(false))?;
 
             deleted.for_each(|result| {
                 let item = result.unwrap();

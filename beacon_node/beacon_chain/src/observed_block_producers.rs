@@ -16,9 +16,15 @@ pub enum Error {
 }
 
 #[derive(Eq, Hash, PartialEq, Debug, Default)]
-struct ProposalKey {
-    slot: Slot,
-    proposer: u64,
+pub struct ProposalKey {
+    pub slot: Slot,
+    pub proposer: u64,
+}
+
+impl ProposalKey {
+    pub fn new(proposer: u64, slot: Slot) -> Self {
+        Self { slot, proposer }
+    }
 }
 
 /// Maintains a cache of observed `(block.slot, block.proposer)`.

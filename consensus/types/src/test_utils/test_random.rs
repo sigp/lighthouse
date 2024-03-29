@@ -2,7 +2,6 @@ use crate::*;
 use rand::RngCore;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
-use ssz_types::typenum::Unsigned;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -10,6 +9,8 @@ mod address;
 mod aggregate_signature;
 mod bitfield;
 mod hash256;
+mod kzg_commitment;
+mod kzg_proof;
 mod public_key;
 mod public_key_bytes;
 mod secret_key;

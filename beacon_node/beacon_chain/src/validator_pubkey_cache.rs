@@ -2,7 +2,6 @@ use crate::errors::BeaconChainError;
 use crate::{BeaconChainTypes, BeaconStore};
 use ssz::{Decode, Encode};
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
 use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
@@ -38,7 +37,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         };
 
         let store_ops = cache.import_new_pubkeys(state)?;
-        store.do_atomically(store_ops)?;
+        store.do_atomically_with_block_and_blobs_cache(store_ops)?;
 
         Ok(cache)
     }
@@ -195,7 +194,7 @@ mod test {
     use logging::test_logger;
     use std::sync::Arc;
     use store::HotColdDB;
-    use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec};
+    use types::{EthSpec, Keypair, MainnetEthSpec};
 
     type E = MainnetEthSpec;
     type T = EphemeralHarnessType<E>;
@@ -299,7 +298,7 @@ mod test {
         let ops = cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
-        store.do_atomically(ops).unwrap();
+        store.do_atomically_with_block_and_blobs_cache(ops).unwrap();
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 

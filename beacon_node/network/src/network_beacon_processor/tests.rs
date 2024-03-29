@@ -8,25 +8,31 @@ use crate::{
     service::NetworkMessage,
     sync::{manager::BlockProcessType, SyncMessage},
 };
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::BeaconChain;
+use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
+use lighthouse_network::discovery::ConnectionId;
+use lighthouse_network::rpc::methods::BlobsByRangeRequest;
+use lighthouse_network::rpc::SubstreamId;
 use lighthouse_network::{
-    discv5::enr::{CombinedKey, EnrBuilder},
+    discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    Client, MessageId, NetworkGlobals, PeerId,
+    Client, MessageId, NetworkGlobals, PeerId, Response,
 };
 use slot_clock::SlotClock;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, Epoch, Hash256, MainnetEthSpec,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot,
+    SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -46,6 +52,7 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
+    next_blobs: Option<BlobSidecarList<E>>,
     attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
@@ -82,13 +89,14 @@ impl TestRig {
 
     pub async fn new_parametric(chain_length: u64, enable_backfill_rate_limiting: bool) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
-        let mut spec = E::default_spec();
+        let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .chain_config(<_>::default())
             .build();
 
@@ -114,7 +122,7 @@ impl TestRig {
             "precondition: current slot is one after head"
         );
 
-        let (next_block, next_state) = harness
+        let (next_block_tuple, next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
 
@@ -140,9 +148,9 @@ impl TestRig {
             .get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &next_state,
-                next_block.state_root(),
-                next_block.canonical_root(),
-                next_block.slot(),
+                next_block_tuple.0.state_root(),
+                next_block_tuple.0.canonical_root(),
+                next_block_tuple.0.slot(),
             )
             .into_iter()
             .flatten()
@@ -152,9 +160,9 @@ impl TestRig {
             .make_attestations(
                 &harness.get_all_validators(),
                 &next_state,
-                next_block.state_root(),
-                next_block.canonical_root().into(),
-                next_block.slot(),
+                next_block_tuple.0.state_root(),
+                next_block_tuple.0.canonical_root().into(),
+                next_block_tuple.0.slot(),
             )
             .into_iter()
             .filter_map(|(_, aggregate_opt)| aggregate_opt)
@@ -175,8 +183,10 @@ impl TestRig {
 
         let log = harness.logger().clone();
 
-        let mut beacon_processor_config = BeaconProcessorConfig::default();
-        beacon_processor_config.enable_backfill_rate_limiting = enable_backfill_rate_limiting;
+        let beacon_processor_config = BeaconProcessorConfig {
+            enable_backfill_rate_limiting,
+            ..Default::default()
+        };
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
@@ -193,7 +203,7 @@ impl TestRig {
             syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
         });
         let enr_key = CombinedKey::generate_secp256k1();
-        let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
+        let enr = enr::Enr::builder().build(&enr_key).unwrap();
         let network_globals = Arc::new(NetworkGlobals::new(enr, meta_data, vec![], false, &log));
 
         let executor = harness.runtime.task_executor.clone();
@@ -231,11 +241,17 @@ impl TestRig {
             chain.spec.maximum_gossip_clock_disparity(),
         );
 
-        assert!(!beacon_processor.is_err());
-
+        assert!(beacon_processor.is_ok());
+        let block = next_block_tuple.0;
+        let blob_sidecars = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
+            Some(BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap())
+        } else {
+            None
+        };
         Self {
             chain,
-            next_block: Arc::new(next_block),
+            next_block: block,
+            next_blobs: blob_sidecars,
             attestations,
             next_block_attestations,
             next_block_aggregate_attestations,
@@ -272,11 +288,28 @@ impl TestRig {
             .unwrap();
     }
 
+    pub fn enqueue_gossip_blob(&self, blob_index: usize) {
+        if let Some(blobs) = self.next_blobs.as_ref() {
+            let blob = blobs.get(blob_index).unwrap();
+            self.network_beacon_processor
+                .send_gossip_blob_sidecar(
+                    junk_message_id(),
+                    junk_peer_id(),
+                    Client::default(),
+                    blob.index,
+                    blob.clone(),
+                    Duration::from_secs(0),
+                )
+                .unwrap();
+        }
+    }
+
     pub fn enqueue_rpc_block(&self) {
+        let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_rpc_beacon_block(
-                self.next_block.canonical_root(),
-                self.next_block.clone(),
+                block_root,
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
                 std::time::Duration::default(),
                 BlockProcessType::ParentLookup {
                     chain_hash: Hash256::random(),
@@ -286,12 +319,39 @@ impl TestRig {
     }
 
     pub fn enqueue_single_lookup_rpc_block(&self) {
+        let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_rpc_beacon_block(
-                self.next_block.canonical_root(),
-                self.next_block.clone(),
+                block_root,
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
+            )
+            .unwrap();
+    }
+    pub fn enqueue_single_lookup_rpc_blobs(&self) {
+        if let Some(blobs) = self.next_blobs.clone() {
+            let blobs = FixedBlobSidecarList::from(blobs.into_iter().map(Some).collect::<Vec<_>>());
+            self.network_beacon_processor
+                .send_rpc_blobs(
+                    self.next_block.canonical_root(),
+                    blobs,
+                    std::time::Duration::default(),
+                    BlockProcessType::SingleBlock { id: 1 },
+                )
+                .unwrap();
+        }
+    }
+
+    pub fn enqueue_blobs_by_range_request(&self, count: u64) {
+        self.network_beacon_processor
+            .send_blobs_by_range_request(
+                PeerId::random(),
+                (ConnectionId::new_unchecked(42), SubstreamId::new(24)),
+                BlobsByRangeRequest {
+                    start_slot: 0,
+                    count,
+                },
             )
             .unwrap();
     }
@@ -520,6 +580,13 @@ async fn import_gossip_block_acceptably_early() {
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
         .await;
 
+    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
+    for i in 0..num_blobs {
+        rig.enqueue_gossip_blob(i);
+        rig.assert_event_journal(&[GOSSIP_BLOBS_SIDECAR, WORKER_FREED, NOTHING_TO_DO])
+            .await;
+    }
+
     // Note: this section of the code is a bit race-y. We're assuming that we can set the slot clock
     // and check the head in the time between the block arrived early and when its due for
     // processing.
@@ -528,6 +595,7 @@ async fn import_gossip_block_acceptably_early() {
     // processing, instead of just ADDITIONAL_QUEUED_BLOCK_DELAY. Speak to @paulhauner if this test
     // starts failing.
     rig.chain.slot_clock.set_slot(rig.next_block.slot().into());
+
     assert!(
         rig.head_root() != rig.next_block.canonical_root(),
         "block not yet imported"
@@ -595,6 +663,19 @@ async fn import_gossip_block_at_current_slot() {
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
         .await;
 
+    let num_blobs = rig
+        .next_blobs
+        .as_ref()
+        .map(|blobs| blobs.len())
+        .unwrap_or(0);
+
+    for i in 0..num_blobs {
+        rig.enqueue_gossip_blob(i);
+
+        rig.assert_event_journal(&[GOSSIP_BLOBS_SIDECAR, WORKER_FREED, NOTHING_TO_DO])
+            .await;
+    }
+
     assert_eq!(
         rig.head_root(),
         rig.next_block.canonical_root(),
@@ -647,20 +728,34 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
     );
 
     // Send the block and ensure that the attestation is received back and imported.
-
-    let block_event = match import_method {
+    let num_blobs = rig
+        .next_blobs
+        .as_ref()
+        .map(|blobs| blobs.len())
+        .unwrap_or(0);
+    let mut events = vec![];
+    match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
-            GOSSIP_BLOCK
+            events.push(GOSSIP_BLOCK);
+            for i in 0..num_blobs {
+                rig.enqueue_gossip_blob(i);
+                events.push(GOSSIP_BLOBS_SIDECAR);
+            }
         }
         BlockImportMethod::Rpc => {
             rig.enqueue_rpc_block();
-            RPC_BLOCK
+            events.push(RPC_BLOCK);
+            if num_blobs > 0 {
+                rig.enqueue_single_lookup_rpc_blobs();
+                events.push(RPC_BLOBS);
+            }
         }
     };
 
-    rig.assert_event_journal_contains_ordered(&[block_event, UNKNOWN_BLOCK_ATTESTATION])
-        .await;
+    events.push(UNKNOWN_BLOCK_ATTESTATION);
+
+    rig.assert_event_journal_contains_ordered(&events).await;
 
     // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
     // responsibility of the sync manager to do this.
@@ -716,20 +811,34 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
     );
 
     // Send the block and ensure that the attestation is received back and imported.
-
-    let block_event = match import_method {
+    let num_blobs = rig
+        .next_blobs
+        .as_ref()
+        .map(|blobs| blobs.len())
+        .unwrap_or(0);
+    let mut events = vec![];
+    match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
-            GOSSIP_BLOCK
+            events.push(GOSSIP_BLOCK);
+            for i in 0..num_blobs {
+                rig.enqueue_gossip_blob(i);
+                events.push(GOSSIP_BLOBS_SIDECAR);
+            }
         }
         BlockImportMethod::Rpc => {
             rig.enqueue_rpc_block();
-            RPC_BLOCK
+            events.push(RPC_BLOCK);
+            if num_blobs > 0 {
+                rig.enqueue_single_lookup_rpc_blobs();
+                events.push(RPC_BLOBS);
+            }
         }
     };
 
-    rig.assert_event_journal_contains_ordered(&[block_event, UNKNOWN_BLOCK_AGGREGATE])
-        .await;
+    events.push(UNKNOWN_BLOCK_AGGREGATE);
+
+    rig.assert_event_journal_contains_ordered(&events).await;
 
     // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
     // responsibility of the sync manager to do this.
@@ -897,9 +1006,15 @@ async fn test_rpc_block_reprocessing() {
     // Insert the next block into the duplicate cache manually
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);
     rig.enqueue_single_lookup_rpc_block();
-
     rig.assert_event_journal(&[RPC_BLOCK, WORKER_FREED, NOTHING_TO_DO])
         .await;
+
+    rig.enqueue_single_lookup_rpc_blobs();
+    if rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0) > 0 {
+        rig.assert_event_journal(&[RPC_BLOBS, WORKER_FREED, NOTHING_TO_DO])
+            .await;
+    }
+
     // next_block shouldn't be processed since it couldn't get the
     // duplicate cache handle
     assert_ne!(next_block_root, rig.head_root());
@@ -959,4 +1074,43 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         Duration::from_millis(100),
     )
     .await;
+}
+
+#[tokio::test]
+async fn test_blobs_by_range() {
+    if test_spec::<E>().deneb_fork_epoch.is_none() {
+        return;
+    };
+    let mut rig = TestRig::new(64).await;
+    let slot_count = 32;
+    rig.enqueue_blobs_by_range_request(slot_count);
+
+    let mut blob_count = 0;
+    for slot in 0..slot_count {
+        let root = rig
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap();
+        blob_count += root
+            .map(|root| rig.chain.get_blobs(&root).unwrap_or_default().len())
+            .unwrap_or(0);
+    }
+    let mut actual_count = 0;
+    while let Some(next) = rig._network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRange(blob),
+            id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    assert_eq!(blob_count, actual_count);
 }

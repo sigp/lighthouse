@@ -3,6 +3,7 @@ use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
 };
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
@@ -10,8 +11,7 @@ use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -19,7 +19,7 @@ use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// we will negatively report peers with poor bandwidth. This can be set arbitrarily high, in which
 /// case the responder will fill the response up to the max request size, assuming they have the
 /// bandwidth to do so.
-pub const EPOCHS_PER_BATCH: u64 = 2;
+pub const EPOCHS_PER_BATCH: u64 = 1;
 
 /// The maximum number of batches to queue before requesting more.
 const BATCH_BUFFER_SIZE: u8 = 5;
@@ -221,7 +221,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<RpcBlock<T::EthSpec>>,
     ) -> ProcessingResult {
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
@@ -294,19 +294,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return Ok(KeepChain);
         }
 
-        let beacon_processor = match network.beacon_processor_if_enabled() {
-            Some(beacon_processor) => beacon_processor,
-            None => return Ok(KeepChain),
+        let Some(beacon_processor) = network.beacon_processor_if_enabled() else {
+            return Ok(KeepChain);
         };
 
-        let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
-            None => {
-                return Err(RemoveChain::WrongChainState(format!(
-                    "Trying to process a batch that does not exist: {}",
-                    batch_id
-                )));
-            }
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            return Err(RemoveChain::WrongChainState(format!(
+                "Trying to process a batch that does not exist: {}",
+                batch_id
+            )));
         };
 
         // NOTE: We send empty batches to the processor in order to trigger the block processor
@@ -598,6 +594,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ///
     /// If a previous batch has been validated and it had been re-processed, penalize the original
     /// peer.
+    #[allow(clippy::modulo_one)]
     fn advance_chain(&mut self, network: &mut SyncNetworkContext<T>, validating_epoch: Epoch) {
         // make sure this epoch produces an advancement
         if validating_epoch <= self.start_epoch {
@@ -826,9 +823,24 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
             if !batch.is_expecting_block(peer_id, &request_id) {
+                debug!(
+                    self.log,
+                    "Batch not expecting block";
+                    "batch_epoch" => batch_id,
+                    "batch_state" => ?batch.state(),
+                    "peer_id" => %peer_id,
+                    "request_id" => %request_id
+                );
                 return Ok(KeepChain);
             }
-            debug!(self.log, "Batch failed. RPC Error"; "batch_epoch" => batch_id);
+            debug!(
+                self.log,
+                "Batch failed. RPC Error";
+                "batch_epoch" => batch_id,
+                "batch_state" => ?batch.state(),
+                "peer_id" => %peer_id,
+                "request_id" => %request_id
+            );
             if let Some(active_requests) = self.peers.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }
@@ -840,6 +852,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
             self.retry_batch_download(network, batch_id)
         } else {
+            debug!(
+                self.log,
+                "Batch not found";
+                "batch_epoch" => batch_id,
+                "peer_id" => %peer_id,
+                "request_id" => %request_id
+            );
             // this could be an error for an old batch, removed when the chain advances
             Ok(KeepChain)
         }
@@ -851,9 +870,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
-        let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
-            None => return Ok(KeepChain),
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            return Ok(KeepChain);
         };
 
         // Find a peer to request the batch
@@ -867,7 +885,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .collect::<Vec<_>>();
             // Sort peers prioritizing unrelated peers with less active requests.
             priorized_peers.sort_unstable();
-            priorized_peers.get(0).map(|&(_, _, peer)| peer)
+            priorized_peers.first().map(|&(_, _, peer)| peer)
         };
 
         if let Some(peer) = new_peer {
@@ -886,8 +904,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         peer: PeerId,
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
-            let request = batch.to_blocks_by_range_request();
-            match network.blocks_by_range_request(peer, request, self.id, batch_id) {
+            let (request, batch_type) = batch.to_blocks_by_range_request();
+            match network.blocks_by_range_request(peer, batch_type, request, self.id, batch_id) {
                 Ok(request_id) => {
                     // inform the batch about the new request
                     batch.start_downloading_from_peer(peer, request_id)?;
@@ -991,7 +1009,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(epoch) = self.optimistic_start {
             if let Entry::Vacant(entry) = self.batches.entry(epoch) {
                 if let Some(peer) = idle_peers.pop() {
-                    let optimistic_batch = BatchInfo::new(&epoch, EPOCHS_PER_BATCH);
+                    let batch_type = network.batch_type(epoch);
+                    let optimistic_batch = BatchInfo::new(&epoch, EPOCHS_PER_BATCH, batch_type);
                     entry.insert(optimistic_batch);
                     self.send_batch(network, epoch, peer)?;
                 }
@@ -1000,7 +1019,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
 
         while let Some(peer) = idle_peers.pop() {
-            if let Some(batch_id) = self.include_next_batch() {
+            if let Some(batch_id) = self.include_next_batch(network) {
                 // send the batch
                 self.send_batch(network, batch_id, peer)?;
             } else {
@@ -1014,7 +1033,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Creates the next required batch from the chain. If there are no more batches required,
     /// `false` is returned.
-    fn include_next_batch(&mut self) -> Option<BatchId> {
+    fn include_next_batch(&mut self, network: &mut SyncNetworkContext<T>) -> Option<BatchId> {
         // don't request batches beyond the target head slot
         if self
             .to_be_downloaded
@@ -1048,10 +1067,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             Entry::Occupied(_) => {
                 // this batch doesn't need downloading, let this same function decide the next batch
                 self.to_be_downloaded += EPOCHS_PER_BATCH;
-                self.include_next_batch()
+                self.include_next_batch(network)
             }
             Entry::Vacant(entry) => {
-                entry.insert(BatchInfo::new(&batch_id, EPOCHS_PER_BATCH));
+                let batch_type = network.batch_type(batch_id);
+                entry.insert(BatchInfo::new(&batch_id, EPOCHS_PER_BATCH, batch_type));
                 self.to_be_downloaded += EPOCHS_PER_BATCH;
                 Some(batch_id)
             }

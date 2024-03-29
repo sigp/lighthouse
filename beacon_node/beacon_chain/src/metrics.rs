@@ -10,6 +10,20 @@ use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
 /// The maximum time to wait for the snapshot cache lock during a metrics scrape.
 const SNAPSHOT_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
 
+// Attestation simulator metrics
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL: &str =
+    "validator_monitor_attestation_simulator_head_attester_hit_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL: &str =
+    "validator_monitor_attestation_simulator_head_attester_miss_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT_TOTAL: &str =
+    "validator_monitor_attestation_simulator_target_attester_hit_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS_TOTAL: &str =
+    "validator_monitor_attestation_simulator_target_attester_miss_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT_TOTAL: &str =
+    "validator_monitor_attestation_simulator_source_attester_hit_total";
+pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL: &str =
+    "validator_monitor_attestation_simulator_source_attester_miss_total";
+
 lazy_static! {
     /*
      * Block Processing
@@ -39,6 +53,14 @@ lazy_static! {
     pub static ref BLOCK_PROCESSING_BLOCK_ROOT: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_block_root_seconds",
         "Time spent calculating the block root when processing a block."
+    );
+    pub static ref BLOCK_HEADER_PROCESSING_BLOCK_ROOT: Result<Histogram> = try_create_histogram(
+        "beacon_block_header_processing_block_root_seconds",
+        "Time spent calculating the block root for a beacon block header."
+    );
+    pub static ref BLOCK_PROCESSING_BLOB_ROOT: Result<Histogram> = try_create_histogram(
+        "beacon_block_processing_blob_root_seconds",
+        "Time spent calculating the blob root when processing a block."
     );
     pub static ref BLOCK_PROCESSING_DB_READ: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_db_read_seconds",
@@ -282,6 +304,11 @@ lazy_static! {
         "Count of times the early attester cache returns an attestation"
     );
 
+}
+
+// Second lazy-static block is used to account for macro recursion limit.
+lazy_static! {
+
     /*
      * Attestation Production
      */
@@ -301,10 +328,7 @@ lazy_static! {
         "attestation_production_cache_prime_seconds",
         "Time spent loading a new state from the disk due to a cache miss"
     );
-}
 
-// Second lazy-static block is used to account for macro recursion limit.
-lazy_static! {
     /*
      * Fork Choice
      */
@@ -380,6 +404,8 @@ lazy_static! {
         try_create_histogram("beacon_persist_eth1_cache", "Time taken to persist the eth1 caches");
     pub static ref PERSIST_FORK_CHOICE: Result<Histogram> =
         try_create_histogram("beacon_persist_fork_choice", "Time taken to persist the fork choice struct");
+    pub static ref PERSIST_DATA_AVAILABILITY_CHECKER: Result<Histogram> =
+        try_create_histogram("beacon_persist_data_availability_checker", "Time taken to persist the data availability checker");
 
     /*
      * Eth1
@@ -980,6 +1006,30 @@ lazy_static! {
             "beacon_pre_finalization_block_lookup_count",
             "Number of block roots subject to single block lookups"
         );
+
+    /*
+     * Blob sidecar Verification
+     */
+    pub static ref BLOBS_SIDECAR_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "beacon_blobs_sidecar_processing_requests_total",
+        "Count of all blob sidecars submitted for processing"
+    );
+    pub static ref BLOBS_SIDECAR_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_blobs_sidecar_processing_successes_total",
+        "Number of blob sidecars verified for gossip"
+    );
+    pub static ref BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_blobs_sidecar_gossip_verification_seconds",
+        "Full runtime of blob sidecars gossip verification"
+    );
+    pub static ref BLOB_SIDECAR_INCLUSION_PROOF_VERIFICATION: Result<Histogram> = try_create_histogram(
+        "blob_sidecar_inclusion_proof_verification_seconds",
+        "Time taken to verify blob sidecar inclusion proof"
+    );
+    pub static ref BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: Result<Histogram> = try_create_histogram(
+        "blob_sidecar_inclusion_proof_computation_seconds",
+        "Time taken to compute blob sidecar inclusion proof"
+    );
 }
 
 // Fifth lazy-static block is used to account for macro recursion limit.
@@ -1009,6 +1059,116 @@ lazy_static! {
         "beacon_aggregated_attestation_subsets_total",
         "Count of new aggregated attestations that are subsets of already known aggregates"
     );
+    /*
+    * Attestation simulator metrics
+     */
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL,
+        "Incremented if a validator is flagged as a previous slot head attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL,
+        "Incremented if a validator is not flagged as a previous slot head attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT_TOTAL,
+        "Incremented if a validator is flagged as a previous slot target attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS_TOTAL,
+        "Incremented if a validator is not flagged as a previous slot target attester \
+        during per slot processing",
+    );
+        pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT_TOTAL,
+        "Incremented if a validator is flagged as a previous slot source attester \
+        during per slot processing",
+    );
+    pub static ref VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS: Result<IntCounter> =
+    try_create_int_counter(
+        VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL,
+        "Incremented if a validator is not flagged as a previous slot source attester \
+        during per slot processing",
+    );
+    /*
+     * Missed block metrics
+     */
+    pub static ref VALIDATOR_MONITOR_MISSED_BLOCKS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_missed_blocks_total",
+        "Number of non-finalized blocks missed",
+        &["validator"]
+    );
+
+    /*
+    * Kzg related metrics
+    */
+    pub static ref KZG_VERIFICATION_SINGLE_TIMES: Result<Histogram> =
+        try_create_histogram("kzg_verification_single_seconds", "Runtime of single kzg verification");
+    pub static ref KZG_VERIFICATION_BATCH_TIMES: Result<Histogram> =
+        try_create_histogram("kzg_verification_batch_seconds", "Runtime of batched kzg verification");
+
+    pub static ref BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+            "beacon_block_production_blobs_verification_seconds",
+            "Time taken to verify blobs against commitments and creating BlobSidecar objects in block production"
+    );
+    /*
+    * Availability related metrics
+    */
+    pub static ref BLOCK_AVAILABILITY_DELAY: Result<Histogram> = try_create_histogram_with_buckets(
+        "block_availability_delay",
+        "Duration between start of the slot and the time at which all components of the block are available.",
+        // Create a custom bucket list for greater granularity in block delay
+        Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
+    );
+
+
+    /*
+    * Data Availability cache metrics
+    */
+    pub static ref DATA_AVAILABILITY_PROCESSING_CACHE_SIZE: Result<IntGauge> =
+        try_create_int_gauge(
+            "data_availability_processing_cache_size",
+            "Number of entries in the data availability processing cache."
+        );
+    pub static ref DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE: Result<IntGauge> =
+        try_create_int_gauge(
+            "data_availability_overflow_memory_block_cache_size",
+            "Number of entries in the data availability overflow block memory cache."
+        );
+    pub static ref DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE: Result<IntGauge> =
+        try_create_int_gauge(
+            "data_availability_overflow_memory_state_cache_size",
+            "Number of entries in the data availability overflow state memory cache."
+        );
+    pub static ref DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE: Result<IntGauge> =
+        try_create_int_gauge(
+            "data_availability_overflow_store_cache_size",
+            "Number of entries in the data availability overflow store cache."
+        );
+
+    /*
+    * light_client server metrics
+    */
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_STATE_DATA_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_light_client_server_cache_state_data_seconds",
+        "Time taken to produce and cache state data",
+    );
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_light_client_server_cache_recompute_updates_seconds",
+        "Time taken to recompute and cache updates",
+    );
+    pub static ref LIGHT_CLIENT_SERVER_CACHE_PREV_BLOCK_CACHE_MISS: Result<IntCounter> = try_create_int_counter(
+        "beacon_light_client_server_cache_prev_block_cache_miss",
+        "Count of prev block cache misses",
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
@@ -1035,6 +1195,24 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
             snapshot_cache.len() as i64,
         )
     }
+
+    let da_checker_metrics = beacon_chain.data_availability_checker.metrics();
+    set_gauge_by_usize(
+        &DATA_AVAILABILITY_PROCESSING_CACHE_SIZE,
+        da_checker_metrics.processing_cache_size,
+    );
+    set_gauge_by_usize(
+        &DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE,
+        da_checker_metrics.block_cache_size,
+    );
+    set_gauge_by_usize(
+        &DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE,
+        da_checker_metrics.state_cache_size,
+    );
+    set_gauge_by_usize(
+        &DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE,
+        da_checker_metrics.num_store_entries,
+    );
 
     if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {
         set_gauge_by_usize(&PRE_FINALIZATION_BLOCK_CACHE_SIZE, size);

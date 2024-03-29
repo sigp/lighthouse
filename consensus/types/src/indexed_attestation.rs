@@ -1,6 +1,6 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
 use derivative::Derivative;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::hash::{Hash, Hasher};
@@ -106,7 +106,7 @@ mod quoted_variable_list_u64 {
 mod tests {
     use super::*;
     use crate::slot_epoch::Epoch;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use crate::test_utils::{SeedableRng, XorShiftRng};
     use crate::MainnetEthSpec;
 
     #[test]

@@ -80,6 +80,7 @@ impl ApiTester {
         let initialized_validators = InitializedValidators::from_definitions(
             validator_defs,
             validator_dir.path().into(),
+            Default::default(),
             log.clone(),
         )
         .await
@@ -249,9 +250,9 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self
             .client
-            .get_lighthouse_spec::<ConfigAndPresetBellatrix>()
+            .get_lighthouse_spec::<ConfigAndPresetCapella>()
             .await
-            .map(|res| ConfigAndPreset::Bellatrix(res.data))
+            .map(|res| ConfigAndPreset::Capella(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
 
@@ -315,6 +316,8 @@ impl ApiTester {
                 suggested_fee_recipient: None,
                 gas_limit: None,
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
@@ -447,6 +450,8 @@ impl ApiTester {
                 suggested_fee_recipient: None,
                 gas_limit: None,
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
             };
 
             self.client
@@ -467,6 +472,8 @@ impl ApiTester {
             suggested_fee_recipient: None,
             gas_limit: None,
             builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
         };
 
         let response = self
@@ -511,6 +518,8 @@ impl ApiTester {
                     request_timeout_ms: None,
                     client_identity_path: None,
                     client_identity_password: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                 }
             })
             .collect();
@@ -534,7 +543,15 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None, None)
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                Some(enabled),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -582,6 +599,8 @@ impl ApiTester {
                 Some(gas_limit),
                 None,
                 None,
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -609,6 +628,8 @@ impl ApiTester {
                 None,
                 None,
                 Some(builder_proposals),
+                None,
+                None,
                 None,
             )
             .await

@@ -29,6 +29,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Data directory for the freezer database.")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("blobs-dir")
+                .long("blobs-dir")
+                .value_name("DIR")
+                .help("Data directory for the blobs database.")
+                .takes_value(true)
+        )
         /*
          * Network parameters.
          */
@@ -382,12 +389,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("http-disable-legacy-spec")
-                .long("http-disable-legacy-spec")
-                .requires("enable_http")
-                .hidden(true)
-        )
-        .arg(
             Arg::with_name("http-spec-fork")
                 .long("http-spec-fork")
                 .requires("enable_http")
@@ -563,24 +564,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       Identical to the method used at the 2019 Canada interop.")
         )
         .arg(
-            Arg::with_name("eth1-endpoint")
-                .long("eth1-endpoint")
-                .value_name("HTTP-ENDPOINT")
-                .help("Deprecated. Use --eth1-endpoints.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("eth1-endpoints")
-                .long("eth1-endpoints")
-                .value_name("HTTP-ENDPOINTS")
-                .conflicts_with("eth1-endpoint")
-                .help("One http endpoint for a web3 connection to an execution node. \
-                       Note: This flag is now only useful for testing, use `--execution-endpoint` \
-                       flag to connect to an execution node on mainnet and testnets.
-                       Defaults to http://127.0.0.1:8545.")
-                .takes_value(true)
-        )
-        .arg(
             Arg::with_name("eth1-purge-cache")
                 .long("eth1-purge-cache")
                 .value_name("PURGE-CACHE")
@@ -639,17 +622,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many states from the freezer database should cache in memory [default: 1]")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("state-cache-size")
+                .long("state-cache-size")
+                .value_name("STATE_CACHE_SIZE")
+                .help("Specifies the size of the snapshot cache [default: 3]")
+                .takes_value(true)
+        )
         /*
          * Execution Layer Integration
          */
-        .arg(
-            Arg::with_name("merge")
-                .long("merge")
-                .help("Deprecated. The feature activates automatically when --execution-endpoint \
-                    is supplied.")
-                .takes_value(false)
-                .hidden(true)
-        )
         .arg(
             Arg::with_name("execution-endpoint")
                 .long("execution-endpoint")
@@ -730,6 +712,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("1")
                 .takes_value(true)
         )
+        /* Deneb settings */
+        .arg(
+            Arg::with_name("trusted-setup-file-override")
+                .long("trusted-setup-file-override")
+                .value_name("FILE")
+                .help("Path to a json file containing the trusted setup params. \
+                      NOTE: This will override the trusted setup that is generated \
+                      from the mainnet kzg ceremony. Use with caution")
+                .takes_value(true)
+        )
         /*
          * Database purging and compaction.
          */
@@ -759,6 +751,34 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        reconstructed and sent to syncing peers.")
                 .takes_value(true)
                 .default_value("true")
+        )
+        .arg(
+            Arg::with_name("prune-blobs")
+                .long("prune-blobs")
+                .value_name("BOOLEAN")
+                .help("Prune blobs from Lighthouse's database when they are older than the data \
+                       data availability boundary relative to the current epoch.")
+                .takes_value(true)
+                .default_value("true")
+        )
+        .arg(
+            Arg::with_name("epochs-per-blob-prune")
+                .long("epochs-per-blob-prune")
+                .value_name("EPOCHS")
+                .help("The epoch interval with which to prune blobs from Lighthouse's \
+                       database when they are older than the data availability boundary \
+                       relative to the current epoch.")
+                .takes_value(true)
+                .default_value("1")
+        )
+        .arg(
+            Arg::with_name("blob-prune-margin-epochs")
+                .long("blob-prune-margin-epochs")
+                .value_name("EPOCHS")
+                .help("The margin for blob pruning in epochs. The oldest blobs are pruned \
+                       up until data_availability_boundary - blob_prune_margin_epochs.")
+                .takes_value(true)
+                .default_value("0")
         )
 
         /*
@@ -927,6 +947,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("checkpoint-state")
         )
         .arg(
+            Arg::with_name("checkpoint-blobs")
+                .long("checkpoint-blobs")
+                .help("Set the checkpoint blobs to start syncing from. Must be aligned and match \
+                       --checkpoint-block. Using --checkpoint-sync-url instead is recommended.")
+                .value_name("BLOBS_SSZ")
+                .takes_value(true)
+                .requires("checkpoint-block")
+        )
+        .arg(
             Arg::with_name("checkpoint-sync-url")
                 .long("checkpoint-sync-url")
                 .help("Set the remote beacon node HTTP endpoint to use for checkpoint sync.")
@@ -941,6 +970,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SECONDS")
                 .takes_value(true)
                 .default_value("180")
+        )
+        .arg(
+            Arg::with_name("allow-insecure-genesis-sync")
+                .long("allow-insecure-genesis-sync")
+                .help("Enable syncing from genesis, which is generally insecure and incompatible with data availability checks. \
+                    Checkpoint syncing is the preferred method for syncing a node. \
+                    Only use this flag when testing. DO NOT use on mainnet!")
+                .conflicts_with("checkpoint-sync-url")
+                .conflicts_with("checkpoint-state")
+                .takes_value(false)
         )
         .arg(
             Arg::with_name("reconstruct-historic-states")
@@ -1118,15 +1157,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("builder-profit-threshold")
                 .long("builder-profit-threshold")
                 .value_name("WEI_VALUE")
-                .help("The minimum reward in wei provided to the proposer by a block builder for \
-                    an external payload to be considered for inclusion in a proposal. If this \
-                    threshold is not met, the local EE's payload will be used. This is currently \
-                    *NOT* in comparison to the value of the local EE's payload. It simply checks \
-                    whether the total proposer reward from an external payload is equal to or \
-                    greater than this value. In the future, a comparison to a local payload is \
-                    likely to be added. Example: Use 250000000000000000 to set the threshold to \
-                     0.25 ETH.")
-                .default_value("0")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
         )
         .arg(
@@ -1139,22 +1170,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("count-unrealized")
-                .long("count-unrealized")
-                .hidden(true)
-                .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .default_value("true")
-        )
-        .arg(
-            Arg::with_name("count-unrealized-full")
-                .long("count-unrealized-full")
-                .hidden(true)
-                .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .default_value("false")
-        )
-        .arg(
             Arg::with_name("reset-payload-statuses")
                 .long("reset-payload-statuses")
                 .help("When present, Lighthouse will forget the payload statuses of any \
@@ -1165,7 +1180,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("disable-deposit-contract-sync")
                 .long("disable-deposit-contract-sync")
-                .help("Explictly disables syncing of deposit logs from the execution node. \
+                .help("Explicitly disables syncing of deposit logs from the execution node. \
                       This overrides any previous option that depends on it. \
                       Useful if you intend to run a non-validating beacon node.")
                 .takes_value(false)
@@ -1194,11 +1209,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("always-prefer-builder-payload")
             .long("always-prefer-builder-payload")
-            .help("If set, the beacon node always uses the payload from the builder instead of the local payload.")
-            // The builder profit threshold flag is used to provide preference
-            // to local payloads, therefore it fundamentally conflicts with
-            // always using the builder.
-            .conflicts_with("builder-profit-threshold")
+            .help("This flag is deprecated and has no effect.")
         )
         .arg(
             Arg::with_name("invalid-gossip-verified-blocks-path")
@@ -1213,12 +1224,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("progressive-balances")
                 .long("progressive-balances")
                 .value_name("MODE")
-                .help("Options to enable or disable the progressive balances cache for \
-                        unrealized FFG progression calculation. The default `checked` mode compares \
-                        the progressive balances from the cache against results from the existing \
-                        method. If there is a mismatch, it falls back to the existing method. The \
-                        optimized mode (`fast`) is faster but is still experimental, and is \
-                        not recommended for mainnet usage at this time.")
+                .help("Control the progressive balances cache mode. The default `fast` mode uses \
+                        the cache to speed up fork choice. A more conservative `checked` mode \
+                        compares the cache's results against results without the cache. If \
+                        there is a mismatch, it falls back to the cache-free result. Using the \
+                        default `fast` mode is recommended unless advised otherwise by the \
+                        Lighthouse team.")
                 .takes_value(true)
                 .possible_values(ProgressiveBalancesMode::VARIANTS)
         )
@@ -1230,6 +1241,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         this value may increase resource consumption. Reducing the value \
                         may result in decreased resource usage and diminished performance. The \
                         default value is the number of logical CPU cores on the host.")
+                .hidden(true)
                 .takes_value(true)
         )
         .arg(
@@ -1240,6 +1252,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         Higher values may prevent messages from being dropped while lower values \
                         may help protect the node from becoming overwhelmed.")
                 .default_value("16384")
+                .hidden(true)
                 .takes_value(true)
         )
         .arg(
@@ -1249,6 +1262,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies the length of the queue for messages requiring delayed processing. \
                         Higher values may prevent messages from being dropped while lower values \
                         may help protect the node from becoming overwhelmed.")
+                .hidden(true)
                 .default_value("12288")
                 .takes_value(true)
         )
@@ -1259,6 +1273,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies the number of gossip attestations in a signature verification batch. \
                        Higher values may reduce CPU usage in a healthy network whilst lower values may \
                        increase CPU usage in an unhealthy or hostile network.")
+                .hidden(true)
                 .default_value("64")
                 .takes_value(true)
         )
@@ -1270,8 +1285,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        verification batch. \
                        Higher values may reduce CPU usage in a healthy network while lower values may \
                        increase CPU usage in an unhealthy or hostile network.")
+                .hidden(true)
                 .default_value("64")
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("disable-duplicate-warn-logs")
+                .long("disable-duplicate-warn-logs")
+                .help("This flag is deprecated and has no effect.")
+                .takes_value(false)
         )
         .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))
 }

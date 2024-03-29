@@ -9,11 +9,9 @@ use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
-use std::convert::TryInto;
 use std::hash::Hash;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
@@ -183,7 +181,7 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella),
+    variants(Base, Altair, Merge, Capella, Deneb),
     variant_attributes(
         derive(
             Derivative,
@@ -263,9 +261,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -280,13 +278,13 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Capella))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
@@ -300,16 +298,21 @@ where
         partial_getter(rename = "latest_execution_payload_header_capella")
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<T>,
+    #[superstruct(
+        only(Deneb),
+        partial_getter(rename = "latest_execution_payload_header_deneb")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<T>,
 
     // Capella
-    #[superstruct(only(Capella), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(only(Capella))]
+    #[superstruct(only(Capella, Deneb))]
     pub historical_summaries: VariableList<HistoricalSummary, T::HistoricalRootsLimit>,
 
     // Caching (not in the spec)
@@ -424,12 +427,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         let fork_at_slot = spec.fork_name_at_epoch(self.current_epoch());
-        let object_fork = match self {
-            BeaconState::Base { .. } => ForkName::Base,
-            BeaconState::Altair { .. } => ForkName::Altair,
-            BeaconState::Merge { .. } => ForkName::Merge,
-            BeaconState::Capella { .. } => ForkName::Capella,
-        };
+        let object_fork = self.fork_name_unchecked();
 
         if fork_at_slot == object_fork {
             Ok(object_fork)
@@ -438,6 +436,19 @@ impl<T: EthSpec> BeaconState<T> {
                 fork_at_slot,
                 object_fork,
             })
+        }
+    }
+
+    /// Returns the name of the fork pertaining to `self`.
+    ///
+    /// Does not check if `self` is consistent with the fork dictated by `self.slot()`.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        match self {
+            BeaconState::Base { .. } => ForkName::Base,
+            BeaconState::Altair { .. } => ForkName::Altair,
+            BeaconState::Merge { .. } => ForkName::Merge,
+            BeaconState::Capella { .. } => ForkName::Capella,
+            BeaconState::Deneb { .. } => ForkName::Deneb,
         }
     }
 
@@ -613,6 +624,25 @@ impl<T: EthSpec> BeaconState<T> {
         cache.get_all_beacon_committees()
     }
 
+    /// Returns the block root which decided the proposer shuffling for the epoch passed in parameter. This root
+    /// can be used to key this proposer shuffling.
+    ///
+    /// ## Notes
+    ///
+    /// The `block_root` must be equal to the latest block applied to `self`.
+    pub fn proposer_shuffling_decision_root_at_epoch(
+        &self,
+        epoch: Epoch,
+        block_root: Hash256,
+    ) -> Result<Hash256, Error> {
+        let decision_slot = self.proposer_shuffling_decision_slot(epoch);
+        if self.slot() <= decision_slot {
+            Ok(block_root)
+        } else {
+            self.get_block_root(decision_slot).copied()
+        }
+    }
+
     /// Returns the block root which decided the proposer shuffling for the current epoch. This root
     /// can be used to key this proposer shuffling.
     ///
@@ -621,20 +651,18 @@ impl<T: EthSpec> BeaconState<T> {
     /// The `block_root` covers the one-off scenario where the genesis block decides its own
     /// shuffling. It should be set to the latest block applied to `self` or the genesis block root.
     pub fn proposer_shuffling_decision_root(&self, block_root: Hash256) -> Result<Hash256, Error> {
-        let decision_slot = self.proposer_shuffling_decision_slot();
+        let decision_slot = self.proposer_shuffling_decision_slot(self.current_epoch());
         if self.slot() == decision_slot {
             Ok(block_root)
         } else {
-            self.get_block_root(decision_slot).map(|root| *root)
+            self.get_block_root(decision_slot).copied()
         }
     }
 
     /// Returns the slot at which the proposer shuffling was decided. The block root at this slot
-    /// can be used to key the proposer shuffling for the current epoch.
-    fn proposer_shuffling_decision_slot(&self) -> Slot {
-        self.current_epoch()
-            .start_slot(T::slots_per_epoch())
-            .saturating_sub(1_u64)
+    /// can be used to key the proposer shuffling for the given epoch.
+    fn proposer_shuffling_decision_slot(&self, epoch: Epoch) -> Slot {
+        epoch.start_slot(T::slots_per_epoch()).saturating_sub(1_u64)
     }
 
     /// Returns the block root which decided the attester shuffling for the given `relative_epoch`.
@@ -653,7 +681,7 @@ impl<T: EthSpec> BeaconState<T> {
         if self.slot() == decision_slot {
             Ok(block_root)
         } else {
-            self.get_block_root(decision_slot).map(|root| *root)
+            self.get_block_root(decision_slot).copied()
         }
     }
 
@@ -728,6 +756,9 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRef::Capella(
                 &state.latest_execution_payload_header,
             )),
+            BeaconState::Deneb(state) => Ok(ExecutionPayloadHeaderRef::Deneb(
+                &state.latest_execution_payload_header,
+            )),
         }
     }
 
@@ -740,6 +771,9 @@ impl<T: EthSpec> BeaconState<T> {
                 &mut state.latest_execution_payload_header,
             )),
             BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRefMut::Capella(
+                &mut state.latest_execution_payload_header,
+            )),
+            BeaconState::Deneb(state) => Ok(ExecutionPayloadHeaderRefMut::Deneb(
                 &mut state.latest_execution_payload_header,
             )),
         }
@@ -926,10 +960,10 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         validator_indices: &[u64],
         spec: &ChainSpec,
-    ) -> Result<Vec<Option<SyncDuty>>, Error> {
+    ) -> Result<Vec<Result<Option<SyncDuty>, Error>>, Error> {
         let sync_committee = self.get_built_sync_committee(epoch, spec)?;
 
-        validator_indices
+        Ok(validator_indices
             .iter()
             .map(|&validator_index| {
                 let pubkey = self.get_validator(validator_index as usize)?.pubkey;
@@ -940,7 +974,7 @@ impl<T: EthSpec> BeaconState<T> {
                     sync_committee,
                 ))
             })
-            .collect()
+            .collect())
     }
 
     /// Get the canonical root of the `latest_block_header`, filling in its state root if necessary.
@@ -1188,6 +1222,11 @@ impl<T: EthSpec> BeaconState<T> {
                 &mut state.balances,
                 &mut state.progressive_balances_cache,
             ),
+            BeaconState::Deneb(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
         }
     }
 
@@ -1298,6 +1337,24 @@ impl<T: EthSpec> BeaconState<T> {
         ))
     }
 
+    /// Return the activation churn limit for the current epoch (number of validators who can enter per epoch).
+    ///
+    /// Uses the epoch cache, and will error if it isn't initialized.
+    ///
+    /// Spec v1.4.0
+    pub fn get_activation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        Ok(match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_) => self.get_churn_limit(spec)?,
+            BeaconState::Deneb(_) => std::cmp::min(
+                spec.max_per_epoch_activation_churn_limit,
+                self.get_churn_limit(spec)?,
+            ),
+        })
+    }
+
     /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an
     /// attestation.
     ///
@@ -1385,6 +1442,7 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Deneb(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == self.previous_epoch() {
             match self {
@@ -1392,6 +1450,7 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Deneb(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
@@ -1703,9 +1762,11 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Altair(inner) => BeaconState::Altair(inner.clone()),
             BeaconState::Merge(inner) => BeaconState::Merge(inner.clone()),
             BeaconState::Capella(inner) => BeaconState::Capella(inner.clone()),
+            BeaconState::Deneb(inner) => BeaconState::Deneb(inner.clone()),
         };
         if config.committee_caches {
-            *res.committee_caches_mut() = self.committee_caches().clone();
+            res.committee_caches_mut()
+                .clone_from(self.committee_caches());
             *res.total_active_balance_mut() = *self.total_active_balance();
         }
         if config.pubkey_cache {
@@ -1804,6 +1865,7 @@ impl<T: EthSpec> BeaconState<T> {
         };
 
         // 2. Get all `BeaconState` leaves.
+        self.initialize_tree_hash_cache();
         let mut cache = self
             .tree_hash_cache_mut()
             .take()
@@ -1880,6 +1942,7 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
             (BeaconState::Merge(x), BeaconState::Merge(y)) => x.compare_fields(y),
             (BeaconState::Capella(x), BeaconState::Capella(y)) => x.compare_fields(y),
+            (BeaconState::Deneb(x), BeaconState::Deneb(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
     }

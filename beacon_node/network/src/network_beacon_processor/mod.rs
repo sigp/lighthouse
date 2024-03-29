@@ -2,6 +2,7 @@ use crate::{
     service::NetworkMessage,
     sync::{manager::BlockProcessType, SyncMessage},
 };
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, test_utils::BeaconChainHarness, BeaconChain,
 };
@@ -12,6 +13,7 @@ use beacon_processor::{
     WorkEvent as BeaconWorkEvent,
 };
 use environment::null_logger;
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -28,6 +30,7 @@ use tokio::sync::mpsc::{self, error::TrySendError};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
+use types::blob_sidecar::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -193,6 +196,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::GossipBlock(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some blob sidecar.
+    pub fn send_gossip_blob_sidecar(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        blob_index: u64,
+        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_blob(
+                    message_id,
+                    peer_id,
+                    peer_client,
+                    blob_index,
+                    blob_sidecar,
+                    seen_timestamp,
+                )
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipBlobSidecar(Box::pin(process_fn)),
         })
     }
 
@@ -376,7 +409,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_rpc_beacon_block(
         self: &Arc<Self>,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: RpcBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
@@ -392,11 +425,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some blobs, where the result from computation (if any) is
+    /// sent to the other side of `result_tx`.
+    pub fn send_rpc_blobs(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let blob_count = blobs.iter().filter(|b| b.is_some()).count();
+        if blob_count == 0 {
+            return Ok(());
+        }
+        let process_fn = self.clone().generate_rpc_blobs_process_fn(
+            block_root,
+            blobs,
+            seen_timestamp,
+            process_type,
+        );
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcBlobs { process_fn },
+        })
+    }
+
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn send_chain_segment(
         self: &Arc<Self>,
         process_id: ChainSegmentProcessId,
-        blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
         let processor = self.clone();
@@ -496,8 +554,42 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new work event to process `BlobsByRangeRequest`s from the RPC network.
+    pub fn send_blobs_by_range_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRangeRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_blobs_by_range_request(peer_id, request_id, request);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::BlobsByRangeRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `BlobsByRootRequest`s from the RPC network.
+    pub fn send_blobs_by_roots_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRootRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_blobs_by_root_request(peer_id, request_id, request);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::BlobsByRootsRequest(Box::new(process_fn)),
+        })
+    }
+
     /// Create a new work event to process `LightClientBootstrap`s from the RPC network.
-    pub fn send_lightclient_bootstrap_request(
+    pub fn send_light_client_bootstrap_request(
         self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,

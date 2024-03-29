@@ -4,6 +4,8 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
     ChainConfig,
 };
+use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use http_api::test_utils::InteractiveTester;
@@ -17,8 +19,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::{
-    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, MainnetEthSpec,
+    MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -111,8 +113,8 @@ async fn state_by_root_pruned_from_fork_choice() {
             .unwrap()
             .unwrap();
 
-        assert!(response.finalized.unwrap());
-        assert!(!response.execution_optimistic.unwrap());
+        assert!(response.metadata.finalized.unwrap());
+        assert!(!response.metadata.execution_optimistic.unwrap());
 
         let mut state = response.data;
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
@@ -391,8 +393,8 @@ pub async fn proposer_boost_re_org_test(
 ) {
     assert!(head_slot > 0);
 
-    // Test using Capella so that we simulate conditions as similar to mainnet as possible.
-    let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
+    // Test using the latest fork so that we simulate conditions as similar to mainnet as possible.
+    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = 1.into();
 
     // Ensure there are enough validators to have `attesters_per_slot`.
@@ -551,7 +553,7 @@ pub async fn proposer_boost_re_org_test(
 
     // Produce block B and process it halfway through the slot.
     let (block_b, mut state_b) = harness.make_block(state_a.clone(), slot_b).await;
-    let block_b_root = block_b.canonical_root();
+    let block_b_root = block_b.0.canonical_root();
 
     let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.slot_duration() / 2;
     slot_clock.set_current_time(obs_time);
@@ -617,13 +619,21 @@ pub async fn proposer_boost_re_org_test(
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_c)
         .into();
-    let unsigned_block_c = tester
+    let (unsigned_block_type, _) = tester
         .client
-        .get_validator_blocks(slot_c, &randao_reveal, None)
+        .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None)
         .await
-        .unwrap()
-        .data;
-    let block_c = harness.sign_beacon_block(unsigned_block_c, &state_b);
+        .unwrap();
+
+    let (unsigned_block_c, block_c_blobs) = match unsigned_block_type.data {
+        ProduceBlockV3Response::Full(unsigned_block_contents_c) => {
+            unsigned_block_contents_c.deconstruct()
+        }
+        ProduceBlockV3Response::Blinded(_) => {
+            panic!("Should not be a blinded block");
+        }
+    };
+    let block_c = Arc::new(harness.sign_beacon_block(unsigned_block_c, &state_b));
 
     if should_re_org {
         // Block C should build on A.
@@ -635,7 +645,7 @@ pub async fn proposer_boost_re_org_test(
 
     // Applying block C should cause it to become head regardless (re-org or continuation).
     let block_root_c = harness
-        .process_block_result(block_c.clone())
+        .process_block_result((block_c.clone(), block_c_blobs))
         .await
         .unwrap()
         .into();
@@ -643,8 +653,18 @@ pub async fn proposer_boost_re_org_test(
 
     // Check the fork choice updates that were sent.
     let forkchoice_updates = forkchoice_updates.lock();
-    let block_a_exec_hash = block_a.message().execution_payload().unwrap().block_hash();
-    let block_b_exec_hash = block_b.message().execution_payload().unwrap().block_hash();
+    let block_a_exec_hash = block_a
+        .0
+        .message()
+        .execution_payload()
+        .unwrap()
+        .block_hash();
+    let block_b_exec_hash = block_b
+        .0
+        .message()
+        .execution_payload()
+        .unwrap()
+        .block_hash();
 
     let block_c_timestamp = block_c.message().execution_payload().unwrap().timestamp();
 
@@ -686,6 +706,11 @@ pub async fn proposer_boost_re_org_test(
             && slot_c.epoch(E::slots_per_epoch()) != slot_b.epoch(E::slots_per_epoch())
     {
         assert_ne!(expected_withdrawals, pre_advance_withdrawals);
+    }
+
+    // Check that the `parent_beacon_block_root` of the payload attributes are correct.
+    if let Ok(parent_beacon_block_root) = payload_attribs.parent_beacon_block_root() {
+        assert_eq!(parent_beacon_block_root, block_c.parent_root());
     }
 
     let lookahead = slot_clock
@@ -749,7 +774,7 @@ pub async fn fork_choice_before_proposal() {
     let state_a = harness.get_current_state();
     let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
     let block_root_b = harness
-        .process_block(slot_b, block_b.canonical_root(), block_b)
+        .process_block(slot_b, block_b.0.canonical_root(), block_b)
         .await
         .unwrap();
 
@@ -764,7 +789,7 @@ pub async fn fork_choice_before_proposal() {
 
     let (block_c, state_c) = harness.make_block(state_a, slot_c).await;
     let block_root_c = harness
-        .process_block(slot_c, block_c.canonical_root(), block_c.clone())
+        .process_block(slot_c, block_c.0.canonical_root(), block_c.clone())
         .await
         .unwrap();
 
@@ -801,10 +826,12 @@ pub async fn fork_choice_before_proposal() {
         .into();
     let block_d = tester
         .client
-        .get_validator_blocks::<E, FullPayload<E>>(slot_d, &randao_reveal, None)
+        .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
-        .data;
+        .data
+        .deconstruct()
+        .0;
 
     // Head is now B.
     assert_eq!(
@@ -813,4 +840,79 @@ pub async fn fork_choice_before_proposal() {
     );
     // D's parent is B.
     assert_eq!(block_d.parent_root(), block_root_b.into());
+}
+
+// Test that attestations to unknown blocks are requeued and processed when their block arrives.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_attestations_from_http() {
+    let validator_count = 128;
+    let all_validators = (0..validator_count).collect::<Vec<_>>();
+
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    let client = tester.client.clone();
+
+    let num_initial = 5;
+
+    // Slot of the block attested to.
+    let attestation_slot = Slot::new(num_initial) + 1;
+
+    // Make some initial blocks.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+    assert_eq!(harness.get_current_slot(), attestation_slot);
+
+    // Make the attested-to block without applying it.
+    let pre_state = harness.get_current_state();
+    let (block, post_state) = harness.make_block(pre_state, attestation_slot).await;
+    let block_root = block.0.canonical_root();
+
+    // Make attestations to the block and POST them to the beacon node on a background thread.
+    let attestations = harness
+        .make_unaggregated_attestations(
+            &all_validators,
+            &post_state,
+            block.0.state_root(),
+            block_root.into(),
+            attestation_slot,
+        )
+        .into_iter()
+        .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
+        .collect::<Vec<_>>();
+
+    let attestation_future = tokio::spawn(async move {
+        client
+            .post_beacon_pool_attestations(&attestations)
+            .await
+            .expect("attestations should be processed successfully")
+    });
+
+    // In parallel, apply the block. We need to manually notify the reprocess queue, because the
+    // `beacon_chain` does not know about the queue and will not update it for us.
+    let parent_root = block.0.parent_root();
+    harness
+        .process_block(attestation_slot, block_root, block)
+        .await
+        .unwrap();
+    tester
+        .ctx
+        .beacon_processor_reprocess_send
+        .as_ref()
+        .unwrap()
+        .send(ReprocessQueueMessage::BlockImported {
+            block_root,
+            parent_root,
+        })
+        .await
+        .unwrap();
+
+    attestation_future.await.unwrap();
 }

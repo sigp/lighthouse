@@ -1,9 +1,11 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
+use crate::blob_sidecar::BlobIdentifier;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
+use serde::Deserialize;
 use serde::{Deserializer, Serialize, Serializer};
-use serde_derive::Deserialize;
 use serde_utils::quoted_u64::MaybeQuoted;
+use ssz::Encode;
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
@@ -50,6 +52,7 @@ pub struct ChainSpec {
     pub max_committees_per_slot: usize,
     pub target_committee_size: usize,
     pub min_per_epoch_churn_limit: u64,
+    pub max_per_epoch_activation_churn_limit: u64,
     pub churn_limit_quotient: u64,
     pub shuffle_round_count: u8,
     pub min_genesis_active_validator_count: u64,
@@ -161,25 +164,50 @@ pub struct ChainSpec {
     pub max_validators_per_withdrawals_sweep: u64,
 
     /*
+     * Deneb hard fork params
+     */
+    pub deneb_fork_version: [u8; 4],
+    pub deneb_fork_epoch: Option<Epoch>,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
-    pub attestation_propagation_slot_range: u64,
-    pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
-    pub attestation_subnet_count: u64,
-    pub subnets_per_node: u8,
-    pub epochs_per_subnet_subscription: u64,
     pub gossip_max_size: u64,
+    pub max_request_blocks: u64,
+    pub epochs_per_subnet_subscription: u64,
     pub min_epochs_for_block_requests: u64,
     pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
+    pub attestation_propagation_slot_range: u64,
+    pub maximum_gossip_clock_disparity_millis: u64,
     pub message_domain_invalid_snappy: [u8; 4],
     pub message_domain_valid_snappy: [u8; 4],
+    pub subnets_per_node: u8,
+    pub attestation_subnet_count: u64,
     pub attestation_subnet_extra_bits: u8,
     pub attestation_subnet_prefix_bits: u8,
+    pub attestation_subnet_shuffling_prefix_bits: u8,
+
+    /*
+     * Networking Deneb
+     */
+    pub max_request_blocks_deneb: u64,
+    pub max_request_blob_sidecars: u64,
+    pub min_epochs_for_blob_sidecars_requests: u64,
+    pub blob_sidecar_subnet_count: u64,
+
+    /*
+     * Networking Derived
+     *
+     * When adding fields here, make sure any values are derived again during `apply_to_chain_spec`.
+     */
+    pub max_blocks_by_root_request: usize,
+    pub max_blocks_by_root_request_deneb: usize,
+    pub max_blobs_by_root_request: usize,
 
     /*
      * Application params
@@ -254,13 +282,16 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.capella_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-            _ => match self.bellatrix_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-                _ => match self.altair_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                    _ => ForkName::Base,
+        match self.deneb_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
+            _ => match self.capella_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+                _ => match self.bellatrix_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                    _ => match self.altair_fork_epoch {
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                        _ => ForkName::Base,
+                    },
                 },
             },
         }
@@ -273,6 +304,7 @@ impl ChainSpec {
             ForkName::Altair => self.altair_fork_version,
             ForkName::Merge => self.bellatrix_fork_version,
             ForkName::Capella => self.capella_fork_version,
+            ForkName::Deneb => self.deneb_fork_version,
         }
     }
 
@@ -283,6 +315,7 @@ impl ChainSpec {
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.bellatrix_fork_epoch,
             ForkName::Capella => self.capella_fork_epoch,
+            ForkName::Deneb => self.deneb_fork_epoch,
         }
     }
 
@@ -293,6 +326,7 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
             BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
+            BeaconState::Deneb(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -306,6 +340,7 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
             BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
+            BeaconState::Deneb(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -319,6 +354,7 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
+            BeaconState::Deneb(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -472,6 +508,25 @@ impl ChainSpec {
         Duration::from_secs(self.resp_timeout)
     }
 
+    pub fn max_blocks_by_root_request(&self, fork_name: ForkName) -> usize {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                self.max_blocks_by_root_request
+            }
+            ForkName::Deneb => self.max_blocks_by_root_request_deneb,
+        }
+    }
+
+    pub fn max_request_blocks(&self, fork_name: ForkName) -> usize {
+        let max_request_blocks = match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                self.max_request_blocks
+            }
+            ForkName::Deneb => self.max_request_blocks_deneb,
+        };
+        max_request_blocks as usize
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
@@ -493,6 +548,7 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
+            max_per_epoch_activation_churn_limit: 8,
             churn_limit_quotient: 65_536,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 16_384,
@@ -622,16 +678,22 @@ impl ChainSpec {
             max_validators_per_withdrawals_sweep: 16384,
 
             /*
+             * Deneb hard fork params
+             */
+            deneb_fork_version: [0x04, 0x00, 0x00, 0x00],
+            deneb_fork_epoch: Some(Epoch::new(269568)),
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
             network_id: 1, // mainnet network id
-            attestation_propagation_slot_range: 32,
+            attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 2,
-            maximum_gossip_clock_disparity_millis: 500,
+            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            epochs_per_subnet_subscription: 256,
+            epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
             max_chunk_size: default_max_chunk_size(),
@@ -641,6 +703,25 @@ impl ChainSpec {
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            attestation_subnet_shuffling_prefix_bits:
+                default_attestation_subnet_shuffling_prefix_bits(),
+            max_request_blocks: default_max_request_blocks(),
+
+            /*
+             * Networking Deneb Specific
+             */
+            max_request_blocks_deneb: default_max_request_blocks_deneb(),
+            max_request_blob_sidecars: default_max_request_blob_sidecars(),
+            min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
+
+            /*
+             * Derived Deneb Specific
+             */
+            max_blocks_by_root_request: default_max_blocks_by_root_request(),
+            max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
+            max_blobs_by_root_request: default_max_blobs_by_root_request(),
+
             /*
              * Application specific
              */
@@ -662,6 +743,8 @@ impl ChainSpec {
             config_name: None,
             max_committees_per_slot: 4,
             target_committee_size: 4,
+            min_per_epoch_churn_limit: 2,
+            max_per_epoch_activation_churn_limit: 4,
             churn_limit_quotient: 32,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
@@ -693,6 +776,9 @@ impl ChainSpec {
             capella_fork_version: [0x03, 0x00, 0x00, 0x01],
             capella_fork_epoch: None,
             max_validators_per_withdrawals_sweep: 16,
+            // Deneb
+            deneb_fork_version: [0x04, 0x00, 0x00, 0x01],
+            deneb_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -723,6 +809,7 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
+            max_per_epoch_activation_churn_limit: 2,
             churn_limit_quotient: 4_096,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 4_096,
@@ -854,18 +941,24 @@ impl ChainSpec {
             max_validators_per_withdrawals_sweep: 8192,
 
             /*
+             * Deneb hard fork params
+             */
+            deneb_fork_version: [0x04, 0x00, 0x00, 0x64],
+            deneb_fork_epoch: Some(Epoch::new(889856)),
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
             network_id: 100, // Gnosis Chain network id
-            attestation_propagation_slot_range: 32,
+            attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
-            maximum_gossip_clock_disparity_millis: 500,
+            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            epochs_per_subnet_subscription: 256,
+            epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
-            min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
+            min_epochs_for_block_requests: 33024,
             max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
@@ -873,6 +966,24 @@ impl ChainSpec {
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            attestation_subnet_shuffling_prefix_bits:
+                default_attestation_subnet_shuffling_prefix_bits(),
+            max_request_blocks: default_max_request_blocks(),
+
+            /*
+             * Networking Deneb Specific
+             */
+            max_request_blocks_deneb: default_max_request_blocks_deneb(),
+            max_request_blob_sidecars: default_max_request_blob_sidecars(),
+            min_epochs_for_blob_sidecars_requests: 16384,
+            blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
+
+            /*
+             * Derived Deneb Specific
+             */
+            max_blocks_by_root_request: default_max_blocks_by_root_request(),
+            max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
+            max_blobs_by_root_request: default_max_blobs_by_root_request(),
 
             /*
              * Application specific
@@ -950,6 +1061,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub capella_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_deneb_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    deneb_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub deneb_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -972,6 +1091,9 @@ pub struct Config {
     ejection_balance: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
+    #[serde(default = "default_max_per_epoch_activation_churn_limit")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_per_epoch_activation_churn_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
 
@@ -987,6 +1109,12 @@ pub struct Config {
     #[serde(default = "default_gossip_max_size")]
     #[serde(with = "serde_utils::quoted_u64")]
     gossip_max_size: u64,
+    #[serde(default = "default_max_request_blocks")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_blocks: u64,
+    #[serde(default = "default_epochs_per_subnet_subscription")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    epochs_per_subnet_subscription: u64,
     #[serde(default = "default_min_epochs_for_block_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_block_requests: u64,
@@ -999,6 +1127,12 @@ pub struct Config {
     #[serde(default = "default_resp_timeout")]
     #[serde(with = "serde_utils::quoted_u64")]
     resp_timeout: u64,
+    #[serde(default = "default_attestation_propagation_slot_range")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    attestation_propagation_slot_range: u64,
+    #[serde(default = "default_maximum_gossip_clock_disparity_millis")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    maximum_gossip_clock_disparity_millis: u64,
     #[serde(default = "default_message_domain_invalid_snappy")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_invalid_snappy: [u8; 4],
@@ -1011,6 +1145,21 @@ pub struct Config {
     #[serde(default = "default_attestation_subnet_prefix_bits")]
     #[serde(with = "serde_utils::quoted_u8")]
     attestation_subnet_prefix_bits: u8,
+    #[serde(default = "default_attestation_subnet_shuffling_prefix_bits")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    attestation_subnet_shuffling_prefix_bits: u8,
+    #[serde(default = "default_max_request_blocks_deneb")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_blocks_deneb: u64,
+    #[serde(default = "default_max_request_blob_sidecars")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_blob_sidecars: u64,
+    #[serde(default = "default_min_epochs_for_blob_sidecars_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_epochs_for_blob_sidecars_requests: u64,
+    #[serde(default = "default_blob_sidecar_subnet_count")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    blob_sidecar_subnet_count: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1020,6 +1169,11 @@ fn default_bellatrix_fork_version() -> [u8; 4] {
 
 fn default_capella_fork_version() -> [u8; 4] {
     // TODO: determine if the bellatrix example should be copied like this
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_deneb_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
 
@@ -1049,6 +1203,10 @@ fn default_safe_slots_to_import_optimistically() -> u64 {
 
 fn default_subnets_per_node() -> u8 {
     2u8
+}
+
+const fn default_max_per_epoch_activation_churn_limit() -> u64 {
+    8
 }
 
 const fn default_gossip_max_size() -> u64 {
@@ -1085,6 +1243,79 @@ const fn default_attestation_subnet_extra_bits() -> u8 {
 
 const fn default_attestation_subnet_prefix_bits() -> u8 {
     6
+}
+
+const fn default_attestation_subnet_shuffling_prefix_bits() -> u8 {
+    3
+}
+
+const fn default_max_request_blocks() -> u64 {
+    1024
+}
+
+const fn default_max_request_blocks_deneb() -> u64 {
+    128
+}
+
+const fn default_max_request_blob_sidecars() -> u64 {
+    768
+}
+
+const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
+    4096
+}
+
+const fn default_blob_sidecar_subnet_count() -> u64 {
+    6
+}
+
+const fn default_epochs_per_subnet_subscription() -> u64 {
+    256
+}
+
+const fn default_attestation_propagation_slot_range() -> u64 {
+    32
+}
+
+const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
+    500
+}
+
+fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
+    let max_request_blocks = max_request_blocks as usize;
+    RuntimeVariableList::<Hash256>::from_vec(
+        vec![Hash256::zero(); max_request_blocks],
+        max_request_blocks,
+    )
+    .as_ssz_bytes()
+    .len()
+}
+
+fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
+    let max_request_blob_sidecars = max_request_blob_sidecars as usize;
+    let empty_blob_identifier = BlobIdentifier {
+        block_root: Hash256::zero(),
+        index: 0,
+    };
+
+    RuntimeVariableList::<BlobIdentifier>::from_vec(
+        vec![empty_blob_identifier; max_request_blob_sidecars],
+        max_request_blob_sidecars,
+    )
+    .as_ssz_bytes()
+    .len()
+}
+
+fn default_max_blocks_by_root_request() -> usize {
+    max_blocks_by_root_request_common(default_max_request_blocks())
+}
+
+fn default_max_blocks_by_root_request_deneb() -> usize {
+    max_blocks_by_root_request_common(default_max_request_blocks_deneb())
+}
+
+fn default_max_blobs_by_root_request() -> usize {
+    max_blobs_by_root_request_common(default_max_request_blob_sidecars())
 }
 
 impl Default for Config {
@@ -1163,6 +1394,10 @@ impl Config {
             capella_fork_epoch: spec
                 .capella_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+            deneb_fork_version: spec.deneb_fork_version,
+            deneb_fork_epoch: spec
+                .deneb_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
@@ -1176,6 +1411,7 @@ impl Config {
             ejection_balance: spec.ejection_balance,
             churn_limit_quotient: spec.churn_limit_quotient,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
+            max_per_epoch_activation_churn_limit: spec.max_per_epoch_activation_churn_limit,
 
             proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
 
@@ -1184,14 +1420,23 @@ impl Config {
             deposit_contract_address: spec.deposit_contract_address,
 
             gossip_max_size: spec.gossip_max_size,
+            max_request_blocks: spec.max_request_blocks,
+            epochs_per_subnet_subscription: spec.epochs_per_subnet_subscription,
             min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
             max_chunk_size: spec.max_chunk_size,
             ttfb_timeout: spec.ttfb_timeout,
             resp_timeout: spec.resp_timeout,
+            attestation_propagation_slot_range: spec.attestation_propagation_slot_range,
+            maximum_gossip_clock_disparity_millis: spec.maximum_gossip_clock_disparity_millis,
             message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
             message_domain_valid_snappy: spec.message_domain_valid_snappy,
             attestation_subnet_extra_bits: spec.attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
+            attestation_subnet_shuffling_prefix_bits: spec.attestation_subnet_shuffling_prefix_bits,
+            max_request_blocks_deneb: spec.max_request_blocks_deneb,
+            max_request_blob_sidecars: spec.max_request_blob_sidecars,
+            min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
+            blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
         }
     }
 
@@ -1221,6 +1466,8 @@ impl Config {
             bellatrix_fork_version,
             capella_fork_epoch,
             capella_fork_version,
+            deneb_fork_epoch,
+            deneb_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1231,6 +1478,7 @@ impl Config {
             inactivity_score_recovery_rate,
             ejection_balance,
             min_per_epoch_churn_limit,
+            max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost,
             deposit_chain_id,
@@ -1245,6 +1493,15 @@ impl Config {
             message_domain_valid_snappy,
             attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
+            attestation_subnet_shuffling_prefix_bits,
+            max_request_blocks,
+            epochs_per_subnet_subscription,
+            attestation_propagation_slot_range,
+            maximum_gossip_clock_disparity_millis,
+            max_request_blocks_deneb,
+            max_request_blob_sidecars,
+            min_epochs_for_blob_sidecars_requests,
+            blob_sidecar_subnet_count,
         } = self;
 
         if preset_base != T::spec_name().to_string().as_str() {
@@ -1263,6 +1520,8 @@ impl Config {
             bellatrix_fork_version,
             capella_fork_epoch: capella_fork_epoch.map(|q| q.value),
             capella_fork_version,
+            deneb_fork_epoch: deneb_fork_epoch.map(|q| q.value),
+            deneb_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1273,6 +1532,7 @@ impl Config {
             inactivity_score_recovery_rate,
             ejection_balance,
             min_per_epoch_churn_limit,
+            max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost: proposer_score_boost.map(|q| q.value),
             deposit_chain_id,
@@ -1291,6 +1551,23 @@ impl Config {
             message_domain_valid_snappy,
             attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
+            attestation_subnet_shuffling_prefix_bits,
+            max_request_blocks,
+            epochs_per_subnet_subscription,
+            attestation_propagation_slot_range,
+            maximum_gossip_clock_disparity_millis,
+            max_request_blocks_deneb,
+            max_request_blob_sidecars,
+            min_epochs_for_blob_sidecars_requests,
+            blob_sidecar_subnet_count,
+
+            // We need to re-derive any values that might have changed in the config.
+            max_blocks_by_root_request: max_blocks_by_root_request_common(max_request_blocks),
+            max_blocks_by_root_request_deneb: max_blocks_by_root_request_common(
+                max_request_blocks_deneb,
+            ),
+            max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
+
             ..chain_spec.clone()
         })
     }
@@ -1525,6 +1802,7 @@ mod yaml_tests {
         INACTIVITY_SCORE_RECOVERY_RATE: 16
         EJECTION_BALANCE: 16000000000
         MIN_PER_EPOCH_CHURN_LIMIT: 4
+        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
         CHURN_LIMIT_QUOTIENT: 65536
         PROPOSER_SCORE_BOOST: 40
         DEPOSIT_CHAIN_ID: 1
@@ -1560,6 +1838,7 @@ mod yaml_tests {
         check_default!(message_domain_valid_snappy);
         check_default!(attestation_subnet_extra_bits);
         check_default!(attestation_subnet_prefix_bits);
+        check_default!(attestation_subnet_shuffling_prefix_bits);
 
         assert_eq!(chain_spec.bellatrix_fork_epoch, None);
     }

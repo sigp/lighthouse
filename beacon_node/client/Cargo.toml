@@ -22,10 +22,10 @@ types = { workspace = true }
 eth2_config = { workspace = true }
 slot_clock = { workspace = true }
 serde = { workspace = true }
-serde_derive = "1.0.116"
 error-chain = { workspace = true }
 slog = { workspace = true }
 tokio = { workspace = true }
+futures = { workspace = true }
 dirs = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
@@ -45,3 +45,4 @@ monitoring_api = { workspace = true }
 execution_layer = { workspace = true }
 beacon_processor = { workspace = true }
 num_cpus = { workspace = true }
+ethereum_ssz = { workspace = true }

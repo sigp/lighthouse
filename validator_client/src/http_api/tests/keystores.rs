@@ -43,6 +43,8 @@ fn web3signer_validator_with_pubkey(pubkey: PublicKey) -> Web3SignerValidatorReq
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_boost_factor: None,
+        prefer_builder_proposals: None,
         voting_public_key: pubkey,
         url: web3_signer_url(),
         root_certificate_path: None,
@@ -468,7 +470,7 @@ async fn import_and_delete_conflicting_web3_signer_keystores() {
         for pubkey in &pubkeys {
             tester
                 .client
-                .patch_lighthouse_validators(pubkey, Some(false), None, None, None)
+                .patch_lighthouse_validators(pubkey, Some(false), None, None, None, None, None)
                 .await
                 .unwrap();
         }
@@ -2146,7 +2148,7 @@ async fn import_remotekey_web3signer_enabled() {
         assert_eq!(tester.vals_total(), 1);
         assert_eq!(tester.vals_enabled(), 1);
         let vals = tester.initialized_validators.read();
-        let web3_vals = vals.validator_definitions().clone();
+        let web3_vals = vals.validator_definitions();
 
         // Import remotekeys.
         let import_res = tester
@@ -2164,7 +2166,7 @@ async fn import_remotekey_web3signer_enabled() {
         assert_eq!(tester.vals_total(), 1);
         assert_eq!(tester.vals_enabled(), 1);
         let vals = tester.initialized_validators.read();
-        let remote_vals = vals.validator_definitions().clone();
+        let remote_vals = vals.validator_definitions();
 
         // Web3signer should not be overwritten since it is enabled.
         assert!(web3_vals == remote_vals);

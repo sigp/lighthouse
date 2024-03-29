@@ -1,5 +1,4 @@
 #![cfg(test)]
-use libp2p::gossipsub;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
@@ -25,21 +24,29 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
     let altair_fork_epoch = Epoch::new(1);
     let merge_fork_epoch = Epoch::new(2);
     let capella_fork_epoch = Epoch::new(3);
+    let deneb_fork_epoch = Epoch::new(4);
 
     chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
     chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
     chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
+    chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
 
     let current_slot = match fork_name {
         ForkName::Base => Slot::new(0),
         ForkName::Altair => altair_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Merge => merge_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Capella => capella_fork_epoch.start_slot(E::slots_per_epoch()),
+        ForkName::Deneb => deneb_fork_epoch.start_slot(E::slots_per_epoch()),
     };
     ForkContext::new::<E>(current_slot, Hash256::zero(), &chain_spec)
 }
 
-pub struct Libp2pInstance(LibP2PService<ReqId, E>, exit_future::Signal);
+pub struct Libp2pInstance(
+    LibP2PService<ReqId, E>,
+    #[allow(dead_code)]
+    // This field is managed for lifetime purposes may not be used directly, hence the `#[allow(dead_code)]` attribute.
+    async_channel::Sender<()>,
+);
 
 impl std::ops::Deref for Libp2pInstance {
     type Target = LibP2PService<ReqId, E>;
@@ -102,7 +109,7 @@ pub async fn build_libp2p_instance(
     let config = build_config(boot_nodes);
     // launch libp2p service
 
-    let (signal, exit) = exit_future::signal();
+    let (signal, exit) = async_channel::bounded(1);
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
     let executor = task_executor::TaskExecutor::new(rt, exit, log.clone(), shutdown_tx);
     let libp2p_context = lighthouse_network::Context {
@@ -110,7 +117,7 @@ pub async fn build_libp2p_instance(
         enr_fork_id: EnrForkId::default(),
         fork_context: Arc::new(fork_context(fork_name)),
         chain_spec: spec,
-        gossipsub_registry: None,
+        libp2p_registry: None,
     };
     Libp2pInstance(
         LibP2PService::new(executor, libp2p_context, &log)

@@ -9,7 +9,6 @@ use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::get_new_eth1_data;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::iter::DoubleEndedIterator;
 use std::marker::PhantomData;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
@@ -736,7 +735,7 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
-        use types::{test_utils::generate_deterministic_keypair, EthSpec, MainnetEthSpec};
+        use types::{test_utils::generate_deterministic_keypair, MainnetEthSpec};
 
         fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
             let eth1_config = Eth1Config {
@@ -967,7 +966,7 @@ mod test {
             let spec = &E::default_spec();
             let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
-            let blocks = vec![];
+            let blocks = [];
 
             assert_eq!(
                 get_votes_to_consider(

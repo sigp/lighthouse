@@ -16,6 +16,7 @@ HTTP Path | Description |
 [`POST /lighthouse/validators/keystore`](#post-lighthousevalidatorskeystore) | Import a keystore.
 [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic.
 [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators.
+[`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs
 
 The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api-vc-auth-header.md). 
 
@@ -243,6 +244,7 @@ Example Response Body
     "INACTIVITY_SCORE_RECOVERY_RATE": "16",
     "EJECTION_BALANCE": "16000000000",
     "MIN_PER_EPOCH_CHURN_LIMIT": "4",
+    "MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT": "8",
     "CHURN_LIMIT_QUOTIENT": "65536",
     "PROPOSER_SCORE_BOOST": "40",
     "DEPOSIT_CHAIN_ID": "5",
@@ -426,7 +428,7 @@ Example Response Body
 
 ## `PATCH /lighthouse/validators/:voting_pubkey`
 
-Update some values for the validator with `voting_pubkey`. Possible fields: `enabled`, `gas_limit`, `builder_proposals`, 
+Update some values for the validator with `voting_pubkey`. Possible fields: `enabled`, `gas_limit`, `builder_proposals`, `builder_boost_factor`, `prefer_builder_proposals`
 and `graffiti`.  The following example updates a validator from `enabled: true` to `enabled: false`.
 
 ### HTTP Specification
@@ -744,19 +746,19 @@ Create any number of new validators, all of which will refer to a
         "graffiti": "Mr F was here",
         "suggested_fee_recipient": "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d",
         "voting_public_key": "0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380",
+        "builder_proposals": true,
         "url": "http://path-to-web3signer.com",
-        "root_certificate_path": "/path/on/vc/filesystem/to/certificate.pem",
+        "root_certificate_path": "/path/to/certificate.pem",
+        "client_identity_path": "/path/to/identity.p12",
+        "client_identity_password": "pass",
         "request_timeout_ms": 12000
     }
 ]
+
 ```
 
-The following fields may be omitted or nullified to obtain default values:
+Some of the fields above may be omitted or nullified to obtain default values (e.g., `graffiti`, `request_timeout_ms`).
 
-- `graffiti`
-- `suggested_fee_recipient`
-- `root_certificate_path`
-- `request_timeout_ms`
 
 Command:
 ```bash
@@ -764,7 +766,7 @@ DATADIR=/var/lib/lighthouse
 curl -X POST http://localhost:5062/lighthouse/validators/web3signer \
 -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
 -H "Content-Type: application/json" \
--d "[{\"enable\":true,\"description\":\"validator_one\",\"graffiti\":\"Mr F was here\",\"suggested_fee_recipient\":\"0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d\",\"voting_public_key\":\"0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380\",\"url\":\"http://path-to-web3signer.com\",\"request_timeout_ms\":12000}]"
+-d "[{\"enable\":true,\"description\":\"validator_one\",\"graffiti\":\"Mr F was here\",\"suggested_fee_recipient\":\"0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d\",\"voting_public_key\":\"0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380\",\"builder_proposals\":true,\"url\":\"http://path-to-web3signer.com\",\"root_certificate_path\":\"/path/to/certificate.pem\",\"client_identity_path\":\"/path/to/identity.p12\",\"client_identity_password\":\"pass\",\"request_timeout_ms\":12000}]"
 ```
 
 

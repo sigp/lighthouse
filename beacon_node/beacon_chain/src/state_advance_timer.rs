@@ -45,10 +45,14 @@ const MAX_ADVANCE_DISTANCE: u64 = 4;
 /// impact whilst having 8 epochs without a block is a comfortable grace period.
 const MAX_FORK_CHOICE_DISTANCE: u64 = 256;
 
+/// Drop any unused block production state cache after this many slots.
+const MAX_BLOCK_PRODUCTION_CACHE_DISTANCE: u64 = 4;
+
 #[derive(Debug)]
 enum Error {
     BeaconChain(BeaconChainError),
-    HeadMissingFromSnapshotCache(Hash256),
+    // We don't use the inner value directly, but it's used in the Debug impl.
+    HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
     MaxDistanceExceeded {
         current_slot: Slot,
         head_slot: Slot,
@@ -113,14 +117,11 @@ async fn state_advance_timer<T: BeaconChainTypes>(
     let slot_duration = slot_clock.slot_duration();
 
     loop {
-        let duration_to_next_slot = match beacon_chain.slot_clock.duration_to_next_slot() {
-            Some(duration) => duration,
-            None => {
-                error!(log, "Failed to read slot clock");
-                // If we can't read the slot clock, just wait another slot.
-                sleep(slot_duration).await;
-                continue;
-            }
+        let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() else {
+            error!(log, "Failed to read slot clock");
+            // If we can't read the slot clock, just wait another slot.
+            sleep(slot_duration).await;
+            continue;
         };
 
         // Run the state advance 3/4 of the way through the slot (9s on mainnet).
@@ -230,19 +231,73 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
                 // Prepare proposers so that the node can send payload attributes in the case where
                 // it decides to abandon a proposer boost re-org.
-                if let Err(e) = beacon_chain.prepare_beacon_proposer(current_slot).await {
-                    warn!(
-                        log,
-                        "Unable to prepare proposer with lookahead";
-                        "error" => ?e,
-                        "slot" => next_slot,
-                    );
-                }
+                let proposer_head = beacon_chain
+                    .prepare_beacon_proposer(current_slot)
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!(
+                            log,
+                            "Unable to prepare proposer with lookahead";
+                            "error" => ?e,
+                            "slot" => next_slot,
+                        );
+                        None
+                    });
 
                 // Use a blocking task to avoid blocking the core executor whilst waiting for locks
                 // in `ForkChoiceSignalTx`.
                 beacon_chain.task_executor.clone().spawn_blocking(
                     move || {
+                        // If we're proposing, clone the head state preemptively so that it isn't on
+                        // the hot path of proposing. We can delete this once we have tree-states.
+                        if let Some(proposer_head) = proposer_head {
+                            let mut cache = beacon_chain.block_production_state.lock();
+
+                            // Avoid holding two states in memory. It's OK to hold the lock because
+                            // we always lock the block production cache before the snapshot cache
+                            // and we prefer for block production to wait for the block production
+                            // cache if a clone is in-progress.
+                            if cache
+                                .as_ref()
+                                .map_or(false, |(cached_head, _)| *cached_head != proposer_head)
+                            {
+                                drop(cache.take());
+                            }
+                            if let Some(proposer_state) = beacon_chain
+                                .snapshot_cache
+                                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                                .and_then(|snapshot_cache| {
+                                    snapshot_cache.get_state_for_block_production(proposer_head)
+                                })
+                            {
+                                *cache = Some((proposer_head, proposer_state));
+                                debug!(
+                                    log,
+                                    "Cloned state ready for block production";
+                                    "head_block_root" => ?proposer_head,
+                                    "slot" => next_slot
+                                );
+                            } else {
+                                warn!(
+                                    log,
+                                    "Block production state missing from snapshot cache";
+                                    "head_block_root" => ?proposer_head,
+                                    "slot" => next_slot
+                                );
+                            }
+                        } else {
+                            // If we aren't proposing, drop any old block production cache to save
+                            // memory.
+                            let mut cache = beacon_chain.block_production_state.lock();
+                            if let Some((_, state)) = &*cache {
+                                if state.pre_state.slot() + MAX_BLOCK_PRODUCTION_CACHE_DISTANCE
+                                    <= current_slot
+                                {
+                                    drop(cache.take());
+                                }
+                            }
+                        }
+
                         // Signal block proposal for the next slot (if it happens to be waiting).
                         if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
                             if let Err(e) = tx.notify_fork_choice_complete(next_slot) {

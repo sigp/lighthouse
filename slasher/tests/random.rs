@@ -2,7 +2,6 @@
 
 use logging::test_logger;
 use rand::prelude::*;
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use slasher::{
     test_utils::{
         block, indexed_att, slashed_validators_from_attestations,

@@ -11,7 +11,6 @@ use std::collections::HashSet;
 use tokio::sync::Mutex;
 
 use std::time::{Duration, Instant};
-use types::EthSpec;
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
@@ -32,14 +31,17 @@ pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
+pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
+pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
+pub const ENGINE_FORKCHOICE_UPDATED_V3: &str = "engine_forkchoiceUpdatedV3";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
@@ -58,27 +60,16 @@ pub const METHOD_NOT_FOUND_CODE: i64 = -32601;
 pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V1,
     ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V3,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V3,
     ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2,
+    ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
 ];
-
-/// This is necessary because a user might run a capella-enabled version of
-/// lighthouse before they update to a capella-enabled execution engine.
-// TODO (mark): rip this out once we are post-capella on mainnet
-pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
-    new_payload_v1: true,
-    new_payload_v2: false,
-    forkchoice_updated_v1: true,
-    forkchoice_updated_v2: false,
-    get_payload_bodies_by_hash_v1: false,
-    get_payload_bodies_by_range_v1: false,
-    get_payload_v1: true,
-    get_payload_v2: false,
-};
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
@@ -741,6 +732,14 @@ impl HttpJsonRpc {
                 )
                 .await?,
             ),
+            ForkName::Deneb => ExecutionBlockWithTransactions::Deneb(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
             ForkName::Base | ForkName::Altair => {
                 return Err(Error::UnsupportedForkVariant(format!(
                     "called get_block_by_hash_with_txns with fork {:?}",
@@ -776,6 +775,27 @@ impl HttpJsonRpc {
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
                 ENGINE_NEW_PAYLOAD_V2,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn new_payload_v3<T: EthSpec>(
+        &self,
+        new_payload_request_deneb: NewPayloadRequestDeneb<'_, T>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
+            new_payload_request_deneb.versioned_hashes,
+            new_payload_request_deneb.parent_beacon_block_root,
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V3,
                 params,
                 ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -835,10 +855,33 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
-                "called get_payload_v2 with {}",
-                fork_name
-            ))),
+            ForkName::Base | ForkName::Altair | ForkName::Deneb => Err(
+                Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
+            ),
+        }
+    }
+
+    pub async fn get_payload_v3<T: EthSpec>(
+        &self,
+        fork_name: ForkName,
+        payload_id: PayloadId,
+    ) -> Result<GetPayloadResponse<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        match fork_name {
+            ForkName::Deneb => {
+                let response: JsonGetPayloadResponseV3<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V3,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V3(response).into())
+            }
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => Err(
+                Error::UnsupportedForkVariant(format!("called get_payload_v3 with {}", fork_name)),
+            ),
         }
     }
 
@@ -876,6 +919,27 @@ impl HttpJsonRpc {
         let response: JsonForkchoiceUpdatedV1Response = self
             .rpc_request(
                 ENGINE_FORKCHOICE_UPDATED_V2,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn forkchoice_updated_v3(
+        &self,
+        forkchoice_state: ForkchoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let params = json!([
+            JsonForkchoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributes::from)
+        ]);
+
+        let response: JsonForkchoiceUpdatedV1Response = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V3,
                 params,
                 ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -931,35 +995,29 @@ impl HttpJsonRpc {
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
         let params = json!([LIGHTHOUSE_CAPABILITIES]);
 
-        let response: Result<HashSet<String>, _> = self
+        let capabilities: HashSet<String> = self
             .rpc_request(
                 ENGINE_EXCHANGE_CAPABILITIES,
                 params,
                 ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT * self.execution_timeout_multiplier,
             )
-            .await;
+            .await?;
 
-        match response {
-            // TODO (mark): rip this out once we are post capella on mainnet
-            Err(error) => match error {
-                Error::ServerMessage { code, message: _ } if code == METHOD_NOT_FOUND_CODE => {
-                    Ok(PRE_CAPELLA_ENGINE_CAPABILITIES)
-                }
-                _ => Err(error),
-            },
-            Ok(capabilities) => Ok(EngineCapabilities {
-                new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
-                new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
-                forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
-                forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
-                get_payload_bodies_by_hash_v1: capabilities
-                    .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
-                get_payload_bodies_by_range_v1: capabilities
-                    .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
-                get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
-                get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
-            }),
-        }
+        Ok(EngineCapabilities {
+            new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
+            new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
+            new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
+            forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
+            forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
+            forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
+            get_payload_bodies_by_hash_v1: capabilities
+                .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
+            get_payload_bodies_by_range_v1: capabilities
+                .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
+            get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
+            get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
+            get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
+        })
     }
 
     pub async fn clear_exchange_capabilties_cache(&self) {
@@ -994,15 +1052,28 @@ impl HttpJsonRpc {
     // new_payload that the execution engine supports
     pub async fn new_payload<T: EthSpec>(
         &self,
-        execution_payload: ExecutionPayload<T>,
+        new_payload_request: NewPayloadRequest<'_, T>,
     ) -> Result<PayloadStatusV1, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if engine_capabilities.new_payload_v2 {
-            self.new_payload_v2(execution_payload).await
-        } else if engine_capabilities.new_payload_v1 {
-            self.new_payload_v1(execution_payload).await
-        } else {
-            Err(Error::RequiredMethodUnsupported("engine_newPayload"))
+        match new_payload_request {
+            NewPayloadRequest::Merge(_) | NewPayloadRequest::Capella(_) => {
+                if engine_capabilities.new_payload_v2 {
+                    self.new_payload_v2(new_payload_request.into_execution_payload())
+                        .await
+                } else if engine_capabilities.new_payload_v1 {
+                    self.new_payload_v1(new_payload_request.into_execution_payload())
+                        .await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayload"))
+                }
+            }
+            NewPayloadRequest::Deneb(new_payload_request_deneb) => {
+                if engine_capabilities.new_payload_v3 {
+                    self.new_payload_v3(new_payload_request_deneb).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV3"))
+                }
+            }
         }
     }
 
@@ -1014,12 +1085,27 @@ impl HttpJsonRpc {
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<T>, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if engine_capabilities.get_payload_v2 {
-            self.get_payload_v2(fork_name, payload_id).await
-        } else if engine_capabilities.new_payload_v1 {
-            self.get_payload_v1(payload_id).await
-        } else {
-            Err(Error::RequiredMethodUnsupported("engine_getPayload"))
+        match fork_name {
+            ForkName::Merge | ForkName::Capella => {
+                if engine_capabilities.get_payload_v2 {
+                    self.get_payload_v2(fork_name, payload_id).await
+                } else if engine_capabilities.new_payload_v1 {
+                    self.get_payload_v1(payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayload"))
+                }
+            }
+            ForkName::Deneb => {
+                if engine_capabilities.get_payload_v3 {
+                    self.get_payload_v3(fork_name, payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadV3"))
+                }
+            }
+            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload with {}",
+                fork_name
+            ))),
         }
     }
 
@@ -1028,14 +1114,41 @@ impl HttpJsonRpc {
     pub async fn forkchoice_updated(
         &self,
         forkchoice_state: ForkchoiceState,
-        payload_attributes: Option<PayloadAttributes>,
+        maybe_payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if engine_capabilities.forkchoice_updated_v2 {
-            self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
+        if let Some(payload_attributes) = maybe_payload_attributes.as_ref() {
+            match payload_attributes {
+                PayloadAttributes::V1(_) | PayloadAttributes::V2(_) => {
+                    if engine_capabilities.forkchoice_updated_v2 {
+                        self.forkchoice_updated_v2(forkchoice_state, maybe_payload_attributes)
+                            .await
+                    } else if engine_capabilities.forkchoice_updated_v1 {
+                        self.forkchoice_updated_v1(forkchoice_state, maybe_payload_attributes)
+                            .await
+                    } else {
+                        Err(Error::RequiredMethodUnsupported("engine_forkchoiceUpdated"))
+                    }
+                }
+                PayloadAttributes::V3(_) => {
+                    if engine_capabilities.forkchoice_updated_v3 {
+                        self.forkchoice_updated_v3(forkchoice_state, maybe_payload_attributes)
+                            .await
+                    } else {
+                        Err(Error::RequiredMethodUnsupported(
+                            "engine_forkchoiceUpdatedV3",
+                        ))
+                    }
+                }
+            }
+        } else if engine_capabilities.forkchoice_updated_v3 {
+            self.forkchoice_updated_v3(forkchoice_state, maybe_payload_attributes)
+                .await
+        } else if engine_capabilities.forkchoice_updated_v2 {
+            self.forkchoice_updated_v2(forkchoice_state, maybe_payload_attributes)
                 .await
         } else if engine_capabilities.forkchoice_updated_v1 {
-            self.forkchoice_updated_v1(forkchoice_state, payload_attributes)
+            self.forkchoice_updated_v1(forkchoice_state, maybe_payload_attributes)
                 .await
         } else {
             Err(Error::RequiredMethodUnsupported("engine_forkchoiceUpdated"))
@@ -1051,7 +1164,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{ExecutionPayloadMerge, MainnetEthSpec, Transactions, Unsigned, VariableList};
+    use types::{MainnetEthSpec, Unsigned};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,

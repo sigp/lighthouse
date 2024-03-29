@@ -19,6 +19,7 @@ pub mod http_api;
 pub mod initialized_validators;
 pub mod validator_store;
 
+pub use beacon_node_fallback::ApiTopic;
 pub use cli::cli_app;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
@@ -38,7 +39,7 @@ use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use duties_service::DutiesService;
+use duties_service::{sync::SyncDutiesMap, DutiesService};
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
@@ -82,7 +83,7 @@ const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
-const HTTP_GET_VALIDATOR_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
@@ -191,6 +192,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
+            config.clone(),
             log.clone(),
         )
         .await
@@ -310,8 +312,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
                     get_debug_beacon_states: slot_duration / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
                     get_deposit_snapshot: slot_duration / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
-                    get_validator_block_ssz: slot_duration
-                        / HTTP_GET_VALIDATOR_BLOCK_SSZ_TIMEOUT_QUOTIENT,
+                    get_validator_block: slot_duration / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
                 }
             } else {
                 Timeouts::set_all(slot_duration)
@@ -369,14 +370,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let mut beacon_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
             candidates,
-            config.disable_run_on_all,
+            config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
             log.clone(),
         );
 
         let mut proposer_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
             proposer_candidates,
-            config.disable_run_on_all,
+            config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
             log.clone(),
         );
@@ -450,13 +451,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let duties_service = Arc::new(DutiesService {
             attesters: <_>::default(),
             proposers: <_>::default(),
-            sync_duties: <_>::default(),
+            sync_duties: SyncDutiesMap::new(config.distributed),
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
             validator_store: validator_store.clone(),
             spec: context.eth2_config.spec.clone(),
             context: duties_context,
             enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,
+            distributed: config.distributed,
         });
 
         // Update the metrics server.
@@ -471,8 +473,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
-            .graffiti_file(config.graffiti_file.clone())
-            .block_delay(config.block_delay);
+            .graffiti_file(config.graffiti_file.clone());
 
         // If we have proposer nodes, add them to the block service builder.
         if proposer_nodes_num > 0 {

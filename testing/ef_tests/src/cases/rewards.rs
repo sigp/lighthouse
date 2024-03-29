@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result_detailed;
 use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use compare_fields_derive::CompareFields;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -13,10 +13,9 @@ use state_processing::{
     },
     EpochProcessingError,
 };
-use std::path::{Path, PathBuf};
 use types::{
     consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
-    BeaconState, EthSpec, ForkName,
+    BeaconState,
 };
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, CompareFields)]

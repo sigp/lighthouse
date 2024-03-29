@@ -52,6 +52,12 @@ struct ApiTester {
 
 impl ApiTester {
     pub async fn new() -> Self {
+        let mut config = Config::default();
+        config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
+        Self::new_with_config(config).await
+    }
+
+    pub async fn new_with_config(mut config: Config) -> Self {
         let log = test_logger();
 
         let validator_dir = tempdir().unwrap();
@@ -62,6 +68,7 @@ impl ApiTester {
         let initialized_validators = InitializedValidators::from_definitions(
             validator_defs,
             validator_dir.path().into(),
+            Config::default(),
             log.clone(),
         )
         .await
@@ -70,10 +77,8 @@ impl ApiTester {
         let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
         let api_pubkey = api_secret.api_token();
 
-        let mut config = Config::default();
         config.validator_dir = validator_dir.path().into();
         config.secrets_dir = secrets_dir.path().into();
-        config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
 
         let spec = E::default_spec();
 
@@ -205,9 +210,9 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self
             .client
-            .get_lighthouse_spec::<ConfigAndPresetCapella>()
+            .get_lighthouse_spec::<ConfigAndPresetDeneb>()
             .await
-            .map(|res| ConfigAndPreset::Capella(res.data))
+            .map(|res| ConfigAndPreset::Deneb(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
 
@@ -271,6 +276,8 @@ impl ApiTester {
                 suggested_fee_recipient: None,
                 gas_limit: None,
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
@@ -404,6 +411,8 @@ impl ApiTester {
                 suggested_fee_recipient: None,
                 gas_limit: None,
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
             };
 
             self.client
@@ -424,6 +433,8 @@ impl ApiTester {
             suggested_fee_recipient: None,
             gas_limit: None,
             builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
         };
 
         let response = self
@@ -462,6 +473,8 @@ impl ApiTester {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     voting_public_key: kp.pk,
                     url: format!("http://signer_{}.com/", i),
                     root_certificate_path: None,
@@ -518,7 +531,15 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None, None)
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                Some(enabled),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -566,6 +587,8 @@ impl ApiTester {
                 Some(gas_limit),
                 None,
                 None,
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -594,6 +617,50 @@ impl ApiTester {
                 None,
                 Some(builder_proposals),
                 None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn set_builder_boost_factor(self, index: usize, builder_boost_factor: u64) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        self.client
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                None,
+                None,
+                Some(builder_boost_factor),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn set_prefer_builder_proposals(
+        self,
+        index: usize,
+        prefer_builder_proposals: bool,
+    ) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        self.client
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                None,
+                None,
+                None,
+                Some(prefer_builder_proposals),
+                None,
             )
             .await
             .unwrap();
@@ -613,12 +680,72 @@ impl ApiTester {
         self
     }
 
+    pub async fn assert_builder_boost_factor(
+        self,
+        index: usize,
+        builder_boost_factor: Option<u64>,
+    ) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        assert_eq!(
+            self.validator_store
+                .get_builder_boost_factor(&validator.voting_pubkey),
+            builder_boost_factor
+        );
+
+        self
+    }
+
+    pub async fn assert_validator_derived_builder_boost_factor(
+        self,
+        index: usize,
+        builder_boost_factor: Option<u64>,
+    ) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        assert_eq!(
+            self.validator_store
+                .determine_validator_builder_boost_factor(&validator.voting_pubkey),
+            builder_boost_factor
+        );
+
+        self
+    }
+
+    pub fn assert_default_builder_boost_factor(self, builder_boost_factor: Option<u64>) -> Self {
+        assert_eq!(
+            self.validator_store
+                .determine_default_builder_boost_factor(),
+            builder_boost_factor
+        );
+
+        self
+    }
+
+    pub async fn assert_prefer_builder_proposals(
+        self,
+        index: usize,
+        prefer_builder_proposals: bool,
+    ) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        assert_eq!(
+            self.validator_store
+                .get_prefer_builder_proposals(&validator.voting_pubkey),
+            prefer_builder_proposals
+        );
+
+        self
+    }
+
     pub async fn set_graffiti(self, index: usize, graffiti: &str) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
         let graffiti_str = GraffitiString::from_str(graffiti).unwrap();
         self.client
             .patch_lighthouse_validators(
                 &validator.voting_pubkey,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -637,6 +764,49 @@ impl ApiTester {
             self.validator_store.graffiti(&validator.voting_pubkey),
             Some(graffiti_str.into())
         );
+
+        self
+    }
+
+    pub async fn test_set_graffiti(self, index: usize, graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let graffiti_str = GraffitiString::from_str(graffiti).unwrap();
+        let resp = self
+            .client
+            .set_graffiti(&validator.voting_pubkey, graffiti_str)
+            .await;
+
+        assert!(resp.is_ok());
+
+        self
+    }
+
+    pub async fn test_delete_graffiti(self, index: usize) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+        let old_graffiti = resp.unwrap().graffiti;
+
+        let resp = self.client.delete_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+
+        let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+        assert_ne!(old_graffiti, resp.unwrap().graffiti);
+
+        self
+    }
+
+    pub async fn test_get_graffiti(self, index: usize, expected_graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let expected_graffiti_str = GraffitiString::from_str(expected_graffiti).unwrap();
+        let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+        assert_eq!(&resp.unwrap().graffiti, &expected_graffiti_str.into());
 
         self
     }
@@ -698,6 +868,8 @@ async fn routes_with_invalid_auth() {
                     gas_limit: <_>::default(),
                     builder_proposals: <_>::default(),
                     deposit_gwei: <_>::default(),
+                    builder_boost_factor: <_>::default(),
+                    prefer_builder_proposals: <_>::default(),
                 }])
                 .await
         })
@@ -728,6 +900,8 @@ async fn routes_with_invalid_auth() {
                     suggested_fee_recipient: <_>::default(),
                     gas_limit: <_>::default(),
                     builder_proposals: <_>::default(),
+                    builder_boost_factor: <_>::default(),
+                    prefer_builder_proposals: <_>::default(),
                 })
                 .await
         })
@@ -737,6 +911,8 @@ async fn routes_with_invalid_auth() {
                 .patch_lighthouse_validators(
                     &PublicKeyBytes::empty(),
                     Some(false),
+                    None,
+                    None,
                     None,
                     None,
                     None,
@@ -769,6 +945,20 @@ async fn routes_with_invalid_auth() {
                 .delete_keystores(&DeleteKeystoresRequest {
                     pubkeys: vec![keypair.pk.compress()],
                 })
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client.delete_graffiti(&PublicKeyBytes::empty()).await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client.get_graffiti(&PublicKeyBytes::empty()).await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .set_graffiti(&PublicKeyBytes::empty(), GraffitiString::default())
                 .await
         })
         .await;
@@ -924,6 +1114,152 @@ async fn validator_builder_proposals() {
 }
 
 #[tokio::test]
+async fn validator_builder_boost_factor() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_builder_boost_factor(0, 120)
+        .await
+        // Test setting builder proposals while the validator is disabled
+        .set_validator_enabled(0, false)
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2)
+        .set_builder_boost_factor(0, 80)
+        .await
+        .set_validator_enabled(0, true)
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_builder_boost_factor(0, Some(80))
+        .await;
+}
+
+/// Verifies the builder boost factors translated from the `builder_proposals`,
+/// `prefer_builder_proposals` and `builder_boost_factor` values.
+#[tokio::test]
+async fn validator_derived_builder_boost_factor_with_process_defaults() {
+    let config = Config {
+        builder_proposals: true,
+        prefer_builder_proposals: false,
+        builder_boost_factor: Some(80),
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 3,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_default_builder_boost_factor(Some(80))
+        .assert_validator_derived_builder_boost_factor(0, None)
+        .await
+        .set_builder_proposals(0, false)
+        .await
+        .assert_validator_derived_builder_boost_factor(0, Some(0))
+        .await
+        .set_builder_boost_factor(1, 120)
+        .await
+        .assert_validator_derived_builder_boost_factor(1, Some(120))
+        .await
+        .set_prefer_builder_proposals(2, true)
+        .await
+        .assert_validator_derived_builder_boost_factor(2, Some(u64::MAX))
+        .await;
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_builder_proposals_true() {
+    let config = Config {
+        builder_proposals: true,
+        prefer_builder_proposals: false,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(None);
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_builder_proposals_false() {
+    let config = Config {
+        builder_proposals: false,
+        prefer_builder_proposals: false,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(Some(0));
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_prefer_builder_proposals_true() {
+    let config = Config {
+        builder_proposals: true,
+        prefer_builder_proposals: true,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(Some(u64::MAX));
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_prefer_builder_proposals_true_override() {
+    let config = Config {
+        builder_proposals: false,
+        prefer_builder_proposals: true,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(Some(u64::MAX));
+}
+
+#[tokio::test]
+async fn prefer_builder_proposals_validator() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_prefer_builder_proposals(0, false)
+        .await
+        // Test setting builder proposals while the validator is disabled
+        .set_validator_enabled(0, false)
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2)
+        .set_prefer_builder_proposals(0, true)
+        .await
+        .set_validator_enabled(0, true)
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_prefer_builder_proposals(0, true)
+        .await;
+}
+
+#[tokio::test]
 async fn validator_graffiti() {
     ApiTester::new()
         .await
@@ -951,6 +1287,31 @@ async fn validator_graffiti() {
         .await
         .assert_enabled_validators_count(2)
         .assert_graffiti(0, "Mr F was here again")
+        .await;
+}
+
+#[tokio::test]
+async fn validator_graffiti_api() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_graffiti(0, "Mr F was here")
+        .await
+        .test_get_graffiti(0, "Mr F was here")
+        .await
+        .test_set_graffiti(0, "Uncle Bill was here")
+        .await
+        .test_get_graffiti(0, "Uncle Bill was here")
+        .await
+        .test_delete_graffiti(0)
         .await;
 }
 

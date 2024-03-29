@@ -8,15 +8,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",
         )
-        // This argument is deprecated, use `--beacon-nodes` instead.
-        .arg(
-            Arg::with_name("beacon-node")
-                .long("beacon-node")
-                .value_name("NETWORK_ADDRESS")
-                .help("Deprecated. Use --beacon-nodes.")
-                .takes_value(true)
-                .conflicts_with("beacon-nodes"),
-        )
         .arg(
             Arg::with_name("beacon-nodes")
                 .long("beacon-nodes")
@@ -35,24 +26,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true),
         )
+        // TODO remove this flag in a future release
         .arg(
             Arg::with_name("disable-run-on-all")
                 .long("disable-run-on-all")
                 .value_name("DISABLE_RUN_ON_ALL")
-                .help("By default, Lighthouse publishes attestation, sync committee subscriptions \
+                .help("DEPRECATED. Use --broadcast. \
+                       By default, Lighthouse publishes attestation, sync committee subscriptions \
                        and proposer preparation messages to all beacon nodes provided in the \
                        `--beacon-nodes flag`. This option changes that behaviour such that these \
                        api calls only go out to the first available and synced beacon node")
-                .takes_value(false)
+                .takes_value(false),
         )
-        // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(
-            Arg::with_name("server")
-                .long("server")
-                .value_name("NETWORK_ADDRESS")
-                .help("Deprecated. Use --beacon-nodes.")
-                .takes_value(true)
-                .conflicts_with_all(&["beacon-node", "beacon-nodes"]),
+            Arg::with_name("broadcast")
+                .long("broadcast")
+                .value_name("API_TOPICS")
+                .help("Comma-separated list of beacon API topics to broadcast to all beacon nodes. \
+                       Possible values are: none, attestations, blocks, subscriptions, \
+                       sync-committee. Default (when flag is omitted) is to broadcast \
+                       subscriptions only."
+                )
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("validators-dir")
@@ -81,13 +76,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("datadir")
         )
         .arg(
-            Arg::with_name("delete-lockfiles")
-            .long("delete-lockfiles")
-            .help(
-                "DEPRECATED. This flag does nothing and will be removed in a future release."
-            )
-        )
-        .arg(
             Arg::with_name("init-slashing-protection")
                 .long("init-slashing-protection")
                 .help(
@@ -105,11 +93,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 "If present, do not attempt to discover new validators in the validators-dir. Validators \
                 will need to be manually added to the validator_definitions.yml file."
             )
-        )
-        .arg(
-            Arg::with_name("allow-unsynced")
-                .long("allow-unsynced")
-                .help("DEPRECATED: this flag does nothing"),
         )
         .arg(
             Arg::with_name("use-long-timeouts")
@@ -152,6 +135,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        configured in the validator definitions it takes priority over this value.")
                 .value_name("FEE-RECIPIENT")
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("produce-block-v3")
+                .long("produce-block-v3")
+                .help("Enable block production via the block v3 endpoint for this validator client. \
+                       This should only be enabled when paired with a beacon node \
+                       that has this endpoint implemented. This flag will be enabled by default in \
+                       future.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("distributed")
+                .long("distributed")
+                .help("Enables functionality required for running the validator in a distributed validator cluster.")
+                .takes_value(false)
         )
         /* REST API related arguments */
         .arg(
@@ -319,18 +317,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     headers during proposals and will sign over headers. Useful for outsourcing \
                     execution payload construction during proposals.")
                 .takes_value(false),
-        ).arg(
-            Arg::with_name("strict-fee-recipient")
-                .long("strict-fee-recipient")
-                .help("[DEPRECATED] If this flag is set, Lighthouse will refuse to sign any block whose \
-                        `fee_recipient` does not match the `suggested_fee_recipient` sent by this validator. \
-                         This applies to both the normal block proposal flow, as well as block proposals \
-                         through the builder API. Proposals through the builder API are more likely to have a \
-                         discrepancy in `fee_recipient` so you should be aware of how your connected relay \
-                         sends proposer payments before using this flag. If this flag is used, a fee recipient \
-                         mismatch in the builder API flow will result in a fallback to the local execution engine \
-                         for payload construction, where a strict fee recipient check will still be applied.")
-                .takes_value(false),
         )
         .arg(
             Arg::with_name("builder-registration-timestamp-override")
@@ -369,16 +355,53 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("500")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("builder-boost-factor")
+                .long("builder-boost-factor")
+                .value_name("UINT64")
+                .help("Defines the boost factor, \
+                    a percentage multiplier to apply to the builder's payload value \
+                    when choosing between a builder payload header and payload from \
+                    the local execution node.")
+                .conflicts_with("prefer-builder-proposals")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("prefer-builder-proposals")
+                .long("prefer-builder-proposals")
+                .help("If this flag is set, Lighthouse will always prefer blocks \
+                    constructed by builders, regardless of payload value.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("disable-slashing-protection-web3signer")
+                .long("disable-slashing-protection-web3signer")
+                .help("Disable Lighthouse's slashing protection for all web3signer keys. This can \
+                       reduce the I/O burden on the VC but is only safe if slashing protection \
+                       is enabled on the remote signer and is implemented correctly. DO NOT ENABLE \
+                       THIS FLAG UNLESS YOU ARE CERTAIN THAT SLASHING PROTECTION IS ENABLED ON \
+                       THE REMOTE SIGNER. YOU WILL GET SLASHED IF YOU USE THIS FLAG WITHOUT \
+                       ENABLING WEB3SIGNER'S SLASHING PROTECTION.")
+                .takes_value(false)
+        )
         /*
          * Experimental/development options.
          */
         .arg(
-            Arg::with_name("block-delay-ms")
-                .long("block-delay-ms")
+            Arg::with_name("web3-signer-keep-alive-timeout")
+                .long("web3-signer-keep-alive-timeout")
                 .value_name("MILLIS")
-                .hidden(true)
-                .help("Time to delay block production from the start of the slot. Should only be \
-                       used for testing.")
+                .default_value("90000")
+                .help("Keep-alive timeout for each web3signer connection. Set to 'null' to never \
+                       timeout")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("web3-signer-max-idle-connections")
+                .long("web3-signer-max-idle-connections")
+                .value_name("COUNT")
+                .help("Maximum number of idle connections to maintain per web3signer host. Default \
+                       is unlimited.")
                 .takes_value(true),
         )
 }

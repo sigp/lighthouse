@@ -104,7 +104,7 @@ pub(crate) enum ScoreState {
     /// We are content with the peers performance. We permit connections and messages.
     Healthy,
     /// The peer should be disconnected. We allow re-connections if the peer is persistent.
-    Disconnected,
+    ForcedDisconnect,
     /// The peer is banned. We disallow new connections until it's score has decayed into a
     /// tolerable threshold.
     Banned,
@@ -115,7 +115,7 @@ impl std::fmt::Display for ScoreState {
         match self {
             ScoreState::Healthy => write!(f, "Healthy"),
             ScoreState::Banned => write!(f, "Banned"),
-            ScoreState::Disconnected => write!(f, "Disconnected"),
+            ScoreState::ForcedDisconnect => write!(f, "Disconnected"),
         }
     }
 }
@@ -313,7 +313,7 @@ impl Score {
     pub(crate) fn state(&self) -> ScoreState {
         match self.score() {
             x if x <= MIN_SCORE_BEFORE_BAN => ScoreState::Banned,
-            x if x <= MIN_SCORE_BEFORE_DISCONNECT => ScoreState::Disconnected,
+            x if x <= MIN_SCORE_BEFORE_DISCONNECT => ScoreState::ForcedDisconnect,
             _ => ScoreState::Healthy,
         }
     }
@@ -330,13 +330,15 @@ impl Eq for Score {}
 
 impl PartialOrd for Score {
     fn partial_cmp(&self, other: &Score) -> Option<std::cmp::Ordering> {
-        self.score().partial_cmp(&other.score())
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Score {
     fn cmp(&self, other: &Score) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+        self.score()
+            .partial_cmp(&other.score())
+            .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
@@ -405,7 +407,7 @@ mod tests {
         assert!(score.score() < 0.0);
         assert_eq!(score.state(), ScoreState::Healthy);
         score.test_add(-1.0001);
-        assert_eq!(score.state(), ScoreState::Disconnected);
+        assert_eq!(score.state(), ScoreState::ForcedDisconnect);
     }
 
     #[test]
