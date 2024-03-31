@@ -1,26 +1,21 @@
 use parking_lot::RwLock;
-use std::collections::HashMap;
-use types::Epoch;
 
-/// Maintains a list of data column custody requirements for a given epoch.
+/// Maintains a list of data column custody requirements.
 ///
-/// Each time the node transitions to a new epoch, `register_epoch` must be called to populate
-/// custody requirements for the new epoch.
+/// Each time the node transitions to a new set of data column subnets, `set_custody_requirements` must be called to populate
+/// custody requirements.
 #[derive(Default, Debug)]
-pub struct DataColumnCustodyTracker(pub RwLock<HashMap<Epoch, Vec<u64>>>);
+pub struct DataColumnCustodyTracker {
+    data_column_ids: RwLock<Vec<u64>>,
+}
 
 impl DataColumnCustodyTracker {
-    pub fn register_epoch(&self, epoch: Epoch, data_column_ids: Vec<u64>) {
-        let mut map = self.0.write();
-        map.insert(epoch, data_column_ids);
+    pub fn set_custody_requirements(&self, data_column_ids: Vec<u64>) {
+        let mut write_guard = self.data_column_ids.write();
+        *write_guard = data_column_ids;
     }
 
-    pub fn custody_requirements_for_epoch(&self, epoch: &Epoch) -> Option<Vec<u64>> {
-        self.0.read().get(epoch).cloned()
-    }
-
-    pub fn prune_epoch(&self, epoch: &Epoch) {
-        let mut map = self.0.write();
-        map.remove(epoch);
+    pub fn get_custody_requirements(&self) -> Vec<u64> {
+        self.data_column_ids.read().clone()
     }
 }

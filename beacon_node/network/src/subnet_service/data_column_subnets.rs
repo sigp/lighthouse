@@ -81,7 +81,7 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
             .recompute_subnets_inner()
             .unwrap_or_else(|_| self.beacon_chain.slot_clock.slot_duration());
 
-        debug!(self.log, "Recomputing deterministic long lived subnets");
+        debug!(self.log, "Recomputing deterministic data column subnets");
         self.next_subscription_event = Box::pin(tokio::time::sleep(next_subscription_event));
 
         if let Some(waker) = self.waker.as_ref() {
@@ -107,7 +107,7 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
                 current_epoch,
                 &self.beacon_chain.spec,
             )
-            .map_err(|_| error!(self.log, "Failed to compute subnets"))?;
+            .map_err(|_| error!(self.log, "Failed to compute data column subnets"))?;
 
         let next_subscription_slot =
             next_subscription_epoch.start_slot(T::EthSpec::slots_per_epoch());
@@ -124,7 +124,7 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
             })?;
 
         if let Err(e) = self.data_column_subscriptions(subnets.collect(), current_epoch) {
-            error!(self.log, "Failed to subscribe to data columns"; "err" => ?e);
+            error!(self.log, "Failed to subscribe to data column subnets"; "err" => ?e);
         }
 
         Ok(next_subscription_event)
@@ -143,9 +143,9 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
         let mut subnets_to_discover = Vec::new();
 
         // unsubscribe from the previous epoch
-        self.handle_unsubscriptions(epoch - 1);
+        self.handle_unsubscriptions();
 
-        for data_column_subnet_id in data_column_subnet_ids {
+        for data_column_subnet_id in data_column_subnet_ids.iter() {
             // TODO(das) update required metrics values
             trace!(self.log,
                 "data column subscription";
@@ -153,7 +153,7 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
             );
 
             let exact_subnet = ExactSubnet {
-                data_column_subnet_id,
+                data_column_subnet_id: *data_column_subnet_id,
                 until_epoch: epoch,
             };
 
@@ -161,19 +161,23 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
 
             if let Err(e) = self.subscribe_to_subnet(exact_subnet.clone()) {
                 warn!(self.log,
-                    "Subscription to sync subnet error";
+                    "Subscription to sync data column subnet error";
                     "error" => e,
-                    "subnet_id" => *data_column_subnet_id
+                    "subnet_id" => Into::<u64>::into(data_column_subnet_id)
                     ,
                 );
             } else {
                 trace!(self.log,
-                    "Subscribed to subnet for sync committee duties";
+                    "Subscribed to data column subnet";
                     "exact_subnet" => ?exact_subnet,
-                    "subnet_id" => *data_column_subnet_id
+                    "subnet_id" =>Into::<u64>::into(data_column_subnet_id)
                 );
             }
         }
+
+        self.beacon_chain
+            .data_column_custody_tracker
+            .set_custody_requirements(data_column_subnet_ids.iter().map(|id| id.into()).collect());
 
         if let Err(e) = self.discover_peers_request(subnets_to_discover.iter()) {
             warn!(self.log, "Discovery lookup request error"; "error" => e);
@@ -264,17 +268,7 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
                 "exact_subnet" => ?exact_subnet,
             );
             return Ok(());
-        } else {
-            let slot_duration = self.beacon_chain.slot_clock.slot_duration();
-
-            // the duration until we no longer need this subscription. We assume a single slot is
-            // sufficient.
-            self.beacon_chain
-                .slot_clock
-                .duration_to_slot(until_slot)
-                .ok_or("Unable to determine duration to un-subscription slot")?
-                + slot_duration
-        };
+        }
 
         if let std::collections::hash_map::Entry::Vacant(e) =
             self.subscriptions.entry(exact_subnet.data_column_subnet_id)
@@ -296,27 +290,20 @@ impl<T: BeaconChainTypes> DataColumnService<T> {
         Ok(())
     }
 
-    fn handle_unsubscriptions(&mut self, previous_epoch: Epoch) {
-        let (data_column_subnet_ids, _) =
-            DataColumnSubnetId::compute_subnets_for_data_column::<T::EthSpec>(
-                self.node_id.raw().into(),
-                previous_epoch,
-                &self.beacon_chain.spec,
-            )
-            .unwrap();
+    fn handle_unsubscriptions(&mut self) {
+        let data_column_subnet_ids = self
+            .beacon_chain
+            .data_column_custody_tracker
+            .get_custody_requirements();
 
         for data_column_subnet_id in data_column_subnet_ids {
-            self.unsubscribe_to_subnet(data_column_subnet_id);
+            self.unsubscribe_to_subnet(data_column_subnet_id.into());
         }
-
-        self.beacon_chain
-            .data_column_custody_tracker
-            .prune_epoch(&previous_epoch);
     }
 
     /// handle unsubscribing from the subnet
     fn unsubscribe_to_subnet(&mut self, data_column_subnet_id: DataColumnSubnetId) {
-        debug!(self.log, "Unsubscribing from subnet"; "subnet" => *data_column_subnet_id);
+        debug!(self.log, "Unsubscribing from data column subnet"; "subnet" => *data_column_subnet_id);
 
         self.subscriptions.remove(&data_column_subnet_id);
         self.events
