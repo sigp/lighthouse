@@ -2431,7 +2431,7 @@ pub fn serve<T: BeaconChainTypes>(
              epoch: Epoch,
              validators: Vec<ValidatorId>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    let attestation_rewards = chain
+                    let (attestation_rewards, execution_optimistic) = chain
                         .compute_attestation_rewards(epoch, validators)
                         .map_err(|e| match e {
                             BeaconChainError::MissingBeaconState(root) => {
@@ -2459,11 +2459,14 @@ pub fn serve<T: BeaconChainTypes>(
                                 e
                             )),
                         })?;
-                    let execution_optimistic =
-                        chain.is_optimistic_or_invalid_head().unwrap_or_default();
 
-                    Ok(api_types::GenericResponse::from(attestation_rewards))
-                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                    let finalized_checkpoint =
+                        chain.canonical_head.cached_head().finalized_checkpoint();
+                    let finalized = epoch + 2 <= finalized_checkpoint.epoch;
+
+                    Ok(api_types::GenericResponse::from(attestation_rewards)).map(|resp| {
+                        resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
+                    })
                 })
             },
         );
