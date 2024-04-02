@@ -10,15 +10,15 @@ A Lighthouse beacon node can be configured to expose an HTTP server by supplying
 The following CLI flags control the HTTP server:
 
 - `--http`: enable the HTTP server (required even if the following flags are
-	provided).
+ provided).
 - `--http-port`: specify the listen port of the server.
 - `--http-address`: specify the listen address of the server. It is _not_ recommended to listen
   on `0.0.0.0`, please see [Security](#security) below.
 - `--http-allow-origin`: specify the value of the `Access-Control-Allow-Origin`
-	header. The default is to not supply a header.
+ header. The default is to not supply a header.
 - `--http-enable-tls`: serve the HTTP server over TLS. Must be used with `--http-tls-cert`
-	and `http-tls-key`. This feature is currently experimental, please see
-	[Serving the HTTP API over TLS](#serving-the-http-api-over-tls) below.
+ and `http-tls-key`. This feature is currently experimental, please see
+ [Serving the HTTP API over TLS](#serving-the-http-api-over-tls) below.
 - `--http-tls-cert`: specify the path to the certificate file for Lighthouse to use.
 - `--http-tls-key`: specify the path to the private key file for Lighthouse to use.
 
@@ -38,25 +38,24 @@ the listening address from `localhost` should only be done with extreme care.
 To safely provide access to the API from a different machine you should use one of the following
 standard techniques:
 
-* Use an [SSH tunnel][ssh_tunnel], i.e. access `localhost` remotely. This is recommended, and
+- Use an [SSH tunnel][ssh_tunnel], i.e. access `localhost` remotely. This is recommended, and
   doesn't require setting `--http-address`.
-* Use a firewall to limit access to certain remote IPs, e.g. allow access only from one other
+- Use a firewall to limit access to certain remote IPs, e.g. allow access only from one other
   machine on the local network.
-* Shield Lighthouse behind an HTTP server with rate-limiting such as NGINX. This is only
+- Shield Lighthouse behind an HTTP server with rate-limiting such as NGINX. This is only
   recommended for advanced users, e.g. beacon node hosting providers.
 
 Additional risks to be aware of include:
 
-* The `node/identity` and `node/peers` endpoints expose information about your node's peer-to-peer
+- The `node/identity` and `node/peers` endpoints expose information about your node's peer-to-peer
   identity.
-* The `--http-allow-origin` flag changes the server's CORS policy, allowing cross-site requests
+- The `--http-allow-origin` flag changes the server's CORS policy, allowing cross-site requests
   from browsers. You should only supply it if you understand the risks, e.g. malicious websites
   accessing your beacon node if you use the same machine for staking and web browsing.
 
 ## CLI Example
 
 Start a beacon node and an execution node according to [Run a node](./run_a_node.md). Note that since [The Merge](https://ethereum.org/en/roadmap/merge/), an execution client is required to be running along with a beacon node. Hence, the query on Beacon Node APIs requires users to run both. While there are some Beacon Node APIs that you can query with only the beacon node, such as the [node version](https://ethereum.github.io/beacon-APIs/#/Node/getNodeVersion), in general an execution client is required to get the updated information about the beacon chain, such as [state root](https://ethereum.github.io/beacon-APIs/#/Beacon/getStateRoot), [headers](https://ethereum.github.io/beacon-APIs/#/Beacon/getBlockHeaders) and many others, which are dynamically progressing with time.
-
 
 ## HTTP Request/Response Examples
 
@@ -124,9 +123,11 @@ curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "
   }
 }
 ```
+
 You can replace `1` in the above command with the validator index that you would like to query. Other API query can be done similarly by changing the link according to the Beacon API.
 
 ### Events API
+
 The [events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream) provides information such as the payload attributes that are of interest to block builders and relays. To query the payload attributes, it is necessary to run Lighthouse beacon node with the flag `--always-prepare-payload`. It is also recommended to add the flag `--prepare-payload-lookahead 8000` which configures the payload attributes to be sent at 4s into each slot (or 8s from the start of the next slot). An example of the command is:
 
 ```bash
@@ -141,8 +142,8 @@ An example of response is:
 data:{"version":"capella","data":{"proposal_slot":"11047","proposer_index":"336057","parent_block_root":"0x26f8999d270dd4677c2a1c815361707157a531f6c599f78fa942c98b545e1799","parent_block_number":"9259","parent_block_hash":"0x7fb788cd7afa814e578afa00a3edd250cdd4c8e35c22badd327d981b5bda33d2","payload_attributes":{"timestamp":"1696034964","prev_randao":"0xeee34d7a3f6b99ade6c6a881046c9c0e96baab2ed9469102d46eb8d6e4fde14c","suggested_fee_recipient":"0x0000000000000000000000000000000000000001","withdrawals":[{"index":"40705","validator_index":"360712","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1202941"},{"index":"40706","validator_index":"360713","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1201138"},{"index":"40707","validator_index":"360714","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1215255"},{"index":"40708","validator_index":"360715","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1161977"},{"index":"40709","validator_index":"360716","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1257278"},{"index":"40710","validator_index":"360717","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1247740"},{"index":"40711","validator_index":"360718","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1204337"},{"index":"40712","validator_index":"360719","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1183575"},{"index":"40713","validator_index":"360720","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1157785"},{"index":"40714","validator_index":"360721","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1143371"},{"index":"40715","validator_index":"360722","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1234787"},{"index":"40716","validator_index":"360723","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1286673"},{"index":"40717","validator_index":"360724","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1419241"},{"index":"40718","validator_index":"360725","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1231015"},{"index":"40719","validator_index":"360726","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1304321"},{"index":"40720","validator_index":"360727","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1236543"}]}}}
 ```
 
-
 ## Serving the HTTP API over TLS
+>
 > **Warning**: This feature is currently experimental.
 
 The HTTP server can be served over TLS by using the `--http-enable-tls`,
@@ -160,10 +161,13 @@ Below is a simple example serving the HTTP API over TLS using a
 self-signed certificate on Linux:
 
 ### Enabling TLS on a beacon node
+
 Generate a self-signed certificate using `openssl`:
+
 ```bash
 openssl req -x509 -nodes -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"
 ```
+
 Note that currently Lighthouse only accepts keys that are not password protected.
 This means we need to run with the `-nodes` flag (short for 'no DES').
 
@@ -180,21 +184,27 @@ lighthouse bn \
   --http-tls-cert cert.pem \
   --http-tls-key key.pem
 ```
+
 Note that the user running Lighthouse must have permission to read the
 certificate and key.
 
 The API is now being served at `https://localhost:5052`.
 
 To test connectivity, you can run the following:
+
 ```bash
 curl -X GET "https://localhost:5052/eth/v1/node/version" -H  "accept: application/json" --cacert cert.pem | jq
 
 ```
+
 ### Connecting a validator client
+
 In order to connect a validator client to a beacon node over TLS, the validator
 client needs to be aware of the certificate.
 There are two ways to do this:
+
 #### Option 1: Add the certificate to the operating system trust store
+
 The process for this will vary depending on your operating system.
 Below are the instructions for Ubuntu and Arch Linux:
 
@@ -211,13 +221,16 @@ sudo trust extract-compat
 ```
 
 Now the validator client can be connected to the beacon node by running:
+
 ```bash
 lighthouse vc --beacon-nodes https://localhost:5052
 ```
 
 #### Option 2: Specify the certificate via CLI
+
 You can also specify any custom certificates via the validator client CLI like
 so:
+
 ```bash
 lighthouse vc --beacon-nodes https://localhost:5052 --beacon-nodes-tls-certs cert.pem
 ```

@@ -8,6 +8,7 @@ extra income for your validators. However it is currently only recommended for e
 of the immaturity of the slasher UX and the extra resources required.
 
 ## Minimum System Requirements
+
 * Quad-core CPU
 * 16 GB RAM
 * 256 GB solid state storage (in addition to the space requirement for the beacon node DB)
@@ -47,8 +48,8 @@ directory.
 
 It is possible to use one of several database backends with the slasher:
 
-- LMDB (default)
-- MDBX
+* LMDB (default)
+* MDBX
 
 The advantage of MDBX is that it performs compaction, resulting in less disk usage over time. The
 disadvantage is that upstream MDBX is unstable, so Lighthouse is pinned to a specific version.

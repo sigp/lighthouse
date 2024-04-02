@@ -1,7 +1,6 @@
 # Validator Manager
 
 [Ethereum Staking Launchpad]: https://launchpad.ethereum.org/en/
-[Import Validators]: #import-validators
 
 ## Introduction
 

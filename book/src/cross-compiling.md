@@ -4,7 +4,6 @@ Lighthouse supports cross-compiling, allowing users to run a binary on one
 platform (e.g., `aarch64`) that was compiled on another platform (e.g.,
 `x86_64`).
 
-
 ## Instructions
 
 Cross-compiling requires [`Docker`](https://docs.docker.com/engine/install/),

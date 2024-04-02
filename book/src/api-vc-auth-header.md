@@ -27,7 +27,6 @@ $ cat api-token.txt
 api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123
 ```
 
-
 When starting the validator client it will output a log message containing the path
 to the file containing the api token.
 

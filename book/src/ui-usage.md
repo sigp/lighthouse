@@ -32,8 +32,6 @@ By clicking on the chart component you can filter selected validators in the ren
 
 <img src="imgs/ui-validator-balance2.png" width="48%"/>
 
-
-
 ## Hardware Usage and Device Diagnostics
 
 The hardware usage component gathers information about the device the Beacon Node is currently running. It displays the Disk usage, CPU metrics and memory usage of the Beacon Node device. The device diagnostics component provides the sync status of the execution client and beacon node.
@@ -41,7 +39,6 @@ The hardware usage component gathers information about the device the Beacon Nod
 <img height="350" src="imgs/ui-hardware.png" style="display: inline; float: left; margin-right: 25px"/>
 
 <img height="350" src="imgs/ui-device.png"/>
-
 
 ## Log Statistics
 
@@ -66,7 +63,6 @@ Clicking the validator icon activates a detailed validator modal component. This
 Siren's settings view provides access to the application theme, version, name, device name and important external links. From the settings page users can also access the configuration screen to adjust any beacon or validator node parameters.
 
 ![](imgs/ui-settings.png)
-
 
 # Validator and Beacon Logs
 

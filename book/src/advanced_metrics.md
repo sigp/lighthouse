@@ -30,7 +30,6 @@ curl localhost:5054/metrics
 
 ## Validator Client Metrics
 
-
 By default, these metrics are disabled but can be enabled with the `--metrics`
 flag. Use the `--metrics-address`, `--metrics-port` and
 `--metrics-allow-origin` flags to customize the metrics server.

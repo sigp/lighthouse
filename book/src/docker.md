@@ -85,7 +85,6 @@ The `features` is:
 * `-dev` for a development build with `minimal` preset enabled (`spec-minimal` feature).
 * empty for a standard build with no custom feature enabled.
 
-
 Examples:
 
 * `latest-unstable-modern`: most recent `unstable` build for all modern CPUs (x86_64 or ARM)

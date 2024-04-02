@@ -21,6 +21,7 @@ The beacon node and validator client each require a new flag for lighthouse to b
 ```
 lighthouse bn --builder https://mainnet-builder.test
 ```
+
 The `--builder` flag will cause the beacon node to simultaneously query the provided URL and the local execution engine during block production for a block payload with stubbed-out transactions. If either fails, the successful result will be used; If both succeed, the more profitable result will be used.
 
 The beacon node will *only* query for this type of block (a "blinded" block) when a validator specifically requests it.
@@ -30,18 +31,21 @@ blinded blocks, you should use the following flag:
 ```
 lighthouse vc --builder-proposals
 ```
+
 With the `--builder-proposals` flag, the validator client will ask for blinded blocks for all validators it manages.
 
 ```
 lighthouse vc --prefer-builder-proposals
 ```
+
 With the `--prefer-builder-proposals` flag, the validator client will always prefer blinded blocks, regardless of the payload value, for all validators it manages.
 
 ```
 lighthouse vc --builder-boost-factor <INTEGER>
 ```
+
 With the `--builder-boost-factor` flag, a percentage multiplier is applied to the builder's payload value when choosing between a
-builder payload header and payload from the paired execution node. For example, `--builder-boost-factor 50` will only use the builder payload if it is 2x more profitable than the local payload. 
+builder payload header and payload from the paired execution node. For example, `--builder-boost-factor 50` will only use the builder payload if it is 2x more profitable than the local payload.
 
 In order to configure whether a validator queries for blinded blocks check out [this section.](#validator-client-configuration)
 
@@ -88,7 +92,6 @@ You can also update the configured gas limit with these requests.
 
 #### `PATCH /lighthouse/validators/:voting_pubkey`
 
-
 #### HTTP Specification
 
 | Property          | Specification                              |
@@ -105,7 +108,9 @@ localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc8
 ```
 
 #### Example Request Body
+
 Each field is optional.
+
 ```json
 {
     "builder_proposals": true,
@@ -113,7 +118,7 @@ Each field is optional.
 }
 ```
 
-Command: 
+Command:
 
 ```bash
 DATADIR=/var/lib/lighthouse
@@ -125,6 +130,7 @@ curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf4
     "gas_limit": 30000001
 }' | jq
 ```
+
 If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`
 
 #### Example Response Body
@@ -178,16 +184,16 @@ checks to try and avoid scenarios like this.
 
 By default, Lighthouse is strict with these conditions, but we encourage users to learn about and adjust them.
 
-- `--builder-fallback-skips`  - If we've seen this number of skip slots on the canonical chain in a row prior to proposing, we will NOT query
+* `--builder-fallback-skips`  - If we've seen this number of skip slots on the canonical chain in a row prior to proposing, we will NOT query
  any connected builders, and will use the local execution engine for payload construction.
-- `--builder-fallback-skips-per-epoch` - If we've seen this number of skip slots on the canonical chain in the past `SLOTS_PER_EPOCH`, we will NOT
+* `--builder-fallback-skips-per-epoch` - If we've seen this number of skip slots on the canonical chain in the past `SLOTS_PER_EPOCH`, we will NOT
  query any connected builders, and will use the local execution engine for payload construction.
-- `--builder-fallback-epochs-since-finalization` - If we're proposing and the chain has not finalized within
+* `--builder-fallback-epochs-since-finalization` - If we're proposing and the chain has not finalized within
   this number of epochs, we will NOT query any connected builders, and will use the local execution engine for payload
   construction. Setting this value to anything less than 2 will cause the node to NEVER query connected builders. Setting
   it to 2 will cause this condition to be hit if there are skips slots at the start of an epoch, right before this node
   is set to propose.
-- `--builder-fallback-disable-checks` - This flag disables all checks related to chain health. This means the builder
+* `--builder-fallback-disable-checks` - This flag disables all checks related to chain health. This means the builder
   API will always be used for payload construction, regardless of recent chain conditions.
 
 ## Checking your builder config
@@ -246,6 +252,7 @@ INFO Reconstructing a full block using a local payload
 ```
 
 ## Information for block builders and relays
+
 Block builders and relays can query beacon node events from the [Events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream). An example of querying the payload attributes in the Events API is outlined in [Beacon node API - Events API](./api-bn.md#events-api)
 
 [mev-rs]: https://github.com/ralexstokes/mev-rs

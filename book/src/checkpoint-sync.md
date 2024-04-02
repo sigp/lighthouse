@@ -43,6 +43,7 @@ as soon as forwards sync completes.
 ### Use a community checkpoint sync endpoint
 
 The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the url for the `--checkpoint-sync-url` flag.  e.g.
+
 ```
 lighthouse bn --checkpoint-sync-url https://example.com/ ...
 ```

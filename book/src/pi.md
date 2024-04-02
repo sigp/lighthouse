@@ -4,9 +4,8 @@
 
 Tested on:
 
- - Raspberry Pi 4 Model B (4GB)
- - `Ubuntu 20.04 LTS (GNU/Linux 5.4.0-1011-raspi aarch64)`
-
+- Raspberry Pi 4 Model B (4GB)
+- `Ubuntu 20.04 LTS (GNU/Linux 5.4.0-1011-raspi aarch64)`
 
 *Note: [Lighthouse supports cross-compiling](./cross-compiling.md) to target a
 Raspberry Pi (`aarch64`). Compiling on a faster machine (i.e., `x86_64`

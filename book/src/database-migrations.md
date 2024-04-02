@@ -141,6 +141,7 @@ If you followed Somer Esat's guide for mainnet:
 ```
 sudo systemctl stop lighthousebeacon
 ```
+
 ```
 sudo -u lighthousebeacon lighthouse db version --datadir /var/lib/lighthouse --network mainnet
 ```
@@ -150,6 +151,7 @@ If you followed the CoinCashew guide for mainnet:
 ```
 sudo systemctl stop beacon-chain
 ```
+
 ```
 lighthouse db version --network mainnet
 ```
@@ -196,7 +198,7 @@ Here are the steps to prune historic states:
    ```
    INFO Historic states pruned successfully
    ```
-   
+
 4. After successfully pruning the historic states, you can restart the Lighthouse beacon node:
 
    ```bash

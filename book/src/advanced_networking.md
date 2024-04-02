@@ -5,7 +5,6 @@ be adjusted to handle a variety of network situations. This section outlines
 some of these configuration parameters and their consequences at the networking
 level and their general intended use.
 
-
 ### Target Peers
 
 The beacon node has a `--target-peers` CLI parameter. This allows you to
@@ -65,7 +64,9 @@ TCP and UDP ports (9000 TCP/UDP, and 9001 UDP by default).
 ### How to Open Ports
 
 The steps to do port forwarding depends on the router, but the general steps are given below:
+
 1. Determine the default gateway IP:
+
 - On Linux: open a terminal and run `ip route | grep default`, the result should look something similar to `default via 192.168.50.1 dev wlp2s0 proto dhcp metric 600`. The `192.168.50.1` is your router management default gateway IP.
 - On MacOS: open a terminal and run `netstat -nr|grep default` and it should return the default gateway IP.
 - On Windows: open a command prompt and run `ipconfig` and look for the `Default Gateway` which will show you the gateway IP.
@@ -77,6 +78,7 @@ The steps to do port forwarding depends on the router, but the general steps are
 3. Navigate to the port forward settings in your router. The exact step depends on the router, but typically it will fall under the "Advanced" section, under the name "port forwarding" or "virtual server".
 
 4. Configure a port forwarding rule as below:
+
 - Protocol: select `TCP/UDP` or `BOTH`
 - External port: `9000`
 - Internal port: `9000`
@@ -113,7 +115,6 @@ harder for peers to find you or potentially making it harder for other peers to
 find each other. We recommend not touching these settings unless for a more
 advanced use case.
 
-
 ### IPv6 support
 
 As noted in the previous sections, two fundamental parts to ensure good
@@ -136,6 +137,7 @@ TCP and UDP.
   This can be configured with `--quic-port`.
 
 To listen over both IPv4 and IPv6:
+
 - Set two listening addresses using the `--listen-address` flag twice ensuring
   the two addresses are one IPv4, and the other IPv6. When doing so, the
   `--port` and `--discovery-port` flags will apply exclusively to IPv4. Note
@@ -176,6 +178,7 @@ To listen over both IPv4 and IPv6:
 > QUIC will use port `9091` for UDP, which is the default `--port6` value (`9090`) + 1.
 
 #### Configuring Lighthouse to advertise IPv6 reachable addresses
+
 Lighthouse supports IPv6 to connect to other nodes both over IPv6 exclusively,
 and dual stack using one socket for IPv4 and another socket for IPv6. In both
 scenarios, the previous sections still apply. In summary:
