@@ -433,6 +433,12 @@ pub fn process_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
                 _ => return Err(BlockProcessingError::IncorrectStateType),
             }
         }
+        ExecutionPayloadHeaderRefMut::Electra(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Electra(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
     }
 
     Ok(())
@@ -451,7 +457,7 @@ pub fn is_merge_transition_complete<E: EthSpec>(state: &BeaconState<E>) -> bool 
             .latest_execution_payload_header()
             .map(|header| !header.is_default_with_zero_roots())
             .unwrap_or(false),
-        BeaconState::Deneb(_) | BeaconState::Capella(_) => true,
+        BeaconState::Electra(_) | BeaconState::Deneb(_) | BeaconState::Capella(_) => true,
         BeaconState::Base(_) | BeaconState::Altair(_) => false,
     }
 }
@@ -549,7 +555,7 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
 ) -> Result<(), BlockProcessingError> {
     match state {
         BeaconState::Merge(_) => Ok(()),
-        BeaconState::Capella(_) | BeaconState::Deneb(_) => {
+        BeaconState::Capella(_) | BeaconState::Deneb(_) | BeaconState::Electra(_) => {
             let expected_withdrawals = get_expected_withdrawals(state, spec)?;
             let expected_root = expected_withdrawals.tree_hash_root();
             let withdrawals_root = payload.withdrawals_root()?;

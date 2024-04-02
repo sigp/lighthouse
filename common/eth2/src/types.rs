@@ -1032,6 +1032,9 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
             ForkName::Deneb => serde_json::from_value(value)
                 .map(Self::V3)
                 .map_err(serde::de::Error::custom),
+            ForkName::Electra => serde_json::from_value(value)
+                .map(Self::V3)
+                .map_err(serde::de::Error::custom),
             ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
                 "SsePayloadAttributes deserialization for {fork_name} not implemented"
             ))),
@@ -1599,7 +1602,7 @@ impl<E: EthSpec> FullBlockContents<E> {
                 BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
                     .map(|block| FullBlockContents::Block(block))
             }
-            ForkName::Deneb => {
+            ForkName::Deneb | ForkName::Electra => {
                 let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
                 builder.register_anonymous_variable_length_item()?;
@@ -1660,7 +1663,7 @@ impl<E: EthSpec> ForkVersionDeserialize for FullBlockContents<E> {
                     BeaconBlock::deserialize_by_fork::<'de, D>(value, fork_name)?,
                 ))
             }
-            ForkName::Deneb => Ok(FullBlockContents::BlockContents(
+            ForkName::Deneb | ForkName::Electra => Ok(FullBlockContents::BlockContents(
                 BlockContents::deserialize_by_fork::<'de, D>(value, fork_name)?,
             )),
         }
@@ -1759,7 +1762,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
                 SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
                     .map(|block| PublishBlockRequest::Block(Arc::new(block)))
             }
-            ForkName::Deneb => {
+            ForkName::Deneb | ForkName::Electra => {
                 let mut builder = ssz::SszDecoderBuilder::new(bytes);
                 builder.register_anonymous_variable_length_item()?;
                 builder.register_type::<KzgProofs<E>>()?;
@@ -1843,9 +1846,9 @@ impl<E: EthSpec> TryFrom<Arc<SignedBeaconBlock<E>>> for PublishBlockRequest<E> {
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => Ok(PublishBlockRequest::Block(block)),
-            SignedBeaconBlock::Deneb(_) => {
-                Err("deneb block contents cannot be fully constructed from just the signed block")
-            }
+            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => Err(
+                "post-Deneb block contents cannot be fully constructed from just the signed block",
+            ),
         }
     }
 }
@@ -1953,7 +1956,7 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
             ForkName::Merge | ForkName::Capella => serde_json::from_value(value)
                 .map(Self::Payload)
                 .map_err(serde::de::Error::custom),
-            ForkName::Deneb => serde_json::from_value(value)
+            ForkName::Deneb | ForkName::Electra => serde_json::from_value(value)
                 .map(Self::PayloadAndBlobs)
                 .map_err(serde::de::Error::custom),
             ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(

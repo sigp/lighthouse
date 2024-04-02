@@ -11,6 +11,7 @@ use ssz::Encode;
 use state_processing::process_activations;
 use state_processing::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
+    upgrade_to_electra,
 };
 use std::fs::File;
 use std::io::Read;
@@ -21,8 +22,8 @@ use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
     Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderMerge, ForkName, Hash256, Keypair,
-    PublicKey, Validator,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderMerge,
+    ForkName, Hash256, Keypair, PublicKey, Validator,
 };
 
 pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -91,6 +92,10 @@ pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.deneb_fork_epoch = Some(fork_epoch);
     }
 
+    if let Some(fork_epoch) = parse_optional(matches, "electra-fork-epoch")? {
+        spec.electra_fork_epoch = Some(fork_epoch);
+    }
+
     if let Some(ttd) = parse_optional(matches, "ttd")? {
         spec.terminal_total_difficulty = ttd;
     }
@@ -120,6 +125,10 @@ pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                     ForkName::Deneb => {
                         ExecutionPayloadHeaderDeneb::<E>::from_ssz_bytes(bytes.as_slice())
                             .map(ExecutionPayloadHeader::Deneb)
+                    }
+                    ForkName::Electra => {
+                        ExecutionPayloadHeaderElectra::<E>::from_ssz_bytes(bytes.as_slice())
+                            .map(ExecutionPayloadHeader::Electra)
                     }
                 }
                 .map_err(|e| format!("SSZ decode failed: {:?}", e))
@@ -293,7 +302,7 @@ fn initialize_state_with_validators<E: EthSpec>(
         state.fork_mut().previous_version = spec.altair_fork_version;
     }
 
-    // Similarly, perform an upgrade to the merge if configured from genesis.
+    // Similarly, perform an upgrade to Bellatrix if configured from genesis.
     if spec
         .bellatrix_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
@@ -312,13 +321,14 @@ fn initialize_state_with_validators<E: EthSpec>(
         }
     }
 
+    // Similarly, perform an upgrade to Capella if configured from genesis.
     if spec
         .capella_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
     {
         upgrade_to_capella(&mut state, spec).unwrap();
 
-        // Remove intermediate fork from `state.fork`.
+        // Remove intermediate Bellatrix fork from `state.fork`.
         state.fork_mut().previous_version = spec.capella_fork_version;
 
         // Override latest execution payload header.
@@ -330,13 +340,14 @@ fn initialize_state_with_validators<E: EthSpec>(
         }
     }
 
+    // Similarly, perform an upgrade to Deneb if configured from genesis.
     if spec
         .deneb_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
     {
         upgrade_to_deneb(&mut state, spec).unwrap();
 
-        // Remove intermediate fork from `state.fork`.
+        // Remove intermediate Capella fork from `state.fork`.
         state.fork_mut().previous_version = spec.deneb_fork_version;
 
         // Override latest execution payload header.
@@ -344,6 +355,25 @@ fn initialize_state_with_validators<E: EthSpec>(
         if let ExecutionPayloadHeader::Deneb(ref header) = execution_payload_header {
             *state
                 .latest_execution_payload_header_deneb_mut()
+                .or(Err("mismatched fork".to_string()))? = header.clone();
+        }
+    }
+
+    // Similarly, perform an upgrade to Electra if configured from genesis.
+    if spec
+        .electra_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        upgrade_to_electra(&mut state, spec).unwrap();
+
+        // Remove intermediate Deneb fork from `state.fork`.
+        state.fork_mut().previous_version = spec.electra_fork_version;
+
+        // Override latest execution payload header.
+        // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/bellatrix/beacon-chain.md#testing
+        if let ExecutionPayloadHeader::Electra(ref header) = execution_payload_header {
+            *state
+                .latest_execution_payload_header_electra_mut()
                 .or(Err("mismatched fork".to_string()))? = header.clone();
         }
     }

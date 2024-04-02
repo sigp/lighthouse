@@ -81,6 +81,11 @@ pub fn run_parse_ssz<E: EthSpec>(
         "SignedBeaconBlockDeneb" => {
             decode_and_print(&bytes, SignedBeaconBlockDeneb::<E>::from_ssz_bytes, format)?
         }
+        "SignedBeaconBlockElectra" => decode_and_print(
+            &bytes,
+            SignedBeaconBlockElectra::<E>::from_ssz_bytes,
+            format,
+        )?,
         "BeaconState" => decode_and_print::<BeaconState<E>>(
             &bytes,
             |bytes| BeaconState::from_ssz_bytes(bytes, spec),
@@ -100,6 +105,9 @@ pub fn run_parse_ssz<E: EthSpec>(
         }
         "BeaconStateDeneb" => {
             decode_and_print(&bytes, BeaconStateDeneb::<E>::from_ssz_bytes, format)?
+        }
+        "BeaconStateElectra" => {
+            decode_and_print(&bytes, BeaconStateElectra::<E>::from_ssz_bytes, format)?
         }
         "BlobSidecar" => decode_and_print(&bytes, BlobSidecar::<E>::from_ssz_bytes, format)?,
         other => return Err(format!("Unknown type: {}", other)),

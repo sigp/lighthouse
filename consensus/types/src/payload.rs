@@ -82,12 +82,14 @@ pub trait AbstractExecPayload<E: EthSpec>:
     + TryInto<Self::Merge>
     + TryInto<Self::Capella>
     + TryInto<Self::Deneb>
+    + TryInto<Self::Electra>
 {
     type Ref<'a>: ExecPayload<E>
         + Copy
         + From<&'a Self::Merge>
         + From<&'a Self::Capella>
-        + From<&'a Self::Deneb>;
+        + From<&'a Self::Deneb>
+        + From<&'a Self::Electra>;
 
     type Merge: OwnedExecPayload<E>
         + Into<Self>
@@ -101,10 +103,14 @@ pub trait AbstractExecPayload<E: EthSpec>:
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadDeneb<E>>>
         + TryFrom<ExecutionPayloadHeaderDeneb<E>>;
+    type Electra: OwnedExecPayload<E>
+        + Into<Self>
+        + for<'a> From<Cow<'a, ExecutionPayloadElectra<E>>>
+        + TryFrom<ExecutionPayloadHeaderElectra<E>>;
 }
 
 #[superstruct(
-    variants(Merge, Capella, Deneb),
+    variants(Merge, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -145,6 +151,8 @@ pub struct FullPayload<E: EthSpec> {
     pub execution_payload: ExecutionPayloadCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
     pub execution_payload: ExecutionPayloadDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
+    pub execution_payload: ExecutionPayloadElectra<E>,
 }
 
 impl<E: EthSpec> From<FullPayload<E>> for ExecutionPayload<E> {
@@ -251,6 +259,9 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
             FullPayload::Deneb(ref inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
+            FullPayload::Electra(ref inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
         }
     }
 
@@ -258,6 +269,7 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
         match self {
             FullPayload::Merge(_) | FullPayload::Capella(_) => Err(Error::IncorrectStateVariant),
             FullPayload::Deneb(ref inner) => Ok(inner.execution_payload.blob_gas_used),
+            FullPayload::Electra(ref inner) => Ok(inner.execution_payload.blob_gas_used),
         }
     }
 
@@ -287,6 +299,7 @@ impl<E: EthSpec> FullPayload<E> {
             ForkName::Merge => Ok(FullPayloadMerge::default().into()),
             ForkName::Capella => Ok(FullPayloadCapella::default().into()),
             ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
+            ForkName::Electra => Ok(FullPayloadElectra::default().into()),
         }
     }
 }
@@ -376,6 +389,9 @@ impl<'b, E: EthSpec> ExecPayload<E> for FullPayloadRef<'b, E> {
             FullPayloadRef::Deneb(inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
+            FullPayloadRef::Electra(inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
         }
     }
 
@@ -385,6 +401,7 @@ impl<'b, E: EthSpec> ExecPayload<E> for FullPayloadRef<'b, E> {
                 Err(Error::IncorrectStateVariant)
             }
             FullPayloadRef::Deneb(inner) => Ok(inner.execution_payload.blob_gas_used),
+            FullPayloadRef::Electra(inner) => Ok(inner.execution_payload.blob_gas_used),
         }
     }
 
@@ -406,6 +423,7 @@ impl<E: EthSpec> AbstractExecPayload<E> for FullPayload<E> {
     type Merge = FullPayloadMerge<E>;
     type Capella = FullPayloadCapella<E>;
     type Deneb = FullPayloadDeneb<E>;
+    type Electra = FullPayloadElectra<E>;
 }
 
 impl<E: EthSpec> From<ExecutionPayload<E>> for FullPayload<E> {
@@ -424,7 +442,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Deneb),
+    variants(Merge, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -464,6 +482,8 @@ pub struct BlindedPayload<E: EthSpec> {
     pub execution_payload_header: ExecutionPayloadHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
     pub execution_payload_header: ExecutionPayloadHeaderDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
+    pub execution_payload_header: ExecutionPayloadHeaderElectra<E>,
 }
 
 impl<'a, E: EthSpec> From<BlindedPayloadRef<'a, E>> for BlindedPayload<E> {
@@ -546,6 +566,9 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
             BlindedPayload::Deneb(ref inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayload::Electra(ref inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
         }
     }
 
@@ -555,6 +578,7 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
                 Err(Error::IncorrectStateVariant)
             }
             BlindedPayload::Deneb(ref inner) => Ok(inner.execution_payload_header.blob_gas_used),
+            BlindedPayload::Electra(ref inner) => Ok(inner.execution_payload_header.blob_gas_used),
         }
     }
 
@@ -643,6 +667,9 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
             BlindedPayloadRef::Deneb(inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayloadRef::Electra(inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
         }
     }
 
@@ -652,6 +679,7 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
                 Err(Error::IncorrectStateVariant)
             }
             BlindedPayloadRef::Deneb(inner) => Ok(inner.execution_payload_header.blob_gas_used),
+            BlindedPayloadRef::Electra(inner) => Ok(inner.execution_payload_header.blob_gas_used),
         }
     }
 
@@ -944,12 +972,20 @@ impl_exec_payload_for_fork!(
     ExecutionPayloadDeneb,
     Deneb
 );
+impl_exec_payload_for_fork!(
+    BlindedPayloadElectra,
+    FullPayloadElectra,
+    ExecutionPayloadHeaderElectra,
+    ExecutionPayloadElectra,
+    Electra
+);
 
 impl<E: EthSpec> AbstractExecPayload<E> for BlindedPayload<E> {
     type Ref<'a> = BlindedPayloadRef<'a, E>;
     type Merge = BlindedPayloadMerge<E>;
     type Capella = BlindedPayloadCapella<E>;
     type Deneb = BlindedPayloadDeneb<E>;
+    type Electra = BlindedPayloadElectra<E>;
 }
 
 impl<E: EthSpec> From<ExecutionPayload<E>> for BlindedPayload<E> {
@@ -981,6 +1017,11 @@ impl<E: EthSpec> From<ExecutionPayloadHeader<E>> for BlindedPayload<E> {
                     execution_payload_header,
                 })
             }
+            ExecutionPayloadHeader::Electra(execution_payload_header) => {
+                Self::Electra(BlindedPayloadElectra {
+                    execution_payload_header,
+                })
+            }
         }
     }
 }
@@ -996,6 +1037,9 @@ impl<E: EthSpec> From<BlindedPayload<E>> for ExecutionPayloadHeader<E> {
             }
             BlindedPayload::Deneb(blinded_payload) => {
                 ExecutionPayloadHeader::Deneb(blinded_payload.execution_payload_header)
+            }
+            BlindedPayload::Electra(blinded_payload) => {
+                ExecutionPayloadHeader::Electra(blinded_payload.execution_payload_header)
             }
         }
     }

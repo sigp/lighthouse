@@ -226,6 +226,21 @@ impl DenebPreset {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct ElectraPreset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub electra_placeholder: u64,
+}
+
+impl ElectraPreset {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {
+            electra_placeholder: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -267,6 +282,9 @@ mod test {
 
         let deneb: DenebPreset = preset_from_file(&preset_name, "deneb.yaml");
         assert_eq!(deneb, DenebPreset::from_chain_spec::<E>(&spec));
+
+        let electra: ElectraPreset = preset_from_file(&preset_name, "electra.yaml");
+        assert_eq!(electra, ElectraPreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

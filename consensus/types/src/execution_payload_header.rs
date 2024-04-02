@@ -8,7 +8,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Merge, Capella, Deneb),
+    variants(Merge, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Default,
@@ -76,14 +76,14 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
-    #[superstruct(only(Capella, Deneb))]
+    #[superstruct(only(Capella, Deneb, Electra))]
     #[superstruct(getter(copy))]
     pub withdrawals_root: Hash256,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Deneb, Electra))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Deneb, Electra))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
     pub excess_blob_gas: u64,
@@ -104,6 +104,9 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
                 ExecutionPayloadHeaderCapella::from_ssz_bytes(bytes).map(Self::Capella)
             }
             ForkName::Deneb => ExecutionPayloadHeaderDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
+            ForkName::Electra => {
+                ExecutionPayloadHeaderElectra::from_ssz_bytes(bytes).map(Self::Electra)
+            }
         }
     }
 }
@@ -163,6 +166,30 @@ impl<E: EthSpec> ExecutionPayloadHeaderCapella<E> {
     }
 }
 
+impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
+    pub fn upgrade_to_electra(&self) -> ExecutionPayloadHeaderElectra<E> {
+        ExecutionPayloadHeaderElectra {
+            parent_hash: self.parent_hash,
+            fee_recipient: self.fee_recipient,
+            state_root: self.state_root,
+            receipts_root: self.receipts_root,
+            logs_bloom: self.logs_bloom.clone(),
+            prev_randao: self.prev_randao,
+            block_number: self.block_number,
+            gas_limit: self.gas_limit,
+            gas_used: self.gas_used,
+            timestamp: self.timestamp,
+            extra_data: self.extra_data.clone(),
+            base_fee_per_gas: self.base_fee_per_gas,
+            block_hash: self.block_hash,
+            transactions_root: self.transactions_root,
+            withdrawals_root: self.withdrawals_root,
+            blob_gas_used: self.blob_gas_used,
+            excess_blob_gas: self.excess_blob_gas,
+        }
+    }
+}
+
 impl<'a, E: EthSpec> From<&'a ExecutionPayloadMerge<E>> for ExecutionPayloadHeaderMerge<E> {
     fn from(payload: &'a ExecutionPayloadMerge<E>) -> Self {
         Self {
@@ -183,6 +210,7 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadMerge<E>> for ExecutionPayloadHead
         }
     }
 }
+
 impl<'a, E: EthSpec> From<&'a ExecutionPayloadCapella<E>> for ExecutionPayloadHeaderCapella<E> {
     fn from(payload: &'a ExecutionPayloadCapella<E>) -> Self {
         Self {
@@ -229,6 +257,30 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadDeneb<E>> for ExecutionPayloadHead
     }
 }
 
+impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHeaderElectra<E> {
+    fn from(payload: &'a ExecutionPayloadElectra<E>) -> Self {
+        Self {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom.clone(),
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data.clone(),
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions_root: payload.transactions.tree_hash_root(),
+            withdrawals_root: payload.withdrawals.tree_hash_root(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+        }
+    }
+}
+
 // These impls are required to work around an inelegance in `to_execution_payload_header`.
 // They only clone headers so they should be relatively cheap.
 impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderMerge<E> {
@@ -244,6 +296,12 @@ impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderCapella<E> {
 }
 
 impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderDeneb<E> {
+    fn from(payload: &'a Self) -> Self {
+        payload.clone()
+    }
+}
+
+impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderElectra<E> {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
@@ -289,6 +347,18 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderDe
     }
 }
 
+impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderElectra<E> {
+    type Error = BeaconStateError;
+    fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
+        match header {
+            ExecutionPayloadHeader::Electra(execution_payload_header) => {
+                Ok(execution_payload_header)
+            }
+            _ => Err(BeaconStateError::IncorrectStateVariant),
+        }
+    }
+}
+
 impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayloadHeader<E> {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
         value: serde_json::value::Value,
@@ -305,6 +375,7 @@ impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayloadHeader<E> {
             ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayloadHeader failed to deserialize: unsupported fork '{}'",

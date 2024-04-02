@@ -433,7 +433,7 @@ fn main() {
                     .takes_value(true)
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
-                    .possible_values(&["merge", "bellatrix", "capella", "deneb"])
+                    .possible_values(&["merge", "bellatrix", "capella", "deneb", "electra"])
             )
         )
         .subcommand(
@@ -597,7 +597,7 @@ fn main() {
                         .value_name("EPOCH")
                         .takes_value(true)
                         .help(
-                            "The epoch at which to enable the Merge hard fork",
+                            "The epoch at which to enable the Bellatrix hard fork",
                         ),
                 )
                 .arg(
@@ -615,7 +615,16 @@ fn main() {
                         .value_name("EPOCH")
                         .takes_value(true)
                         .help(
-                            "The epoch at which to enable the deneb hard fork",
+                            "The epoch at which to enable the Deneb hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("electra-fork-epoch")
+                        .long("electra-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the Electra hard fork",
                         ),
                 )
                 .arg(
@@ -945,6 +954,14 @@ fn main() {
                         .takes_value(true)
                         .help("The payload timestamp that enables Cancun. No default is provided \
                                 until Cancun is triggered on mainnet.")
+                )
+                .arg(
+                    Arg::with_name("prague-time")
+                        .long("prague-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .takes_value(true)
+                        .help("The payload timestamp that enables Prague. No default is provided \
+                                until Prague is triggered on mainnet.")
                 )
         )
         .get_matches();

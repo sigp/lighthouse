@@ -12,7 +12,7 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb),
+    variants(Base, Altair, Merge, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -69,6 +69,8 @@ pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload
     pub body: BeaconBlockBodyCapella<E, Payload>,
     #[superstruct(only(Deneb), partial_getter(rename = "body_deneb"))]
     pub body: BeaconBlockBodyDeneb<E, Payload>,
+    #[superstruct(only(Electra), partial_getter(rename = "body_electra"))]
+    pub body: BeaconBlockBodyElectra<E, Payload>,
 }
 
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
@@ -124,8 +126,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
     /// Usually it's better to prefer `from_ssz_bytes` which will decode the correct variant based
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        BeaconBlockDeneb::from_ssz_bytes(bytes)
-            .map(BeaconBlock::Deneb)
+        BeaconBlockElectra::from_ssz_bytes(bytes)
+            .map(BeaconBlock::Electra)
+            .or_else(|_| BeaconBlockDeneb::from_ssz_bytes(bytes).map(BeaconBlock::Deneb))
             .or_else(|_| BeaconBlockCapella::from_ssz_bytes(bytes).map(BeaconBlock::Capella))
             .or_else(|_| BeaconBlockMerge::from_ssz_bytes(bytes).map(BeaconBlock::Merge))
             .or_else(|_| BeaconBlockAltair::from_ssz_bytes(bytes).map(BeaconBlock::Altair))
@@ -221,6 +224,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
             BeaconBlockRef::Merge { .. } => ForkName::Merge,
             BeaconBlockRef::Capella { .. } => ForkName::Capella,
             BeaconBlockRef::Deneb { .. } => ForkName::Deneb,
+            BeaconBlockRef::Electra { .. } => ForkName::Electra,
         }
     }
 
@@ -595,6 +599,83 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockDene
     }
 }
 
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload> {
+    /// Return a Electra block where the block has maximum size.
+    pub fn full(spec: &ChainSpec) -> Self {
+        let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
+        let bls_to_execution_changes = vec![
+            SignedBlsToExecutionChange {
+                message: BlsToExecutionChange {
+                    validator_index: 0,
+                    from_bls_pubkey: PublicKeyBytes::empty(),
+                    to_execution_address: Address::zero(),
+                },
+                signature: Signature::empty()
+            };
+            E::max_bls_to_execution_changes()
+        ]
+        .into();
+        let sync_aggregate = SyncAggregate {
+            sync_committee_signature: AggregateSignature::empty(),
+            sync_committee_bits: BitVector::default(),
+        };
+        BeaconBlockElectra {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyElectra {
+                proposer_slashings: base_block.body.proposer_slashings,
+                attester_slashings: base_block.body.attester_slashings,
+                attestations: base_block.body.attestations,
+                deposits: base_block.body.deposits,
+                voluntary_exits: base_block.body.voluntary_exits,
+                bls_to_execution_changes,
+                sync_aggregate,
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                execution_payload: Payload::Electra::default(),
+                blob_kzg_commitments: VariableList::empty(),
+            },
+        }
+    }
+}
+
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElectra<E, Payload> {
+    /// Returns an empty Electra block to be used during genesis.
+    fn empty(spec: &ChainSpec) -> Self {
+        BeaconBlockElectra {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyElectra {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
+                execution_payload: Payload::Electra::default(),
+                bls_to_execution_changes: VariableList::empty(),
+                blob_kzg_commitments: VariableList::empty(),
+            },
+        }
+    }
+}
+
 // We can convert pre-Bellatrix blocks without payloads into blocks "with" payloads.
 impl<E: EthSpec> From<BeaconBlockBase<E, BlindedPayload<E>>>
     for BeaconBlockBase<E, FullPayload<E>>
@@ -675,6 +756,7 @@ impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body
 impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
 impl_from!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyCapella<_, _>| body.into());
 impl_from!(BeaconBlockDeneb, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyDeneb<_, _>| body.into());
+impl_from!(BeaconBlockElectra, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyElectra<_, _>| body.into());
 
 // We can clone blocks with payloads to blocks without payloads, without cloning the payload.
 macro_rules! impl_clone_as_blinded {
@@ -707,6 +789,7 @@ impl_clone_as_blinded!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayloa
 impl_clone_as_blinded!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockDeneb, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockElectra, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 
 // A reference to a full beacon block can be cloned into a blinded beacon block, without cloning the
 // execution payload.
@@ -822,7 +905,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_4844_block() {
+    fn roundtrip_deneb_block() {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
         let spec = &ForkName::Deneb.make_genesis_spec(MainnetEthSpec::default_spec());
 
@@ -834,6 +917,26 @@ mod tests {
             body: BeaconBlockBodyDeneb::random_for_test(rng),
         };
         let block = BeaconBlock::Deneb(inner_block.clone());
+
+        test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
+            BeaconBlock::from_ssz_bytes(bytes, spec)
+        });
+    }
+
+    #[test]
+    fn roundtrip_electra_block() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let spec = &ForkName::Electra.make_genesis_spec(MainnetEthSpec::default_spec());
+
+        let inner_block = BeaconBlockElectra {
+            slot: Slot::random_for_test(rng),
+            proposer_index: u64::random_for_test(rng),
+            parent_root: Hash256::random_for_test(rng),
+            state_root: Hash256::random_for_test(rng),
+            body: BeaconBlockBodyElectra::random_for_test(rng),
+        };
+
+        let block = BeaconBlock::Electra(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
             BeaconBlock::from_ssz_bytes(bytes, spec)
@@ -857,10 +960,13 @@ mod tests {
         let capella_slot = capella_epoch.start_slot(E::slots_per_epoch());
         let deneb_epoch = capella_epoch + 1;
         let deneb_slot = deneb_epoch.start_slot(E::slots_per_epoch());
+        let electra_epoch = deneb_epoch + 1;
+        let electra_slot = electra_epoch.start_slot(E::slots_per_epoch());
 
         spec.altair_fork_epoch = Some(altair_epoch);
         spec.capella_fork_epoch = Some(capella_epoch);
         spec.deneb_fork_epoch = Some(deneb_epoch);
+        spec.electra_fork_epoch = Some(electra_epoch);
 
         // BeaconBlockBase
         {
@@ -934,7 +1040,7 @@ mod tests {
                 slot: deneb_slot,
                 ..<_>::random_for_test(rng)
             });
-            // It's invalid to have an Capella block with a epoch lower than the fork epoch.
+            // It's invalid to have a Deneb block with a epoch lower than the fork epoch.
             let bad_block = {
                 let mut bad = good_block.clone();
                 *bad.slot_mut() = capella_slot;
@@ -948,6 +1054,29 @@ mod tests {
             );
             BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
                 .expect_err("bad deneb block cannot be decoded");
+        }
+
+        // BeaconBlockElectra
+        {
+            let good_block = BeaconBlock::Electra(BeaconBlockElectra {
+                slot: electra_slot,
+                ..<_>::random_for_test(rng)
+            });
+            // It's invalid to have an Electra block with a epoch lower than the fork epoch.
+            let bad_block = {
+                let mut bad = good_block.clone();
+                *bad.slot_mut() = deneb_slot;
+                bad
+            };
+
+            assert_eq!(
+                BeaconBlock::from_ssz_bytes(&good_block.as_ssz_bytes(), &spec)
+                    .expect("good electra block can be decoded"),
+                good_block
+            );
+            // TODO(electra): once the Electra block is changed from Deneb, update this to match
+            // the other forks.
+            assert!(BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec).is_ok());
         }
     }
 }

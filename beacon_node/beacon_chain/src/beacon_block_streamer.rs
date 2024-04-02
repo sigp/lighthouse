@@ -15,7 +15,8 @@ use types::{
     SignedBlindedBeaconBlock, Slot,
 };
 use types::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadHeader, ExecutionPayloadMerge,
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadHeader,
+    ExecutionPayloadMerge,
 };
 
 #[derive(PartialEq)]
@@ -98,6 +99,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Merge => ExecutionPayloadMerge::default().into(),
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
+        ForkName::Electra => ExecutionPayloadElectra::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
@@ -712,12 +714,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_all_blocks_from_altair_to_deneb() {
+    async fn check_all_blocks_from_altair_to_electra() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 8;
+        let num_epochs = 10;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
         let deneb_fork_epoch = 6usize;
+        let electra_fork_epoch = 8usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
@@ -725,6 +728,7 @@ mod tests {
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
+        spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());
         // go to bellatrix fork
@@ -833,12 +837,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_fallback_altair_to_deneb() {
+    async fn check_fallback_altair_to_electra() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 8;
+        let num_epochs = 10;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
         let deneb_fork_epoch = 6usize;
+        let electra_fork_epoch = 8usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
@@ -846,6 +851,7 @@ mod tests {
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
+        spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
 

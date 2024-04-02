@@ -306,6 +306,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "endpoint_deneb_fork_epoch" => ?beacon_node_spec.deneb_fork_epoch,
                 "hint" => UPDATE_REQUIRED_LOG_HINT,
             );
+        } else if beacon_node_spec.electra_fork_epoch != spec.electra_fork_epoch {
+            warn!(
+                log,
+                "Beacon node has mismatched Electra fork epoch";
+                "endpoint" => %self.beacon_node,
+                "endpoint_electra_fork_epoch" => ?beacon_node_spec.electra_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
+            );
         }
 
         Ok(())

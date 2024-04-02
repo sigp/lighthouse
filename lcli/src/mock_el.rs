@@ -18,6 +18,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
     let all_payloads_valid: bool = parse_required(matches, "all-payloads-valid")?;
     let shanghai_time = parse_required(matches, "shanghai-time")?;
     let cancun_time = parse_optional(matches, "cancun-time")?;
+    let prague_time = parse_optional(matches, "prague-time")?;
 
     let handle = env.core_context().executor.handle().unwrap();
     let spec = &E::default_spec();
@@ -35,6 +36,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
         terminal_block_hash: spec.terminal_block_hash,
         shanghai_time: Some(shanghai_time),
         cancun_time,
+        prague_time,
     };
     let kzg = None;
     let server: MockServer<E> = MockServer::new_with_config(&handle, config, kzg);
