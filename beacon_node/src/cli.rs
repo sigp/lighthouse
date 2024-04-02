@@ -1260,6 +1260,7 @@ pub fn cli_app() -> Command {
                         this value may increase resource consumption. Reducing the value \
                         may result in decreased resource usage and diminished performance. The \
                         default value is the number of logical CPU cores on the host.")
+                .hide(true)
                 .action(ArgAction::Set)
         )
         .arg(
@@ -1270,6 +1271,7 @@ pub fn cli_app() -> Command {
                         Higher values may prevent messages from being dropped while lower values \
                         may help protect the node from becoming overwhelmed.")
                 .default_value("16384")
+                .hide(true)
                 .action(ArgAction::Set)
         )
         .arg(
@@ -1279,6 +1281,7 @@ pub fn cli_app() -> Command {
                 .help("Specifies the length of the queue for messages requiring delayed processing. \
                         Higher values may prevent messages from being dropped while lower values \
                         may help protect the node from becoming overwhelmed.")
+                .hide(true)
                 .default_value("12288")
                 .action(ArgAction::Set)
         )
@@ -1289,6 +1292,7 @@ pub fn cli_app() -> Command {
                 .help("Specifies the number of gossip attestations in a signature verification batch. \
                        Higher values may reduce CPU usage in a healthy network whilst lower values may \
                        increase CPU usage in an unhealthy or hostile network.")
+                .hide(true)
                 .default_value("64")
                 .action(ArgAction::Set)
         )
@@ -1300,6 +1304,7 @@ pub fn cli_app() -> Command {
                        verification batch. \
                        Higher values may reduce CPU usage in a healthy network while lower values may \
                        increase CPU usage in an unhealthy or hostile network.")
+                .hide(true)
                 .default_value("64")
                 .action(ArgAction::Set)
         )

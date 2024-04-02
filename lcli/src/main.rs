@@ -433,7 +433,7 @@ fn main() {
                     .action(ArgAction::Set)
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
-                    .value_parser(["merge", "bellatrix", "capella", "deneb"])
+                    .value_parser(["merge", "bellatrix", "capella", "deneb", "capella"])
             )
         )
         .subcommand(
@@ -597,7 +597,7 @@ fn main() {
                         .value_name("EPOCH")
                         .action(ArgAction::Set)
                         .help(
-                            "The epoch at which to enable the Merge hard fork",
+                            "The epoch at which to enable the Bellatrix hard fork",
                         ),
                 )
                 .arg(
@@ -615,7 +615,16 @@ fn main() {
                         .value_name("EPOCH")
                         .action(ArgAction::Set)
                         .help(
-                            "The epoch at which to enable the deneb hard fork",
+                            "The epoch at which to enable the Deneb hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::new("electra-fork-epoch")
+                        .long("electra-fork-epoch")
+                        .value_name("EPOCH")
+                        .action(ArgAction::Set)
+                        .help(
+                            "The epoch at which to enable the Electra hard fork",
                         ),
                 )
                 .arg(
@@ -946,6 +955,14 @@ fn main() {
                         .help("The payload timestamp that enables Cancun. No default is provided \
                                 until Cancun is triggered on mainnet.")
                 )
+                .arg(
+                    Arg::new("prague-time")
+                        .long("prague-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .action(ArgAction::Set)
+                        .help("The payload timestamp that enables Prague. No default is provided \
+                                until Prague is triggered on mainnet.")
+                )
         )
         .get_matches();
 
@@ -968,7 +985,7 @@ fn main() {
     }
 }
 
-fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) -> Result<(), String> {
+fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> Result<(), String> {
     let env = env_builder
         .multi_threaded_tokio_runtime()
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?
@@ -1021,71 +1038,71 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) -> 
     match matches.subcommand() {
         Some(("transition-blocks", matches)) => {
             let network_config = get_network_config()?;
-            transition_blocks::run::<T>(env, network_config, matches)
+            transition_blocks::run::<E>(env, network_config, matches)
                 .map_err(|e| format!("Failed to transition blocks: {}", e))
         }
         Some(("skip-slots", matches)) => {
             let network_config = get_network_config()?;
-            skip_slots::run::<T>(env, network_config, matches)
+            skip_slots::run::<E>(env, network_config, matches)
                 .map_err(|e| format!("Failed to skip slots: {}", e))
         }
         Some(("pretty-ssz", matches)) => {
             let network_config = get_network_config()?;
-            run_parse_ssz::<T>(network_config, matches)
+            run_parse_ssz::<E>(network_config, matches)
                 .map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
         Some(("deploy-deposit-contract", matches)) => {
-            deploy_deposit_contract::run::<T>(env, matches)
+            deploy_deposit_contract::run::<E>(env, matches)
                 .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
         Some(("eth1-genesis", matches)) => {
             let testnet_dir = get_testnet_dir()?;
-            eth1_genesis::run::<T>(env, testnet_dir, matches)
+            eth1_genesis::run::<E>(env, testnet_dir, matches)
                 .map_err(|e| format!("Failed to run eth1-genesis command: {}", e))
         }
         Some(("interop-genesis", matches)) => {
             let testnet_dir = get_testnet_dir()?;
-            interop_genesis::run::<T>(testnet_dir, matches)
+            interop_genesis::run::<E>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run interop-genesis command: {}", e))
         }
         Some(("change-genesis-time", matches)) => {
             let testnet_dir = get_testnet_dir()?;
-            change_genesis_time::run::<T>(testnet_dir, matches)
+            change_genesis_time::run::<E>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run change-genesis-time command: {}", e))
         }
-        Some(("create-payload-header", matches)) => create_payload_header::run::<T>(matches)
+        Some(("create-payload-header", matches)) => create_payload_header::run::<E>(matches)
             .map_err(|e| format!("Failed to run create-payload-header command: {}", e)),
         Some(("replace-state-pubkeys", matches)) => {
             let testnet_dir = get_testnet_dir()?;
-            replace_state_pubkeys::run::<T>(testnet_dir, matches)
+            replace_state_pubkeys::run::<E>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
         }
         Some(("new-testnet", matches)) => {
             let testnet_dir = get_testnet_dir()?;
-            new_testnet::run::<T>(testnet_dir, matches)
+            new_testnet::run::<E>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run new_testnet command: {}", e))
         }
         Some(("check-deposit-data", matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
-        Some(("generate-bootnode-enr", matches)) => generate_bootnode_enr::run::<T>(matches)
+        Some(("generate-bootnode-enr", matches)) => generate_bootnode_enr::run::<E>(matches)
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         Some(("insecure-validators", matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
         Some(("mnemonic-validators", matches)) => mnemonic_validators::run(matches)
             .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
-        Some(("indexed-attestations", matches)) => indexed_attestations::run::<T>(matches)
+        Some(("indexed-attestations", matches)) => indexed_attestations::run::<E>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         Some(("block-root", matches)) => {
             let network_config = get_network_config()?;
-            block_root::run::<T>(env, network_config, matches)
+            block_root::run::<E>(env, network_config, matches)
                 .map_err(|e| format!("Failed to run block-root command: {}", e))
         }
         Some(("state-root", matches)) => {
             let network_config = get_network_config()?;
-            state_root::run::<T>(env, network_config, matches)
+            state_root::run::<E>(env, network_config, matches)
                 .map_err(|e| format!("Failed to run state-root command: {}", e))
         }
-        Some(("mock-el", matches)) => mock_el::run::<T>(env, matches)
+        Some(("mock-el", matches)) => mock_el::run::<E>(env, matches)
             .map_err(|e| format!("Failed to run mock-el command: {}", e)),
         Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),
         _ => Err("No subcommand provided. See --help.".to_string()),

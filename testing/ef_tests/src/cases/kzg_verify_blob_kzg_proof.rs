@@ -4,7 +4,6 @@ use beacon_chain::kzg_utils::validate_blob;
 use eth2_network_config::TRUSTED_SETUP_BYTES;
 use kzg::{Error as KzgError, Kzg, KzgCommitment, KzgProof, TrustedSetup};
 use serde::Deserialize;
-use std::convert::TryInto;
 use std::marker::PhantomData;
 use types::Blob;
 

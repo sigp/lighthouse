@@ -47,7 +47,7 @@ pub fn cli_app() -> Command {
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.
-pub fn run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {
+pub fn run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), String> {
     let context = env.core_context();
     let spec = context.eth2_config.spec;
     let dump_config = clap_utils::parse_optional(matches, DUMP_CONFIGS_FLAG)?
@@ -63,7 +63,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), 
             async {
                 match matches.subcommand() {
                     Some((create_validators::CMD, matches)) => {
-                        create_validators::cli_run::<T>(matches, &spec, dump_config).await
+                        create_validators::cli_run::<E>(matches, &spec, dump_config).await
                     }
                     Some((import_validators::CMD, matches)) => {
                         import_validators::cli_run(matches, dump_config).await

@@ -280,7 +280,7 @@ struct ValidatorsAndDeposits {
 }
 
 impl ValidatorsAndDeposits {
-    async fn new<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<Self, String> {
+    async fn new<'a, E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<Self, String> {
         let CreateConfig {
             // The output path is handled upstream.
             output_path: _,
@@ -340,7 +340,7 @@ impl ValidatorsAndDeposits {
                 eprintln!("Beacon node is on {} network", config_name)
             }
             let bn_spec = bn_config
-                .apply_to_chain_spec::<T>(&T::default_spec())
+                .apply_to_chain_spec::<E>(&E::default_spec())
                 .ok_or("Beacon node appears to be on an incorrect network")?;
             if bn_spec.genesis_fork_version != spec.genesis_fork_version {
                 if let Some(config_name) = bn_spec.config_name {
@@ -526,7 +526,7 @@ impl ValidatorsAndDeposits {
     }
 }
 
-pub async fn cli_run<T: EthSpec>(
+pub async fn cli_run<E: EthSpec>(
     matches: &ArgMatches,
     spec: &ChainSpec,
     dump_config: DumpConfig,
@@ -535,11 +535,11 @@ pub async fn cli_run<T: EthSpec>(
     if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {
-        run::<T>(config, spec).await
+        run::<E>(config, spec).await
     }
 }
 
-async fn run<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), String> {
+async fn run<'a, E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), String> {
     let output_path = config.output_path.clone();
 
     if !output_path.exists() {
@@ -564,7 +564,7 @@ async fn run<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(
         ));
     }
 
-    let validators_and_deposits = ValidatorsAndDeposits::new::<T>(config, spec).await?;
+    let validators_and_deposits = ValidatorsAndDeposits::new::<E>(config, spec).await?;
 
     eprintln!("Keystore generation complete");
 

@@ -9,6 +9,7 @@ members = [
     "beacon_node/client",
     "beacon_node/eth1",
     "beacon_node/lighthouse_network",
+    "beacon_node/lighthouse_network/gossipsub",
     "beacon_node/execution_layer",
     "beacon_node/http_api",
     "beacon_node/http_metrics",
@@ -200,6 +201,7 @@ execution_layer = { path = "beacon_node/execution_layer" }
 filesystem = { path = "common/filesystem" }
 fork_choice = { path = "consensus/fork_choice" }
 genesis = { path = "beacon_node/genesis" }
+gossipsub = { path = "beacon_node/lighthouse_network/gossipsub/" }
 http_api = { path = "beacon_node/http_api" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
 kzg = { path = "crypto/kzg" }

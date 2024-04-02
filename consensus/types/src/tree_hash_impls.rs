@@ -101,7 +101,6 @@ fn process_bool_field(val: bool, leaf: &mut Hash256, force_update: bool) -> bool
 mod test {
     use super::*;
     use crate::test_utils::TestRandom;
-    use crate::Epoch;
     use rand::SeedableRng;
     use rand_xorshift::XorShiftRng;
     use tree_hash::TreeHash;

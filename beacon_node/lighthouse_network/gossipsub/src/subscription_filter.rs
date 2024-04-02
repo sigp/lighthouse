@@ -18,8 +18,8 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-use crate::gossipsub::types::Subscription;
-use crate::gossipsub::TopicHash;
+use crate::types::Subscription;
+use crate::TopicHash;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub trait TopicSubscriptionFilter {
@@ -128,7 +128,7 @@ impl<T: TopicSubscriptionFilter> TopicSubscriptionFilter for MaxCountSubscriptio
             .filter
             .filter_incoming_subscriptions(subscriptions, currently_subscribed_topics)?;
 
-        use crate::gossipsub::types::SubscriptionAction::*;
+        use crate::types::SubscriptionAction::*;
 
         let mut unsubscribed = 0;
         let mut new_subscribed = 0;
@@ -211,7 +211,7 @@ impl TopicSubscriptionFilter for RegexSubscriptionFilter {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::gossipsub::types::SubscriptionAction::*;
+    use crate::types::SubscriptionAction::*;
     use std::iter::FromIterator;
 
     #[test]

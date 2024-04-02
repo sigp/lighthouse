@@ -39,7 +39,7 @@ pub fn cli_app() -> Command {
         .subcommand(exit::cli_app())
 }
 
-pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {
+pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), String> {
     let validator_base_dir = if matches.get_one::<String>("datadir").is_some() {
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
         path.join(DEFAULT_VALIDATOR_DIR)
@@ -49,7 +49,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
     eprintln!("validator-dir path: {:?}", validator_base_dir);
 
     match matches.subcommand() {
-        Some((create::CMD, matches)) => create::cli_run::<T>(matches, env, validator_base_dir),
+        Some((create::CMD, matches)) => create::cli_run::<E>(matches, env, validator_base_dir),
         Some((modify::CMD, matches)) => modify::cli_run(matches, validator_base_dir),
         Some((import::CMD, matches)) => import::cli_run(matches, validator_base_dir),
         Some((list::CMD, _)) => list::cli_run(validator_base_dir),

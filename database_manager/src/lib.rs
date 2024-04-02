@@ -646,7 +646,7 @@ pub fn prune_states<E: EthSpec>(
 }
 
 /// Run the database manager, returning an error string if the operation did not succeed.
-pub fn run<T: EthSpec>(cli_args: &ArgMatches, env: Environment<T>) -> Result<(), String> {
+pub fn run<E: EthSpec>(cli_args: &ArgMatches, env: Environment<E>) -> Result<(), String> {
     let client_config = parse_client_config(cli_args, &env)?;
     let context = env.core_context();
     let log = context.log().clone();
@@ -662,11 +662,11 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches, env: Environment<T>) -> Result<(),
         }
         Some(("inspect", cli_args)) => {
             let inspect_config = parse_inspect_config(cli_args)?;
-            inspect_db::<T>(inspect_config, client_config)
+            inspect_db::<E>(inspect_config, client_config)
         }
         Some(("compact", cli_args)) => {
             let compact_config = parse_compact_config(cli_args)?;
-            compact_db::<T>(compact_config, client_config, log).map_err(format_err)
+            compact_db::<E>(compact_config, client_config, log).map_err(format_err)
         }
         Some(("prune-payloads", _)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
@@ -681,7 +681,7 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches, env: Environment<T>) -> Result<(),
 
             let genesis_state = executor
                 .block_on_dangerous(
-                    network_config.genesis_state::<T>(
+                    network_config.genesis_state::<E>(
                         client_config.genesis_state_url.as_deref(),
                         client_config.genesis_state_url_timeout,
                         &log,
