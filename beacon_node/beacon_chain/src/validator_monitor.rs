@@ -15,7 +15,6 @@ use state_processing::per_epoch_processing::{
     errors::EpochProcessingError, EpochProcessingSummary,
 };
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::io;
 use std::marker::PhantomData;
 use std::str::Utf8Error;

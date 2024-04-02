@@ -287,13 +287,13 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
         }
 
         // Verify light client optimistic update. `signature_slot_distance` should be 1 in the ideal scenario.
-        let signature_slot = client
+        let signature_slot = *client
             .get_beacon_light_client_optimistic_update::<E>()
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
             .ok_or(format!("Light client optimistic update not found {slot:?}"))?
             .data
-            .signature_slot;
+            .signature_slot();
         let signature_slot_distance = slot - signature_slot;
         if signature_slot_distance > light_client_update_slot_tolerance {
             return Err(format!("Existing optimistic update too old: signature slot {signature_slot}, current slot {slot:?}"));
@@ -316,13 +316,13 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             }
             continue;
         }
-        let signature_slot = client
+        let signature_slot = *client
             .get_beacon_light_client_finality_update::<E>()
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
             .ok_or(format!("Light client finality update not found {slot:?}"))?
             .data
-            .signature_slot;
+            .signature_slot();
         let signature_slot_distance = slot - signature_slot;
         if signature_slot_distance > light_client_update_slot_tolerance {
             return Err(format!(

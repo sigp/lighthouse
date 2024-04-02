@@ -57,8 +57,8 @@ use super::time_cache::DuplicateCache;
 use super::topic::{Hasher, Topic, TopicHash};
 use super::transform::{DataTransform, IdentityTransform};
 use super::types::{
-    ControlAction, Message, MessageAcceptance, MessageId, PeerInfo, RawMessage, Subscription,
-    SubscriptionAction,
+    ControlAction, FailedMessages, Message, MessageAcceptance, MessageId, PeerInfo, RawMessage,
+    Subscription, SubscriptionAction,
 };
 use super::types::{Graft, IHave, IWant, PeerConnections, PeerKind, Prune};
 use super::{backoff::BackoffStorage, types::RpcSender};
@@ -66,7 +66,7 @@ use super::{
     config::{Config, ValidationMode},
     types::RpcOut,
 };
-use super::{FailedMessages, PublishError, SubscriptionError, TopicScoreParams, ValidationError};
+use super::{PublishError, SubscriptionError, TopicScoreParams, ValidationError};
 use instant::SystemTime;
 use quick_protobuf::{MessageWrite, Writer};
 use std::{cmp::Ordering::Equal, fmt::Debug};
@@ -525,7 +525,7 @@ where
             return Err(SubscriptionError::NotAllowed);
         }
 
-        if self.mesh.get(&topic_hash).is_some() {
+        if self.mesh.contains_key(&topic_hash) {
             tracing::debug!(%topic, "Topic is already in the mesh");
             return Ok(false);
         }
@@ -551,7 +551,7 @@ where
         tracing::debug!(%topic, "Unsubscribing from topic");
         let topic_hash = topic.hash();
 
-        if self.mesh.get(&topic_hash).is_none() {
+        if !self.mesh.contains_key(&topic_hash) {
             tracing::debug!(topic=%topic_hash, "Already unsubscribed from topic");
             // we are not subscribed
             return Ok(false);
@@ -635,9 +635,33 @@ where
                     || !self.score_below_threshold(p, |ts| ts.publish_threshold).0
             }));
         } else {
-            match self.mesh.get(&raw_message.topic) {
+            match self.mesh.get(&topic_hash) {
                 // Mesh peers
                 Some(mesh_peers) => {
+                    // We have a mesh set. We want to make sure to publish to at least `mesh_n`
+                    // peers (if possible).
+                    let needed_extra_peers = self.config.mesh_n().saturating_sub(mesh_peers.len());
+
+                    if needed_extra_peers > 0 {
+                        // We don't have `mesh_n` peers in our mesh, we will randomly select extras
+                        // and publish to them.
+
+                        // Get a random set of peers that are appropriate to send messages too.
+                        let peer_list = get_random_peers(
+                            &self.connected_peers,
+                            &topic_hash,
+                            needed_extra_peers,
+                            |peer| {
+                                !mesh_peers.contains(peer)
+                                    && !self.explicit_peers.contains(peer)
+                                    && !self
+                                        .score_below_threshold(peer, |pst| pst.publish_threshold)
+                                        .0
+                            },
+                        );
+                        recipient_peers.extend(peer_list);
+                    }
+
                     recipient_peers.extend(mesh_peers);
                 }
                 // Gossipsub peers
@@ -729,8 +753,12 @@ where
             }
         }
 
-        if publish_failed {
+        if recipient_peers.is_empty() {
             return Err(PublishError::InsufficientPeers);
+        }
+
+        if publish_failed {
+            return Err(PublishError::AllQueuesFull(recipient_peers.len()));
         }
 
         tracing::debug!(message=%msg_id, "Published message");
@@ -823,6 +851,13 @@ where
         } else {
             tracing::warn!(message=%msg_id, "Rejected message not in cache");
             Ok(false)
+        }
+    }
+
+    /// Register topics to ensure metrics are recorded correctly for these topics.
+    pub fn register_topics_for_metrics(&mut self, topics: Vec<TopicHash>) {
+        if let Some(metrics) = &mut self.metrics {
+            metrics.register_allowed_topics(topics);
         }
     }
 
@@ -2203,10 +2238,9 @@ where
                         if outbound <= self.config.mesh_outbound_min() {
                             // do not remove anymore outbound peers
                             continue;
-                        } else {
-                            // an outbound peer gets removed
-                            outbound -= 1;
                         }
+                        // an outbound peer gets removed
+                        outbound -= 1;
                     }
 
                     // remove the peer

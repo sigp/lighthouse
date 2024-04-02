@@ -13,7 +13,6 @@ use self::schema::{
 };
 
 use diesel::dsl::max;
-use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::r2d2::{Builder, ConnectionManager, Pool, PooledConnection};
 use diesel::upsert::excluded;

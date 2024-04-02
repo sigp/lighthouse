@@ -4,10 +4,7 @@ use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
-use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadMerge, FixedVector, Transactions, Unsigned, VariableList, Withdrawal,
-};
+use types::{FixedVector, Unsigned};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

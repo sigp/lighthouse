@@ -132,7 +132,7 @@ impl<E: EthSpec> PackingEfficiencyHandler<E> {
         }
 
         // Remove duplicate attestations as these yield no reward.
-        attestations_in_block.retain(|x, _| self.included_attestations.get(x).is_none());
+        attestations_in_block.retain(|x, _| !self.included_attestations.contains_key(x));
         self.included_attestations
             .extend(attestations_in_block.clone());
 
@@ -179,8 +179,9 @@ impl<E: EthSpec> PackingEfficiencyHandler<E> {
                 .collect::<Vec<_>>()
         };
 
-        self.committee_store.previous_epoch_committees =
-            self.committee_store.current_epoch_committees.clone();
+        self.committee_store
+            .previous_epoch_committees
+            .clone_from(&self.committee_store.current_epoch_committees);
 
         self.committee_store.current_epoch_committees = new_committees;
 

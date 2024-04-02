@@ -1,7 +1,5 @@
 use super::ParticipationCache;
 use crate::EpochProcessingError;
-use core::result::Result;
-use core::result::Result::Ok;
 use safe_arith::SafeArith;
 use std::cmp::min;
 use types::beacon_state::BeaconState;

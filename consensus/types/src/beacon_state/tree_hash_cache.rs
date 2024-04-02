@@ -10,7 +10,6 @@ use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use std::cmp::Ordering;
-use std::iter::ExactSizeIterator;
 use tree_hash::{mix_in_length, MerkleHasher, TreeHash};
 
 /// The number of leaves (including padding) on the `BeaconState` Merkle tree.

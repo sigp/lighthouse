@@ -964,7 +964,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
 mod tests {
     use super::*;
     use slot_clock::TestingSlotClock;
-    use types::Slot;
 
     #[test]
     fn backfill_processing_schedule_calculation() {

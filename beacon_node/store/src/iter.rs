@@ -381,7 +381,6 @@ fn slot_of_prev_restore_point<E: EthSpec>(current_slot: Slot) -> Slot {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::HotColdDB;
     use crate::StoreConfig as Config;
     use beacon_chain::test_utils::BeaconChainHarness;
     use beacon_chain::types::{ChainSpec, MainnetEthSpec};

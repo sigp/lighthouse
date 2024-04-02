@@ -17,10 +17,7 @@ mod tests {
     use types::{Epoch, EthSpec, ForkName, MinimalEthSpec, SubnetId};
 
     impl<T: BeaconChainTypes> NetworkService<T> {
-        fn get_topic_params(
-            &self,
-            topic: GossipTopic,
-        ) -> Option<&lighthouse_network::gossipsub::TopicScoreParams> {
+        fn get_topic_params(&self, topic: GossipTopic) -> Option<&gossipsub::TopicScoreParams> {
             self.libp2p.get_topic_params(topic)
         }
     }

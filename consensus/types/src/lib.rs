@@ -152,11 +152,25 @@ pub use crate::fork_versioned_response::{ForkVersionDeserialize, ForkVersionedRe
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
-pub use crate::light_client_bootstrap::LightClientBootstrap;
-pub use crate::light_client_finality_update::LightClientFinalityUpdate;
-pub use crate::light_client_header::LightClientHeader;
-pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
-pub use crate::light_client_update::{Error as LightClientError, LightClientUpdate};
+pub use crate::light_client_bootstrap::{
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientBootstrapCapella,
+    LightClientBootstrapDeneb,
+};
+pub use crate::light_client_finality_update::{
+    LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientFinalityUpdateCapella,
+    LightClientFinalityUpdateDeneb,
+};
+pub use crate::light_client_header::{
+    LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+};
+pub use crate::light_client_optimistic_update::{
+    LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair,
+    LightClientOptimisticUpdateCapella, LightClientOptimisticUpdateDeneb,
+};
+pub use crate::light_client_update::{
+    Error as LightClientError, LightClientUpdate, LightClientUpdateAltair,
+    LightClientUpdateCapella, LightClientUpdateDeneb,
+};
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{

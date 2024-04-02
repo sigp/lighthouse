@@ -105,3 +105,4 @@ SUBCOMMANDS:
     validator_manager    Utilities for managing a Lighthouse validator client via the HTTP API. [aliases: vm,
                          validator-manager, validator_manager]
 ```
+<style> .content main {max-width:88%;} </style>

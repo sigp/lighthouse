@@ -93,7 +93,7 @@ pub enum Response<E: EthSpec> {
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a LightClientUpdate request.
-    LightClientBootstrap(LightClientBootstrap<E>),
+    LightClientBootstrap(Arc<LightClientBootstrap<E>>),
 }
 
 impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {

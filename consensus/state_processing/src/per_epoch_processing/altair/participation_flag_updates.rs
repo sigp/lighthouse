@@ -1,6 +1,4 @@
 use crate::EpochProcessingError;
-use core::result::Result;
-use core::result::Result::Ok;
 use types::beacon_state::BeaconState;
 use types::eth_spec::EthSpec;
 use types::participation_flags::ParticipationFlags;

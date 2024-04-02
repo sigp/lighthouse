@@ -17,7 +17,6 @@
 use self::UpdatePattern::*;
 use crate::*;
 use ssz::{Decode, Encode};
-use typenum::Unsigned;
 use types::historical_summary::HistoricalSummary;
 
 /// Description of how a `BeaconState` field is updated during state processing.

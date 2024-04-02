@@ -7,7 +7,6 @@ use crate::upgrade::{
 };
 use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
-use types::DEPOSIT_TREE_DEPTH;
 use types::*;
 
 /// Initialize a `BeaconState` from genesis data.

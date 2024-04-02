@@ -10,7 +10,6 @@ use safe_arith::{ArithError, SafeArith};
 use ssz::Encode;
 use ssz_types::typenum::Unsigned;
 use std::cmp;
-use std::convert::TryInto;
 
 #[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
 pub struct SyncSelectionProof(Signature);

@@ -27,6 +27,7 @@ use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
+use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
 use strum::IntoStaticStr;
@@ -119,7 +120,7 @@ pub enum NetworkMessage<E: EthSpec> {
 pub enum ValidatorSubscriptionMessage {
     /// Subscribes a list of validators to specific slots for attestation duties.
     AttestationSubscribe {
-        subscriptions: Vec<ValidatorSubscription>,
+        subscriptions: BTreeSet<ValidatorSubscription>,
     },
     SyncCommitteeSubscribe {
         subscriptions: Vec<SyncCommitteeSubscription>,
@@ -783,7 +784,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions } => {
                 if let Err(e) = self
                     .attestation_service
-                    .validator_subscriptions(subscriptions)
+                    .validator_subscriptions(subscriptions.into_iter())
                 {
                     warn!(self.log, "Attestation validator subscription failed"; "error" => e);
                 }

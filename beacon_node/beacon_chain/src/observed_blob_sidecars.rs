@@ -111,7 +111,7 @@ mod tests {
     use super::*;
     use bls::Hash256;
     use std::sync::Arc;
-    use types::{BlobSidecar, MainnetEthSpec};
+    use types::MainnetEthSpec;
 
     type E = MainnetEthSpec;
 

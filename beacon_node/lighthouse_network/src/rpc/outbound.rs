@@ -2,11 +2,10 @@ use super::methods::*;
 use super::protocol::ProtocolId;
 use super::protocol::SupportedProtocol;
 use super::RPCError;
-use crate::rpc::protocol::Encoding;
-use crate::rpc::{
-    codec::{base::BaseOutboundCodec, ssz_snappy::SSZSnappyOutboundCodec, OutboundCodec},
-    methods::ResponseTermination,
+use crate::rpc::codec::{
+    base::BaseOutboundCodec, ssz_snappy::SSZSnappyOutboundCodec, OutboundCodec,
 };
+use crate::rpc::protocol::Encoding;
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, SinkExt};

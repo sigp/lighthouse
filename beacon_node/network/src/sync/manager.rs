@@ -57,7 +57,6 @@ use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
-use std::boxed::Box;
 use std::ops::IndexMut;
 use std::ops::Sub;
 use std::sync::Arc;
@@ -916,44 +915,28 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { .. } => {
                 crit!(self.log, "Single blob received during block request"; "peer_id" => %peer_id  );
             }
-            RequestId::SingleBlob { id } => {
-                if let Some(blob) = blob.as_ref() {
-                    debug!(self.log,
-                        "Peer returned blob for single lookup";
-                        "peer_id" => %peer_id ,
-                        "blob_id" =>?blob.id()
-                    );
-                }
-                self.block_lookups
-                    .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
-                        id,
-                        peer_id,
-                        blob,
-                        seen_timestamp,
-                        &self.network,
-                    )
-            }
+            RequestId::SingleBlob { id } => self
+                .block_lookups
+                .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
+                    id,
+                    peer_id,
+                    blob,
+                    seen_timestamp,
+                    &self.network,
+                ),
 
             RequestId::ParentLookup { id: _ } => {
                 crit!(self.log, "Single blob received during parent block request"; "peer_id" => %peer_id  );
             }
-            RequestId::ParentLookupBlob { id } => {
-                if let Some(blob) = blob.as_ref() {
-                    debug!(self.log,
-                        "Peer returned blob for parent lookup";
-                        "peer_id" => %peer_id ,
-                        "blob_id" =>?blob.id()
-                    );
-                }
-                self.block_lookups
-                    .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
-                        id,
-                        peer_id,
-                        blob,
-                        seen_timestamp,
-                        &self.network,
-                    )
-            }
+            RequestId::ParentLookupBlob { id } => self
+                .block_lookups
+                .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
+                    id,
+                    peer_id,
+                    blob,
+                    seen_timestamp,
+                    &self.network,
+                ),
             RequestId::BackFillBlocks { id: _ } => {
                 crit!(self.log, "Blob received during backfill block request"; "peer_id" => %peer_id  );
             }

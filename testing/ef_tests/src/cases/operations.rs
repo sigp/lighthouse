@@ -2,7 +2,6 @@ use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use crate::testing_spec;
 use serde::Deserialize;
 use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
@@ -19,11 +18,10 @@ use state_processing::{
     ConsensusContext,
 };
 use std::fmt::Debug;
-use std::path::Path;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyCapella,
-    BeaconBlockBodyDeneb, BeaconBlockBodyMerge, BeaconState, BlindedPayload, ChainSpec, Deposit,
-    EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
+    BeaconBlockBodyDeneb, BeaconBlockBodyMerge, BeaconState, BlindedPayload, Deposit,
+    ExecutionPayload, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
     SignedVoluntaryExit, SyncAggregate,
 };
 
