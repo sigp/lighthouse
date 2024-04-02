@@ -1,5 +1,5 @@
 use clap::{builder::ArgPredicate, Arg, ArgAction, ArgGroup, Command};
-use clap_utils::{self, get_color_style};
+use clap_utils::get_color_style;
 use strum::VariantNames;
 use types::ProgressiveBalancesMode;
 
