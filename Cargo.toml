@@ -234,7 +234,7 @@ validator_dir = { path = "common/validator_dir" }
 warp_utils = { path = "common/warp_utils" }
 
 [patch.crates-io]
-yamux = { git = "https://github.com/sigp/rust-yamux.git" }
+yamux = { git = "https://github.com/jxs/rust-yamux.git" }
 
 [profile.maxperf]
 inherits = "release"
