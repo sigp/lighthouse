@@ -398,16 +398,32 @@ impl<E: EthSpec> Discovery<E> {
     /// automatically update the external address.
     ///
     /// If the external address needs to be modified, use `update_enr_udp_socket.
-    pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
+    ///
+    /// This returns Ok(true) if the ENR was updated, otherwise Ok(false) if nothing was done.
+    pub fn update_enr_tcp_port(&mut self, port: u16, v6: bool) -> Result<bool, String> {
+        let enr_field = if v6 {
+            if self.discv5.external_enr().read().tcp6() == Some(port) {
+                // The field is already set to the same value, nothing to do
+                return Ok(false);
+            }
+            "tcp6"
+        } else {
+            if self.discv5.external_enr().read().tcp4() == Some(port) {
+                // The field is already set to the same value, nothing to do
+                return Ok(false);
+            }
+            "tcp"
+        };
+
         self.discv5
-            .enr_insert("tcp", &port)
+            .enr_insert(enr_field, &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
-        Ok(())
+        Ok(true)
     }
 
     // TODO: Group these functions here once the ENR is shared across discv5 and lighthouse and
@@ -415,16 +431,35 @@ impl<E: EthSpec> Discovery<E> {
     // This currently doesn't support ipv6. All of these functions should be removed and
     // addressed properly in the following issue.
     // https://github.com/sigp/lighthouse/issues/4706
-    pub fn update_enr_quic_port(&mut self, port: u16) -> Result<(), String> {
+    pub fn update_enr_quic_port(&mut self, port: u16, v6: bool) -> Result<bool, String> {
+        let enr_field = if v6 {
+            if self.discv5.external_enr().read().quic6() == Some(port) {
+                // The field is already set to the same value, nothing to do
+                return Ok(false);
+            }
+            "quic6"
+        } else {
+            if self.discv5.external_enr().read().quic4() == Some(port) {
+                // The field is already set to the same value, nothing to do
+                return Ok(false);
+            }
+            "quic"
+        };
+        let current_field = self.discv5.external_enr().read().quic4();
+        if current_field == Some(port) {
+            // The current field is already set, no need to update.
+            return Ok(false);
+        }
+
         self.discv5
-            .enr_insert("quic", &port)
+            .enr_insert(enr_field, &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
-        Ok(())
+        Ok(true)
     }
 
     /// Updates the local ENR UDP socket.
@@ -1057,7 +1092,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                                 return;
                             }
 
-                            self.update_enr_tcp_port(port)
+                            self.update_enr_tcp_port(port, false)
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             if !self.update_ports.quic4 {
@@ -1065,7 +1100,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                                 return;
                             }
 
-                            self.update_enr_quic_port(port)
+                            self.update_enr_quic_port(port, false)
                         }
                         _ => {
                             debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
@@ -1079,7 +1114,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                                 return;
                             }
 
-                            self.update_enr_tcp_port(port)
+                            self.update_enr_tcp_port(port, true)
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             if !self.update_ports.quic6 {
@@ -1087,7 +1122,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                                 return;
                             }
 
-                            self.update_enr_quic_port(port)
+                            self.update_enr_quic_port(port, true)
                         }
                         _ => {
                             debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
@@ -1103,9 +1138,10 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                 let local_enr: Enr = self.discv5.local_enr();
 
                 match attempt_enr_update {
-                    Ok(_) => {
+                    Ok(true) => {
                         info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(), "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6())
                     }
+                    Ok(false) => {} // Nothing to do, ENR already configured
                     Err(e) => warn!(self.log, "Failed to update ENR"; "error" => ?e),
                 }
             }
