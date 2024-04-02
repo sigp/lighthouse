@@ -4489,7 +4489,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         forkchoice_update_params: &ForkchoiceUpdateParameters,
         proposal_slot: Slot,
-    ) -> Result<Withdrawals<T::EthSpec>, Error> {
+    ) -> Result<(Withdrawals<T::EthSpec>, usize), Error> {
         let cached_head = self.canonical_head.cached_head();
         let head_state = &cached_head.snapshot.beacon_state;
 
@@ -5647,7 +5647,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "prepare_beacon_proposer_withdrawals",
                     )
                     .await?
-                    .map(Some)?
+                    .map(|(withdrawals, _)| Some(withdrawals))?
                 }
             };
 

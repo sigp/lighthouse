@@ -90,7 +90,7 @@ impl Validator {
 
     /// Get the eth1 withdrawal address if this validator has one initialized.
     pub fn get_eth1_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
-        self.has_eth1_withdrawal_credential(spec)
+        self.has_execution_withdrawal_credential(spec)
             .then(|| {
                 self.withdrawal_credentials
                     .as_bytes()
@@ -102,11 +102,7 @@ impl Validator {
 
     /// New in electra
     pub fn has_compounding_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
-        self.withdrawal_credentials
-            .as_bytes()
-            .first()
-            .map(|byte| *byte == spec.compounding_withdrawal_prefix_byte)
-            .unwrap_or(false)
+        is_compounding_withdrawal_credential(&self.withdrawal_credentials, spec)
     }
 
     // New in electra
@@ -115,13 +111,19 @@ impl Validator {
             || self.has_eth1_withdrawal_credential(spec)
     }
 
+    pub fn get_max_effective_balance(&self, spec: &ChainSpec) -> u64 {
+        if self.has_compounding_withdrawal_credential(spec) {
+            spec.max_effective_balance_eip7251
+        } else {
+            // FIXME: does this need to be made fork-aware?
+            spec.min_activation_balance
+        }
+    }
+
     /// New in electra `get_validator_excess_balance`
     pub fn get_excess_balance(&self, balance: u64, spec: &ChainSpec) -> u64 {
-        if self.has_compounding_withdrawal_credential(spec) {
-            // FIXME: check this
-            balance.saturating_sub(spec.max_effective_balance_eip7251)
-        } else if self.has_eth1_withdrawal_credential(spec) {
-            balance.saturating_sub(spec.min_activation_balance)
+        if self.has_execution_withdrawal_credential(spec) {
+            balance.saturating_sub(self.get_max_effective_balance(spec))
         } else {
             0
         }
@@ -137,6 +139,19 @@ impl Validator {
         self.withdrawal_credentials = Hash256::from(bytes);
     }
 
+    /// Changes withdrawal credentials to compounding IF AND ONLY IF the validator
+    /// currently has eth1 withdrawal credentials. Otherwise this method is a no-op.
+    pub fn set_compounding_withdrawal_credentials(&mut self, spec: &ChainSpec) {
+        if self.has_eth1_withdrawal_credential(spec) {
+            self.withdrawal_credentials
+                .as_mut()
+                .first_mut()
+                .map(|byte| {
+                    *byte = spec.compounding_withdrawal_prefix_byte;
+                });
+        }
+    }
+
     /// Returns `true` if the validator is fully withdrawable at some epoch.
     pub fn is_fully_withdrawable_at(&self, balance: u64, epoch: Epoch, spec: &ChainSpec) -> bool {
         // FIXME: more consideration here if this method needs to be made fork-aware
@@ -150,7 +165,7 @@ impl Validator {
     pub fn is_partially_withdrawable_validator(&self, balance: u64, spec: &ChainSpec) -> bool {
         // FIXME check if this needs to be made fork-aware
         // Initial check looks equivalent to pre-electra
-        self.has_execution_withdrawal_credential(spec) && self.get_excess_balance(balance, spec) > 0
+        self.get_excess_balance(balance, spec) > 0
     }
 }
 
@@ -168,6 +183,17 @@ impl Default for Validator {
             effective_balance: std::u64::MAX,
         }
     }
+}
+
+pub fn is_compounding_withdrawal_credential(
+    withdrawal_credentials: &Hash256,
+    spec: &ChainSpec,
+) -> bool {
+    withdrawal_credentials
+        .as_bytes()
+        .first()
+        .map(|byte| *byte == spec.compounding_withdrawal_prefix_byte)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

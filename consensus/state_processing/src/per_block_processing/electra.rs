@@ -23,12 +23,10 @@ pub fn compute_consolidation_epoch_and_update_churn<E: EthSpec>(
         // Consolidation fits in the current earliest consolidation epoch
         state
             .consolidation_balance_to_consume_mut()?
-            // TODO: check this - should this be saturating sub?
             .safe_sub_assign(consolidation_balance)?;
     } else {
         // Consolidation doesn't fit in the current earliest consolidation epoch
         let balance_to_process =
-            // TODO: check this - should this be saturating sub?
             consolidation_balance.safe_sub(state.consolidation_balance_to_consume()?)?;
         let additional_epochs = balance_to_process.safe_div(per_epoch_consolidation_churn)?;
         let remainder = balance_to_process.safe_rem(per_epoch_consolidation_churn)?;

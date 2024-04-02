@@ -501,11 +501,49 @@ pub fn compute_timestamp_at_slot<T: EthSpec>(
 pub fn get_expected_withdrawals<T: EthSpec>(
     state: &BeaconState<T>,
     spec: &ChainSpec,
-) -> Result<Withdrawals<T>, BlockProcessingError> {
+) -> Result<(Withdrawals<T>, usize), BlockProcessingError> {
     let epoch = state.current_epoch();
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = vec![];
+
+    let partial_withdrawals_count = match state {
+        BeaconState::Base(_) | BeaconState::Altair(_) | BeaconState::Merge(_) => {
+            return Err(BlockProcessingError::IncorrectStateType);
+        }
+        BeaconState::Capella(_) | BeaconState::Deneb(_) => 0,
+        BeaconState::Electra(_) => {
+            for withdrawal in state.pending_partial_withdrawals()? {
+                if withdrawal.withdrawable_epoch > epoch
+                    || withdrawals.len() == spec.max_partial_withdrawals_per_payload as usize
+                {
+                    break;
+                }
+                let validator = state.get_validator(withdrawal.index as usize)?;
+                let balance = *state.balances().get(withdrawal.index as usize).ok_or(
+                    BeaconStateError::BalancesOutOfBounds(withdrawal.index as usize),
+                )?;
+                if validator.exit_epoch == spec.far_future_epoch
+                    && balance > spec.min_activation_balance
+                {
+                    let withdrawable_balance = std::cmp::min(
+                        balance.safe_sub(spec.min_activation_balance)?,
+                        withdrawal.amount,
+                    );
+                    withdrawals.push(Withdrawal {
+                        index: withdrawal_index,
+                        validator_index: withdrawal.index,
+                        address: validator
+                            .get_eth1_withdrawal_address(spec)
+                            .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
+                        amount: withdrawable_balance,
+                    });
+                    withdrawal_index.safe_add_assign(1)?;
+                }
+            }
+            withdrawals.len()
+        }
+    };
 
     let bound = std::cmp::min(
         state.validators().len() as u64,
@@ -533,7 +571,7 @@ pub fn get_expected_withdrawals<T: EthSpec>(
                 address: validator
                     .get_eth1_withdrawal_address(spec)
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
-                amount: balance.safe_sub(spec.max_effective_balance)?,
+                amount: balance.safe_sub(validator.get_max_effective_balance(spec))?,
             });
             withdrawal_index.safe_add_assign(1)?;
         }
@@ -545,7 +583,7 @@ pub fn get_expected_withdrawals<T: EthSpec>(
             .safe_rem(state.validators().len() as u64)?;
     }
 
-    Ok(withdrawals.into())
+    Ok((withdrawals.into(), partial_withdrawals_count))
 }
 
 /// Apply withdrawals to the state.
@@ -557,7 +595,8 @@ pub fn process_withdrawals<T: EthSpec, Payload: AbstractExecPayload<T>>(
     match state {
         BeaconState::Merge(_) => Ok(()),
         BeaconState::Capella(_) | BeaconState::Deneb(_) | BeaconState::Electra(_) => {
-            let expected_withdrawals = get_expected_withdrawals(state, spec)?;
+            let (expected_withdrawals, partial_withdrawals_count) =
+                get_expected_withdrawals(state, spec)?;
             let expected_root = expected_withdrawals.tree_hash_root();
             let withdrawals_root = payload.withdrawals_root()?;
 
@@ -574,6 +613,14 @@ pub fn process_withdrawals<T: EthSpec, Payload: AbstractExecPayload<T>>(
                     withdrawal.validator_index as usize,
                     withdrawal.amount,
                 )?;
+            }
+
+            if let Ok(mut pending_partial_withdrawals) = state
+                .pending_partial_withdrawals_mut()
+                .map(|ppw| Vec::from(std::mem::replace(ppw, Vec::new().into())))
+            {
+                pending_partial_withdrawals.drain(0..partial_withdrawals_count);
+                *state.pending_partial_withdrawals_mut()? = pending_partial_withdrawals.into();
             }
 
             // Update the next withdrawal index if this block contained withdrawals

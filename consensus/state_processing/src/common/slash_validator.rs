@@ -49,8 +49,18 @@ pub fn slash_validator<T: EthSpec>(
     // Apply proposer and whistleblower rewards
     let proposer_index = ctxt.get_proposer_index(state, spec)? as usize;
     let whistleblower_index = opt_whistleblower_index.unwrap_or(proposer_index);
-    let whistleblower_reward =
-        validator_effective_balance.safe_div(spec.whistleblower_reward_quotient)?;
+    let whistleblower_reward = match state {
+        BeaconState::Base(_)
+        | BeaconState::Altair(_)
+        | BeaconState::Merge(_)
+        | BeaconState::Capella(_)
+        | BeaconState::Deneb(_) => {
+            validator_effective_balance.safe_div(spec.whistleblower_reward_quotient)?
+        }
+        BeaconState::Electra(_) => {
+            validator_effective_balance.safe_div(spec.whistleblower_reward_quotient_eip7251)?
+        }
+    };
     let proposer_reward = match state {
         BeaconState::Base(_) => whistleblower_reward.safe_div(spec.proposer_reward_quotient)?,
         BeaconState::Altair(_)

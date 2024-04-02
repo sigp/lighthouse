@@ -181,6 +181,8 @@ pub struct ChainSpec {
     pub min_activation_balance: u64,
     pub max_effective_balance_eip7251: u64,
     pub min_slashing_penalty_quotient_eip7251: u64,
+    pub whistleblower_reward_quotient_eip7251: u64,
+    pub max_partial_withdrawals_per_payload: u64,
     pub min_per_epoch_churn_limit_eip7251: u64,
     pub max_per_epoch_activation_exit_churn_limit: u64,
 
@@ -724,6 +726,10 @@ impl ChainSpec {
             .expect("calculation does not overflow"),
             min_slashing_penalty_quotient_eip7251: u64::checked_pow(2, 16)
                 .expect("pow does not overflow"),
+            whistleblower_reward_quotient_eip7251: u64::checked_pow(2, 12)
+                .expect("pow does not overflow"),
+            max_partial_withdrawals_per_payload: u64::checked_pow(2, 3)
+                .expect("pow does not overflow"),
             min_per_epoch_churn_limit_eip7251: option_wrapper(|| {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
             })
@@ -1015,6 +1021,10 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             min_slashing_penalty_quotient_eip7251: u64::checked_pow(2, 16)
+                .expect("pow does not overflow"),
+            whistleblower_reward_quotient_eip7251: u64::checked_pow(2, 12)
+                .expect("pow does not overflow"),
+            max_partial_withdrawals_per_payload: u64::checked_pow(2, 3)
                 .expect("pow does not overflow"),
             min_per_epoch_churn_limit_eip7251: option_wrapper(|| {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)

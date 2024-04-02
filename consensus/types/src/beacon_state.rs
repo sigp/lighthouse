@@ -1378,25 +1378,58 @@ impl<T: EthSpec> BeaconState<T> {
         ))
     }
 
-    /// Return the activation churn limit for the current epoch (number of validators who can enter per epoch).
-    ///
-    /// Uses the epoch cache, and will error if it isn't initialized.
-    ///
-    /// Spec v1.4.0
-    pub fn get_activation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
-        Ok(match self {
+    /// TODO: consider removing fork guard?
+    pub fn switch_to_compounding_validator(
+        &mut self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        match self {
             BeaconState::Base(_)
             | BeaconState::Altair(_)
             | BeaconState::Merge(_)
-            | BeaconState::Capella(_) => self.get_churn_limit(spec)?,
-            BeaconState::Deneb(_) => std::cmp::min(
-                spec.max_per_epoch_activation_churn_limit,
-                self.get_churn_limit(spec)?,
-            ),
-            // TODO: check this..
-            // EIP-7251: activation churn limit controlled by pending deposits
-            BeaconState::Electra(_) => usize::MAX as u64,
-        })
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Electra(_) => {
+                let validator = self.get_validator_mut(validator_index)?;
+                if validator.has_eth1_withdrawal_credential(spec) {
+                    validator.set_compounding_withdrawal_credentials(spec);
+                    self.queue_excess_active_balance(validator_index, spec)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// TODO: consider removing fork guard?
+    pub fn queue_excess_active_balance(
+        &mut self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Electra(_) => {
+                // FIXME: consider the impact on progressive balances cache
+                let balance = *self.get_balance_mut(validator_index)?;
+                let validator = self.get_validator(validator_index)?;
+                let excess_balance = validator.get_excess_balance(balance, spec);
+                if excess_balance > 0 {
+                    self.get_balance_mut(validator_index)?
+                        .safe_sub_assign(excess_balance)?;
+                    self.pending_balance_deposits_mut()?
+                        .push(PendingBalanceDeposit {
+                            index: validator_index as u64,
+                            amount: excess_balance,
+                        })?;
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Returns the new electra-based churn limit (EIP-7251)
@@ -1440,19 +1473,13 @@ impl<T: EthSpec> BeaconState<T> {
     /// TODO: rename and finish commenting this
     pub fn get_active_balance(&self, validator_index: u64, spec: &ChainSpec) -> Result<u64, Error> {
         let validator = self.get_validator(validator_index as usize)?;
-        let active_balance_ceil = if validator.has_eth1_withdrawal_credential(spec) {
-            spec.min_activation_balance
-        } else {
-            spec.max_effective_balance_eip7251
-        };
-
+        let max_effective_balance = validator.get_max_effective_balance(spec);
         let balance = self
             .balances()
             .get(validator_index as usize)
             .copied()
             .ok_or(Error::UnknownValidator(validator_index as usize))?;
-
-        Ok(std::cmp::min(balance, active_balance_ceil))
+        Ok(std::cmp::min(balance, max_effective_balance))
     }
 
     /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an

@@ -412,9 +412,11 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash();
     let withdrawals = match state {
-        &BeaconState::Capella(_) | &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
-            Some(get_expected_withdrawals(state, spec)?.into())
-        }
+        &BeaconState::Capella(_) | &BeaconState::Deneb(_) | &BeaconState::Electra(_) => Some(
+            get_expected_withdrawals(state, spec)
+                .map(|(withdrawals, _)| withdrawals)?
+                .into(),
+        ),
         &BeaconState::Merge(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,

@@ -11,10 +11,10 @@ pub use slashings::process_slashings;
 pub use weigh_justification_and_finalization::weigh_justification_and_finalization;
 
 pub mod altair;
-pub mod balance_deposits;
 pub mod base;
 pub mod capella;
 pub mod effective_balance_updates;
+pub mod electra;
 pub mod epoch_processing_summary;
 pub mod errors;
 pub mod historical_roots_update;
@@ -41,9 +41,8 @@ pub fn process_epoch<T: EthSpec>(
     match state {
         BeaconState::Base(_) => base::process_epoch(state, spec),
         BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_epoch(state, spec),
-        BeaconState::Capella(_) | BeaconState::Deneb(_) | BeaconState::Electra(_) => {
-            capella::process_epoch(state, spec)
-        }
+        BeaconState::Capella(_) | BeaconState::Deneb(_) => capella::process_epoch(state, spec),
+        BeaconState::Electra(_) => electra::process_epoch(state, spec),
     }
 }
 

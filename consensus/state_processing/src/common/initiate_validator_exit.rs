@@ -54,7 +54,7 @@ pub fn initiate_validator_exit<T: EthSpec>(
             validator.withdrawable_epoch = validator
                 .exit_epoch
                 .safe_add(spec.min_validator_withdrawability_delay)?;
-            // TODO: think about how the exit cache is no longer needed?
+            // TODO: consider impact on exit cache
         }
     }
 
@@ -78,7 +78,6 @@ pub fn compute_exit_epoch_and_update_churn<E: EthSpec>(
         // Exit fits in the current earliest epoch
         state
             .exit_balance_to_consume_mut()?
-            // TODO: check this - should this be saturating sub?
             .safe_sub_assign(exit_balance)?;
     } else {
         // Exit does not fit in the current earliest epoch

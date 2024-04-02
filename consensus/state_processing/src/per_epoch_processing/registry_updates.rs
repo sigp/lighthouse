@@ -49,8 +49,17 @@ pub fn process_registry_updates<T: EthSpec>(
         .map(|(index, _)| index)
         .collect_vec();
 
+    // We've just absorbed the logic of `get_validator_activation_churn_limit` here
+    let activation_churn_limit = match state {
+        BeaconState::Base(_)
+        | BeaconState::Altair(_)
+        | BeaconState::Merge(_)
+        | BeaconState::Capella(_) => state.get_churn_limit(spec)? as usize,
+        BeaconState::Deneb(_) => spec.max_per_epoch_activation_churn_limit as usize,
+        BeaconState::Electra(_) => activation_queue.len(),
+    };
+
     // Dequeue validators for activation up to churn limit
-    let activation_churn_limit = state.get_activation_churn_limit(spec)? as usize;
     let delayed_activation_epoch = state.compute_activation_exit_epoch(current_epoch, spec)?;
     for index in activation_queue.into_iter().take(activation_churn_limit) {
         state.get_validator_mut(index)?.activation_epoch = delayed_activation_epoch;

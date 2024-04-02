@@ -40,12 +40,7 @@ pub fn process_effective_balance_updates<T: EthSpec>(
                     spec.max_effective_balance,
                 ),
                 ForkName::Electra => {
-                    let effective_balance_limit =
-                        if validator.has_compounding_withdrawal_credential(spec) {
-                            spec.max_effective_balance_eip7251
-                        } else {
-                            spec.min_activation_balance
-                        };
+                    let effective_balance_limit = validator.get_max_effective_balance(spec);
                     std::cmp::min(
                         balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
                         effective_balance_limit,
