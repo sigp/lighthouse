@@ -209,6 +209,10 @@ cli:
 cli-local:
 	make && ./scripts/cli.sh
 
+# Check for markdown files
+mdlint:
+	./scripts/markdown.sh
+
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
