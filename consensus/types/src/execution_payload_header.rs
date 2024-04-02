@@ -1,7 +1,7 @@
 use crate::{test_utils::TestRandom, *};
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -104,6 +104,20 @@ impl<T: EthSpec> ExecutionPayloadHeader<T> {
                 ExecutionPayloadHeaderCapella::from_ssz_bytes(bytes).map(Self::Capella)
             }
             ForkName::Deneb => ExecutionPayloadHeaderDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
+        }
+    }
+
+    pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
+        // Matching here in case variable fields are added in future forks.
+        match fork_name {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb => {
+                // Max size of variable length `extra_data` field
+                T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
+            }
         }
     }
 }

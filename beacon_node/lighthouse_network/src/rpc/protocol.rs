@@ -19,8 +19,8 @@ use tokio_util::{
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
     BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    LightClientOptimisticUpdateAltair, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -98,6 +98,13 @@ lazy_static! {
         ])
     .as_ssz_bytes()
     .len();
+
+    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_CAPELLA_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
+    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_CAPELLA_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
+    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
+    pub static ref LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
 }
 
 /// The protocol prefix the RPC protocol id.
@@ -141,6 +148,48 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
             *SIGNED_BEACON_BLOCK_DENEB_MAX, // EIP 4844 block is larger than all prior fork blocks
         ),
+    }
+}
+
+fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientFinalityUpdateAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Merge => RpcLimits::new(altair_fixed_len, altair_fixed_len),
+        ForkName::Capella => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_CAPELLA_MAX)
+        }
+        ForkName::Deneb => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
+        }
+    }
+}
+
+fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientOptimisticUpdateAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Merge => RpcLimits::new(altair_fixed_len, altair_fixed_len),
+        ForkName::Capella => RpcLimits::new(
+            altair_fixed_len,
+            *LIGHT_CLIENT_OPTIMISTIC_UPDATE_CAPELLA_MAX,
+        ),
+        ForkName::Deneb => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX)
+        }
+    }
+}
+
+fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientBootstrap::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Merge => RpcLimits::new(altair_fixed_len, altair_fixed_len),
+        ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
+        ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
     }
 }
 
@@ -425,18 +474,15 @@ impl ProtocolId {
                 <MetaDataV1<T> as Encode>::ssz_fixed_len(),
                 <MetaDataV2<T> as Encode>::ssz_fixed_len(),
             ),
-            Protocol::LightClientBootstrap => RpcLimits::new(
-                <LightClientBootstrap<T> as Encode>::ssz_fixed_len(),
-                <LightClientBootstrap<T> as Encode>::ssz_fixed_len(),
-            ),
-            Protocol::LightClientOptimisticUpdate => RpcLimits::new(
-                <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
-                <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
-            ),
-            Protocol::LightClientFinalityUpdate => RpcLimits::new(
-                <LightClientFinalityUpdate<T> as Encode>::ssz_fixed_len(),
-                <LightClientFinalityUpdate<T> as Encode>::ssz_fixed_len(),
-            ),
+            Protocol::LightClientBootstrap => {
+                rpc_light_client_bootstrap_limits_by_fork(fork_context.current_fork())
+            }
+            Protocol::LightClientOptimisticUpdate => {
+                rpc_light_client_optimistic_update_limits_by_fork(fork_context.current_fork())
+            }
+            Protocol::LightClientFinalityUpdate => {
+                rpc_light_client_finality_update_limits_by_fork(fork_context.current_fork())
+            }
         }
     }
 

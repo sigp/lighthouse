@@ -1,4 +1,4 @@
-use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate};
+use super::{EthSpec, FixedVector, Hash256, LightClientHeader, Slot, SyncAggregate};
 use crate::ChainSpec;
 use crate::{
     light_client_update::*, test_utils::TestRandom, ForkName, ForkVersionDeserialize,
@@ -7,7 +7,7 @@ use crate::{
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::Decode;
 use ssz_derive::Encode;
 use superstruct::superstruct;
@@ -166,6 +166,16 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         };
 
         Ok(finality_update)
+    }
+
+    pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
+        match fork_name {
+            ForkName::Base => 0,
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
+                <Self as Encode>::ssz_fixed_len()
+                    + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+            }
+        }
     }
 }
 

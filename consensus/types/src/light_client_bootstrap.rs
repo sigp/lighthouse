@@ -1,4 +1,4 @@
-use super::{BeaconState, EthSpec, FixedVector, Hash256, SyncCommittee};
+use super::{BeaconState, EthSpec, FixedVector, Hash256, LightClientHeader, SyncCommittee};
 use crate::{
     light_client_update::*, test_utils::TestRandom, ChainSpec, ForkName, ForkVersionDeserialize,
     LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
@@ -7,7 +7,7 @@ use crate::{
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use superstruct::superstruct;
@@ -99,6 +99,16 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         };
 
         Ok(bootstrap)
+    }
+
+    pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
+        match fork_name {
+            ForkName::Base => 0,
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
+                <Self as Encode>::ssz_fixed_len()
+                    + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+            }
+        }
     }
 
     pub fn from_beacon_state(
