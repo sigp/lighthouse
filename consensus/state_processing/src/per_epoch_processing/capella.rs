@@ -18,10 +18,10 @@ pub use historical_summaries_update::process_historical_summaries_update;
 
 mod historical_summaries_update;
 
-pub fn process_epoch<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_epoch<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary<T>, Error> {
+) -> Result<EpochProcessingSummary<E>, Error> {
     // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;

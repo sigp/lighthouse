@@ -215,14 +215,14 @@ impl TryInto<Hash256> for AvailabilityProcessingStatus {
 }
 
 /// The result of a chain segment processing.
-pub enum ChainSegmentResult<T: EthSpec> {
+pub enum ChainSegmentResult<E: EthSpec> {
     /// Processing this chain segment finished successfully.
     Successful { imported_blocks: usize },
     /// There was an error processing this chain segment. Before the error, some blocks could
     /// have been imported.
     Failed {
         imported_blocks: usize,
-        error: BlockError<T>,
+        error: BlockError<E>,
     },
 }
 
@@ -493,9 +493,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub block_production_state: Arc<Mutex<Option<(Hash256, BlockProductionPreState<T::EthSpec>)>>>,
 }
 
-pub enum BeaconBlockResponseWrapper<T: EthSpec> {
-    Full(BeaconBlockResponse<T, FullPayload<T>>),
-    Blinded(BeaconBlockResponse<T, BlindedPayload<T>>),
+pub enum BeaconBlockResponseWrapper<E: EthSpec> {
+    Full(BeaconBlockResponse<E, FullPayload<E>>),
+    Blinded(BeaconBlockResponse<E, BlindedPayload<E>>),
 }
 
 impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
@@ -530,13 +530,13 @@ impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
 }
 
 /// The components produced when the local beacon node creates a new block to extend the chain
-pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
+pub struct BeaconBlockResponse<E: EthSpec, Payload: AbstractExecPayload<E>> {
     /// The newly produced beacon block
-    pub block: BeaconBlock<T, Payload>,
+    pub block: BeaconBlock<E, Payload>,
     /// The post-state after applying the new block
-    pub state: BeaconState<T>,
+    pub state: BeaconState<E>,
     /// The Blobs / Proofs associated with the new block
-    pub blob_items: Option<(KzgProofs<T>, BlobsList<T>)>,
+    pub blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     /// The execution layer reward for the block
     pub execution_payload_value: Uint256,
     /// The consensus layer reward to the proposer
@@ -6758,8 +6758,8 @@ impl From<BeaconStateError> for Error {
     }
 }
 
-impl<T: EthSpec> ChainSegmentResult<T> {
-    pub fn into_block_error(self) -> Result<(), BlockError<T>> {
+impl<E: EthSpec> ChainSegmentResult<E> {
+    pub fn into_block_error(self) -> Result<(), BlockError<E>> {
         match self {
             ChainSegmentResult::Failed { error, .. } => Err(error),
             ChainSegmentResult::Successful { .. } => Ok(()),

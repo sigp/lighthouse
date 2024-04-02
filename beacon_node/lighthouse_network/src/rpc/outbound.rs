@@ -22,14 +22,14 @@ use types::{EthSpec, ForkContext};
 // `OutboundUpgrade`
 
 #[derive(Debug, Clone)]
-pub struct OutboundRequestContainer<TSpec: EthSpec> {
-    pub req: OutboundRequest<TSpec>,
+pub struct OutboundRequestContainer<E: EthSpec> {
+    pub req: OutboundRequest<E>,
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum OutboundRequest<TSpec: EthSpec> {
+pub enum OutboundRequest<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
@@ -37,10 +37,10 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
     Ping(Ping),
-    MetaData(MetadataRequest<TSpec>),
+    MetaData(MetadataRequest<E>),
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
+impl<E: EthSpec> UpgradeInfo for OutboundRequestContainer<E> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
@@ -51,7 +51,7 @@ impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> OutboundRequest<TSpec> {
+impl<E: EthSpec> OutboundRequest<E> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
@@ -98,7 +98,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Goodbye(_) => 0,
             OutboundRequest::BlocksByRange(req) => *req.count(),
             OutboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
-            OutboundRequest::BlobsByRange(req) => req.max_blobs_requested::<TSpec>(),
+            OutboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             OutboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
@@ -150,14 +150,14 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
 
 /* Outbound upgrades */
 
-pub type OutboundFramed<TSocket, TSpec> = Framed<Compat<TSocket>, OutboundCodec<TSpec>>;
+pub type OutboundFramed<TSocket, E> = Framed<Compat<TSocket>, OutboundCodec<E>>;
 
-impl<TSocket, TSpec> OutboundUpgrade<TSocket> for OutboundRequestContainer<TSpec>
+impl<TSocket, E> OutboundUpgrade<TSocket> for OutboundRequestContainer<E>
 where
-    TSpec: EthSpec + Send + 'static,
+    E: EthSpec + Send + 'static,
     TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    type Output = OutboundFramed<TSocket, TSpec>;
+    type Output = OutboundFramed<TSocket, E>;
     type Error = RPCError;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
@@ -186,7 +186,7 @@ where
     }
 }
 
-impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
+impl<E: EthSpec> std::fmt::Display for OutboundRequest<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OutboundRequest::Status(status) => write!(f, "Status Message: {}", status),

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{test_utils::generate_deterministic_keypairs, EthSpec, Hash256};
 
-pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
+pub fn run<E: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let validator_count = matches
         .value_of("validator-count")
         .ok_or("validator-count not specified")?
@@ -27,14 +27,14 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
 
     let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
-    let mut spec = eth2_network_config.chain_spec::<T>()?;
+    let mut spec = eth2_network_config.chain_spec::<E>()?;
 
     if let Some(v) = parse_ssz_optional(matches, "genesis-fork-version")? {
         spec.genesis_fork_version = v;
     }
 
     let keypairs = generate_deterministic_keypairs(validator_count);
-    let genesis_state = interop_genesis_state::<T>(
+    let genesis_state = interop_genesis_state::<E>(
         &keypairs,
         genesis_time,
         Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),

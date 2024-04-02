@@ -26,12 +26,12 @@ use tree_hash_derive::TreeHash;
             Derivative,
             arbitrary::Arbitrary
         ),
-        derivative(PartialEq, Hash(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")),
+        derivative(PartialEq, Hash(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")),
         serde(
-            bound = "T: EthSpec, Payload: AbstractExecPayload<T>",
+            bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
             deny_unknown_fields
         ),
-        arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>"),
+        arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
     ),
     ref_attributes(
         derive(Debug, PartialEq, TreeHash),
@@ -43,13 +43,13 @@ use tree_hash_derive::TreeHash;
 #[derive(
     Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
 )]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
+#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
-#[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
-#[arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
+#[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
+#[arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct BeaconBlock<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
+pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
     #[superstruct(getter(copy))]
     pub slot: Slot,
     #[superstruct(getter(copy))]
@@ -60,24 +60,24 @@ pub struct BeaconBlock<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload
     #[superstruct(getter(copy))]
     pub state_root: Hash256,
     #[superstruct(only(Base), partial_getter(rename = "body_base"))]
-    pub body: BeaconBlockBodyBase<T, Payload>,
+    pub body: BeaconBlockBodyBase<E, Payload>,
     #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
-    pub body: BeaconBlockBodyAltair<T, Payload>,
+    pub body: BeaconBlockBodyAltair<E, Payload>,
     #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
-    pub body: BeaconBlockBodyMerge<T, Payload>,
+    pub body: BeaconBlockBodyMerge<E, Payload>,
     #[superstruct(only(Capella), partial_getter(rename = "body_capella"))]
-    pub body: BeaconBlockBodyCapella<T, Payload>,
+    pub body: BeaconBlockBodyCapella<E, Payload>,
     #[superstruct(only(Deneb), partial_getter(rename = "body_deneb"))]
-    pub body: BeaconBlockBodyDeneb<T, Payload>,
+    pub body: BeaconBlockBodyDeneb<E, Payload>,
     #[superstruct(only(Electra), partial_getter(rename = "body_electra"))]
-    pub body: BeaconBlockBodyElectra<T, Payload>,
+    pub body: BeaconBlockBodyElectra<E, Payload>,
 }
 
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedRoot for BeaconBlock<T, Payload> {}
-impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> SignedRoot
-    for BeaconBlockRef<'a, T, Payload>
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BeaconBlock<E, Payload> {}
+impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot
+    for BeaconBlockRef<'a, E, Payload>
 {
 }
 
@@ -87,11 +87,11 @@ pub trait EmptyBlock {
     fn empty(spec: &ChainSpec) -> Self;
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         map_fork_name!(
-            spec.fork_name_at_epoch(T::genesis_epoch()),
+            spec.fork_name_at_epoch(E::genesis_epoch()),
             Self,
             EmptyBlock::empty(spec)
         )
@@ -108,7 +108,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
             })?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
+        let fork_at_slot = spec.fork_name_at_slot::<E>(slot);
         Self::from_ssz_bytes_for_fork(bytes, fork_at_slot)
     }
 
@@ -136,18 +136,18 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
-    pub fn body(&self) -> BeaconBlockBodyRef<'_, T, Payload> {
+    pub fn body(&self) -> BeaconBlockBodyRef<'_, E, Payload> {
         self.to_ref().body()
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRefMut`.
-    pub fn body_mut(&mut self) -> BeaconBlockBodyRefMut<'_, T, Payload> {
+    pub fn body_mut(&mut self) -> BeaconBlockBodyRefMut<'_, E, Payload> {
         self.to_mut().body_mut()
     }
 
     /// Returns the epoch corresponding to `self.slot()`.
     pub fn epoch(&self) -> Epoch {
-        self.slot().epoch(T::slots_per_epoch())
+        self.slot().epoch(E::slots_per_epoch())
     }
 
     /// Returns the `tree_hash_root` of the block.
@@ -182,7 +182,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> SignedBeaconBlock<T, Payload> {
+    ) -> SignedBeaconBlock<E, Payload> {
         let domain = spec.get_domain(
             self.epoch(),
             Domain::BeaconProposer,
@@ -195,13 +195,13 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
     }
 }
 
-impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
+impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payload> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
-        let fork_at_slot = spec.fork_name_at_slot::<T>(self.slot());
+        let fork_at_slot = spec.fork_name_at_slot::<E>(self.slot());
         let object_fork = self.fork_name_unchecked();
 
         if fork_at_slot == object_fork {
@@ -229,7 +229,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRef<'a, T, Payl
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
-    pub fn body(&self) -> BeaconBlockBodyRef<'a, T, Payload> {
+    pub fn body(&self) -> BeaconBlockBodyRef<'a, E, Payload> {
         map_beacon_block_ref_into_beacon_block_body_ref!(&'a _, *self, |block, cons| cons(
             &block.body
         ))
@@ -245,7 +245,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRef<'a, T, Payl
 
     /// Returns the epoch corresponding to `self.slot()`.
     pub fn epoch(&self) -> Epoch {
-        self.slot().epoch(T::slots_per_epoch())
+        self.slot().epoch(E::slots_per_epoch())
     }
 
     /// Returns a full `BeaconBlockHeader` of this block.
@@ -274,16 +274,16 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRef<'a, T, Payl
     }
 }
 
-impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRefMut<'a, T, Payload> {
+impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRefMut<'a, E, Payload> {
     /// Convert a mutable reference to a beacon block to a mutable ref to its body.
-    pub fn body_mut(self) -> BeaconBlockBodyRefMut<'a, T, Payload> {
+    pub fn body_mut(self) -> BeaconBlockBodyRefMut<'a, E, Payload> {
         map_beacon_block_ref_mut_into_beacon_block_body_ref_mut!(&'a _, self, |block, cons| cons(
             &mut block.body
         ))
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockBase<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBase<E, Payload> {
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockBase {
             slot: spec.genesis_slot,
@@ -309,7 +309,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockBase
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
     /// Return a block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let header = BeaconBlockHeader {
@@ -324,10 +324,10 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
             message: header,
             signature: Signature::empty(),
         };
-        let indexed_attestation: IndexedAttestation<T> = IndexedAttestation {
+        let indexed_attestation: IndexedAttestation<E> = IndexedAttestation {
             attesting_indices: VariableList::new(vec![
                 0_u64;
-                T::MaxValidatorsPerCommittee::to_usize()
+                E::MaxValidatorsPerCommittee::to_usize()
             ])
             .unwrap(),
             data: AttestationData::default(),
@@ -350,8 +350,8 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
             attestation_2: indexed_attestation,
         };
 
-        let attestation: Attestation<T> = Attestation {
-            aggregation_bits: BitList::with_capacity(T::MaxValidatorsPerCommittee::to_usize())
+        let attestation: Attestation<E> = Attestation {
+            aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerCommittee::to_usize())
                 .unwrap(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
@@ -372,25 +372,25 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
             signature: Signature::empty(),
         };
 
-        let mut block = BeaconBlockBase::<T, Payload>::empty(spec);
-        for _ in 0..T::MaxProposerSlashings::to_usize() {
+        let mut block = BeaconBlockBase::<E, Payload>::empty(spec);
+        for _ in 0..E::MaxProposerSlashings::to_usize() {
             block
                 .body
                 .proposer_slashings
                 .push(proposer_slashing.clone())
                 .unwrap();
         }
-        for _ in 0..T::MaxDeposits::to_usize() {
+        for _ in 0..E::MaxDeposits::to_usize() {
             block.body.deposits.push(deposit.clone()).unwrap();
         }
-        for _ in 0..T::MaxVoluntaryExits::to_usize() {
+        for _ in 0..E::MaxVoluntaryExits::to_usize() {
             block
                 .body
                 .voluntary_exits
                 .push(signed_voluntary_exit.clone())
                 .unwrap();
         }
-        for _ in 0..T::MaxAttesterSlashings::to_usize() {
+        for _ in 0..E::MaxAttesterSlashings::to_usize() {
             block
                 .body
                 .attester_slashings
@@ -398,14 +398,14 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
                 .unwrap();
         }
 
-        for _ in 0..T::MaxAttestations::to_usize() {
+        for _ in 0..E::MaxAttestations::to_usize() {
             block.body.attestations.push(attestation.clone()).unwrap();
         }
         block
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockAltair<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockAltair<E, Payload> {
     /// Returns an empty Altair block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockAltair {
@@ -433,7 +433,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockAlta
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockAltair<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> {
     /// Return an Altair block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
@@ -466,7 +466,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockAltair<T, Payload> 
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockMerge<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockMerge<E, Payload> {
     /// Returns an empty Merge block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockMerge {
@@ -494,7 +494,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockMerg
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockCapella<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockCapella<E, Payload> {
     /// Return a Capella block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
@@ -507,7 +507,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockCapella<T, Payload>
                 },
                 signature: Signature::empty()
             };
-            T::max_bls_to_execution_changes()
+            E::max_bls_to_execution_changes()
         ]
         .into();
         let sync_aggregate = SyncAggregate {
@@ -540,7 +540,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockCapella<T, Payload>
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockCapella<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockCapella<E, Payload> {
     /// Returns an empty Capella block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockCapella {
@@ -569,7 +569,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockCape
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockDeneb<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockDeneb<E, Payload> {
     /// Returns an empty Deneb block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockDeneb {
@@ -599,7 +599,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockDene
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockElectra<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload> {
     /// Return a Electra block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
@@ -612,7 +612,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockElectra<T, Payload>
                 },
                 signature: Signature::empty()
             };
-            T::max_bls_to_execution_changes()
+            E::max_bls_to_execution_changes()
         ]
         .into();
         let sync_aggregate = SyncAggregate {
@@ -646,7 +646,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockElectra<T, Payload>
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockElectra<T, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElectra<E, Payload> {
     /// Returns an empty Electra block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockElectra {
@@ -819,8 +819,8 @@ impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
-    for BeaconBlock<T, Payload>
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
+    for BeaconBlock<E, Payload>
 {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
         value: serde_json::value::Value,

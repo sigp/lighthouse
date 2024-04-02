@@ -3,8 +3,8 @@ use safe_arith::SafeArith;
 use types::*;
 
 /// Returns the base reward for some validator.
-pub fn get_base_reward<T: EthSpec>(
-    state: &BeaconState<T>,
+pub fn get_base_reward<E: EthSpec>(
+    state: &BeaconState<E>,
     index: usize,
     // Should be == get_total_active_balance(state, spec)
     total_active_balance: u64,
@@ -18,7 +18,7 @@ pub fn get_base_reward<T: EthSpec>(
         .map_err(Into::into)
 }
 
-pub fn get_base_reward_from_effective_balance<T: EthSpec>(
+pub fn get_base_reward_from_effective_balance<E: EthSpec>(
     effective_balance: u64,
     total_active_balance: u64,
     spec: &ChainSpec,

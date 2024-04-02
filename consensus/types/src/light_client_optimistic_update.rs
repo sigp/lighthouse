@@ -140,7 +140,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
@@ -151,7 +151,7 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
                 fork_name
             ))),
             _ => Ok(
-                serde_json::from_value::<LightClientOptimisticUpdate<T>>(value)
+                serde_json::from_value::<LightClientOptimisticUpdate<E>>(value)
                     .map_err(serde::de::Error::custom),
             )?,
         }

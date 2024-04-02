@@ -230,8 +230,8 @@ pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
-pub type Blob<T> = FixedVector<u8, <T as EthSpec>::BytesPerBlob>;
-pub type KzgProofs<T> = VariableList<KzgProof, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type Blob<E> = FixedVector<u8, <E as EthSpec>::BytesPerBlob>;
+pub type KzgProofs<E> = VariableList<KzgProof, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 pub type VersionedHash = Hash256;
 pub type Hash64 = ethereum_types::H64;
 

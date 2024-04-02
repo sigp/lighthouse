@@ -229,22 +229,22 @@ pub struct ChainSpec {
 
 impl ChainSpec {
     /// Construct a `ChainSpec` from a standard config.
-    pub fn from_config<T: EthSpec>(config: &Config) -> Option<Self> {
-        let spec = T::default_spec();
-        config.apply_to_chain_spec::<T>(&spec)
+    pub fn from_config<E: EthSpec>(config: &Config) -> Option<Self> {
+        let spec = E::default_spec();
+        config.apply_to_chain_spec::<E>(&spec)
     }
 
     /// Returns an `EnrForkId` for the given `slot`.
-    pub fn enr_fork_id<T: EthSpec>(
+    pub fn enr_fork_id<E: EthSpec>(
         &self,
         slot: Slot,
         genesis_validators_root: Hash256,
     ) -> EnrForkId {
         EnrForkId {
-            fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
-            next_fork_version: self.next_fork_version::<T>(slot),
+            fork_digest: self.fork_digest::<E>(slot, genesis_validators_root),
+            next_fork_version: self.next_fork_version::<E>(slot),
             next_fork_epoch: self
-                .next_fork_epoch::<T>(slot)
+                .next_fork_epoch::<E>(slot)
                 .map(|(_, e)| e)
                 .unwrap_or(self.far_future_epoch),
         }
@@ -254,8 +254,8 @@ impl ChainSpec {
     ///
     /// If `self.altair_fork_epoch == None`, then this function returns the genesis fork digest
     /// otherwise, returns the fork digest based on the slot.
-    pub fn fork_digest<T: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
-        let fork_name = self.fork_name_at_slot::<T>(slot);
+    pub fn fork_digest<E: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
+        let fork_name = self.fork_name_at_slot::<E>(slot);
         Self::compute_fork_digest(
             self.fork_version_for_name(fork_name),
             genesis_validators_root,
@@ -275,8 +275,8 @@ impl ChainSpec {
     /// Returns the epoch of the next scheduled fork along with its corresponding `ForkName`.
     ///
     /// If no future forks are scheduled, this function returns `None`.
-    pub fn next_fork_epoch<T: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
-        let current_fork_name = self.fork_name_at_slot::<T>(slot);
+    pub fn next_fork_epoch<E: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
+        let current_fork_name = self.fork_name_at_slot::<E>(slot);
         let next_fork_name = current_fork_name.next_fork()?;
         let fork_epoch = self.fork_epoch(next_fork_name)?;
         Some((next_fork_name, fork_epoch))
@@ -332,7 +332,7 @@ impl ChainSpec {
     }
 
     /// For a given `BeaconState`, return the inactivity penalty quotient associated with its variant.
-    pub fn inactivity_penalty_quotient_for_state<T: EthSpec>(&self, state: &BeaconState<T>) -> u64 {
+    pub fn inactivity_penalty_quotient_for_state<E: EthSpec>(&self, state: &BeaconState<E>) -> u64 {
         match state {
             BeaconState::Base(_) => self.inactivity_penalty_quotient,
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
@@ -344,9 +344,9 @@ impl ChainSpec {
     }
 
     /// For a given `BeaconState`, return the proportional slashing multiplier associated with its variant.
-    pub fn proportional_slashing_multiplier_for_state<T: EthSpec>(
+    pub fn proportional_slashing_multiplier_for_state<E: EthSpec>(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
     ) -> u64 {
         match state {
             BeaconState::Base(_) => self.proportional_slashing_multiplier,
@@ -359,9 +359,9 @@ impl ChainSpec {
     }
 
     /// For a given `BeaconState`, return the minimum slashing penalty quotient associated with its variant.
-    pub fn min_slashing_penalty_quotient_for_state<T: EthSpec>(
+    pub fn min_slashing_penalty_quotient_for_state<E: EthSpec>(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
     ) -> u64 {
         match state {
             BeaconState::Base(_) => self.min_slashing_penalty_quotient,
@@ -1410,10 +1410,10 @@ impl Config {
         }
     }
 
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             config_name: spec.config_name.clone(),
-            preset_base: T::spec_name().to_string(),
+            preset_base: E::spec_name().to_string(),
 
             terminal_total_difficulty: spec.terminal_total_difficulty,
             terminal_block_hash: spec.terminal_block_hash,
@@ -1498,7 +1498,7 @@ impl Config {
             .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))
     }
 
-    pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
+    pub fn apply_to_chain_spec<E: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
         // Pattern match here to avoid missing any fields.
         let &Config {
             ref config_name,
@@ -1557,7 +1557,7 @@ impl Config {
             blob_sidecar_subnet_count,
         } = self;
 
-        if preset_base != T::spec_name().to_string().as_str() {
+        if preset_base != E::spec_name().to_string().as_str() {
             return None;
         }
 
