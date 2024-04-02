@@ -1437,6 +1437,9 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
 
         // If the block was enshrined as head too late for attestations to be created for it,
         // log a debug warning and increment a metric.
+        let format_delay = |delay: &Option<Duration>| {
+            delay.map_or("unknown".to_string(), |d| format!("{}", d.as_millis()))
+        };
         if late_head {
             metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
             debug!(
@@ -1445,10 +1448,26 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 "block_root" => ?head_block_root,
                 "proposer_index" => head_block_proposer_index,
                 "slot" => head_block_slot,
-                "block_delay" => ?block_delay_total,
-                "observed_delay" => ?block_delays.observed,
-                "imported_delay" => ?block_delays.imported,
-                "set_as_head_delay" => ?block_delays.set_as_head,
+                "block_delay_ms" => block_delay_total.as_millis(),
+                "observed_delay_ms" => format_delay(&block_delays.observed),
+                "available_delay_ms" => format_delay(&block_delays.available),
+                "attestable_delay_ms" => format_delay(&block_delays.attestable),
+                "imported_delay_ms" => format_delay(&block_delays.imported),
+                "set_as_head_delay_ms" => format_delay(&block_delays.set_as_head),
+            );
+        } else {
+            debug!(
+                log,
+                "On-time head block";
+                "block_root" => ?head_block_root,
+                "proposer_index" => head_block_proposer_index,
+                "slot" => head_block_slot,
+                "block_delay_ms" => block_delay_total.as_millis(),
+                "observed_delay_ms" => format_delay(&block_delays.observed),
+                "available_delay_ms" => format_delay(&block_delays.available),
+                "attestable_delay_ms" => format_delay(&block_delays.attestable),
+                "imported_delay_ms" => format_delay(&block_delays.imported),
+                "set_as_head_delay_ms" => format_delay(&block_delays.set_as_head),
             );
         }
     }

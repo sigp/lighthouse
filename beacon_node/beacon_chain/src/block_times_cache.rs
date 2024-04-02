@@ -18,6 +18,8 @@ type BlockRoot = Hash256;
 #[derive(Clone, Default)]
 pub struct Timestamps {
     pub observed: Option<Duration>,
+    pub available: Option<Duration>,
+    pub attestable: Option<Duration>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
 }
@@ -25,8 +27,18 @@ pub struct Timestamps {
 // Helps arrange delay data so it is more relevant to metrics.
 #[derive(Debug, Default)]
 pub struct BlockDelays {
+    /// Time after start of slot.
     pub observed: Option<Duration>,
+    /// Time after `observable`.
+    pub available: Option<Duration>,
+    /// Time after `available`.
+    pub attestable: Option<Duration>,
+    /// ALSO time after `available`.
+    ///
+    /// We need to use `available` again rather than `attestable` to handle the case where the block
+    /// does not get added to the early-attester cache.
     pub imported: Option<Duration>,
+    /// Time after `imported`.
     pub set_as_head: Option<Duration>,
 }
 
@@ -35,14 +47,22 @@ impl BlockDelays {
         let observed = times
             .observed
             .and_then(|observed_time| observed_time.checked_sub(slot_start_time));
+        let available = times
+            .available
+            .and_then(|available_time| available_time.checked_sub(times.observed?));
+        let attestable = times
+            .attestable
+            .and_then(|attestable_time| attestable_time.checked_sub(times.available?));
         let imported = times
             .imported
-            .and_then(|imported_time| imported_time.checked_sub(times.observed?));
+            .and_then(|imported_time| imported_time.checked_sub(times.available?));
         let set_as_head = times
             .set_as_head
             .and_then(|set_as_head_time| set_as_head_time.checked_sub(times.imported?));
         BlockDelays {
             observed,
+            available,
+            attestable,
             imported,
             set_as_head,
         }
@@ -106,6 +126,34 @@ impl BlockTimesCache {
                     client: peer_client,
                 };
             }
+        }
+    }
+
+    pub fn set_time_available(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
+        let block_times = self
+            .cache
+            .entry(block_root)
+            .or_insert_with(|| BlockTimesCacheValue::new(slot));
+        if block_times
+            .timestamps
+            .available
+            .map_or(true, |prev| timestamp < prev)
+        {
+            block_times.timestamps.available = Some(timestamp);
+        }
+    }
+
+    pub fn set_time_attestable(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
+        let block_times = self
+            .cache
+            .entry(block_root)
+            .or_insert_with(|| BlockTimesCacheValue::new(slot));
+        if block_times
+            .timestamps
+            .attestable
+            .map_or(true, |prev| timestamp < prev)
+        {
+            block_times.timestamps.attestable = Some(timestamp);
         }
     }
 

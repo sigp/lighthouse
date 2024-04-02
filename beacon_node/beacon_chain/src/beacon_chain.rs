@@ -2955,7 +2955,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Wraps `process_block` in logic to cache the block's commitments in the processing cache
-    /// and evict if the block was imported or erred.
+    /// and evict if the block was imported or errored.
     pub async fn process_block_with_early_caching<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         block_root: Hash256,
@@ -2998,21 +2998,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Increment the Prometheus counter for block processing requests.
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
 
+        let block_slot = unverified_block.block().slot();
+
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
-        if let (Some(seen_timestamp), Some(current_slot)) =
-            (self.slot_clock.now_duration(), self.slot_clock.now())
-        {
+        if let Some(seen_timestamp) = self.slot_clock.now_duration() {
             self.block_times_cache.write().set_time_observed(
                 block_root,
-                current_slot,
+                block_slot,
                 seen_timestamp,
                 None,
                 None,
             );
         }
-
-        let block_slot = unverified_block.block().slot();
 
         // A small closure to group the verification and import errors.
         let chain = self.clone();
@@ -3090,8 +3088,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Accepts a fully-verified block and awaits on it's payload verification handle to
-    /// get a fully `ExecutedBlock`
+    /// Accepts a fully-verified block and awaits on its payload verification handle to
+    /// get a fully `ExecutedBlock`.
     ///
     /// An error is returned if the verification handle couldn't be awaited.
     pub async fn into_executed_block(
@@ -3256,6 +3254,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             consensus_context,
         } = import_data;
 
+        // Record the time at which this block became available.
+        self.block_times_cache.write().set_time_available(
+            block_root,
+            block.slot(),
+            block.available_timestamp(),
+        );
+
         // import
         let chain = self.clone();
         let block_root = self
@@ -3398,6 +3403,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 "Early attester cache insert failed";
                                 "error" => ?e
                             );
+                        } else {
+                            let attestable_timestamp =
+                                self.slot_clock.now_duration().unwrap_or_default();
+                            self.block_times_cache.write().set_time_attestable(
+                                block_root,
+                                signed_block.slot(),
+                                attestable_timestamp,
+                            )
                         }
                     } else {
                         warn!(

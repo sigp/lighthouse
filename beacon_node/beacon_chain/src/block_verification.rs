@@ -666,8 +666,7 @@ type PayloadVerificationHandle<E> =
 /// - Parent is known
 /// - Signatures
 /// - State root check
-/// - Per block processing
-/// - Blobs sidecar has been validated if present
+/// - Block processing
 ///
 /// Note: a `ExecutionPendingBlock` is not _forever_ valid to be imported, it may later become invalid
 /// due to finality or some other event. A `ExecutionPendingBlock` should be imported into the

@@ -19,6 +19,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::Duration;
 use task_executor::TaskExecutor;
 use types::beacon_block_body::KzgCommitmentOpts;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
@@ -213,7 +214,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map_err(AvailabilityCheckError::Kzg)?;
 
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs)
+            .put_kzg_verified_blobs(block_root, verified_blobs, &self.slot_clock)
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -225,8 +226,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
+        self.availability_cache.put_kzg_verified_blobs(
+            gossip_blob.block_root(),
+            vec![gossip_blob.into_inner()],
+            &self.slot_clock,
+        )
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -236,7 +240,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
-            .put_pending_executed_block(executed_block)
+            .put_pending_executed_block(executed_block, &self.slot_clock)
     }
 
     /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
@@ -254,10 +258,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 if self.blobs_required_for_block(&block) {
                     Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
                 } else {
+                    let available_timestamp = self
+                        .slot_clock
+                        .now_duration()
+                        .ok_or(AvailabilityCheckError::SlotClockError)?;
                     Ok(MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
                         blobs: None,
+                        available_timestamp,
                     }))
                 }
             }
@@ -273,10 +282,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 } else {
                     None
                 };
+                let available_timestamp = self
+                    .slot_clock
+                    .now_duration()
+                    .ok_or(AvailabilityCheckError::SlotClockError)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
                     blobs: verified_blobs,
+                    available_timestamp,
                 }))
             }
         }
@@ -318,10 +332,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     if self.blobs_required_for_block(&block) {
                         results.push(MaybeAvailableBlock::AvailabilityPending { block_root, block })
                     } else {
+                        let available_timestamp = self
+                            .slot_clock
+                            .now_duration()
+                            .ok_or(AvailabilityCheckError::SlotClockError)?;
                         results.push(MaybeAvailableBlock::Available(AvailableBlock {
                             block_root,
                             block,
                             blobs: None,
+                            available_timestamp,
                         }))
                     }
                 }
@@ -332,10 +351,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         None
                     };
                     // already verified kzg for all blobs
+                    let available_timestamp = self
+                        .slot_clock
+                        .now_duration()
+                        .ok_or(AvailabilityCheckError::SlotClockError)?;
                     results.push(MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
                         blobs: verified_blobs,
+                        available_timestamp,
                     }))
                 }
             }
@@ -543,6 +567,8 @@ pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
+    /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
+    available_timestamp: Duration,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
@@ -555,6 +581,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             block_root,
             block,
             blobs,
+            available_timestamp: Duration::from_millis(0),
         }
     }
 
@@ -569,6 +596,10 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs.as_ref()
     }
 
+    pub fn available_timestamp(&self) -> Duration {
+        self.available_timestamp
+    }
+
     pub fn deconstruct(
         self,
     ) -> (
@@ -580,6 +611,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             block_root,
             block,
             blobs,
+            available_timestamp: _,
         } = self;
         (block_root, block, blobs)
     }
