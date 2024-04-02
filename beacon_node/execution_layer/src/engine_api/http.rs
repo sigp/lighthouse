@@ -740,6 +740,14 @@ impl HttpJsonRpc {
                 )
                 .await?,
             ),
+            ForkName::Electra => ExecutionBlockWithTransactions::Electra(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
             ForkName::Base | ForkName::Altair => {
                 return Err(Error::UnsupportedForkVariant(format!(
                     "called get_block_by_hash_with_txns with fork {:?}",
@@ -783,7 +791,7 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v3<T: EthSpec>(
+    pub async fn new_payload_v3_deneb<T: EthSpec>(
         &self,
         new_payload_request_deneb: NewPayloadRequestDeneb<'_, T>,
     ) -> Result<PayloadStatusV1, Error> {
@@ -791,6 +799,27 @@ impl HttpJsonRpc {
             JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
             new_payload_request_deneb.versioned_hashes,
             new_payload_request_deneb.parent_beacon_block_root,
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V3,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn new_payload_v3_electra<T: EthSpec>(
+        &self,
+        new_payload_request_electra: NewPayloadRequestElectra<'_, T>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::V4(new_payload_request_electra.execution_payload.clone().into()),
+            new_payload_request_electra.versioned_hashes,
+            new_payload_request_electra.parent_beacon_block_root,
         ]);
 
         let response: JsonPayloadStatusV1 = self
@@ -855,7 +884,7 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Base | ForkName::Altair | ForkName::Deneb => Err(
+            ForkName::Base | ForkName::Altair | ForkName::Deneb | ForkName::Electra => Err(
                 Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
             ),
         }
@@ -878,6 +907,16 @@ impl HttpJsonRpc {
                     )
                     .await?;
                 Ok(JsonGetPayloadResponse::V3(response).into())
+            }
+            ForkName::Electra => {
+                let response: JsonGetPayloadResponseV4<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V3,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V4(response).into())
             }
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => Err(
                 Error::UnsupportedForkVariant(format!("called get_payload_v3 with {}", fork_name)),
@@ -1069,7 +1108,15 @@ impl HttpJsonRpc {
             }
             NewPayloadRequest::Deneb(new_payload_request_deneb) => {
                 if engine_capabilities.new_payload_v3 {
-                    self.new_payload_v3(new_payload_request_deneb).await
+                    self.new_payload_v3_deneb(new_payload_request_deneb).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV3"))
+                }
+            }
+            NewPayloadRequest::Electra(new_payload_request_electra) => {
+                if engine_capabilities.new_payload_v3 {
+                    self.new_payload_v3_electra(new_payload_request_electra)
+                        .await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV3"))
                 }
@@ -1095,7 +1142,7 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayload"))
                 }
             }
-            ForkName::Deneb => {
+            ForkName::Deneb | ForkName::Electra => {
                 if engine_capabilities.get_payload_v3 {
                     self.get_payload_v3(fork_name, payload_id).await
                 } else {
@@ -1775,7 +1822,7 @@ mod test {
                         "extraData":"0x",
                         "baseFeePerGas":"0x7",
                         "blockHash":"0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c",
-                        "transactions":[]
+                        "transactions":[],
                     }
                 })],
                 |client| async move {
@@ -1799,7 +1846,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
-                        transactions: vec![].into(),
+                            transactions: vec![].into(),
                         });
 
                     assert_eq!(payload, expected);
@@ -1846,7 +1893,7 @@ mod test {
                         "extraData":"0x",
                         "baseFeePerGas":"0x7",
                         "blockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
-                        "transactions":[]
+                        "transactions":[],
                     }],
                 })
             )

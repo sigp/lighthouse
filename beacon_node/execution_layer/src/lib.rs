@@ -51,7 +51,8 @@ use types::{
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadCapella,
-    ExecutionPayloadMerge, FullPayload, ProposerPreparationData, PublicKeyBytes, Signature, Slot,
+    ExecutionPayloadElectra, ExecutionPayloadMerge, FullPayload, ProposerPreparationData,
+    PublicKeyBytes, Signature, Slot,
 };
 
 mod block_hash;
@@ -107,6 +108,12 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
             },
             BuilderBid::Deneb(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Deneb(builder_bid.header).into(),
+                block_value: builder_bid.value,
+                kzg_commitments: builder_bid.blob_kzg_commitments,
+                blobs_and_proofs: None,
+            },
+            BuilderBid::Electra(builder_bid) => BlockProposalContents::PayloadAndBlobs {
+                payload: ExecutionPayloadHeader::Electra(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
@@ -1771,6 +1778,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 ForkName::Merge => ExecutionPayloadMerge::default().into(),
                 ForkName::Capella => ExecutionPayloadCapella::default().into(),
                 ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
+                ForkName::Electra => ExecutionPayloadElectra::default().into(),
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);
                 }
@@ -1839,6 +1847,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
                 ForkName::Deneb => Ok(Some(ExecutionPayloadDeneb::default().into())),
+                ForkName::Electra => Ok(Some(ExecutionPayloadElectra::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
                     format!("called get_payload_by_hash_from_engine with {}", fork),
                 )),
@@ -1936,6 +1945,35 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     withdrawals,
                     blob_gas_used: deneb_block.blob_gas_used,
                     excess_blob_gas: deneb_block.excess_blob_gas,
+                })
+            }
+            ExecutionBlockWithTransactions::Electra(electra_block) => {
+                let withdrawals = VariableList::new(
+                    electra_block
+                        .withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeWithdrawals)?;
+                ExecutionPayload::Electra(ExecutionPayloadElectra {
+                    parent_hash: electra_block.parent_hash,
+                    fee_recipient: electra_block.fee_recipient,
+                    state_root: electra_block.state_root,
+                    receipts_root: electra_block.receipts_root,
+                    logs_bloom: electra_block.logs_bloom,
+                    prev_randao: electra_block.prev_randao,
+                    block_number: electra_block.block_number,
+                    gas_limit: electra_block.gas_limit,
+                    gas_used: electra_block.gas_used,
+                    timestamp: electra_block.timestamp,
+                    extra_data: electra_block.extra_data,
+                    base_fee_per_gas: electra_block.base_fee_per_gas,
+                    block_hash: electra_block.block_hash,
+                    transactions: convert_transactions(electra_block.transactions)?,
+                    withdrawals,
+                    blob_gas_used: electra_block.blob_gas_used,
+                    excess_blob_gas: electra_block.excess_blob_gas,
                 })
             }
         };

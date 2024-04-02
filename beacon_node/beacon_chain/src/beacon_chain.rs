@@ -4923,7 +4923,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Deneb(_) => {
+            BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => {
                 let prepare_payload_handle = get_execution_payload(
                     self.clone(),
                     &state,
@@ -5284,6 +5287,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     execution_payload_value,
                 )
             }
+            BeaconState::Electra(_) => {
+                let (payload, kzg_commitments, maybe_blobs_and_proofs, execution_payload_value) =
+                    block_contents
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
+                        .deconstruct();
+
+                (
+                    BeaconBlock::Electra(BeaconBlockElectra {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root: Hash256::zero(),
+                        body: BeaconBlockBodyElectra {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings: proposer_slashings.into(),
+                            attester_slashings: attester_slashings.into(),
+                            attestations: attestations.into(),
+                            deposits: deposits.into(),
+                            voluntary_exits: voluntary_exits.into(),
+                            sync_aggregate: sync_aggregate
+                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                            execution_payload: payload
+                                .try_into()
+                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            blob_kzg_commitments: kzg_commitments
+                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                        },
+                    }),
+                    maybe_blobs_and_proofs,
+                    execution_payload_value,
+                )
+            }
         };
 
         let block = SignedBeaconBlock::from_block(
@@ -5607,7 +5645,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
             let withdrawals = match prepare_slot_fork {
                 ForkName::Base | ForkName::Altair | ForkName::Merge => None,
-                ForkName::Capella | ForkName::Deneb => {
+                ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                     let chain = self.clone();
                     self.spawn_blocking_handle(
                         move || {
@@ -5622,7 +5660,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let parent_beacon_block_root = match prepare_slot_fork {
                 ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => None,
-                ForkName::Deneb => Some(pre_payload_attributes.parent_beacon_block_root),
+                ForkName::Deneb | ForkName::Electra => {
+                    Some(pre_payload_attributes.parent_beacon_block_root)
+                }
             };
 
             let payload_attributes = PayloadAttributes::new(
@@ -6662,7 +6702,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Error::InconsistentFork)?;
 
         match fork_name {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
+            ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
                 LightClientBootstrap::from_beacon_state(&mut state, &block, &self.spec)
                     .map(|bootstrap| Some((bootstrap, fork_name)))
                     .map_err(Error::LightClientError)
