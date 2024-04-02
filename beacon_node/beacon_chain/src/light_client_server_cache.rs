@@ -7,8 +7,8 @@ use std::num::NonZeroUsize;
 use types::light_client_update::{FinalizedRootProofLen, FINALIZED_ROOT_INDEX};
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, Slot, SyncAggregate,
+    BeaconBlock, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, Slot, SyncAggregate,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
@@ -32,6 +32,8 @@ pub struct LightClientServerCache<T: BeaconChainTypes> {
     latest_optimistic_update: RwLock<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
     /// Caches state proofs by block root
     prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData>>,
+    /// Caches `LightClientUpdate`'s by slot
+    light_client_updates_cache: Mutex<lru::LruCache<u64, LightClientUpdate<T::EthSpec>>>,
 }
 
 impl<T: BeaconChainTypes> LightClientServerCache<T> {
@@ -40,6 +42,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             latest_finality_update: None.into(),
             latest_optimistic_update: None.into(),
             prev_block_cache: lru::LruCache::new(PREV_BLOCK_CACHE_SIZE).into(),
+            // TODO(lightclient-network)
+            light_client_updates_cache: lru::LruCache::new(new_non_zero_usize(128)).into(),
         }
     }
 
@@ -73,7 +77,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         &self,
         store: BeaconStore<T>,
         block_parent_root: &Hash256,
-        block_slot: Slot,
+        block: BeaconBlock<T::EthSpec>,
         sync_aggregate: &SyncAggregate<T::EthSpec>,
         log: &Logger,
         chain_spec: &ChainSpec,
@@ -81,7 +85,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let _timer =
             metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES);
 
-        let signature_slot = block_slot;
+        let signature_slot = block.slot();
         let attested_block_root = block_parent_root;
 
         let attested_block =
@@ -140,6 +144,32 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                     signature_slot,
                     chain_spec,
                 )?);
+
+                let beacon_state = store
+                    .get_state(&block.state_root(), Some(block.slot()))?
+                    .ok_or(BeaconChainError::DBInconsistent(format!(
+                        "Beacon state not available {:?}",
+                        attested_block.state_root()
+                    )))?;
+
+                let mut attested_state = store
+                    .get_state(&attested_block.state_root(), Some(attested_block.slot()))?
+                    .ok_or(BeaconChainError::DBInconsistent(format!(
+                        "Attested state not available {:?}",
+                        attested_block.state_root()
+                    )))?;
+
+                self.light_client_updates_cache.lock().put(
+                    block.slot().into(),
+                    LightClientUpdate::new(
+                        beacon_state,
+                        block,
+                        &mut attested_state,
+                        &attested_block,
+                        &finalized_block,
+                        chain_spec,
+                    )?,
+                );
             } else {
                 debug!(
                     log,
@@ -190,6 +220,25 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
     pub fn get_latest_optimistic_update(&self) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
         self.latest_optimistic_update.read().clone()
+    }
+
+    pub fn get_light_client_updates(
+        &self,
+        sync_committee_period: u64,
+        count: u64,
+    ) -> Vec<LightClientUpdate<T::EthSpec>> {
+        let epoch = Epoch::new(sync_committee_period);
+        let end_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let start_slot = end_slot - count;
+        let mut light_client_updates = vec![];
+        let mut mutex = self.light_client_updates_cache.lock();
+        for slot in start_slot.as_u64()..=end_slot.as_u64() {
+            if let Some(light_client_update) = mutex.get(&slot) {
+                light_client_updates.push(light_client_update.clone());
+            }
+        }
+
+        light_client_updates
     }
 }
 
