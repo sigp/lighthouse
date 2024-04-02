@@ -426,7 +426,7 @@ jobs:
     - name: Run Makefile to trigger the bash script
       run: make cli
   markdown-linter:
-    name: Markdown Linter
+    name: Markdown-linter
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
