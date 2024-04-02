@@ -168,6 +168,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         Ok(finality_update)
     }
 
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
         match fork_name {
             ForkName::Base => 0,
