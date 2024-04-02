@@ -6,4 +6,6 @@
 docker run -v ./book:/workdir ghcr.io/igorshubovych/markdownlint-cli:latest '**/*.md' --ignore node_modules
 
 # exit code
-echo $?
+exit_code=$(echo $?)
+
+exit $exit_code
