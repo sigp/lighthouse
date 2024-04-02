@@ -7,7 +7,7 @@ use std::num::NonZeroUsize;
 use types::light_client_update::{FinalizedRootProofLen, FINALIZED_ROOT_INDEX};
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconBlock, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
+    BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, Slot, SyncAggregate,
 };
 
@@ -15,6 +15,8 @@ use types::{
 /// prev block cache are very small 32 * (6 + 1) = 224 bytes. 32 is an arbitrary number that
 /// represents unlikely re-orgs, while keeping the cache very small.
 const PREV_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(32);
+
+pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: NonZeroUsize = new_non_zero_usize(128);
 
 /// This cache computes light client messages ahead of time, required to satisfy p2p and API
 /// requests. These messages include proofs on historical states, so on-demand computation is
@@ -42,8 +44,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             latest_finality_update: None.into(),
             latest_optimistic_update: None.into(),
             prev_block_cache: lru::LruCache::new(PREV_BLOCK_CACHE_SIZE).into(),
-            // TODO(lightclient-network)
-            light_client_updates_cache: lru::LruCache::new(new_non_zero_usize(128)).into(),
+            light_client_updates_cache: lru::LruCache::new(MAX_REQUEST_LIGHT_CLIENT_UPDATES).into(),
         }
     }
 
@@ -76,14 +77,22 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     pub fn recompute_and_cache_updates(
         &self,
         store: BeaconStore<T>,
+        block_root: &Hash256,
         block_parent_root: &Hash256,
-        block: BeaconBlock<T::EthSpec>,
         sync_aggregate: &SyncAggregate<T::EthSpec>,
         log: &Logger,
         chain_spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
         let _timer =
             metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES);
+
+        let (block, _) = store
+            .get_full_block(&block_root)?
+            .ok_or(BeaconChainError::DBInconsistent(format!(
+                "Block not available {:?}",
+                block_root
+            )))?
+            .deconstruct();
 
         let signature_slot = block.slot();
         let attested_block_root = block_parent_root;

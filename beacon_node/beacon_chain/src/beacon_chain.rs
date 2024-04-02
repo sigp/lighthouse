@@ -339,7 +339,7 @@ struct PartialBeaconBlock<E: EthSpec> {
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
-pub type LightClientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
+pub type LightClientProducerEvent<T> = (Hash256, Hash256, Slot, SyncAggregate<T>);
 
 pub type BeaconForkChoice<T> = ForkChoice<
     BeaconForkChoiceStore<
@@ -1344,28 +1344,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn recompute_and_cache_light_client_updates(
         &self,
-        (parent_root, slot, sync_aggregate): LightClientProducerEvent<T::EthSpec>,
+        (block_root, parent_root, slot, sync_aggregate): LightClientProducerEvent<T::EthSpec>,
     ) -> Result<(), Error> {
-        let block_root = self
-            .block_root_at_slot(slot, WhenSlotSkipped::Prev)?
-            .ok_or(BeaconChainError::DBInconsistent(format!(
-                "Block root not available {:?}",
-                slot
-            )))?;
-
-        let (block, _) = self
-            .store
-            .get_full_block(&block_root)?
-            .ok_or(BeaconChainError::DBInconsistent(format!(
-                "Block not available {:?}",
-                slot
-            )))?
-            .deconstruct();
-
         self.light_client_server_cache.recompute_and_cache_updates(
             self.store.clone(),
+            &block_root,
             &parent_root,
-            block,
             &sync_aggregate,
             &self.log,
             &self.spec,
@@ -3962,6 +3946,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if let Some(mut light_client_server_tx) = self.light_client_server_tx.clone() {
                 if let Ok(sync_aggregate) = block.body().sync_aggregate() {
                     if let Err(e) = light_client_server_tx.try_send((
+                        block.body_root(),
                         block.parent_root(),
                         block.slot(),
                         sync_aggregate.clone(),

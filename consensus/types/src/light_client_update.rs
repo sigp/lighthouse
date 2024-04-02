@@ -22,6 +22,7 @@ pub const FINALIZED_ROOT_INDEX: usize = 105;
 pub const CURRENT_SYNC_COMMITTEE_INDEX: usize = 54;
 pub const NEXT_SYNC_COMMITTEE_INDEX: usize = 55;
 pub const EXECUTION_PAYLOAD_INDEX: usize = 25;
+pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: NonZeroUsize = new_non_zero_usize(128);
 
 pub type FinalizedRootProofLen = U6;
 pub type CurrentSyncCommitteeProofLen = U5;
