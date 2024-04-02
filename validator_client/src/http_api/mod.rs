@@ -46,14 +46,12 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::reply::Reply;
+use warp::reply::Response;
 use warp::{
-    http::{
-        header::{HeaderValue, CONTENT_TYPE},
-    },
+    http::header::{HeaderValue, CONTENT_TYPE},
     sse::Event,
     Filter,
 };
-use warp::reply::Response;
 #[derive(Debug)]
 pub enum Error {
     Warp(warp::Error),
@@ -1320,13 +1318,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 /// This function should *always* be used to convert rejections into responses. This prevents warp
 /// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
 
-pub async fn convert_rejection(e: warp::Rejection , signature : String) -> Response {
-    let mut resp = warp_utils::reject::handle_rejection(e).await.into_response(); // It's infallible 
+pub async fn convert_rejection(e: warp::Rejection, signature: String) -> Response {
+    let mut resp = warp_utils::reject::handle_rejection(e)
+        .await
+        .into_response(); // It's infallible
     let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
     resp.headers_mut().append("Signature", header_value);
     resp
 }
-
 
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
 /// JSON-encodes the return value of `func`, using the `signer` function to produce a signature of
@@ -1343,29 +1342,31 @@ where
                 Ok(body) => {
                     let signature = signer(&body);
                     let mut response = Response::new(body.into());
-                    response.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-                    let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
+                    response
+                        .headers_mut()
+                        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                    let header_value =
+                        HeaderValue::from_str(&signature).expect("hash can be encoded as header");
                     response.headers_mut().append("Signature", header_value);
                     response
                 }
                 Err(_) => {
-                    let data = "error producing response from blocking task" ;
-                    let body= warp::reply::json(&data); // This does not implement the trait serialize    
+                    let data = "error producing response from blocking task";
+                    let body = warp::reply::json(&data); // This does not implement the trait serialize
                     let byte_slice: &[u8] = data.as_bytes();
-                    let mut rejection = warp::reply::with_status( 
-                        body, 
-                        eth2::StatusCode::INTERNAL_SERVER_ERROR, 
-                    ).into_response();
+                    let mut rejection =
+                        warp::reply::with_status(body, eth2::StatusCode::INTERNAL_SERVER_ERROR)
+                            .into_response();
                     let signature = signer(byte_slice);
-                    let header_value = HeaderValue::from_str(&signature).expect("hash can be encoded as header");
+                    let header_value =
+                        HeaderValue::from_str(&signature).expect("hash can be encoded as header");
                     rejection.headers_mut().append("Signature", header_value);
                     rejection
-                }   
-
+                }
             }
         }
         Err(rejection) => {
-            let data = "error in blocking task" ;
+            let data = "error in blocking task";
             let byte_slice: &[u8] = data.as_bytes();
             let signature = signer(byte_slice);
             convert_rejection(rejection, signature).await
