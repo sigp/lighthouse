@@ -458,7 +458,11 @@ fn test_parent_lookup_happy_path() {
     rig.expect_empty_network();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx);
+    bl.parent_block_processed(
+        chain_hash,
+        BlockError::BlockIsAlreadyKnown(block_root).into(),
+        &mut cx,
+    );
     rig.expect_parent_chain_process();
     let process_result = BatchProcessResult::Success {
         was_non_empty: true,
@@ -1117,7 +1121,11 @@ fn test_same_chain_race_condition() {
         // the processing result
         if i + 2 == depth {
             // one block was removed
-            bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx)
+            bl.parent_block_processed(
+                chain_hash,
+                BlockError::BlockIsAlreadyKnown(block.canonical_root()).into(),
+                &mut cx,
+            )
         } else {
             bl.parent_block_processed(
                 chain_hash,
@@ -1795,6 +1803,7 @@ mod deneb_only {
             .expect_blobs_request()
             .expect_no_block_request();
     }
+
     #[test]
     fn too_few_blobs_response_then_block_response_attestation() {
         let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {

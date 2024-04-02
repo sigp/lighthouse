@@ -35,18 +35,18 @@ pub enum Error {
     TestRandom,
     Derivative,
 )]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct Attestation<T: EthSpec> {
-    pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
+#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct Attestation<E: EthSpec> {
+    pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
 }
 
-impl<T: EthSpec> Attestation<T> {
+impl<E: EthSpec> Attestation<E> {
     /// Are the aggregation bitfields of these attestations disjoint?
     pub fn signers_disjoint_from(&self, other: &Self) -> bool {
         self.aggregation_bits
@@ -113,7 +113,7 @@ impl<T: EthSpec> Attestation<T> {
     }
 }
 
-impl<T: EthSpec> SlotData for Attestation<T> {
+impl<E: EthSpec> SlotData for Attestation<E> {
     fn get_slot(&self) -> Slot {
         self.data.slot
     }

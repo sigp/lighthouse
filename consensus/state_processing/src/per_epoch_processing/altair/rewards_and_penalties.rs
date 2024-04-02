@@ -15,12 +15,12 @@ use crate::per_epoch_processing::{Delta, Error};
 /// Apply attester and proposer rewards.
 ///
 /// Spec v1.1.0
-pub fn process_rewards_and_penalties<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_rewards_and_penalties<E: EthSpec>(
+    state: &mut BeaconState<E>,
     participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch() == T::genesis_epoch() {
+    if state.current_epoch() == E::genesis_epoch() {
         return Ok(());
     }
 
@@ -54,9 +54,9 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 /// Return the deltas for a given flag index by scanning through the participation flags.
 ///
 /// Spec v1.1.0
-pub fn get_flag_index_deltas<T: EthSpec>(
+pub fn get_flag_index_deltas<E: EthSpec>(
     deltas: &mut [Delta],
-    state: &BeaconState<T>,
+    state: &BeaconState<E>,
     flag_index: usize,
     total_active_balance: u64,
     participation_cache: &ParticipationCache,
@@ -104,9 +104,9 @@ pub fn get_flag_weight(flag_index: usize) -> Result<u64, Error> {
         .ok_or(Error::InvalidFlagIndex(flag_index))
 }
 
-pub fn get_inactivity_penalty_deltas<T: EthSpec>(
+pub fn get_inactivity_penalty_deltas<E: EthSpec>(
     deltas: &mut [Delta],
-    state: &BeaconState<T>,
+    state: &BeaconState<E>,
     participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {

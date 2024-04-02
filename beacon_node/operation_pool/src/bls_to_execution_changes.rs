@@ -20,17 +20,17 @@ pub enum ReceivedPreCapella {
 /// Using the LIFO queue for block production disincentivises spam on P2P at the Capella fork,
 /// and is less-relevant after that.
 #[derive(Debug, Default)]
-pub struct BlsToExecutionChanges<T: EthSpec> {
+pub struct BlsToExecutionChanges<E: EthSpec> {
     /// Map from validator index to BLS to execution change.
-    by_validator_index: HashMap<u64, Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>>,
+    by_validator_index: HashMap<u64, Arc<SigVerifiedOp<SignedBlsToExecutionChange, E>>>,
     /// Last-in-first-out (LIFO) queue of verified messages.
-    queue: Vec<Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>>,
+    queue: Vec<Arc<SigVerifiedOp<SignedBlsToExecutionChange, E>>>,
     /// Contains a set of validator indices which need to have their changes
     /// broadcast at the capella epoch.
     received_pre_capella_indices: HashSet<u64>,
 }
 
-impl<T: EthSpec> BlsToExecutionChanges<T> {
+impl<E: EthSpec> BlsToExecutionChanges<E> {
     pub fn existing_change_equals(
         &self,
         address_change: &SignedBlsToExecutionChange,
@@ -42,7 +42,7 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
 
     pub fn insert(
         &mut self,
-        verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
+        verified_change: SigVerifiedOp<SignedBlsToExecutionChange, E>,
         received_pre_capella: ReceivedPreCapella,
     ) -> bool {
         let validator_index = verified_change.as_inner().message.validator_index;
@@ -64,14 +64,14 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
     /// FIFO ordering, used for persistence to disk.
     pub fn iter_fifo(
         &self,
-    ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> {
+    ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, E>>> {
         self.queue.iter()
     }
 
     /// LIFO ordering, used for block packing.
     pub fn iter_lifo(
         &self,
-    ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> {
+    ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, E>>> {
         self.queue.iter().rev()
     }
 
@@ -80,7 +80,7 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
     /// the caller.
     pub fn iter_received_pre_capella(
         &self,
-    ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> {
+    ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, E>>> {
         self.queue.iter().filter(|address_change| {
             self.received_pre_capella_indices
                 .contains(&address_change.as_inner().message.validator_index)
@@ -99,10 +99,10 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
     /// address changes during re-orgs. This is isn't *perfect* so some address changes could
     /// still get stuck if there are gnarly re-orgs and the changes can't be widely republished
     /// due to the gossip duplicate rules.
-    pub fn prune<Payload: AbstractExecPayload<T>>(
+    pub fn prune<Payload: AbstractExecPayload<E>>(
         &mut self,
-        head_block: &SignedBeaconBlock<T, Payload>,
-        head_state: &BeaconState<T>,
+        head_block: &SignedBeaconBlock<E, Payload>,
+        head_state: &BeaconState<E>,
         spec: &ChainSpec,
     ) {
         let mut validator_indices_pruned = vec![];
