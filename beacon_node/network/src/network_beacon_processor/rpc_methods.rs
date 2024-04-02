@@ -304,7 +304,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match self.chain.get_light_client_bootstrap(&block_root) {
             Ok(Some((bootstrap, _))) => self.send_response(
                 peer_id,
-                Response::LightClientBootstrap(bootstrap),
+                Response::LightClientBootstrap(Arc::new(bootstrap)),
                 request_id,
             ),
             Ok(None) => self.send_error_response(

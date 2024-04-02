@@ -1717,7 +1717,7 @@ impl ApiTester {
         };
 
         let expected = block.slot();
-        assert_eq!(result.header.beacon.slot, expected);
+        assert_eq!(result.get_slot(), expected);
 
         self
     }

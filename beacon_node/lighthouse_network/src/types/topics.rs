@@ -1,4 +1,4 @@
-use crate::gossipsub::{IdentTopic as Topic, TopicHash};
+use gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 use types::{ChainSpec, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned};

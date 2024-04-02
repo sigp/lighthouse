@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::EthSpec;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -31,7 +31,7 @@ pub enum LookupVerifyError {
     RootMismatch,
     NoBlockReturned,
     ExtraBlocksReturned,
-    UnrequestedBlobId,
+    UnrequestedBlobId(BlobIdentifier),
     ExtraBlobsReturned,
     NotEnoughBlobsReturned,
     InvalidIndex(u64),
@@ -257,7 +257,9 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// of which blobs still need to be requested. Returns `true` if there are no more blobs to
     /// request.
     pub(crate) fn blobs_already_downloaded(&mut self) -> bool {
-        self.update_blobs_request();
+        if matches!(self.blob_request_state.state.state, State::AwaitingDownload) {
+            self.update_blobs_request();
+        }
         self.blob_request_state.requested_ids.is_empty()
     }
 

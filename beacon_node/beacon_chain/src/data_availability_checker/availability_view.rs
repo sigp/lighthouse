@@ -108,11 +108,10 @@ pub trait AvailabilityView<E: EthSpec> {
     /// 1. The blob entry at the index is empty and no block exists, or
     /// 2. The block exists and its commitment matches the blob's commitment.
     fn merge_single_blob(&mut self, index: usize, blob: Self::BlobType) {
-        let commitment = *blob.get_commitment();
         if let Some(cached_block) = self.get_cached_block() {
             let block_commitment_opt = cached_block.get_commitments().get(index).copied();
             if let Some(block_commitment) = block_commitment_opt {
-                if block_commitment == commitment {
+                if block_commitment == *blob.get_commitment() {
                     self.insert_blob_at_index(index, blob)
                 }
             }

@@ -380,7 +380,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
                 let received_id = blob.id();
                 if !self.requested_ids.contains(&received_id) {
                     self.state.register_failure_downloading();
-                    Err(LookupVerifyError::UnrequestedBlobId)
+                    Err(LookupVerifyError::UnrequestedBlobId(received_id))
                 } else {
                     // State should remain downloading until we receive the stream terminator.
                     self.requested_ids.remove(&received_id);
