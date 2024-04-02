@@ -1313,11 +1313,10 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     Ok((listening_socket, server))
 }
 
-// Convert a warp `Rejection` into a `Response`.
+/// Convert a warp `Rejection` into a `Response`.
 ///
 /// This function should *always* be used to convert rejections into responses. This prevents warp
 /// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
-
 pub async fn convert_rejection(e: warp::Rejection, signature: String) -> Response {
     let mut resp = warp_utils::reject::handle_rejection(e)
         .await
