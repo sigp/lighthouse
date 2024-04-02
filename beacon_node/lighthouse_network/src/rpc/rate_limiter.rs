@@ -99,6 +99,12 @@ pub struct RPCRateLimiter {
     blbroot_rl: Limiter<PeerId>,
     /// LightClientBootstrap rate limiter.
     lcbootstrap_rl: Limiter<PeerId>,
+    /// LightClientFinalityUpdate rate limiter.
+    lcfinality_rl: Limiter<PeerId>,
+    /// LightClientOptimisticUpdate rate limiter.
+    lcoptimistic_rl: Limiter<PeerId>,
+    /// LightClientUpdatesByRange rate limiter.
+    lcrange_rl: Limiter<PeerId>,
 }
 
 /// Error type for non conformant requests
@@ -131,6 +137,12 @@ pub struct RPCRateLimiterBuilder {
     blbroot_quota: Option<Quota>,
     /// Quota for the LightClientBootstrap protocol.
     lcbootstrap_quota: Option<Quota>,
+    /// Quota for the LightClientFinalityUpdate protocol.
+    lcfinality_quota: Option<Quota>,
+    /// Quota for the LightClientOptimisticUpdate protocol.
+    lcoptimistic_quota: Option<Quota>,
+    /// Quota for the LightClientUpdatesByRange protocol.
+    lcrange_quota: Option<Quota>,
 }
 
 impl RPCRateLimiterBuilder {
@@ -147,6 +159,9 @@ impl RPCRateLimiterBuilder {
             Protocol::BlobsByRange => self.blbrange_quota = q,
             Protocol::BlobsByRoot => self.blbroot_quota = q,
             Protocol::LightClientBootstrap => self.lcbootstrap_quota = q,
+            Protocol::LightClientFinalityUpdate => self.lcfinality_quota = q,
+            Protocol::LightClientOptimisticUpdate => self.lcoptimistic_quota = q,
+            Protocol::LightClientUpdatesByRange => self.lcrange_quota = q,
         }
         self
     }
@@ -166,11 +181,18 @@ impl RPCRateLimiterBuilder {
         let lcbootstrap_quote = self
             .lcbootstrap_quota
             .ok_or("LightClientBootstrap quota not specified")?;
-
+        let lcfinality_quota = self
+            .lcfinality_quota
+            .ok_or("LightClientFinality quota not specified")?;
+        let lcoptimistic_quota = self
+            .lcoptimistic_quota
+            .ok_or("LightClientOptimistic quota not specified")?;
+        let lcrange_quota = self
+            .lcrange_quota
+            .ok_or("LightClientUpdateByRange quota not specified")?;
         let blbrange_quota = self
             .blbrange_quota
-            .ok_or("BlobsByRange quota not specified")?;
-
+            .ok_or("LightClientFinality quota not specified")?;
         let blbroots_quota = self
             .blbroot_quota
             .ok_or("BlobsByRoot quota not specified")?;
@@ -185,6 +207,9 @@ impl RPCRateLimiterBuilder {
         let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
         let blbroot_rl = Limiter::from_quota(blbroots_quota)?;
         let lcbootstrap_rl = Limiter::from_quota(lcbootstrap_quote)?;
+        let lcfinality_rl = Limiter::from_quota(lcfinality_quota)?;
+        let lcoptimistic_rl = Limiter::from_quota(lcoptimistic_quota)?;
+        let lcrange_rl = Limiter::from_quota(lcrange_quota)?;
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
         let prune_every = tokio::time::Duration::from_secs(30);
@@ -201,6 +226,9 @@ impl RPCRateLimiterBuilder {
             blbrange_rl,
             blbroot_rl,
             lcbootstrap_rl,
+            lcfinality_rl,
+            lcoptimistic_rl,
+            lcrange_rl,
             init_time: Instant::now(),
         })
     }
@@ -283,6 +311,9 @@ impl RPCRateLimiter {
             Protocol::BlobsByRange => &mut self.blbrange_rl,
             Protocol::BlobsByRoot => &mut self.blbroot_rl,
             Protocol::LightClientBootstrap => &mut self.lcbootstrap_rl,
+            Protocol::LightClientFinalityUpdate => &mut self.lcfinality_rl,
+            Protocol::LightClientOptimisticUpdate => &mut self.lcoptimistic_rl,
+            Protocol::LightClientUpdatesByRange => &mut self.lcrange_rl,
         };
         check(limiter)
     }

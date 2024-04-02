@@ -220,6 +220,19 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.network_beacon_processor
                     .send_light_client_bootstrap_request(peer_id, request_id, request),
             ),
+            Request::LightClientFinalityUpdate() => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_light_client_finality_update_request(peer_id, request_id),
+            ),
+            Request::LightClientOptimisticUpdate() => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_light_client_optimistic_update_request(peer_id, request_id),
+            ),
+            Request::LightClientUpdatesByRange(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_light_client_updates_by_range_request(peer_id, request_id, request),
+                ),
         }
     }
 
@@ -250,7 +263,11 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::BlobsByRoot(blob) => {
                 self.on_blobs_by_root_response(peer_id, request_id, blob);
             }
+            // TODO(lighthouse-network)
             Response::LightClientBootstrap(_) => unreachable!(),
+            Response::LightClientFinalityUpdate(_) => unreachable!(),
+            Response::LightClientOptimisticUpdate(_) => unreachable!(),
+            Response::LightClientUpdatesByRange(_) => unreachable!(),
         }
     }
 

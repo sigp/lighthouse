@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
-use types::{BlobSidecar, EthSpec, LightClientBootstrap, SignedBeaconBlock};
+use types::{
+    BlobSidecar, EthSpec, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
+};
 
 use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use crate::rpc::{
@@ -12,6 +15,8 @@ use crate::rpc::{
     },
     OutboundRequest, SubstreamId,
 };
+
+use super::methods::LightClientUpdatesByRangeRequest;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
@@ -40,6 +45,12 @@ pub enum Request {
     BlocksByRoot(BlocksByRootRequest),
     // light client bootstrap request
     LightClientBootstrap(LightClientBootstrapRequest),
+    // light client finality update request
+    LightClientFinalityUpdate(),
+    // light client optimistic update request
+    LightClientOptimisticUpdate(),
+    // light client updates by range request
+    LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
     /// A request blobs root request.
     BlobsByRoot(BlobsByRootRequest),
 }
@@ -65,6 +76,18 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                 ),
             },
             Request::LightClientBootstrap(_) => {
+                unreachable!("Lighthouse never makes an outbound light client request")
+            }
+            Request::LightClientFinalityUpdate() => {
+                // TODO(lightclient-network)
+                unreachable!("Lighthouse never makes an outbound light client request")
+            }
+            Request::LightClientOptimisticUpdate() => {
+                // TODO(lightclient-network)
+                unreachable!("Lighthouse never makes an outbound light client request")
+            }
+            Request::LightClientUpdatesByRange(_) => {
+                // TODO(lightclient-network)
                 unreachable!("Lighthouse never makes an outbound light client request")
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
@@ -94,6 +117,12 @@ pub enum Response<TSpec: EthSpec> {
     BlobsByRoot(Option<Arc<BlobSidecar<TSpec>>>),
     /// A response to a LightClientUpdate request.
     LightClientBootstrap(Arc<LightClientBootstrap<TSpec>>),
+    /// A response to a LightClientFinalityUpdate request.
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<TSpec>>),
+    /// A response to a LightClientOptimisticUpdate request.
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<TSpec>>),
+    /// A response to a LightClientUpdatesByRange request.
+    LightClientUpdatesByRange(Arc<LightClientUpdate<TSpec>>),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
@@ -118,6 +147,15 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
             Response::LightClientBootstrap(b) => {
                 RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
+            }
+            Response::LightClientFinalityUpdate(b) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(b))
+            }
+            Response::LightClientOptimisticUpdate(b) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientOptimisticUpdate(b))
+            }
+            Response::LightClientUpdatesByRange(b) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientUpdatesByRange(b))
             }
         }
     }

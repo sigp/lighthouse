@@ -13,7 +13,9 @@ use beacon_processor::{
     WorkEvent as BeaconWorkEvent,
 };
 use environment::null_logger;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, LightClientUpdatesByRangeRequest,
+};
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -602,6 +604,54 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::LightClientBootstrapRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `LightClientFinalityUpdateRequest`s from the RPC network.
+    pub fn send_light_client_finality_update_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || processor.handle_light_client_finality_update(peer_id, request_id);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::LightClientFinalityUpdateRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `LightClientOptimisticUpdateRequest`s from the RPC network.
+    pub fn send_light_client_optimistic_update_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_light_client_optimistic_update(peer_id, request_id);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::LightClientOptimisticUpdateRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `LightClientOptimisticUpdateRequest`s from the RPC network.
+    pub fn send_light_client_updates_by_range_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientUpdatesByRangeRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_light_client_updates_by_range(peer_id, request_id, request);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::LightClientUpdatesByRangeRequest(Box::new(process_fn)),
         })
     }
 

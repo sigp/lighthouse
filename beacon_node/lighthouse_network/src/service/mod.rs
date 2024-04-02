@@ -1170,6 +1170,18 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::LightClientBootstrap(_) => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["light_client_bootstrap"])
             }
+            Request::LightClientFinalityUpdate() => metrics::inc_counter_vec(
+                &metrics::TOTAL_RPC_REQUESTS,
+                &["light_client_finality_update"],
+            ),
+            Request::LightClientOptimisticUpdate() => metrics::inc_counter_vec(
+                &metrics::TOTAL_RPC_REQUESTS,
+                &["light_client_optimistic_update"],
+            ),
+            Request::LightClientUpdatesByRange(_) => metrics::inc_counter_vec(
+                &metrics::TOTAL_RPC_REQUESTS,
+                &["light_client_updates_by_range"],
+            ),
             Request::BlocksByRange { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
             }
@@ -1548,6 +1560,22 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::LightClientBootstrap(bootstrap) => {
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
                     }
+                    RPCResponse::LightClientFinalityUpdate(finality_update) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::LightClientFinalityUpdate(finality_update),
+                    ),
+                    RPCResponse::LightClientOptimisticUpdate(optimistic_update) => self
+                        .build_response(
+                            id,
+                            peer_id,
+                            Response::LightClientOptimisticUpdate(optimistic_update),
+                        ),
+                    RPCResponse::LightClientUpdatesByRange(update) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::LightClientUpdatesByRange(update),
+                    ),
                 }
             }
             HandlerEvent::Ok(RPCReceived::EndOfStream(id, termination)) => {

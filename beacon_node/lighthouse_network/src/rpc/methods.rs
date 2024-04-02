@@ -17,6 +17,7 @@ use types::{
     blob_sidecar::BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, LightClientBootstrap,
     RuntimeVariableList, SignedBeaconBlock, Slot,
 };
+use types::{LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate};
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
@@ -390,6 +391,15 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(Arc<LightClientBootstrap<T>>),
 
+    /// A response to a get LIGHT_CLIENT_FINALITY_UPDATE request.
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<T>>),
+
+    /// A response to a get LIGHT_CLIENT_OPTIMISTIC_UPDATE request.
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<T>>),
+
+    /// A response to a get LIGHT_CLIENT_UPDATES_BY_RANGE request.
+    LightClientUpdatesByRange(Arc<LightClientUpdate<T>>),
+
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<T>>),
 
@@ -433,6 +443,13 @@ pub enum RPCCodedResponse<T: EthSpec> {
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct LightClientBootstrapRequest {
     pub root: Hash256,
+}
+
+/// Request a light_client_updates_by_range for light_clients peers.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct LightClientUpdatesByRangeRequest {
+    pub start_period: u64,
+    pub count: u64,
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
@@ -488,6 +505,9 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
                 RPCResponse::LightClientBootstrap(_) => false,
+                RPCResponse::LightClientFinalityUpdate(_) => false,
+                RPCResponse::LightClientOptimisticUpdate(_) => false,
+                RPCResponse::LightClientUpdatesByRange(_) => true,
             },
             RPCCodedResponse::Error(_, _) => true,
             // Stream terminations are part of responses that have chunks
@@ -526,6 +546,9 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            RPCResponse::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
+            RPCResponse::LightClientOptimisticUpdate(_) => Protocol::LightClientOptimisticUpdate,
+            RPCResponse::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
         }
     }
 }
@@ -570,6 +593,27 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
             RPCResponse::LightClientBootstrap(bootstrap) => {
                 write!(f, "LightClientBootstrap Slot: {}", bootstrap.get_slot())
+            }
+            RPCResponse::LightClientFinalityUpdate(finality_update) => {
+                write!(
+                    f,
+                    "LightClientFinalityUpdate: Signature slot {}",
+                    finality_update.signature_slot()
+                )
+            }
+            RPCResponse::LightClientOptimisticUpdate(optimistic_update) => {
+                write!(
+                    f,
+                    "LightClientOptimisticUpdate: Signature slot {}",
+                    optimistic_update.signature_slot()
+                )
+            }
+            RPCResponse::LightClientUpdatesByRange(light_client_update) => {
+                write!(
+                    f,
+                    "LightClientOptimisticUpdate: Signature slot {}",
+                    light_client_update.signature_slot()
+                )
             }
         }
     }

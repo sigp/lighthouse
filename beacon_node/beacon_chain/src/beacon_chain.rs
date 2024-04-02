@@ -1346,14 +1346,52 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         (parent_root, slot, sync_aggregate): LightClientProducerEvent<T::EthSpec>,
     ) -> Result<(), Error> {
+        let block_root = self
+            .block_root_at_slot(slot, WhenSlotSkipped::Prev)?
+            .ok_or(BeaconChainError::DBInconsistent(format!(
+                "Block root not available {:?}",
+                slot
+            )))?;
+
+        let (block, _) = self
+            .store
+            .get_full_block(&block_root)?
+            .ok_or(BeaconChainError::DBInconsistent(format!(
+                "Block not available {:?}",
+                slot
+            )))?
+            .deconstruct();
+
         self.light_client_server_cache.recompute_and_cache_updates(
             self.store.clone(),
             &parent_root,
-            slot,
+            block,
             &sync_aggregate,
             &self.log,
             &self.spec,
         )
+    }
+
+    pub fn get_latest_light_client_finality_update(
+        &self,
+    ) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
+        self.light_client_server_cache.get_latest_finality_update()
+    }
+
+    pub fn get_latest_light_client_optimistic_update(
+        &self,
+    ) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
+        self.light_client_server_cache
+            .get_latest_optimistic_update()
+    }
+
+    pub fn get_light_client_updates(
+        &self,
+        sync_committee_period: u64,
+        count: u64,
+    ) -> Vec<LightClientUpdate<T::EthSpec>> {
+        self.light_client_server_cache
+            .get_light_client_updates(sync_committee_period, count)
     }
 
     /// Returns the current heads of the `BeaconChain`. For the canonical head, see `Self::head`.

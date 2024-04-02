@@ -18,7 +18,8 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
+    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, MainnetEthSpec, Signature,
     SignedBeaconBlock,
 };
 
@@ -171,6 +172,15 @@ pub enum Protocol {
     /// The `LightClientBootstrap` protocol name.
     #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
+    /// The `LightClientFinalityUpdate` protocol name.
+    #[strum(serialize = "light_client_finality_update")]
+    LightClientFinalityUpdate,
+    /// The `LightClientOptimisticUpdate` protocol name.
+    #[strum(serialize = "light_client_optimistic_update")]
+    LightClientOptimisticUpdate,
+    /// The `LightClientUpdatesByRange` protocol name.
+    #[strum(serialize = "light_client_updates_by_range")]
+    LightClientUpdatesByRange,
 }
 
 impl Protocol {
@@ -185,6 +195,9 @@ impl Protocol {
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
+            Protocol::LightClientFinalityUpdate => None,
+            Protocol::LightClientOptimisticUpdate => None,
+            Protocol::LightClientUpdatesByRange => None,
         }
     }
 }
@@ -374,6 +387,12 @@ impl ProtocolId {
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
+            Protocol::LightClientFinalityUpdate => RpcLimits::new(0, 0), // LightClientFinalityUpdate requests are empty
+            Protocol::LightClientOptimisticUpdate => RpcLimits::new(0, 0), // LightClientOptimisticUpdate requests are empty
+            Protocol::LightClientUpdatesByRange => RpcLimits::new(
+                <LightClientUpdatesByRangeRequest as Encode>::ssz_fixed_len(),
+                <LightClientUpdatesByRangeRequest as Encode>::ssz_fixed_len(),
+            ),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
@@ -399,9 +418,18 @@ impl ProtocolId {
                 <MetaDataV2<T> as Encode>::ssz_fixed_len(),
             ),
             Protocol::LightClientBootstrap => RpcLimits::new(
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
+                <LightClientBootstrap<T> as Encode>::ssz_fixed_len(),
+                <LightClientBootstrap<T> as Encode>::ssz_fixed_len(),
             ),
+            Protocol::LightClientFinalityUpdate => RpcLimits::new(
+                <LightClientFinalityUpdate<T> as Encode>::ssz_fixed_len(),
+                <LightClientFinalityUpdate<T> as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::LightClientOptimisticUpdate => RpcLimits::new(
+                <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
+                <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::LightClientUpdatesByRange => RpcLimits::new(0, 0), // TODO(lightclient-network)
         }
     }
 

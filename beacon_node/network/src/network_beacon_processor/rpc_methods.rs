@@ -5,7 +5,9 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use beacon_processor::SendOnDrop;
 use itertools::process_results;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, LightClientUpdatesByRangeRequest,
+};
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
@@ -293,7 +295,76 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    /// Handle a `BlocksByRoot` request from the peer.
+    /// Handle a `LightClientFinalityUpdate` request from the peer.
+    pub fn handle_light_client_finality_update(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) {
+        match self.chain.get_latest_light_client_finality_update() {
+            Some(finality_update) => self.send_response(
+                peer_id,
+                Response::LightClientFinalityUpdate(Arc::new(finality_update)),
+                request_id,
+            ),
+            None => self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::ResourceUnavailable,
+                "Finality Update not available".into(),
+                request_id,
+            ),
+        }
+    }
+
+    /// Handle a `LightClientOptimisticUpdate` request from the peer.
+    pub fn handle_light_client_optimistic_update(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) {
+        match self.chain.get_latest_light_client_optimistic_update() {
+            Some(optimistic_update) => self.send_response(
+                peer_id,
+                Response::LightClientOptimisticUpdate(Arc::new(optimistic_update)),
+                request_id,
+            ),
+            None => self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::ResourceUnavailable,
+                "Optimistic Update not available".into(),
+                request_id,
+            ),
+        }
+    }
+
+    /// Handle a `LightClientUpdatesByRange` request from the peer.
+    pub fn handle_light_client_updates_by_range(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientUpdatesByRangeRequest,
+    ) {
+        debug!(self.log, "Received LightClientUpdatesByRange Request";
+            "peer_id" => %peer_id,
+            "count" => request.count,
+            "start_period" => request.start_period,
+        );
+
+        // TODO(lightclient-network)
+        // Should not send more than max request blocks
+        let max_request_size = 128_u64;
+
+        if request.count > max_request_size {
+            self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::InvalidRequest,
+                format!("Request exceeded max size {max_request_size}"),
+                request_id,
+            )
+        }
+    }
+
+    /// Handle a `LightClientBootstrap` request from the peer.
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -357,12 +428,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 });
         if *req.count() > max_request_size {
-            return self.send_error_response(
+            self.send_error_response(
                 peer_id,
                 RPCResponseErrorCode::InvalidRequest,
                 format!("Request exceeded max size {max_request_size}"),
                 request_id,
-            );
+            )
         }
 
         let forwards_block_root_iter = match self

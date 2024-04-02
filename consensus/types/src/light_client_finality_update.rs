@@ -59,9 +59,9 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
     pub finalized_header: LightClientHeaderDeneb<E>,
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
-    /// current sync aggreggate
+    /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
-    /// Slot of the sync aggregated singature
+    /// Slot of the sync aggregated signature
     pub signature_slot: Slot,
 }
 

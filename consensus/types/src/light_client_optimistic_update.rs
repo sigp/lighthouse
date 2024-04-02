@@ -53,9 +53,9 @@ pub struct LightClientOptimisticUpdate<E: EthSpec> {
     pub attested_header: LightClientHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "attested_header_deneb"))]
     pub attested_header: LightClientHeaderDeneb<E>,
-    /// current sync aggreggate
+    /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
-    /// Slot of the sync aggregated singature
+    /// Slot of the sync aggregated signature
     pub signature_slot: Slot,
 }
 

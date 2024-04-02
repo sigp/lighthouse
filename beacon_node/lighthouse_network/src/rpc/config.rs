@@ -164,6 +164,9 @@ impl FromStr for RateLimiterConfig {
         let mut blobs_by_range_quota = None;
         let mut blobs_by_root_quota = None;
         let mut light_client_bootstrap_quota = None;
+        let mut light_client_finality_quota = None;
+        let mut light_client_optimistic_quota = None;
+        let mut light_client_updates_by_range_quota = None;
 
         for proto_def in s.split(';') {
             let ProtocolQuota { protocol, quota } = proto_def.parse()?;
@@ -179,6 +182,16 @@ impl FromStr for RateLimiterConfig {
                 Protocol::MetaData => meta_data_quota = meta_data_quota.or(quota),
                 Protocol::LightClientBootstrap => {
                     light_client_bootstrap_quota = light_client_bootstrap_quota.or(quota)
+                }
+                Protocol::LightClientFinalityUpdate => {
+                    light_client_finality_quota = light_client_finality_quota.or(quota)
+                }
+                Protocol::LightClientOptimisticUpdate => {
+                    light_client_optimistic_quota = light_client_optimistic_quota.or(quota)
+                }
+                Protocol::LightClientUpdatesByRange => {
+                    light_client_updates_by_range_quota =
+                        light_client_updates_by_range_quota.or(quota)
                 }
             }
         }

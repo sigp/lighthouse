@@ -243,6 +243,9 @@ pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
+pub const LIGHT_CLIENT_FINALITY_UPDATE_REQUEST: &str = "light_client_finality_update_request";
+pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST: &str = "light_client_optimistic_update_request";
+pub const LIGHT_CLIENT_UPDATES_BY_RANGE_REQUEST: &str = "light_client_updates_by_range_request";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
 pub const UNKNOWN_LIGHT_CLIENT_UPDATE: &str = "unknown_light_client_update";
@@ -620,6 +623,9 @@ pub enum Work<E: EthSpec> {
     BlobsByRootsRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
+    LightClientFinalityUpdateRequest(BlockingFn),
+    LightClientOptimisticUpdateRequest(BlockingFn),
+    LightClientUpdatesByRangeRequest(BlockingFn),
     ApiRequestP0(BlockingOrAsync),
     ApiRequestP1(BlockingOrAsync),
 }
@@ -659,6 +665,9 @@ impl<E: EthSpec> Work<E> {
             Work::BlobsByRangeRequest(_) => BLOBS_BY_RANGE_REQUEST,
             Work::BlobsByRootsRequest(_) => BLOBS_BY_ROOTS_REQUEST,
             Work::LightClientBootstrapRequest(_) => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
+            Work::LightClientFinalityUpdateRequest(_) => LIGHT_CLIENT_FINALITY_UPDATE_REQUEST,
+            Work::LightClientOptimisticUpdateRequest(_) => LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST,
+            Work::LightClientUpdatesByRangeRequest(_) => LIGHT_CLIENT_UPDATES_BY_RANGE_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
             Work::GossipBlsToExecutionChange(_) => GOSSIP_BLS_TO_EXECUTION_CHANGE,
@@ -821,6 +830,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
             FifoQueue::new(MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN);
 
         let mut lcbootstrap_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
+        // TODO(lightclient-network)
+        let mut lcfinality_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
+        let mut lcoptimistic_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
+        let mut lcrange_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
 
         let mut api_request_p0_queue = FifoQueue::new(MAX_API_REQUEST_P0_QUEUE_LEN);
         let mut api_request_p1_queue = FifoQueue::new(MAX_API_REQUEST_P1_QUEUE_LEN);
@@ -1251,6 +1264,15 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::LightClientBootstrapRequest { .. } => {
                                 lcbootstrap_queue.push(work, work_id, &self.log)
                             }
+                            Work::LightClientFinalityUpdateRequest { .. } => {
+                                lcfinality_queue.push(work, work_id, &self.log)
+                            }
+                            Work::LightClientOptimisticUpdateRequest { .. } => {
+                                lcoptimistic_queue.push(work, work_id, &self.log)
+                            }
+                            Work::LightClientUpdatesByRangeRequest { .. } => {
+                                lcrange_queue.push(work, work_id, &self.log)
+                            }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
                             }
@@ -1471,6 +1493,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 BlockingOrAsync::Blocking(process_fn) => task_spawner.spawn_blocking(process_fn),
                 BlockingOrAsync::Async(process_fn) => task_spawner.spawn_async(process_fn),
             },
+
+            // TODO(lightclient-network)
+            Work::LightClientUpdatesByRangeRequest(process_fn) => {
+                task_spawner.spawn_blocking(process_fn)
+            }
             Work::GossipVoluntaryExit(process_fn)
             | Work::GossipProposerSlashing(process_fn)
             | Work::GossipAttesterSlashing(process_fn)
@@ -1480,7 +1507,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipLightClientOptimisticUpdate(process_fn)
             | Work::Status(process_fn)
             | Work::GossipBlsToExecutionChange(process_fn)
-            | Work::LightClientBootstrapRequest(process_fn) => {
+            | Work::LightClientBootstrapRequest(process_fn)
+            | Work::LightClientOptimisticUpdateRequest(process_fn)
+            | Work::LightClientFinalityUpdateRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
         };
