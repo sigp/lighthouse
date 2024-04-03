@@ -24,8 +24,8 @@ impl BaseRewardPerIncrement {
 /// shown to be a significant optimisation.
 ///
 /// Spec v1.1.0
-pub fn get_base_reward<T: EthSpec>(
-    state: &BeaconState<T>,
+pub fn get_base_reward<E: EthSpec>(
+    state: &BeaconState<E>,
     index: usize,
     base_reward_per_increment: BaseRewardPerIncrement,
     spec: &ChainSpec,

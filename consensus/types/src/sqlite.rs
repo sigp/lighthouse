@@ -4,7 +4,6 @@ use rusqlite::{
     types::{FromSql, FromSqlError, ToSql, ToSqlOutput, ValueRef},
     Error,
 };
-use std::convert::TryFrom;
 
 macro_rules! impl_to_from_sql {
     ($type:ty) => {

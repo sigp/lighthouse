@@ -14,8 +14,8 @@ use types::{
 ///
 /// Return `(block_hash, transactions_root)`, where `transactions_root` is the root of the RLP
 /// transactions.
-pub fn calculate_execution_block_hash<T: EthSpec>(
-    payload: ExecutionPayloadRef<T>,
+pub fn calculate_execution_block_hash<E: EthSpec>(
+    payload: ExecutionPayloadRef<E>,
     parent_beacon_block_root: Option<Hash256>,
 ) -> (ExecutionBlockHash, Hash256) {
     // Calculate the transactions root.
@@ -209,6 +209,36 @@ mod test {
 
     #[test]
     fn test_rlp_encode_block_deneb() {
+        let header = ExecutionBlockHeader {
+            parent_hash: Hash256::from_str("172864416698b842f4c92f7b476be294b4ef720202779df194cd225f531053ab").unwrap(),
+            ommers_hash: Hash256::from_str("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347").unwrap(),
+            beneficiary: Address::from_str("878705ba3f8bc32fcf7f4caa1a35e72af65cf766").unwrap(),
+            state_root: Hash256::from_str("c6457d0df85c84c62d1c68f68138b6e796e8a44fb44de221386fb2d5611c41e0").unwrap(),
+            transactions_root: Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+            receipts_root: Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+            logs_bloom:<[u8; 256]>::from_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").unwrap().into(),
+            difficulty: 0.into(),
+            number: 97.into(),
+            gas_limit: 27482534.into(),
+            gas_used: 0.into(),
+            timestamp: 1692132829u64,
+            extra_data: hex::decode("d883010d00846765746888676f312e32302e37856c696e7578").unwrap(),
+            mix_hash: Hash256::from_str("0b493c22d2ad4ca76c77ae6ad916af429b42b1dc98fdcb8e5ddbd049bbc5d623").unwrap(),
+            nonce: Hash64::zero(),
+            base_fee_per_gas: 2374u64.into(),
+            withdrawals_root: Some(Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap()),
+            blob_gas_used: Some(0x0u64),
+            excess_blob_gas: Some(0x0u64),
+            parent_beacon_block_root: Some(Hash256::from_str("f7d327d2c04e4f12e9cdd492e53d39a1d390f8b1571e3b2a22ac6e1e170e5b1a").unwrap()),
+        };
+        let expected_hash =
+            Hash256::from_str("a7448e600ead0a23d16f96aa46e8dea9eef8a7c5669a5f0a5ff32709afe9c408")
+                .unwrap();
+        test_rlp_encoding(&header, None, expected_hash);
+    }
+
+    #[test]
+    fn test_rlp_encode_block_electra() {
         let header = ExecutionBlockHeader {
             parent_hash: Hash256::from_str("172864416698b842f4c92f7b476be294b4ef720202779df194cd225f531053ab").unwrap(),
             ommers_hash: Hash256::from_str("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347").unwrap(),

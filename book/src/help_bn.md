@@ -125,25 +125,6 @@ OPTIONS:
         --auto-compact-db <auto-compact-db>
             Enable or disable automatic compaction of the database on finalization. [default: true]
 
-        --beacon-processor-aggregate-batch-size <INTEGER>
-            Specifies the number of gossip aggregate attestations in a signature verification batch. Higher values may
-            reduce CPU usage in a healthy network while lower values may increase CPU usage in an unhealthy or hostile
-            network. [default: 64]
-        --beacon-processor-attestation-batch-size <INTEGER>
-            Specifies the number of gossip attestations in a signature verification batch. Higher values may reduce CPU
-            usage in a healthy network whilst lower values may increase CPU usage in an unhealthy or hostile network.
-            [default: 64]
-        --beacon-processor-max-workers <INTEGER>
-            Specifies the maximum concurrent tasks for the task scheduler. Increasing this value may increase resource
-            consumption. Reducing the value may result in decreased resource usage and diminished performance. The
-            default value is the number of logical CPU cores on the host.
-        --beacon-processor-reprocess-queue-len <INTEGER>
-            Specifies the length of the queue for messages requiring delayed processing. Higher values may prevent
-            messages from being dropped while lower values may help protect the node from becoming overwhelmed.
-            [default: 12288]
-        --beacon-processor-work-queue-len <INTEGER>
-            Specifies the length of the inbound event queue. Higher values may prevent messages from being dropped while
-            lower values may help protect the node from becoming overwhelmed. [default: 16384]
         --blob-prune-margin-epochs <EPOCHS>
             The margin for blob pruning in epochs. The oldest blobs are pruned up until data_availability_boundary -
             blob_prune_margin_epochs. [default: 0]
@@ -510,3 +491,4 @@ OPTIONS:
             block root should be 0x-prefixed. Note that this flag is for verification only, to perform a checkpoint sync
             from a recent state use --checkpoint-sync-url.
 ```
+<style> .content main {max-width:88%;} </style>
