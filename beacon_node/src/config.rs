@@ -972,7 +972,7 @@ pub fn parse_listening_addresses(
         (None, Some(ipv6)) => {
             // A single ipv6 address was provided. Set the ports
             warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.");
-            
+
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp6_port)
