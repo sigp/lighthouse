@@ -677,7 +677,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// manager and should be handled in the peer manager.
     // NOTE: This function is vital in keeping the connection state, and thus the peerdb size in
     // check and up to date with libp2p.
-    fn update_connection_state(
+    pub fn update_connection_state(
         &mut self,
         peer_id: &PeerId,
         new_state: NewConnectionState,
@@ -1101,7 +1101,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
 /// Internal enum for managing connection state transitions.
 #[derive(Debug)]
-enum NewConnectionState {
+pub enum NewConnectionState {
     /// A peer has connected to us.
     Connected {
         /// An optional known ENR if the peer was dialed.

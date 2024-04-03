@@ -1162,7 +1162,14 @@ fn test_same_chain_race_condition() {
 
 mod deneb_only {
     use super::*;
+    use crate::sync::testing::{SyncTestType, SyncTester};
+    use crate::sync::SyncMessage;
     use beacon_chain::data_availability_checker::AvailabilityCheckError;
+    use lighthouse_network::discovery::CombinedKey;
+    use lighthouse_network::discv5::enr::Enr;
+    use lighthouse_network::peer_manager::peerdb::NewConnectionState;
+    use lighthouse_network::types::SyncState;
+    use lighthouse_network::{ConnectionDirection, Multiaddr};
     use ssz_types::VariableList;
     use std::ops::IndexMut;
     use std::str::FromStr;
@@ -2132,5 +2139,66 @@ mod deneb_only {
             .search_parent_dup()
             .expect_no_blobs_request()
             .expect_no_block_request();
+    }
+
+    // GIVEN parent lookup of a block is triggered via `UnknownParentBlock`
+    // AND peer returned parent block and parent blob 1
+    // AND parent blob 2 is received via gossip
+    // WHEN Peer returned parent blob 2
+    // THEN assert parent block is imported
+    // AND peer isn't penalised
+    #[test]
+    fn no_peer_penalty_when_rpc_response_already_known_from_gossip() {
+        // Generate test data
+        // NOTE: maybe we could embed some of this logic into the `SyncTester` for better UX.
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let (block, blobs) =
+            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng);
+        let block = Arc::new(block);
+        let block_root = block.canonical_root();
+        let rpc_block = RpcBlock::new_without_blobs(Some(block_root), block.clone());
+        let peer_id = PeerId::random();
+
+        let sync_tester = SyncTester::new(SyncTestType::BlockLookups)
+            .set_node_sync_state(SyncState::Synced)
+            .set_peer_connected(&peer_id, connected_connection_state())
+            .send_sync_messages(vec![SyncMessage::UnknownParentBlock(
+                peer_id, rpc_block, block_root,
+            )])
+            .expect_rpc_request(|msg| {
+                matches!(
+                    msg,
+                    NetworkMessage::SendRequest {
+                        peer_id: _,
+                        request: Request::BlocksByRoot(_request),
+                        request_id: RequestId::Sync(SyncId::ParentLookup { .. }),
+                    }
+                )
+            });
+        // .send_sync_messages(vec![
+        //     SyncMessage::RpcBlock {
+        //         request_id,
+        //         peer_id,
+        //         beacon_block: Some(block.clone()),
+        //         seen_timestamp: Default::default(),
+        //     },
+        //     SyncMessage::RpcBlob {
+        //         request_id,
+        //         peer_id,
+        //         blob_sidecar: Some(Arc::from(blobs.get(0).cloned().unwrap())),
+        //         seen_timestamp: Default::default(),
+        //     },
+        // ]);
+    }
+
+    // TODO: move this to the `testing` module
+    fn connected_connection_state() -> NewConnectionState {
+        let enr_key = CombinedKey::generate_secp256k1();
+        let enr = Enr::builder().build(&enr_key).unwrap();
+        NewConnectionState::Connected {
+            enr: Some(enr),
+            seen_address: Multiaddr::empty(),
+            direction: ConnectionDirection::Outgoing,
+        }
     }
 }

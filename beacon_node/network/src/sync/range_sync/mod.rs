@@ -13,5 +13,5 @@ pub use batch::{
     ByRangeRequestType,
 };
 pub use chain::{BatchId, ChainId, EPOCHS_PER_BATCH};
-pub use range::RangeSync;
+pub use range::{RangeSync, RangeSyncable};
 pub use sync_type::RangeSyncType;

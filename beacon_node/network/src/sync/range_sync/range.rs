@@ -61,6 +61,51 @@ use types::{Epoch, EthSpec, Hash256, Slot};
 /// For how long we store failed finalized chains to prevent retries.
 const FAILED_CHAINS_EXPIRY_SECONDS: u64 = 30;
 
+pub trait RangeSyncable<T: BeaconChainTypes> {
+    fn state(
+        &self,
+    ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str>;
+
+    fn add_peer(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+        local_info: SyncInfo,
+        peer_id: PeerId,
+        remote_info: SyncInfo,
+    );
+
+    fn blocks_by_range_response(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+        peer_id: PeerId,
+        chain_id: ChainId,
+        batch_id: BatchId,
+        request_id: Id,
+        beacon_block: Option<RpcBlock<T::EthSpec>>,
+    );
+
+    fn handle_block_process_result(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+        chain_id: ChainId,
+        batch_id: Epoch,
+        result: BatchProcessResult,
+    );
+
+    fn peer_disconnect(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId);
+
+    fn inject_error(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+        peer_id: PeerId,
+        batch_id: BatchId,
+        chain_id: ChainId,
+        request_id: Id,
+    );
+
+    fn resume(&mut self, network: &mut SyncNetworkContext<T>);
+}
+
 /// The primary object dealing with long range/batch syncing. This contains all the active and
 /// non-active chains that need to be processed before the syncing is considered complete. This
 /// holds the current state of the long range sync.
@@ -79,24 +124,12 @@ pub struct RangeSync<T: BeaconChainTypes, C = BeaconChain<T>> {
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes, C> RangeSync<T, C>
+impl<T: BeaconChainTypes, C> RangeSyncable<T> for RangeSync<T, C>
 where
     C: BlockStorage + ToStatusMessage,
     T: BeaconChainTypes,
 {
-    pub fn new(beacon_chain: Arc<C>, log: slog::Logger) -> Self {
-        RangeSync {
-            beacon_chain: beacon_chain.clone(),
-            chains: ChainCollection::new(beacon_chain, log.clone()),
-            failed_chains: LRUTimeCache::new(std::time::Duration::from_secs(
-                FAILED_CHAINS_EXPIRY_SECONDS,
-            )),
-            awaiting_head_peers: HashMap::new(),
-            log,
-        }
-    }
-
-    pub fn state(
+    fn state(
         &self,
     ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
         self.chains.state()
@@ -107,7 +140,7 @@ where
     /// may need to be synced as a result. A new peer, may increase the peer pool of a finalized
     /// chain, this may result in a different finalized chain from syncing as finalized chains are
     /// prioritised by peer-pool size.
-    pub fn add_peer(
+    fn add_peer(
         &mut self,
         network: &mut SyncNetworkContext<T>,
         local_info: SyncInfo,
@@ -203,7 +236,7 @@ where
     ///
     /// This function finds the chain that made this request. Once found, processes the result.
     /// This request could complete a chain or simply add to its progress.
-    pub fn blocks_by_range_response(
+    fn blocks_by_range_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,
         peer_id: PeerId,
@@ -233,7 +266,7 @@ where
         }
     }
 
-    pub fn handle_block_process_result(
+    fn handle_block_process_result(
         &mut self,
         network: &mut SyncNetworkContext<T>,
         chain_id: ChainId,
@@ -265,7 +298,7 @@ where
 
     /// A peer has disconnected. This removes the peer from any ongoing chains and mappings. A
     /// disconnected peer could remove a chain
-    pub fn peer_disconnect(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
+    fn peer_disconnect(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
         // if the peer is in the awaiting head mapping, remove it
         self.awaiting_head_peers.remove(peer_id);
 
@@ -273,30 +306,11 @@ where
         self.remove_peer(network, peer_id);
     }
 
-    /// When a peer gets removed, both the head and finalized chains need to be searched to check
-    /// which pool the peer is in. The chain may also have a batch or batches awaiting
-    /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
-    /// retries. In this case, we need to remove the chain.
-    fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
-        for (removed_chain, sync_type, remove_reason) in self
-            .chains
-            .call_all(|chain| chain.remove_peer(peer_id, network))
-        {
-            self.on_chain_removed(
-                removed_chain,
-                sync_type,
-                remove_reason,
-                network,
-                "peer removed",
-            );
-        }
-    }
-
     /// An RPC error has occurred.
     ///
     /// Check to see if the request corresponds to a pending batch. If so, re-request it if possible, if there have
     /// been too many failed attempts for the batch, remove the chain.
-    pub fn inject_error(
+    fn inject_error(
         &mut self,
         network: &mut SyncNetworkContext<T>,
         peer_id: PeerId,
@@ -322,6 +336,58 @@ where
             Err(_) => {
                 trace!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
             }
+        }
+    }
+
+    /// Kickstarts sync.
+    fn resume(&mut self, network: &mut SyncNetworkContext<T>) {
+        for (removed_chain, sync_type, remove_reason) in
+            self.chains.call_all(|chain| chain.resume(network))
+        {
+            self.on_chain_removed(
+                removed_chain,
+                sync_type,
+                remove_reason,
+                network,
+                "chain resumed",
+            );
+        }
+    }
+}
+
+impl<T: BeaconChainTypes, C> RangeSync<T, C>
+where
+    C: BlockStorage + ToStatusMessage,
+    T: BeaconChainTypes,
+{
+    pub fn new(beacon_chain: Arc<C>, log: slog::Logger) -> Self {
+        RangeSync {
+            beacon_chain: beacon_chain.clone(),
+            chains: ChainCollection::new(beacon_chain, log.clone()),
+            failed_chains: LRUTimeCache::new(std::time::Duration::from_secs(
+                FAILED_CHAINS_EXPIRY_SECONDS,
+            )),
+            awaiting_head_peers: HashMap::new(),
+            log,
+        }
+    }
+
+    /// When a peer gets removed, both the head and finalized chains need to be searched to check
+    /// which pool the peer is in. The chain may also have a batch or batches awaiting
+    /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
+    /// retries. In this case, we need to remove the chain.
+    fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
+        for (removed_chain, sync_type, remove_reason) in self
+            .chains
+            .call_all(|chain| chain.remove_peer(peer_id, network))
+        {
+            self.on_chain_removed(
+                removed_chain,
+                sync_type,
+                remove_reason,
+                network,
+                "peer removed",
+            );
         }
     }
 
@@ -359,21 +425,6 @@ where
         // update the state of the collection
         self.chains
             .update(network, &local, &mut self.awaiting_head_peers);
-    }
-
-    /// Kickstarts sync.
-    pub fn resume(&mut self, network: &mut SyncNetworkContext<T>) {
-        for (removed_chain, sync_type, remove_reason) in
-            self.chains.call_all(|chain| chain.resume(network))
-        {
-            self.on_chain_removed(
-                removed_chain,
-                sync_type,
-                remove_reason,
-                network,
-                "chain resumed",
-            );
-        }
     }
 }
 
