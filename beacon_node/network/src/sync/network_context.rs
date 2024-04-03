@@ -21,15 +21,15 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
-pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
+pub struct BlocksAndBlobsByRangeResponse<E: EthSpec> {
     pub batch_id: BatchId,
-    pub responses: Result<Vec<RpcBlock<T>>, String>,
+    pub responses: Result<Vec<RpcBlock<E>>, String>,
 }
 
-pub struct BlocksAndBlobsByRangeRequest<T: EthSpec> {
+pub struct BlocksAndBlobsByRangeRequest<E: EthSpec> {
     pub chain_id: ChainId,
     pub batch_id: BatchId,
-    pub block_blob_info: BlocksAndBlobsRequestInfo<T>,
+    pub block_blob_info: BlocksAndBlobsRequestInfo<E>,
 }
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
@@ -67,19 +67,19 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 }
 
 /// Small enumeration to make dealing with block and blob requests easier.
-pub enum BlockOrBlob<T: EthSpec> {
-    Block(Option<Arc<SignedBeaconBlock<T>>>),
-    Blob(Option<Arc<BlobSidecar<T>>>),
+pub enum BlockOrBlob<E: EthSpec> {
+    Block(Option<Arc<SignedBeaconBlock<E>>>),
+    Blob(Option<Arc<BlobSidecar<E>>>),
 }
 
-impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrBlob<T> {
-    fn from(block: Option<Arc<SignedBeaconBlock<T>>>) -> Self {
+impl<E: EthSpec> From<Option<Arc<SignedBeaconBlock<E>>>> for BlockOrBlob<E> {
+    fn from(block: Option<Arc<SignedBeaconBlock<E>>>) -> Self {
         BlockOrBlob::Block(block)
     }
 }
 
-impl<T: EthSpec> From<Option<Arc<BlobSidecar<T>>>> for BlockOrBlob<T> {
-    fn from(blob: Option<Arc<BlobSidecar<T>>>) -> Self {
+impl<E: EthSpec> From<Option<Arc<BlobSidecar<E>>>> for BlockOrBlob<E> {
+    fn from(blob: Option<Arc<BlobSidecar<E>>>) -> Self {
         BlockOrBlob::Blob(blob)
     }
 }

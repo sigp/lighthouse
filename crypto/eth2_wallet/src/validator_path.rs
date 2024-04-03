@@ -1,5 +1,4 @@
 use std::fmt;
-use std::iter::Iterator;
 
 pub const PURPOSE: u32 = 12381;
 pub const COIN_TYPE: u32 = 3600;

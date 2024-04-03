@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
-use libp2p::core::{multiaddr, ConnectedPoint};
+use libp2p::core::ConnectedPoint;
 use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
@@ -21,7 +21,7 @@ use crate::{metrics, ClearDialError};
 
 use super::{ConnectingType, PeerManager, PeerManagerEvent};
 
-impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
+impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = PeerManagerEvent;
 
@@ -227,7 +227,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> PeerManager<TSpec> {
+impl<E: EthSpec> PeerManager<E> {
     fn on_connection_established(
         &mut self,
         peer_id: PeerId,
@@ -243,35 +243,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.events.push(PeerManagerEvent::MetaData(peer_id));
         }
 
-        // increment prometheus metrics
+        // Update the prometheus metrics
         if self.metrics_enabled {
-            let remote_addr = endpoint.get_remote_address();
-            let direction = if endpoint.is_dialer() {
-                "outbound"
-            } else {
-                "inbound"
-            };
-
-            match remote_addr.iter().find(|proto| {
-                matches!(
-                    proto,
-                    multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
-                )
-            }) {
-                Some(multiaddr::Protocol::QuicV1) => {
-                    metrics::inc_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "quic"]);
-                }
-                Some(multiaddr::Protocol::Tcp(_)) => {
-                    metrics::inc_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "tcp"]);
-                }
-                Some(_) => unreachable!(),
-                None => {
-                    error!(self.log, "Connection established via unknown transport"; "addr" => %remote_addr)
-                }
-            };
-
-            metrics::inc_gauge(&metrics::PEERS_CONNECTED);
             metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+
+            self.update_peer_count_metrics();
         }
 
         // Count dialing peers in the limit if the peer dialed us.
@@ -309,7 +285,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn on_connection_closed(
         &mut self,
         peer_id: PeerId,
-        endpoint: &ConnectedPoint,
+        _endpoint: &ConnectedPoint,
         remaining_established: usize,
     ) {
         if remaining_established > 0 {
@@ -337,33 +313,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // reference so that peer manager can track this peer.
         self.inject_disconnect(&peer_id);
 
-        let remote_addr = endpoint.get_remote_address();
         // Update the prometheus metrics
         if self.metrics_enabled {
-            let direction = if endpoint.is_dialer() {
-                "outbound"
-            } else {
-                "inbound"
-            };
-
-            match remote_addr.iter().find(|proto| {
-                matches!(
-                    proto,
-                    multiaddr::Protocol::QuicV1 | multiaddr::Protocol::Tcp(_)
-                )
-            }) {
-                Some(multiaddr::Protocol::QuicV1) => {
-                    metrics::dec_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "quic"]);
-                }
-                Some(multiaddr::Protocol::Tcp(_)) => {
-                    metrics::dec_gauge_vec(&metrics::PEERS_CONNECTED_MULTI, &[direction, "tcp"]);
-                }
-                // If it's an unknown protocol we already logged when connection was established.
-                _ => {}
-            };
             // Legacy standard metrics.
-            metrics::dec_gauge(&metrics::PEERS_CONNECTED);
             metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+
+            self.update_peer_count_metrics();
         }
     }
 

@@ -1,5 +1,4 @@
 use super::*;
-use crate::Hash256;
 
 impl TestRandom for Hash256 {
     fn random_for_test(rng: &mut impl RngCore) -> Self {

@@ -27,6 +27,7 @@ use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
+use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
 use strum::IntoStaticStr;
@@ -60,7 +61,7 @@ pub enum RequestId {
 /// Types of messages that the network service can receive.
 #[derive(Debug, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
-pub enum NetworkMessage<T: EthSpec> {
+pub enum NetworkMessage<E: EthSpec> {
     /// Subscribes the beacon node to the core gossipsub topics. We do this when we are either
     /// synced or close to the head slot.
     SubscribeCoreTopics,
@@ -73,7 +74,7 @@ pub enum NetworkMessage<T: EthSpec> {
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
-        response: Response<T>,
+        response: Response<E>,
         id: PeerRequestId,
     },
     /// Sends an error response to an RPC request.
@@ -84,7 +85,7 @@ pub enum NetworkMessage<T: EthSpec> {
         id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
-    Publish { messages: Vec<PubsubMessage<T>> },
+    Publish { messages: Vec<PubsubMessage<E>> },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.
@@ -119,7 +120,7 @@ pub enum NetworkMessage<T: EthSpec> {
 pub enum ValidatorSubscriptionMessage {
     /// Subscribes a list of validators to specific slots for attestation duties.
     AttestationSubscribe {
-        subscriptions: Vec<ValidatorSubscription>,
+        subscriptions: BTreeSet<ValidatorSubscription>,
     },
     SyncCommitteeSubscribe {
         subscriptions: Vec<SyncCommitteeSubscription>,
@@ -783,7 +784,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions } => {
                 if let Err(e) = self
                     .attestation_service
-                    .validator_subscriptions(subscriptions)
+                    .validator_subscriptions(subscriptions.into_iter())
                 {
                     warn!(self.log, "Attestation validator subscription failed"; "error" => e);
                 }

@@ -28,5 +28,8 @@ sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $genesis_file
 CANCUN_TIME=$((GENESIS_TIME + (DENEB_FORK_EPOCH * $SLOT_PER_EPOCH * SECONDS_PER_SLOT)))
 echo $CANCUN_TIME
 sed -i 's/"cancunTime".*$/"cancunTime": '"$CANCUN_TIME"',/g' $genesis_file
+PRAGUE_TIME=$((GENESIS_TIME + (ELECTRA_FORK_EPOCH * $SLOT_PER_EPOCH * SECONDS_PER_SLOT)))
+echo $PRAGUE_TIME
+sed -i 's/"pragueTime".*$/"pragueTime": '"$PRAGUE_TIME"',/g' $genesis_file
 cat $genesis_file
 

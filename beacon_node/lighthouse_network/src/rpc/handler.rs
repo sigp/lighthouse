@@ -9,7 +9,7 @@ use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use futures::{Sink, SinkExt};
+use futures::SinkExt;
 use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
@@ -47,12 +47,12 @@ impl SubstreamId {
     }
 }
 
-type InboundSubstream<TSpec> = InboundFramed<Stream, TSpec>;
+type InboundSubstream<E> = InboundFramed<Stream, E>;
 
 /// Events the handler emits to the behaviour.
 #[derive(Debug)]
-pub enum HandlerEvent<Id, T: EthSpec> {
-    Ok(RPCReceived<Id, T>),
+pub enum HandlerEvent<Id, E: EthSpec> {
+    Ok(RPCReceived<Id, E>),
     Err(HandlerErr<Id>),
     Close(RPCError),
 }
@@ -84,30 +84,30 @@ pub enum HandlerErr<Id> {
 }
 
 /// Implementation of `ConnectionHandler` for the RPC protocol.
-pub struct RPCHandler<Id, TSpec>
+pub struct RPCHandler<Id, E>
 where
-    TSpec: EthSpec,
+    E: EthSpec,
 {
     /// The upgrade for inbound substreams.
-    listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
+    listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
 
     /// Queue of events to produce in `poll()`.
-    events_out: SmallVec<[HandlerEvent<Id, TSpec>; 4]>,
+    events_out: SmallVec<[HandlerEvent<Id, E>; 4]>,
 
     /// Queue of outbound substreams to open.
-    dial_queue: SmallVec<[(Id, OutboundRequest<TSpec>); 4]>,
+    dial_queue: SmallVec<[(Id, OutboundRequest<E>); 4]>,
 
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
 
     /// Current inbound substreams awaiting processing.
-    inbound_substreams: FnvHashMap<SubstreamId, InboundInfo<TSpec>>,
+    inbound_substreams: FnvHashMap<SubstreamId, InboundInfo<E>>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     inbound_substreams_delay: DelayQueue<SubstreamId>,
 
     /// Map of outbound substreams that need to be driven to completion.
-    outbound_substreams: FnvHashMap<SubstreamId, OutboundInfo<Id, TSpec>>,
+    outbound_substreams: FnvHashMap<SubstreamId, OutboundInfo<Id, E>>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     outbound_substreams_delay: DelayQueue<SubstreamId>,
@@ -155,11 +155,11 @@ enum HandlerState {
 }
 
 /// Contains the information the handler keeps on established inbound substreams.
-struct InboundInfo<TSpec: EthSpec> {
+struct InboundInfo<E: EthSpec> {
     /// State of the substream.
-    state: InboundState<TSpec>,
+    state: InboundState<E>,
     /// Responses queued for sending.
-    pending_items: VecDeque<RPCCodedResponse<TSpec>>,
+    pending_items: VecDeque<RPCCodedResponse<E>>,
     /// Protocol of the original request we received from the peer.
     protocol: Protocol,
     /// Responses that the peer is still expecting from us.
@@ -172,9 +172,9 @@ struct InboundInfo<TSpec: EthSpec> {
 }
 
 /// Contains the information the handler keeps on established outbound substreams.
-struct OutboundInfo<Id, TSpec: EthSpec> {
+struct OutboundInfo<Id, E: EthSpec> {
     /// State of the substream.
-    state: OutboundSubstreamState<TSpec>,
+    state: OutboundSubstreamState<E>,
     /// Key to keep track of the substream's timeout via `self.outbound_substreams_delay`.
     delay_key: delay_queue::Key,
     /// Info over the protocol this substream is handling.
@@ -186,39 +186,39 @@ struct OutboundInfo<Id, TSpec: EthSpec> {
 }
 
 /// State of an inbound substream connection.
-enum InboundState<TSpec: EthSpec> {
+enum InboundState<E: EthSpec> {
     /// The underlying substream is not being used.
-    Idle(InboundSubstream<TSpec>),
+    Idle(InboundSubstream<E>),
     /// The underlying substream is processing responses.
     /// The return value of the future is (substream, stream_was_closed). The stream_was_closed boolean
     /// indicates if the stream was closed due to an error or successfully completing a response.
-    Busy(Pin<Box<dyn Future<Output = Result<(InboundSubstream<TSpec>, bool), RPCError>> + Send>>),
+    Busy(Pin<Box<dyn Future<Output = Result<(InboundSubstream<E>, bool), RPCError>> + Send>>),
     /// Temporary state during processing
     Poisoned,
 }
 
 /// State of an outbound substream. Either waiting for a response, or in the process of sending.
-pub enum OutboundSubstreamState<TSpec: EthSpec> {
+pub enum OutboundSubstreamState<E: EthSpec> {
     /// A request has been sent, and we are awaiting a response. This future is driven in the
     /// handler because GOODBYE requests can be handled and responses dropped instantly.
     RequestPendingResponse {
         /// The framed negotiated substream.
-        substream: Box<OutboundFramed<Stream, TSpec>>,
+        substream: Box<OutboundFramed<Stream, E>>,
         /// Keeps track of the actual request sent.
-        request: OutboundRequest<TSpec>,
+        request: OutboundRequest<E>,
     },
     /// Closing an outbound substream>
-    Closing(Box<OutboundFramed<Stream, TSpec>>),
+    Closing(Box<OutboundFramed<Stream, E>>),
     /// Temporary state during processing
     Poisoned,
 }
 
-impl<Id, TSpec> RPCHandler<Id, TSpec>
+impl<Id, E> RPCHandler<Id, E>
 where
-    TSpec: EthSpec,
+    E: EthSpec,
 {
     pub fn new(
-        listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
+        listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
         fork_context: Arc<ForkContext>,
         log: &slog::Logger,
         resp_timeout: Duration,
@@ -273,7 +273,7 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    fn send_request(&mut self, id: Id, req: OutboundRequest<TSpec>) {
+    fn send_request(&mut self, id: Id, req: OutboundRequest<E>) {
         match self.state {
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
@@ -291,7 +291,7 @@ where
     /// Sends a response to a peer's request.
     // NOTE: If the substream has closed due to inactivity, or the substream is in the
     // wrong state a response will fail silently.
-    fn send_response(&mut self, inbound_id: SubstreamId, response: RPCCodedResponse<TSpec>) {
+    fn send_response(&mut self, inbound_id: SubstreamId, response: RPCCodedResponse<E>) {
         // check if the stream matching the response still exists
         let Some(inbound_info) = self.inbound_substreams.get_mut(&inbound_id) else {
             if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
@@ -320,16 +320,16 @@ where
     }
 }
 
-impl<Id, TSpec> ConnectionHandler for RPCHandler<Id, TSpec>
+impl<Id, E> ConnectionHandler for RPCHandler<Id, E>
 where
-    TSpec: EthSpec,
+    E: EthSpec,
     Id: ReqId,
 {
-    type FromBehaviour = RPCSend<Id, TSpec>;
-    type ToBehaviour = HandlerEvent<Id, TSpec>;
-    type InboundProtocol = RPCProtocol<TSpec>;
-    type OutboundProtocol = OutboundRequestContainer<TSpec>;
-    type OutboundOpenInfo = (Id, OutboundRequest<TSpec>); // Keep track of the id and the request
+    type FromBehaviour = RPCSend<Id, E>;
+    type ToBehaviour = HandlerEvent<Id, E>;
+    type InboundProtocol = RPCProtocol<E>;
+    type OutboundProtocol = OutboundRequestContainer<E>;
+    type OutboundOpenInfo = (Id, OutboundRequest<E>); // Keep track of the id and the request
     type InboundOpenInfo = ();
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
@@ -868,12 +868,12 @@ where
     }
 }
 
-impl<Id, TSpec: EthSpec> RPCHandler<Id, TSpec>
+impl<Id, E: EthSpec> RPCHandler<Id, E>
 where
     Id: ReqId,
-    TSpec: EthSpec,
+    E: EthSpec,
 {
-    fn on_fully_negotiated_inbound(&mut self, substream: InboundOutput<Stream, TSpec>) {
+    fn on_fully_negotiated_inbound(&mut self, substream: InboundOutput<Stream, E>) {
         // only accept new peer requests when active
         if !matches!(self.state, HandlerState::Active) {
             return;
@@ -928,8 +928,8 @@ where
 
     fn on_fully_negotiated_outbound(
         &mut self,
-        substream: OutboundFramed<Stream, TSpec>,
-        (id, request): (Id, OutboundRequest<TSpec>),
+        substream: OutboundFramed<Stream, E>,
+        (id, request): (Id, OutboundRequest<E>),
     ) {
         self.dial_negotiated -= 1;
         // Reset any io-retries counter.
@@ -985,7 +985,7 @@ where
     }
     fn on_dial_upgrade_error(
         &mut self,
-        request_info: (Id, OutboundRequest<TSpec>),
+        request_info: (Id, OutboundRequest<E>),
         error: StreamUpgradeError<RPCError>,
     ) {
         let (id, req) = request_info;
@@ -1041,11 +1041,11 @@ impl slog::Value for SubstreamId {
 ///
 /// This function returns the given substream, along with whether it has been closed or not. Any
 /// error that occurred with sending a message is reported also.
-async fn send_message_to_inbound_substream<TSpec: EthSpec>(
-    mut substream: InboundSubstream<TSpec>,
-    message: RPCCodedResponse<TSpec>,
+async fn send_message_to_inbound_substream<E: EthSpec>(
+    mut substream: InboundSubstream<E>,
+    message: RPCCodedResponse<E>,
     last_chunk: bool,
-) -> Result<(InboundSubstream<TSpec>, bool), RPCError> {
+) -> Result<(InboundSubstream<E>, bool), RPCError> {
     if matches!(message, RPCCodedResponse::StreamTermination(_)) {
         substream.close().await.map(|_| (substream, true))
     } else {
