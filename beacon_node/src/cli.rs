@@ -1,4 +1,4 @@
-use clap::{builder::ArgPredicate, Arg, ArgAction, ArgGroup, Command};
+use clap::{builder::ArgPredicate, Arg, ArgAction, ArgGroup, Command, crate_version};
 use clap_utils::get_color_style;
 use strum::VariantNames;
 use types::ProgressiveBalancesMode;
@@ -6,7 +6,7 @@ use types::ProgressiveBalancesMode;
 pub fn cli_app() -> Command {
     Command::new("beacon_node")
         .visible_aliases(["b", "bn", "beacon"])
-        //.version(crate_version!())
+        .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .styles(get_color_style())
         .about("The primary component which connects to the Ethereum 2.0 P2P network and \
@@ -90,7 +90,7 @@ pub fn cli_app() -> Command {
                       IPv4 and IPv6. The order of the given addresses is not relevant. However, \
                       multiple IPv4, or multiple IPv6 addresses will not be accepted.")
                 .action(ArgAction::Append)
-                // .max_values(2)
+                .num_args(0..=2)
                 .default_value("0.0.0.0")
         )
         .arg(
@@ -239,7 +239,7 @@ pub fn cli_app() -> Command {
                       local node on this address. This will update the `ip4` or `ip6` ENR fields \
                       accordingly. To update both, set this flag twice with the different values.")
                 .action(ArgAction::Append)
-                // .max_values(2)
+                .num_args(0..=2)
         )
         .arg(
             Arg::new("enr-match")

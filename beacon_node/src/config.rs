@@ -1430,10 +1430,9 @@ pub fn set_network_config(
             if config_str.as_str() == "disabled" {
                 None
             } else {
+                // Enabled with a custom configuration
                 Some(config_str.parse()?)
             }
-            // Enabled with a custom configuration
-            // Some(config_str.parse()?)
         }
     };
     Ok(())

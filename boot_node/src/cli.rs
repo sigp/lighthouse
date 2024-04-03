@@ -23,7 +23,7 @@ pub fn cli_app() -> Command {
                       local node on this address. This will update the `ip4` or `ip6` ENR fields \
                       accordingly. To update both, set this flag twice with the different values.")
                 .action(ArgAction::Append)
-                // .max_values(2)
+                .num_args(0..=2)
                 .required(true)
                 .conflicts_with("network-dir")
         )
@@ -56,10 +56,9 @@ pub fn cli_app() -> Command {
                       - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
                       Ipv4 and Ipv6. The order of the given addresses is not relevant. However, \
                       multiple Ipv4, or multiple Ipv6 addresses will not be accepted.")
-                // .multiple(true)
-                // .max_values(2)
+                .num_args(0..=2)
                 .default_value("0.0.0.0")
-                .action(ArgAction::Set)
+                .action(ArgAction::Append)
         )
         .arg(
             Arg::new("boot-nodes")

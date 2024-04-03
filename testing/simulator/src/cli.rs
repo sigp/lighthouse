@@ -1,8 +1,8 @@
-use clap::{Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, Command, crate_version};
 
 pub fn cli_app() -> Command {
     Command::new("simulator")
-        // .version(crate_version!())
+        .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("Options for interacting with simulator")
         .subcommand(
