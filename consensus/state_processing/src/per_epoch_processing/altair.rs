@@ -22,17 +22,17 @@ pub mod participation_flag_updates;
 pub mod rewards_and_penalties;
 pub mod sync_committee_updates;
 
-pub fn process_epoch<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_epoch<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary<T>, Error> {
+) -> Result<EpochProcessingSummary<E>, Error> {
     // Ensure the required caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
     state.build_total_active_balance_cache(spec)?;
     initialize_epoch_cache(state, spec)?;
-    initialize_progressive_balances_cache::<T>(state, spec)?;
+    initialize_progressive_balances_cache::<E>(state, spec)?;
 
     let sync_committee = state.current_sync_committee()?.clone();
 

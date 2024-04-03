@@ -216,14 +216,14 @@ impl TryInto<Hash256> for AvailabilityProcessingStatus {
 }
 
 /// The result of a chain segment processing.
-pub enum ChainSegmentResult<T: EthSpec> {
+pub enum ChainSegmentResult<E: EthSpec> {
     /// Processing this chain segment finished successfully.
     Successful { imported_blocks: usize },
     /// There was an error processing this chain segment. Before the error, some blocks could
     /// have been imported.
     Failed {
         imported_blocks: usize,
-        error: BlockError<T>,
+        error: BlockError<E>,
     },
 }
 
@@ -494,9 +494,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub block_production_state: Arc<Mutex<Option<(Hash256, BlockProductionPreState<T::EthSpec>)>>>,
 }
 
-pub enum BeaconBlockResponseWrapper<T: EthSpec> {
-    Full(BeaconBlockResponse<T, FullPayload<T>>),
-    Blinded(BeaconBlockResponse<T, BlindedPayload<T>>),
+pub enum BeaconBlockResponseWrapper<E: EthSpec> {
+    Full(BeaconBlockResponse<E, FullPayload<E>>),
+    Blinded(BeaconBlockResponse<E, BlindedPayload<E>>),
 }
 
 impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
@@ -531,13 +531,13 @@ impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
 }
 
 /// The components produced when the local beacon node creates a new block to extend the chain
-pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
+pub struct BeaconBlockResponse<E: EthSpec, Payload: AbstractExecPayload<E>> {
     /// The newly produced beacon block
-    pub block: BeaconBlock<T, Payload>,
+    pub block: BeaconBlock<E, Payload>,
     /// The post-state after applying the new block
-    pub state: BeaconState<T>,
+    pub state: BeaconState<E>,
     /// The Blobs / Proofs associated with the new block
-    pub blob_items: Option<(KzgProofs<T>, BlobsList<T>)>,
+    pub blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     /// The execution layer reward for the block
     pub execution_payload_value: Uint256,
     /// The consensus layer reward to the proposer
@@ -2797,6 +2797,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             }
                         }
                     }
+                    Err(BlockError::BlockIsAlreadyKnown(block_root)) => {
+                        debug!(self.log,
+                            "Ignoring already known blocks while processing chain segment";
+                            "block_root" => ?block_root);
+                        continue;
+                    }
                     Err(error) => {
                         return ChainSegmentResult::Failed {
                             imported_blocks,
@@ -3033,7 +3039,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match import_block.await {
             // The block was successfully verified and imported. Yay.
             Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
-                trace!(
+                debug!(
                     self.log,
                     "Beacon block imported";
                     "block_root" => ?block_root,
@@ -3046,7 +3052,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(status)
             }
             Ok(status @ AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                trace!(
+                debug!(
                     self.log,
                     "Beacon block awaiting blobs";
                     "block_root" => ?block_root,
@@ -4916,7 +4922,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Deneb(_) => {
+            BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => {
                 let prepare_payload_handle = get_execution_payload(
                     self.clone(),
                     &state,
@@ -5281,6 +5290,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     execution_payload_value,
                 )
             }
+            BeaconState::Electra(_) => {
+                let (payload, kzg_commitments, maybe_blobs_and_proofs, execution_payload_value) =
+                    block_contents
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
+                        .deconstruct();
+
+                (
+                    BeaconBlock::Electra(BeaconBlockElectra {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root: Hash256::zero(),
+                        body: BeaconBlockBodyElectra {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings: proposer_slashings.into(),
+                            attester_slashings: attester_slashings.into(),
+                            attestations: attestations.into(),
+                            deposits: deposits.into(),
+                            voluntary_exits: voluntary_exits.into(),
+                            sync_aggregate: sync_aggregate
+                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                            execution_payload: payload
+                                .try_into()
+                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            blob_kzg_commitments: kzg_commitments
+                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                        },
+                    }),
+                    maybe_blobs_and_proofs,
+                    execution_payload_value,
+                )
+            }
         };
 
         let block = SignedBeaconBlock::from_block(
@@ -5604,7 +5648,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
             let withdrawals = match prepare_slot_fork {
                 ForkName::Base | ForkName::Altair | ForkName::Merge => None,
-                ForkName::Capella | ForkName::Deneb => {
+                ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                     let chain = self.clone();
                     self.spawn_blocking_handle(
                         move || {
@@ -5619,7 +5663,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let parent_beacon_block_root = match prepare_slot_fork {
                 ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => None,
-                ForkName::Deneb => Some(pre_payload_attributes.parent_beacon_block_root),
+                ForkName::Deneb | ForkName::Electra => {
+                    Some(pre_payload_attributes.parent_beacon_block_root)
+                }
             };
 
             let payload_attributes = PayloadAttributes::new(
@@ -6659,7 +6705,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Error::InconsistentFork)?;
 
         match fork_name {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
+            ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
                 LightClientBootstrap::from_beacon_state(&mut state, &block, &self.spec)
                     .map(|bootstrap| Some((bootstrap, fork_name)))
                     .map_err(Error::LightClientError)
@@ -6711,8 +6761,8 @@ impl From<BeaconStateError> for Error {
     }
 }
 
-impl<T: EthSpec> ChainSegmentResult<T> {
-    pub fn into_block_error(self) -> Result<(), BlockError<T>> {
+impl<E: EthSpec> ChainSegmentResult<E> {
+    pub fn into_block_error(self) -> Result<(), BlockError<E>> {
         match self {
             ChainSegmentResult::Failed { error, .. } => Err(error),
             ChainSegmentResult::Successful { .. } => Ok(()),

@@ -7,8 +7,8 @@ use safe_arith::{SafeArith, SafeArithIter};
 use types::{BeaconState, ChainSpec, EthSpec, Unsigned};
 
 /// Process slashings.
-pub fn process_slashings<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_slashings<E: EthSpec>(
+    state: &mut BeaconState<E>,
     total_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -21,7 +21,7 @@ pub fn process_slashings<T: EthSpec>(
     );
 
     let target_withdrawable_epoch =
-        epoch.safe_add(T::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?;
+        epoch.safe_add(E::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?;
     let indices = state
         .validators()
         .iter()

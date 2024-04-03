@@ -32,19 +32,19 @@ const NODES_PER_VALIDATOR: usize = 15;
 const VALIDATORS_PER_ARENA: usize = 4_096;
 
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
-pub struct Eth1DataVotesTreeHashCache<T: EthSpec> {
+pub struct Eth1DataVotesTreeHashCache<E: EthSpec> {
     arena: CacheArena,
     tree_hash_cache: TreeHashCache,
     voting_period: u64,
-    roots: VariableList<Hash256, T::SlotsPerEth1VotingPeriod>,
+    roots: VariableList<Hash256, E::SlotsPerEth1VotingPeriod>,
 }
 
-impl<T: EthSpec> Eth1DataVotesTreeHashCache<T> {
+impl<E: EthSpec> Eth1DataVotesTreeHashCache<E> {
     /// Instantiates a new cache.
     ///
     /// Allocates the necessary memory to store all of the cached Merkle trees. Only the leaves are
     /// hashed, leaving the internal nodes as all-zeros.
-    pub fn new(state: &BeaconState<T>) -> Self {
+    pub fn new(state: &BeaconState<E>) -> Self {
         let mut arena = CacheArena::default();
         let roots: VariableList<_, _> = state
             .eth1_data_votes()
@@ -63,10 +63,10 @@ impl<T: EthSpec> Eth1DataVotesTreeHashCache<T> {
     }
 
     fn voting_period(slot: Slot) -> u64 {
-        slot.as_u64() / T::SlotsPerEth1VotingPeriod::to_u64()
+        slot.as_u64() / E::SlotsPerEth1VotingPeriod::to_u64()
     }
 
-    pub fn recalculate_tree_hash_root(&mut self, state: &BeaconState<T>) -> Result<Hash256, Error> {
+    pub fn recalculate_tree_hash_root(&mut self, state: &BeaconState<E>) -> Result<Hash256, Error> {
         if state.eth1_data_votes().len() < self.roots.len()
             || Self::voting_period(state.slot()) != self.voting_period
         {
@@ -89,12 +89,12 @@ impl<T: EthSpec> Eth1DataVotesTreeHashCache<T> {
 ///
 /// This type is a wrapper around the inner cache, which does all the work.
 #[derive(Debug, Default, PartialEq, Clone)]
-pub struct BeaconTreeHashCache<T: EthSpec> {
-    inner: Option<BeaconTreeHashCacheInner<T>>,
+pub struct BeaconTreeHashCache<E: EthSpec> {
+    inner: Option<BeaconTreeHashCacheInner<E>>,
 }
 
-impl<T: EthSpec> BeaconTreeHashCache<T> {
-    pub fn new(state: &BeaconState<T>) -> Self {
+impl<E: EthSpec> BeaconTreeHashCache<E> {
+    pub fn new(state: &BeaconState<E>) -> Self {
         Self {
             inner: Some(BeaconTreeHashCacheInner::new(state)),
         }
@@ -105,12 +105,12 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
     }
 
     /// Move the inner cache out so that the containing `BeaconState` can be borrowed.
-    pub fn take(&mut self) -> Option<BeaconTreeHashCacheInner<T>> {
+    pub fn take(&mut self) -> Option<BeaconTreeHashCacheInner<E>> {
         self.inner.take()
     }
 
     /// Restore the inner cache after using `take`.
-    pub fn restore(&mut self, inner: BeaconTreeHashCacheInner<T>) {
+    pub fn restore(&mut self, inner: BeaconTreeHashCacheInner<E>) {
         self.inner = Some(inner);
     }
 
@@ -128,7 +128,7 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct BeaconTreeHashCacheInner<T: EthSpec> {
+pub struct BeaconTreeHashCacheInner<E: EthSpec> {
     /// Tracks the previously generated state root to ensure the next state root provided descends
     /// directly from this state.
     previous_state: Option<(Hash256, Slot)>,
@@ -146,19 +146,19 @@ pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     balances: TreeHashCache,
     randao_mixes: TreeHashCache,
     slashings: TreeHashCache,
-    eth1_data_votes: Eth1DataVotesTreeHashCache<T>,
+    eth1_data_votes: Eth1DataVotesTreeHashCache<E>,
     inactivity_scores: OptionalTreeHashCache,
     // Participation caches
     previous_epoch_participation: OptionalTreeHashCache,
     current_epoch_participation: OptionalTreeHashCache,
 }
 
-impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
+impl<E: EthSpec> BeaconTreeHashCacheInner<E> {
     /// Instantiates a new cache.
     ///
     /// Allocates the necessary memory to store all of the cached Merkle trees. Only the leaves are
     /// hashed, leaving the internal nodes as all-zeros.
-    pub fn new(state: &BeaconState<T>) -> Self {
+    pub fn new(state: &BeaconState<E>) -> Self {
         let mut fixed_arena = CacheArena::default();
         let block_roots = state.block_roots().new_tree_hash_cache(&mut fixed_arena);
         let state_roots = state.state_roots().new_tree_hash_cache(&mut fixed_arena);
@@ -175,7 +175,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
 
         let randao_mixes = state.randao_mixes().new_tree_hash_cache(&mut fixed_arena);
 
-        let validators = ValidatorsListTreeHashCache::new::<T>(state.validators());
+        let validators = ValidatorsListTreeHashCache::new::<E>(state.validators());
 
         let mut balances_arena = CacheArena::default();
         let balances = state.balances().new_tree_hash_cache(&mut balances_arena);
@@ -222,7 +222,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
 
     pub fn recalculate_tree_hash_leaves(
         &mut self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
     ) -> Result<Vec<Hash256>, Error> {
         let mut leaves = vec![
             // Genesis data leaves.
@@ -328,7 +328,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
     /// The provided `state` should be a descendant of the last `state` given to this function, or
     /// the `Self::new` function. If the state is more than `SLOTS_PER_HISTORICAL_ROOT` slots
     /// after `self.previous_state` then the whole cache will be re-initialized.
-    pub fn recalculate_tree_hash_root(&mut self, state: &BeaconState<T>) -> Result<Hash256, Error> {
+    pub fn recalculate_tree_hash_root(&mut self, state: &BeaconState<E>) -> Result<Hash256, Error> {
         // If this cache has previously produced a root, ensure that it is in the state root
         // history of this state.
         //
@@ -599,7 +599,7 @@ impl OptionalTreeHashCacheInner {
     }
 }
 
-impl<T: EthSpec> arbitrary::Arbitrary<'_> for BeaconTreeHashCache<T> {
+impl<E: EthSpec> arbitrary::Arbitrary<'_> for BeaconTreeHashCache<E> {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())
     }

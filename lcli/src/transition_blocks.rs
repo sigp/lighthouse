@@ -96,12 +96,12 @@ struct Config {
     exclude_post_block_thc: bool,
 }
 
-pub fn run<T: EthSpec>(
-    env: Environment<T>,
+pub fn run<E: EthSpec>(
+    env: Environment<E>,
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches,
 ) -> Result<(), String> {
-    let spec = &network_config.chain_spec::<T>()?;
+    let spec = &network_config.chain_spec::<E>()?;
     let executor = env.core_context().executor;
 
     /*
@@ -122,7 +122,7 @@ pub fn run<T: EthSpec>(
         exclude_post_block_thc: matches.is_present("exclude-post-block-thc"),
     };
 
-    info!("Using {} spec", T::spec_name());
+    info!("Using {} spec", E::spec_name());
     info!("Doing {} runs", runs);
     info!("{:?}", &config);
 
@@ -157,7 +157,7 @@ pub fn run<T: EthSpec>(
                         return Err("Cannot run on the genesis block".to_string());
                     }
 
-                    let parent_block: SignedBeaconBlock<T> = client
+                    let parent_block: SignedBeaconBlock<E> = client
                         .get_beacon_blocks(BlockId::Root(block.parent_root()))
                         .await
                         .map_err(|e| format!("Failed to download parent block: {:?}", e))?
@@ -167,7 +167,7 @@ pub fn run<T: EthSpec>(
                     let state_root = parent_block.state_root();
                     let state_id = StateId::Root(state_root);
                     let pre_state = client
-                        .get_debug_beacon_states::<T>(state_id)
+                        .get_debug_beacon_states::<E>(state_id)
                         .await
                         .map_err(|e| format!("Failed to download state: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate state at {:?}", state_id))?
@@ -302,16 +302,16 @@ pub fn run<T: EthSpec>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn do_transition<T: EthSpec>(
-    mut pre_state: BeaconState<T>,
+fn do_transition<E: EthSpec>(
+    mut pre_state: BeaconState<E>,
     block_root: Hash256,
-    block: SignedBeaconBlock<T>,
+    block: SignedBeaconBlock<E>,
     mut state_root_opt: Option<Hash256>,
     config: &Config,
-    validator_pubkey_cache: &ValidatorPubkeyCache<EphemeralHarnessType<T>>,
-    saved_ctxt: &mut Option<ConsensusContext<T>>,
+    validator_pubkey_cache: &ValidatorPubkeyCache<EphemeralHarnessType<E>>,
+    saved_ctxt: &mut Option<ConsensusContext<E>>,
     spec: &ChainSpec,
-) -> Result<BeaconState<T>, String> {
+) -> Result<BeaconState<E>, String> {
     if !config.exclude_cache_builds {
         let t = Instant::now();
         pre_state

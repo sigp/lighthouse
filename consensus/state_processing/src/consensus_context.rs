@@ -10,7 +10,7 @@ use types::{
 };
 
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
-pub struct ConsensusContext<T: EthSpec> {
+pub struct ConsensusContext<E: EthSpec> {
     /// Slot to act as an identifier/safeguard
     slot: Slot,
     /// Previous epoch of the `slot` precomputed for optimization purpose.
@@ -25,7 +25,7 @@ pub struct ConsensusContext<T: EthSpec> {
     /// We can skip serializing / deserializing this as the cache will just be rebuilt
     #[ssz(skip_serializing, skip_deserializing)]
     indexed_attestations:
-        HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
+        HashMap<(AttestationData, BitList<E::MaxValidatorsPerCommittee>), IndexedAttestation<E>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -48,9 +48,9 @@ impl From<EpochCacheError> for ContextError {
     }
 }
 
-impl<T: EthSpec> ConsensusContext<T> {
+impl<E: EthSpec> ConsensusContext<E> {
     pub fn new(slot: Slot) -> Self {
-        let current_epoch = slot.epoch(T::slots_per_epoch());
+        let current_epoch = slot.epoch(E::slots_per_epoch());
         let previous_epoch = current_epoch.saturating_sub(1u64);
         Self {
             slot,
@@ -74,7 +74,7 @@ impl<T: EthSpec> ConsensusContext<T> {
     /// required. If the slot check is too restrictive, see `get_proposer_index_from_epoch_state`.
     pub fn get_proposer_index(
         &mut self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
         self.check_slot(state.slot())?;
@@ -88,7 +88,7 @@ impl<T: EthSpec> ConsensusContext<T> {
     /// we want to extract the proposer index from a single state for every slot in the epoch.
     pub fn get_proposer_index_from_epoch_state(
         &mut self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
         self.check_epoch(state.current_epoch())?;
@@ -97,7 +97,7 @@ impl<T: EthSpec> ConsensusContext<T> {
 
     fn get_proposer_index_no_checks(
         &mut self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
         if let Some(proposer_index) = self.proposer_index {
@@ -114,9 +114,9 @@ impl<T: EthSpec> ConsensusContext<T> {
         self
     }
 
-    pub fn get_current_block_root<Payload: AbstractExecPayload<T>>(
+    pub fn get_current_block_root<Payload: AbstractExecPayload<E>>(
         &mut self,
-        block: &SignedBeaconBlock<T, Payload>,
+        block: &SignedBeaconBlock<E, Payload>,
     ) -> Result<Hash256, ContextError> {
         self.check_slot(block.slot())?;
 
@@ -141,7 +141,7 @@ impl<T: EthSpec> ConsensusContext<T> {
     }
 
     fn check_epoch(&self, epoch: Epoch) -> Result<(), ContextError> {
-        let expected = self.slot.epoch(T::slots_per_epoch());
+        let expected = self.slot.epoch(E::slots_per_epoch());
         if epoch == expected {
             Ok(())
         } else {
@@ -151,9 +151,9 @@ impl<T: EthSpec> ConsensusContext<T> {
 
     pub fn get_indexed_attestation(
         &mut self,
-        state: &BeaconState<T>,
-        attestation: &Attestation<T>,
-    ) -> Result<&IndexedAttestation<T>, BlockOperationError<AttestationInvalid>> {
+        state: &BeaconState<E>,
+        attestation: &Attestation<E>,
+    ) -> Result<&IndexedAttestation<E>, BlockOperationError<AttestationInvalid>> {
         let key = (
             attestation.data.clone(),
             attestation.aggregation_bits.clone(),

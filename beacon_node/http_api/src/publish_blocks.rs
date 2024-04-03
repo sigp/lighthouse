@@ -85,7 +85,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                 crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block))
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
-            SignedBeaconBlock::Deneb(_) => {
+            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
                 let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block)];
                 if let Some(blob_sidecars) = blobs_opt {
                     for (blob_index, blob) in blob_sidecars.into_iter().enumerate() {

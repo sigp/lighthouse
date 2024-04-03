@@ -32,15 +32,15 @@ impl From<ArithError> for Error {
     Derivative,
     arbitrary::Arbitrary,
 )]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct SyncAggregate<T: EthSpec> {
-    pub sync_committee_bits: BitVector<T::SyncCommitteeSize>,
+#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct SyncAggregate<E: EthSpec> {
+    pub sync_committee_bits: BitVector<E::SyncCommitteeSize>,
     pub sync_committee_signature: AggregateSignature,
 }
 
-impl<T: EthSpec> SyncAggregate<T> {
+impl<E: EthSpec> SyncAggregate<E> {
     /// New aggregate to be used as the seed for aggregating other signatures.
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
@@ -54,11 +54,11 @@ impl<T: EthSpec> SyncAggregate<T> {
     ///
     /// Equivalent to `process_sync_committee_contributions` from the spec.
     pub fn from_contributions(
-        contributions: &[SyncCommitteeContribution<T>],
-    ) -> Result<SyncAggregate<T>, Error> {
+        contributions: &[SyncCommitteeContribution<E>],
+    ) -> Result<SyncAggregate<E>, Error> {
         let mut sync_aggregate = Self::new();
         let sync_subcommittee_size =
-            T::sync_committee_size().safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
+            E::sync_committee_size().safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
         for contribution in contributions {
             for (index, participated) in contribution.aggregation_bits.iter().enumerate() {
                 if participated {

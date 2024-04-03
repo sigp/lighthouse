@@ -62,12 +62,12 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
 /// Indicates if the block is fully `Available` or if we need blobs or blocks
 ///  to "complete" the requirements for an `AvailableBlock`.
 #[derive(PartialEq)]
-pub enum Availability<T: EthSpec> {
+pub enum Availability<E: EthSpec> {
     MissingComponents(Hash256),
-    Available(Box<AvailableExecutedBlock<T>>),
+    Available(Box<AvailableExecutedBlock<E>>),
 }
 
-impl<T: EthSpec> Debug for Availability<T> {
+impl<E: EthSpec> Debug for Availability<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::MissingComponents(block_root) => {
@@ -110,8 +110,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.processing_cache.read().get(&block_root).cloned()
     }
 
-    /// A `None` indicates blobs are not required.
-    ///
     /// If there's no block, all possible ids will be returned that don't exist in the given blobs.
     /// If there no blobs, all possible ids will be returned.
     pub fn get_missing_blob_ids<V: AvailabilityView<T::EthSpec>>(

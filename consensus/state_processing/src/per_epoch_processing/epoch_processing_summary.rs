@@ -9,7 +9,7 @@ use types::{
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]
-pub enum EpochProcessingSummary<T: EthSpec> {
+pub enum EpochProcessingSummary<E: EthSpec> {
     Base {
         total_balances: TotalBalances,
         statuses: Vec<ValidatorStatus>,
@@ -17,28 +17,28 @@ pub enum EpochProcessingSummary<T: EthSpec> {
     Altair {
         progressive_balances: ProgressiveBalancesCache,
         current_epoch_total_active_balance: u64,
-        participation: ParticipationEpochSummary<T>,
-        sync_committee: Arc<SyncCommittee<T>>,
+        participation: ParticipationEpochSummary<E>,
+        sync_committee: Arc<SyncCommittee<E>>,
     },
 }
 
 #[derive(PartialEq, Debug)]
-pub struct ParticipationEpochSummary<T: EthSpec> {
+pub struct ParticipationEpochSummary<E: EthSpec> {
     /// Copy of the validator registry prior to mutation.
-    validators: VariableList<Validator, T::ValidatorRegistryLimit>,
+    validators: VariableList<Validator, E::ValidatorRegistryLimit>,
     /// Copy of the participation flags for the previous epoch.
-    previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
     /// Copy of the participation flags for the current epoch.
-    current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
     previous_epoch: Epoch,
     current_epoch: Epoch,
 }
 
-impl<T: EthSpec> ParticipationEpochSummary<T> {
+impl<E: EthSpec> ParticipationEpochSummary<E> {
     pub fn new(
-        validators: VariableList<Validator, T::ValidatorRegistryLimit>,
-        previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-        current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+        validators: VariableList<Validator, E::ValidatorRegistryLimit>,
+        previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+        current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
         previous_epoch: Epoch,
         current_epoch: Epoch,
     ) -> Self {
@@ -85,7 +85,7 @@ impl<T: EthSpec> ParticipationEpochSummary<T> {
     }
 }
 
-impl<T: EthSpec> EpochProcessingSummary<T> {
+impl<E: EthSpec> EpochProcessingSummary<E> {
     /// Updates some Prometheus metrics with some values in `self`.
     pub fn observe_metrics(&self) -> Result<(), BeaconStateError> {
         metrics::set_gauge(
@@ -105,7 +105,7 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
     }
 
     /// Returns the sync committee indices for the current epoch for altair.
-    pub fn sync_committee(&self) -> Option<&SyncCommittee<T>> {
+    pub fn sync_committee(&self) -> Option<&SyncCommittee<E>> {
         match self {
             EpochProcessingSummary::Altair { sync_committee, .. } => Some(sync_committee),
             EpochProcessingSummary::Base { .. } => None,

@@ -46,12 +46,12 @@ impl AttestationDelta {
 }
 
 /// Apply attester and proposer rewards.
-pub fn process_rewards_and_penalties<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_rewards_and_penalties<E: EthSpec>(
+    state: &mut BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch() == T::genesis_epoch() {
+    if state.current_epoch() == E::genesis_epoch() {
         return Ok(());
     }
 
@@ -76,8 +76,8 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 }
 
 /// Apply rewards for participation in attestations during the previous epoch.
-pub fn get_attestation_deltas_all<T: EthSpec>(
-    state: &BeaconState<T>,
+pub fn get_attestation_deltas_all<E: EthSpec>(
+    state: &BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
@@ -86,8 +86,8 @@ pub fn get_attestation_deltas_all<T: EthSpec>(
 
 /// Apply rewards for participation in attestations during the previous epoch, and only compute
 /// rewards for a subset of validators.
-pub fn get_attestation_deltas_subset<T: EthSpec>(
-    state: &BeaconState<T>,
+pub fn get_attestation_deltas_subset<E: EthSpec>(
+    state: &BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
     validators_subset: &Vec<usize>,
     spec: &ChainSpec,
@@ -106,8 +106,8 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
 /// returned, otherwise deltas for all validators are returned.
 ///
 /// Returns a vec of validator indices to `AttestationDelta`.
-fn get_attestation_deltas<T: EthSpec>(
-    state: &BeaconState<T>,
+fn get_attestation_deltas<E: EthSpec>(
+    state: &BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
     maybe_validators_subset: Option<&Vec<usize>>,
     spec: &ChainSpec,
