@@ -1114,7 +1114,6 @@ impl<E: EthSpec> EventKind<E> {
         let event = split
             .next()
             .ok_or_else(|| {
-                println!("{}", s);
                 ServerError::InvalidServerSentEvent("Could not parse event tag".to_string())
             })?
             .trim_start_matches("event:");
