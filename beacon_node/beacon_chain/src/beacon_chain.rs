@@ -1349,6 +1349,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.light_client_server_cache.recompute_and_cache_updates(
             self.store.clone(),
             &block_root,
+            slot,
             &parent_root,
             &sync_aggregate,
             &self.log,
