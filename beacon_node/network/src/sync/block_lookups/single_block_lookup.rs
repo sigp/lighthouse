@@ -319,13 +319,13 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
-pub struct BlobRequestState<L: Lookup, T: EthSpec> {
+pub struct BlobRequestState<L: Lookup, E: EthSpec> {
     /// The latest picture of which blobs still need to be requested. This includes information
     /// from both block/blobs downloaded in the network layer and any blocks/blobs that exist in
     /// the data availability checker.
     pub requested_ids: MissingBlobs,
     /// Where we store blobs until we receive the stream terminator.
-    pub blob_download_queue: FixedBlobSidecarList<T>,
+    pub blob_download_queue: FixedBlobSidecarList<E>,
     pub state: SingleLookupRequestState,
     _phantom: PhantomData<L>,
 }

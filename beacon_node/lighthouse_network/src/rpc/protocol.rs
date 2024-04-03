@@ -17,9 +17,9 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
+    BeaconBlockMerge, BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName,
+    MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -65,6 +65,13 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
+    pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Electra(BeaconBlockElectra::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+
     /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
     /// We calculate the value from its fields instead of constructing the block and checking the length.
     /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
@@ -82,6 +89,12 @@ lazy_static! {
     pub static ref SIGNED_BEACON_BLOCK_DENEB_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
+    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
+    + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
+                                    //
+    pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX: usize = *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_electra_size() // adding max size of execution payload (~16gb)
+    + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
 
@@ -112,6 +125,7 @@ pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize 
         ForkName::Merge => max_chunk_size,
         ForkName::Capella => max_chunk_size,
         ForkName::Deneb => max_chunk_size,
+        ForkName::Electra => max_chunk_size,
     }
 }
 
@@ -138,7 +152,11 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         ),
         ForkName::Deneb => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
-            *SIGNED_BEACON_BLOCK_DENEB_MAX, // EIP 4844 block is larger than all prior fork blocks
+            *SIGNED_BEACON_BLOCK_DENEB_MAX, // Deneb block is larger than all prior fork blocks
+        ),
+        ForkName::Electra => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
         ),
     }
 }
@@ -280,15 +298,15 @@ impl std::fmt::Display for Encoding {
 }
 
 #[derive(Debug, Clone)]
-pub struct RPCProtocol<TSpec: EthSpec> {
+pub struct RPCProtocol<E: EthSpec> {
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
     pub enable_light_client_server: bool,
-    pub phantom: PhantomData<TSpec>,
+    pub phantom: PhantomData<E>,
     pub ttfb_timeout: Duration,
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
+impl<E: EthSpec> UpgradeInfo for RPCProtocol<E> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
@@ -379,7 +397,7 @@ impl ProtocolId {
     }
 
     /// Returns min and max size for messages of given protocol id responses.
-    pub fn rpc_response_limits<T: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
+    pub fn rpc_response_limits<E: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -388,15 +406,15 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRange => rpc_blob_limits::<T>(),
-            Protocol::BlobsByRoot => rpc_blob_limits::<T>(),
+            Protocol::BlobsByRange => rpc_blob_limits::<E>(),
+            Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
             ),
             Protocol::MetaData => RpcLimits::new(
-                <MetaDataV1<T> as Encode>::ssz_fixed_len(),
-                <MetaDataV2<T> as Encode>::ssz_fixed_len(),
+                <MetaDataV1<E> as Encode>::ssz_fixed_len(),
+                <MetaDataV2<E> as Encode>::ssz_fixed_len(),
             ),
             Protocol::LightClientBootstrap => RpcLimits::new(
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
@@ -444,10 +462,10 @@ impl ProtocolId {
     }
 }
 
-pub fn rpc_blob_limits<T: EthSpec>() -> RpcLimits {
+pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     RpcLimits::new(
-        BlobSidecar::<T>::empty().as_ssz_bytes().len(),
-        BlobSidecar::<T>::max_size(),
+        BlobSidecar::<E>::empty().as_ssz_bytes().len(),
+        BlobSidecar::<E>::max_size(),
     )
 }
 
@@ -456,16 +474,16 @@ pub fn rpc_blob_limits<T: EthSpec>() -> RpcLimits {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket, TSpec> = (InboundRequest<TSpec>, InboundFramed<TSocket, TSpec>);
-pub type InboundFramed<TSocket, TSpec> =
-    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<TSpec>>;
+pub type InboundOutput<TSocket, E> = (InboundRequest<E>, InboundFramed<TSocket, E>);
+pub type InboundFramed<TSocket, E> =
+    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<E>>;
 
-impl<TSocket, TSpec> InboundUpgrade<TSocket> for RPCProtocol<TSpec>
+impl<TSocket, E> InboundUpgrade<TSocket> for RPCProtocol<E>
 where
     TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    TSpec: EthSpec,
+    E: EthSpec,
 {
-    type Output = InboundOutput<TSocket, TSpec>;
+    type Output = InboundOutput<TSocket, E>;
     type Error = RPCError;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
@@ -517,7 +535,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum InboundRequest<TSpec: EthSpec> {
+pub enum InboundRequest<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
@@ -526,11 +544,11 @@ pub enum InboundRequest<TSpec: EthSpec> {
     BlobsByRoot(BlobsByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
-    MetaData(MetadataRequest<TSpec>),
+    MetaData(MetadataRequest<E>),
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> InboundRequest<TSpec> {
+impl<E: EthSpec> InboundRequest<E> {
     /* These functions are used in the handler for stream management */
 
     /// Number of responses expected for this request.
@@ -540,7 +558,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Goodbye(_) => 0,
             InboundRequest::BlocksByRange(req) => *req.count(),
             InboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
-            InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<TSpec>(),
+            InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
@@ -681,7 +699,7 @@ impl std::error::Error for RPCError {
     }
 }
 
-impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
+impl<E: EthSpec> std::fmt::Display for InboundRequest<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InboundRequest::Status(status) => write!(f, "Status Message: {}", status),

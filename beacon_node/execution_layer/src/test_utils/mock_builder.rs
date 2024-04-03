@@ -15,7 +15,8 @@ use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::builder_bid::{
-    BuilderBid, BuilderBidCapella, BuilderBidDeneb, BuilderBidMerge, SignedBuilderBid,
+    BuilderBid, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra, BuilderBidMerge,
+    SignedBuilderBid,
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
@@ -85,6 +86,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Deneb(header) => {
                 header.fee_recipient = fee_recipient;
             }
+            ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.fee_recipient = fee_recipient;
+            }
         }
     }
 
@@ -97,6 +101,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.gas_limit = gas_limit;
             }
             ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.gas_limit = gas_limit;
+            }
+            ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.gas_limit = gas_limit;
             }
         }
@@ -117,6 +124,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Deneb(header) => {
                 header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
             }
+            ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
+            }
         }
     }
 
@@ -129,6 +139,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.prev_randao = prev_randao;
             }
             ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.prev_randao = prev_randao;
+            }
+            ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.prev_randao = prev_randao;
             }
         }
@@ -145,6 +158,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Deneb(header) => {
                 header.block_number = block_number;
             }
+            ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.block_number = block_number;
+            }
         }
     }
 
@@ -159,6 +175,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Deneb(header) => {
                 header.timestamp = timestamp;
             }
+            ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.timestamp = timestamp;
+            }
         }
     }
 
@@ -171,6 +190,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.withdrawals_root = withdrawals_root;
             }
             ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.withdrawals_root = withdrawals_root;
+            }
+            ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.withdrawals_root = withdrawals_root;
             }
         }
@@ -320,6 +342,9 @@ pub fn serve<E: EthSpec>(
                     SignedBlindedBeaconBlock::Deneb(block) => {
                         block.message.body.execution_payload.tree_hash_root()
                     }
+                    SignedBlindedBeaconBlock::Electra(block) => {
+                        block.message.body.execution_payload.tree_hash_root()
+                    }
                 };
 
                 let fork_name = builder.spec.fork_name_at_slot::<E>(slot);
@@ -455,7 +480,7 @@ pub fn serve<E: EthSpec>(
                     .map_err(|_| reject("couldn't get prev randao"))?;
                 let expected_withdrawals = match fork {
                     ForkName::Base | ForkName::Altair | ForkName::Merge => None,
-                    ForkName::Capella | ForkName::Deneb => Some(
+                    ForkName::Capella | ForkName::Deneb | ForkName::Electra => Some(
                         builder
                             .beacon_client
                             .get_expected_withdrawals(&StateId::Head)
@@ -477,7 +502,7 @@ pub fn serve<E: EthSpec>(
                         expected_withdrawals,
                         None,
                     ),
-                    ForkName::Deneb => PayloadAttributes::new(
+                    ForkName::Deneb | ForkName::Electra => PayloadAttributes::new(
                         timestamp,
                         *prev_randao,
                         fee_recipient,
@@ -521,6 +546,17 @@ pub fn serve<E: EthSpec>(
                         ) = payload_response.into();
 
                         match fork {
+                            ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
+                                header: payload
+                                    .as_electra()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
                             ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
                                 header: payload
                                     .as_deneb()
@@ -560,6 +596,17 @@ pub fn serve<E: EthSpec>(
                             Option<BlobsBundle<E>>,
                         ) = payload_response.into();
                         match fork {
+                            ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
+                                header: payload
+                                    .as_electra()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
                             ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
                                 header: payload
                                     .as_deneb()

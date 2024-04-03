@@ -4588,9 +4588,9 @@ pub fn serve<T: BeaconChainTypes>(
 }
 
 /// Publish a message to the libp2p pubsub network.
-fn publish_pubsub_message<T: EthSpec>(
-    network_tx: &UnboundedSender<NetworkMessage<T>>,
-    message: PubsubMessage<T>,
+fn publish_pubsub_message<E: EthSpec>(
+    network_tx: &UnboundedSender<NetworkMessage<E>>,
+    message: PubsubMessage<E>,
 ) -> Result<(), warp::Rejection> {
     publish_network_message(
         network_tx,
@@ -4601,17 +4601,17 @@ fn publish_pubsub_message<T: EthSpec>(
 }
 
 /// Publish a message to the libp2p pubsub network.
-fn publish_pubsub_messages<T: EthSpec>(
-    network_tx: &UnboundedSender<NetworkMessage<T>>,
-    messages: Vec<PubsubMessage<T>>,
+fn publish_pubsub_messages<E: EthSpec>(
+    network_tx: &UnboundedSender<NetworkMessage<E>>,
+    messages: Vec<PubsubMessage<E>>,
 ) -> Result<(), warp::Rejection> {
     publish_network_message(network_tx, NetworkMessage::Publish { messages })
 }
 
 /// Publish a message to the libp2p network.
-fn publish_network_message<T: EthSpec>(
-    network_tx: &UnboundedSender<NetworkMessage<T>>,
-    message: NetworkMessage<T>,
+fn publish_network_message<E: EthSpec>(
+    network_tx: &UnboundedSender<NetworkMessage<E>>,
+    message: NetworkMessage<E>,
 ) -> Result<(), warp::Rejection> {
     network_tx.send(message).map_err(|e| {
         warp_utils::reject::custom_server_error(format!(
