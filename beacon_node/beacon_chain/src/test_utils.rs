@@ -1654,7 +1654,6 @@ where
         {
             self.chain
                 .import_attester_slashing(verified_attester_slashing);
-            // TODO add attester SSE
             Ok(())
         } else {
             Err("should observe new attester slashing".to_string())

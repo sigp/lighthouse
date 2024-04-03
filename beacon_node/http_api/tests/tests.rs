@@ -5325,7 +5325,7 @@ impl ApiTester {
         )
         .await;
 
-        assert!(attester_slashing_event.len() > 0);
+        assert!(attester_slashing_event.len() == 1);
 
         // Test proposer slashing event
         let mut proposer_slashing_event_future = self
@@ -5343,7 +5343,7 @@ impl ApiTester {
         )
         .await;
 
-        assert!(proposer_slashing_event.len() > 0);
+        assert!(proposer_slashing_event.len() == 1);
 
         self
     }
