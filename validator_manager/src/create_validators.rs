@@ -211,14 +211,6 @@ pub fn cli_app() -> Command {
                 .value_parser(["true", "false"])
                 .action(ArgAction::Set),
         )
-        .arg(
-            Arg::new("dump-config")
-                .long("dump-config")
-                .hide(true)
-                .help("Dumps the config to a desired location. Used for testing only.")
-                .action(ArgAction::Set)
-                .global(true),
-        )
 }
 
 /// The CLI arguments are parsed into this struct before running the application. This step of

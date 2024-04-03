@@ -5,7 +5,7 @@ use beacon_chain::chain_config::{
 use beacon_chain::TrustedSetup;
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::parse_required;
+use clap_utils::{parse_flag, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -103,7 +103,7 @@ pub fn get_config<E: EthSpec>(
      * Http API server
      */
 
-    if cli_args.contains_id("enable_http") {
+    if parse_flag(cli_args, "enable_http") {
         client_config.http_api.enabled = true;
 
         if let Some(address) = cli_args.get_one::<String>("http-address") {
@@ -324,7 +324,7 @@ pub fn get_config<E: EthSpec>(
                 clap_utils::parse_optional(cli_args, "builder-user-agent")?;
         }
 
-        if cli_args.contains_id("builder-profit-threshold") {
+        if parse_flag(cli_args, "builder-profit-threshold") {
             warn!(
                 log,
                 "Ignoring --builder-profit-threshold";
@@ -555,7 +555,7 @@ pub fn get_config<E: EthSpec>(
             ClientGenesis::GenesisState
         }
     } else {
-        if cli_args.contains_id("checkpoint-state") || cli_args.contains_id("checkpoint-sync-url") {
+        if parse_flag(cli_args, "checkpoint-state") || parse_flag(cli_args, "checkpoint-sync-url") {
             return Err(
                 "Checkpoint sync is not available for this network as no genesis state is known"
                     .to_string(),
@@ -882,7 +882,7 @@ pub fn parse_listening_addresses(
     let listen_addresses_str = cli_args
         .get_many::<String>("listen-address")
         .expect("--listen_addresses has a default value");
-    let use_zero_ports = cli_args.get_flag("zero-ports");
+    let use_zero_ports = parse_flag(cli_args, "zero-ports");
 
     // parse the possible ips
     let mut maybe_ipv4 = None;
@@ -972,7 +972,7 @@ pub fn parse_listening_addresses(
         (None, Some(ipv6)) => {
             // A single ipv6 address was provided. Set the ports
 
-            if cli_args.contains_id("port6") {
+            if parse_flag(cli_args, "port6") {
                 warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.")
             }
             // use zero ports if required. If not, use the given port.
@@ -1114,15 +1114,15 @@ pub fn set_network_config(
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
-    if cli_args.get_flag("subscribe-all-subnets") {
+    if parse_flag(cli_args, "subscribe-all-subnets") {
         config.subscribe_all_subnets = true;
     }
 
-    if cli_args.get_flag("import-all-attestations") {
+    if parse_flag(cli_args, "import-all-attestations") {
         config.import_all_attestations = true;
     }
 
-    if cli_args.get_flag("shutdown-after-sync") {
+    if parse_flag(cli_args, "shutdown-after-sync") {
         config.shutdown_after_sync = true;
     }
 
@@ -1178,7 +1178,7 @@ pub fn set_network_config(
             .collect::<Result<Vec<Multiaddr>, _>>()?;
     }
 
-    if cli_args.get_flag("disable-peer-scoring") {
+    if parse_flag(cli_args, "disable-peer-scoring") {
         config.disable_peer_scoring = true;
     }
 
@@ -1244,7 +1244,7 @@ pub fn set_network_config(
         );
     }
 
-    if cli_args.get_flag("enr-match") {
+    if parse_flag(cli_args, "enr-match") {
         // Match the IP and UDP port in the ENR.
 
         if let Some(ipv4_addr) = config.listen_addrs().v4().cloned() {
@@ -1360,56 +1360,58 @@ pub fn set_network_config(
         }
     }
 
-    if cli_args.get_flag("disable-enr-auto-update") {
+    if parse_flag(cli_args, "disable-enr-auto-update") {
         config.discv5_config.enr_update = false;
     }
 
-    if cli_args.get_flag("disable-packet-filter") {
+    if parse_flag(cli_args, "disable-packet-filter") {
         warn!(log, "Discv5 packet filter is disabled");
         config.discv5_config.enable_packet_filter = false;
     }
 
-    if cli_args.get_flag("disable-discovery") {
+    if parse_flag(cli_args, "disable-discovery") {
         config.disable_discovery = true;
         warn!(log, "Discovery is disabled. New peers will not be found");
     }
 
-    if cli_args.get_flag("disable-quic") {
+    if parse_flag(cli_args, "disable-quic") {
         config.disable_quic_support = true;
     }
 
-    if cli_args.get_flag("disable-upnp") {
+    if parse_flag(cli_args, "disable-upnp") {
         config.upnp_enabled = false;
     }
 
-    if cli_args.get_flag("private") {
+    if parse_flag(cli_args, "private") {
         config.private = true;
     }
 
-    if cli_args.get_flag("metrics") {
+    if parse_flag(cli_args, "metrics") {
         config.metrics_enabled = true;
     }
 
-    if cli_args.get_flag("enable-private-discovery") {
+    if parse_flag(cli_args, "enable-private-discovery") {
         config.discv5_config.table_filter = |_| true;
     }
 
     // Light client server config.
-    config.enable_light_client_server = cli_args.get_flag("light-client-server");
+    config.enable_light_client_server = parse_flag(cli_args, "light-client-server");
 
-    // The self limiter is disabled by default.
-    // This flag can be used both with or without a value. Try to parse it first with a value, if
-    // no value is defined but the flag is present, use the default params.
-    if cli_args.try_get_one::<bool>("self_limiter").is_ok() {
-        config.outbound_rate_limiter_config = Some(Default::default());
-    } else {
-        config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
+    // The self limiter is disabled by default. If the `self-limiter` flag is provided
+    // without the `self-limiter-protocols` flag, the default params will be used.
+    if parse_flag(cli_args, "self-limiter") {
+        config.outbound_rate_limiter_config =
+            if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
+                Some(protocols.parse()?)
+            } else {
+                Some(Default::default())
+            };
     }
 
     // Proposer-only mode overrides a number of previous configuration parameters.
     // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
     // of peers.
-    if cli_args.get_flag("proposer-only") {
+    if parse_flag(cli_args, "proposer-only") {
         config.subscribe_all_subnets = false;
 
         if cli_args.get_one::<String>("target-peers").is_none() {
@@ -1419,20 +1421,16 @@ pub fn set_network_config(
         config.proposer_only = true;
         warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
     }
-    // The inbound rate limiter is enabled by default unless `disabled` is passed to the
-    // `inbound-rate-limiter` flag. Any other value should be parsed as a configuration string.
-    config.inbound_rate_limiter_config = match cli_args.get_one::<String>("inbound-rate-limiter") {
-        None => {
-            // Enabled by default, with default values
+    // The inbound rate limiter is enabled by default unless `disabled` via the
+    // `disable-inbound-rate-limiter` flag.
+    config.inbound_rate_limiter_config = if parse_flag(cli_args, "disable-inbound-rate-limiter") {
+        None
+    } else {
+        // Use the default unless values are provided via the `inbound-rate-limiter-protocols`
+        if let Some(protocols) = cli_args.get_one::<String>("inbound-rate-limiter-protocols") {
+            Some(protocols.parse()?)
+        } else {
             Some(Default::default())
-        }
-        Some(config_str) => {
-            if config_str.as_str() == "disabled" {
-                None
-            } else {
-                // Enabled with a custom configuration
-                Some(config_str.parse()?)
-            }
         }
     };
     Ok(())

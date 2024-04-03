@@ -29,7 +29,6 @@ impl<E: EthSpec> BootNodeConfig<E> {
         eth2_network_config: &Eth2NetworkConfig,
     ) -> Result<Self, String> {
         let data_dir = get_data_dir(matches);
-
         // Try and obtain bootnodes
 
         let boot_nodes = {

@@ -343,11 +343,9 @@ pub fn cli_app() -> Command {
         )
         .arg(
            // TODO take note here 
-            Arg::new("latency-measurement-service")
-                .long("latency-measurement-service")
-                .value_name("BOOLEAN")
-                .help("Set to 'true' to enable a service that periodically attempts to measure latency to BNs. \
-                    Set to 'false' to disable.")
+            Arg::new("disable-latency-measurement-service")
+                .long("disable-latency-measurement-service")
+                .help("Disables the service that periodically attempts to measure latency to BNs.")
                 .action(ArgAction::SetTrue),
         )
         .arg(

@@ -1560,7 +1560,7 @@ fn empty_inbound_rate_limiter_flag() {
 #[test]
 fn disable_inbound_rate_limiter_flag() {
     CommandLineTest::new()
-        .flag("inbound-rate-limiter", Some("disabled"))
+        .flag("disable-inbound-rate-limiter", None)
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.network.inbound_rate_limiter_config, None));
 }

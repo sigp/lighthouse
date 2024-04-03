@@ -1,4 +1,4 @@
-use clap::{builder::ArgPredicate, Arg, ArgAction, ArgGroup, Command, crate_version};
+use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Command};
 use clap_utils::get_color_style;
 use strum::VariantNames;
 use types::ProgressiveBalancesMode;
@@ -312,6 +312,18 @@ pub fn cli_app() -> Command {
             Arg::new("self-limiter")
             .long("self-limiter")
             .help(
+                "Enables the outbound rate limiter (requests made by this node). \
+                Use the self-limiter-protocol flag to set per protocol configurations. \
+                If the self rate limiter is enabled and a protocol is not \
+                present in the configuration, the quotas used for the inbound rate limiter will be \
+                used."
+            )
+            .action(ArgAction::SetTrue)
+        )
+        .arg(
+            Arg::new("self-limiter-protocols")
+            .long("self-limiter-protocols")
+            .help(
                 "Enables the outbound rate limiter (requests made by this node).\
                 \
                 Rate limit quotas per protocol can be set in the form of \
@@ -320,11 +332,9 @@ pub fn cli_app() -> Command {
                 present in the configuration, the quotas used for the inbound rate limiter will be \
                 used."
             )
-            .default_missing_value("true")
-            .require_equals(false)
-            // TODO this is dangerous without requires_equals = true
-            .num_args(0..1)
-            .hide(true)
+            .action(ArgAction::Append)
+            .value_delimiter(';')
+            .requires("self-limiter")
         )
         .arg(
             Arg::new("proposer-only")
@@ -335,21 +345,28 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
         )
         .arg(
-            Arg::new("inbound-rate-limiter")
-            .long("inbound-rate-limiter")
+            Arg::new("disable-inbound-rate-limiter")
+            .long("disable-inbound-rate-limiter")
+            .help(
+                "Disables the inbound rate limiter (requests received by this node)."
+            )
+            .action(ArgAction::SetTrue)
+        )
+        .arg(
+            Arg::new("inbound-rate-limiter-protocols")
+            .long("inbound-rate-limiter-protocols")
             .help(
                 "Configures the inbound rate limiter (requests received by this node).\
                 \
                 Rate limit quotas per protocol can be set in the form of \
                 <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
-                separate them by ';'. If the inbound rate limiter is enabled and a protocol is not \
-                present in the configuration, the default quotas will be used. \
+                separate them by ';'. \
                 \
-                This is enabled by default, using default quotas. To disable rate limiting pass \
-                `disabled` to this option instead."
+                This is enabled by default, using default quotas. To disable rate limiting use \
+                the disable-inbound-rate-limiter flag instead."
             )
             .action(ArgAction::Set)
-            .hide(true)
+            .conflicts_with("disable-inbound-rate-limiter")
         )
         .arg(
             Arg::new("disable-backfill-rate-limiting")

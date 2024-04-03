@@ -200,3 +200,9 @@ pub fn get_color_style() -> Styles {
         .literal(AnsiColor::Green.on_default())
         .placeholder(AnsiColor::Green.on_default())
 }
+
+pub fn parse_flag(matches: &ArgMatches, name: &str) -> bool {
+    *matches
+        .get_one::<bool>(name)
+        .unwrap_or(&false)
+}
