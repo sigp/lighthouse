@@ -38,8 +38,8 @@ struct ExecutionMetadata {
 
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
-pub struct WithdrawalsPayload<T: EthSpec> {
-    payload: FullPayload<T>,
+pub struct WithdrawalsPayload<E: EthSpec> {
+    payload: FullPayload<E>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,7 +99,8 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => {
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => {
                 initialize_progressive_balances_cache(state, None, spec)?;
                 altair_deneb::process_attestation(
                     state,

@@ -764,7 +764,8 @@ where
             (parent_justified, parent_finalized)
         } else {
             let justification_and_finalization_state = match block {
-                BeaconBlockRef::Deneb(_)
+                BeaconBlockRef::Electra(_)
+                | BeaconBlockRef::Deneb(_)
                 | BeaconBlockRef::Capella(_)
                 | BeaconBlockRef::Merge(_)
                 | BeaconBlockRef::Altair(_) => match progressive_balances_mode {

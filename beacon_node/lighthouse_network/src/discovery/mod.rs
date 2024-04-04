@@ -157,7 +157,7 @@ enum EventStream {
 
 /// The main discovery service. This can be disabled via CLI arguements. When disabled the
 /// underlying processes are not started, but this struct still maintains our current ENR.
-pub struct Discovery<TSpec: EthSpec> {
+pub struct Discovery<E: EthSpec> {
     /// A collection of seen live ENRs for quick lookup and to map peer-id's to ENRs.
     cached_enrs: LruCache<PeerId, Enr>,
 
@@ -171,7 +171,7 @@ pub struct Discovery<TSpec: EthSpec> {
     discv5: Discv5,
 
     /// A collection of network constants that can be read from other threads.
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    network_globals: Arc<NetworkGlobals<E>>,
 
     /// Indicates if we are actively searching for peers. We only allow a single FindPeers query at
     /// a time, regardless of the query concurrency.
@@ -197,12 +197,12 @@ pub struct Discovery<TSpec: EthSpec> {
     log: slog::Logger,
 }
 
-impl<TSpec: EthSpec> Discovery<TSpec> {
+impl<E: EthSpec> Discovery<E> {
     /// NOTE: Creating discovery requires running within a tokio execution environment.
     pub async fn new(
         local_key: Keypair,
         config: &NetworkConfig,
-        network_globals: Arc<NetworkGlobals<TSpec>>,
+        network_globals: Arc<NetworkGlobals<E>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let log = log.clone();
@@ -453,7 +453,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         match subnet {
             Subnet::Attestation(id) => {
                 let id = *id as usize;
-                let mut current_bitfield = local_enr.attestation_bitfield::<TSpec>()?;
+                let mut current_bitfield = local_enr.attestation_bitfield::<E>()?;
                 if id >= current_bitfield.len() {
                     return Err(format!(
                         "Subnet id: {} is outside the ENR bitfield length: {}",
@@ -486,7 +486,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
             Subnet::SyncCommittee(id) => {
                 let id = *id as usize;
-                let mut current_bitfield = local_enr.sync_committee_bitfield::<TSpec>()?;
+                let mut current_bitfield = local_enr.sync_committee_bitfield::<E>()?;
 
                 if id >= current_bitfield.len() {
                     return Err(format!(
@@ -731,7 +731,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
             if !random_search.is_empty() {
                 // Build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-                let subnet_predicate = subnet_predicate::<TSpec>(
+                let subnet_predicate = subnet_predicate::<E>(
                     random_search.iter().map(|q| q.subnet).collect::<Vec<_>>(),
                     &self.log,
                 );
@@ -780,7 +780,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     };
                     // Build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
                     let subnet_predicate =
-                        subnet_predicate::<TSpec>(vec![prefix_query.subnet], &self.log);
+                        subnet_predicate::<E>(vec![prefix_query.subnet], &self.log);
                     debug!(
                         self.log,
                         "Starting prefix search query";
@@ -919,7 +919,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
                             // Check the specific subnet against the enr
                             let subnet_predicate =
-                                subnet_predicate::<TSpec>(vec![query.subnet], &self.log);
+                                subnet_predicate::<E>(vec![query.subnet], &self.log);
 
                             r.clone()
                                 .into_iter()
@@ -990,7 +990,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
 /* NetworkBehaviour Implementation */
 
-impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
+impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
     // Discovery is not a real NetworkBehaviour...
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = DiscoveredPeers;
@@ -1190,7 +1190,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> Discovery<TSpec> {
+impl<E: EthSpec> Discovery<E> {
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
             match error {

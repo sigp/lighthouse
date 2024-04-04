@@ -5,8 +5,8 @@ use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;
 use types::{BeaconStateError, EthSpec, ProgressiveBalancesCache};
 
-pub fn process_effective_balance_updates<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_effective_balance_updates<E: EthSpec>(
+    state: &mut BeaconState<E>,
     maybe_participation_cache: Option<&ParticipationCache>,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
