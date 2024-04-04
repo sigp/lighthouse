@@ -1,7 +1,7 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes};
 use eth2::types::{BlobsBundle, BlockId, StateId, ValidatorId};
-use eth2::{BeaconNodeHttpClient, Timeouts};
+use eth2::{BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER};
 use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -321,56 +321,57 @@ pub fn serve<E: EthSpec>(
             },
         );
 
-    let blinded_block = prefix
-        .and(warp::path("blinded_blocks"))
-        .and(warp::body::json())
-        .and(warp::path::end())
-        .and(ctx_filter.clone())
-        .and_then(
-            |block: SignedBlindedBeaconBlock<E>, builder: MockBuilder<E>| async move {
-                let slot = block.slot();
-                let root = match block {
-                    SignedBlindedBeaconBlock::Base(_) | types::SignedBeaconBlock::Altair(_) => {
-                        return Err(reject("invalid fork"));
-                    }
-                    SignedBlindedBeaconBlock::Merge(block) => {
-                        block.message.body.execution_payload.tree_hash_root()
-                    }
-                    SignedBlindedBeaconBlock::Capella(block) => {
-                        block.message.body.execution_payload.tree_hash_root()
-                    }
-                    SignedBlindedBeaconBlock::Deneb(block) => {
-                        block.message.body.execution_payload.tree_hash_root()
-                    }
-                    SignedBlindedBeaconBlock::Electra(block) => {
-                        block.message.body.execution_payload.tree_hash_root()
-                    }
-                };
+    let blinded_block =
+        prefix
+            .and(warp::path("blinded_blocks"))
+            .and(warp::body::json())
+            .and(warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+            .and(warp::path::end())
+            .and(ctx_filter.clone())
+            .and_then(
+                |block: SignedBlindedBeaconBlock<E>,
+                 fork_name: ForkName,
+                 builder: MockBuilder<E>| async move {
+                    let root = match block {
+                        SignedBlindedBeaconBlock::Base(_) | types::SignedBeaconBlock::Altair(_) => {
+                            return Err(reject("invalid fork"));
+                        }
+                        SignedBlindedBeaconBlock::Merge(block) => {
+                            block.message.body.execution_payload.tree_hash_root()
+                        }
+                        SignedBlindedBeaconBlock::Capella(block) => {
+                            block.message.body.execution_payload.tree_hash_root()
+                        }
+                        SignedBlindedBeaconBlock::Deneb(block) => {
+                            block.message.body.execution_payload.tree_hash_root()
+                        }
+                        SignedBlindedBeaconBlock::Electra(block) => {
+                            block.message.body.execution_payload.tree_hash_root()
+                        }
+                    };
+                    let payload = builder
+                        .el
+                        .get_payload_by_root(&root)
+                        .ok_or_else(|| reject("missing payload for tx root"))?;
+                    let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
+                        version: Some(fork_name),
+                        metadata: Default::default(),
+                        data: payload,
+                    };
 
-                let fork_name = builder.spec.fork_name_at_slot::<E>(slot);
-                let payload = builder
-                    .el
-                    .get_payload_by_root(&root)
-                    .ok_or_else(|| reject("missing payload for tx root"))?;
-                let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
-                    version: Some(fork_name),
-                    metadata: Default::default(),
-                    data: payload,
-                };
-
-                let json_payload = serde_json::to_string(&resp)
-                    .map_err(|_| reject("coudn't serialize response"))?;
-                Ok::<_, warp::reject::Rejection>(
-                    warp::http::Response::builder()
-                        .status(200)
-                        .body(
-                            serde_json::to_string(&json_payload)
-                                .map_err(|_| reject("nvalid JSON"))?,
-                        )
-                        .unwrap(),
-                )
-            },
-        );
+                    let json_payload = serde_json::to_string(&resp)
+                        .map_err(|_| reject("coudn't serialize response"))?;
+                    Ok::<_, warp::reject::Rejection>(
+                        warp::http::Response::builder()
+                            .status(200)
+                            .body(
+                                serde_json::to_string(&json_payload)
+                                    .map_err(|_| reject("invalid JSON"))?,
+                            )
+                            .unwrap(),
+                    )
+                },
+            );
 
     let status = prefix
         .and(warp::path("status"))
