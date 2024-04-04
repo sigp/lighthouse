@@ -4,6 +4,7 @@ use std::future::Future;
 use tokio::sync::{mpsc::error::TrySendError, oneshot};
 use types::EthSpec;
 use warp::reply::{Reply, Response};
+use warp_utils::reject::convert_rejection;
 
 /// Maps a request to a queue in the `BeaconProcessor`.
 #[derive(Clone, Copy)]
@@ -33,24 +34,6 @@ pub struct TaskSpawner<E: EthSpec> {
     /// Used to send tasks to the `BeaconProcessor`. The tokio executor will be
     /// used if this is `None`.
     beacon_processor_send: Option<BeaconProcessorSend<E>>,
-}
-
-/// Convert a warp `Rejection` into a `Response`.
-///
-/// This function should *always* be used to convert rejections into responses. This prevents warp
-/// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
-pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> Response {
-    match res {
-        Ok(response) => response.into_response(),
-        Err(e) => match warp_utils::reject::handle_rejection(e).await {
-            Ok(reply) => reply.into_response(),
-            Err(_) => warp::reply::with_status(
-                warp::reply::json(&"unhandled error"),
-                eth2::StatusCode::INTERNAL_SERVER_ERROR,
-            )
-            .into_response(),
-        },
-    }
 }
 
 impl<E: EthSpec> TaskSpawner<E> {
