@@ -2217,7 +2217,6 @@ fn enable_proposer_re_orgs_default() {
         });
 }
 
-// TODO(is_parent_strong)
 #[test]
 fn disable_proposer_re_orgs() {
     CommandLineTest::new()
@@ -2225,7 +2224,7 @@ fn disable_proposer_re_orgs() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.chain.re_org_head_threshold, None);
-            assert_eq!(config.chain.re_org_parent_threshold.unwrap().0, u64::MAX)
+            assert_eq!(config.chain.re_org_parent_threshold, None)
         });
 }
 

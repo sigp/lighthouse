@@ -751,7 +751,7 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("disable-proposer-reorgs") {
         client_config.chain.re_org_head_threshold = None;
-        client_config.chain.re_org_parent_threshold = Some(ReOrgThreshold(u64::MAX));
+        client_config.chain.re_org_parent_threshold = None;
     } else {
         client_config.chain.re_org_head_threshold = Some(
             clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
