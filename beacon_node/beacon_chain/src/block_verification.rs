@@ -143,14 +143,14 @@ const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 /// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
 /// - We encountered an error whilst trying to verify the block (a `BeaconChainError`).
 #[derive(Debug)]
-pub enum BlockError<T: EthSpec> {
+pub enum BlockError<E: EthSpec> {
     /// The parent block was unknown.
     ///
     /// ## Peer scoring
     ///
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
-    ParentUnknown(RpcBlock<T>),
+    ParentUnknown(RpcBlock<E>),
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -190,7 +190,7 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The block is valid and we have already imported a block with this hash.
-    BlockIsAlreadyKnown,
+    BlockIsAlreadyKnown(Hash256),
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     ///
     /// ## Peer scoring
@@ -310,7 +310,7 @@ pub enum BlockError<T: EthSpec> {
     AvailabilityCheck(AvailabilityCheckError),
 }
 
-impl<T: EthSpec> From<AvailabilityCheckError> for BlockError<T> {
+impl<E: EthSpec> From<AvailabilityCheckError> for BlockError<E> {
     fn from(e: AvailabilityCheckError) -> Self {
         Self::AvailabilityCheck(e)
     }
@@ -418,19 +418,19 @@ impl From<execution_layer::Error> for ExecutionPayloadError {
     }
 }
 
-impl<T: EthSpec> From<ExecutionPayloadError> for BlockError<T> {
+impl<E: EthSpec> From<ExecutionPayloadError> for BlockError<E> {
     fn from(e: ExecutionPayloadError) -> Self {
         BlockError::ExecutionPayloadError(e)
     }
 }
 
-impl<T: EthSpec> From<InconsistentFork> for BlockError<T> {
+impl<E: EthSpec> From<InconsistentFork> for BlockError<E> {
     fn from(e: InconsistentFork) -> Self {
         BlockError::InconsistentFork(e)
     }
 }
 
-impl<T: EthSpec> std::fmt::Display for BlockError<T> {
+impl<E: EthSpec> std::fmt::Display for BlockError<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BlockError::ParentUnknown(block) => {
@@ -441,7 +441,7 @@ impl<T: EthSpec> std::fmt::Display for BlockError<T> {
     }
 }
 
-impl<T: EthSpec> From<BlockSignatureVerifierError> for BlockError<T> {
+impl<E: EthSpec> From<BlockSignatureVerifierError> for BlockError<E> {
     fn from(e: BlockSignatureVerifierError) -> Self {
         match e {
             // Make a special distinction for `IncorrectBlockProposer` since it indicates an
@@ -458,31 +458,31 @@ impl<T: EthSpec> From<BlockSignatureVerifierError> for BlockError<T> {
     }
 }
 
-impl<T: EthSpec> From<BeaconChainError> for BlockError<T> {
+impl<E: EthSpec> From<BeaconChainError> for BlockError<E> {
     fn from(e: BeaconChainError) -> Self {
         BlockError::BeaconChainError(e)
     }
 }
 
-impl<T: EthSpec> From<BeaconStateError> for BlockError<T> {
+impl<E: EthSpec> From<BeaconStateError> for BlockError<E> {
     fn from(e: BeaconStateError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
 }
 
-impl<T: EthSpec> From<SlotProcessingError> for BlockError<T> {
+impl<E: EthSpec> From<SlotProcessingError> for BlockError<E> {
     fn from(e: SlotProcessingError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::SlotProcessingError(e))
     }
 }
 
-impl<T: EthSpec> From<DBError> for BlockError<T> {
+impl<E: EthSpec> From<DBError> for BlockError<E> {
     fn from(e: DBError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::DBError(e))
     }
 }
 
-impl<T: EthSpec> From<ArithError> for BlockError<T> {
+impl<E: EthSpec> From<ArithError> for BlockError<E> {
     fn from(e: ArithError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::ArithError(e))
     }
@@ -764,6 +764,7 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>>;
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
@@ -831,7 +832,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // already know this block.
         let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
         if fork_choice_read_lock.contains_block(&block_root) {
-            return Err(BlockError::BlockIsAlreadyKnown);
+            return Err(BlockError::BlockIsAlreadyKnown(block_root));
         }
 
         // Do not process a block that doesn't descend from the finalized root.
@@ -965,7 +966,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             SeenBlock::Slashable => {
                 return Err(BlockError::Slashable);
             }
-            SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown),
+            SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown(block_root)),
             SeenBlock::UniqueNonSlashable => {}
         };
 
@@ -1016,6 +1017,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for GossipVerifiedBlock<T
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.block.as_block()
+    }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block.clone()
     }
 }
 
@@ -1168,6 +1173,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.block.as_block()
     }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block.block_cloned()
+    }
 }
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
@@ -1198,6 +1207,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self
     }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.clone()
+    }
 }
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> {
@@ -1227,6 +1240,10 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.as_block()
+    }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block_cloned()
     }
 }
 
@@ -1767,7 +1784,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
         .fork_choice_read_lock()
         .contains_block(&block_root)
     {
-        return Err(BlockError::BlockIsAlreadyKnown);
+        return Err(BlockError::BlockIsAlreadyKnown(block_root));
     }
 
     Ok(block_root)
@@ -2099,7 +2116,7 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     }
 }
 
-fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
+fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
     if WRITE_BLOCK_PROCESSING_SSZ {
         let root = state.tree_hash_root();
         let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot(), root);
@@ -2121,7 +2138,7 @@ fn write_state<T: EthSpec>(prefix: &str, state: &BeaconState<T>, log: &Logger) {
     }
 }
 
-fn write_block<T: EthSpec>(block: &SignedBeaconBlock<T>, root: Hash256, log: &Logger) {
+fn write_block<E: EthSpec>(block: &SignedBeaconBlock<E>, root: Hash256, log: &Logger) {
     if WRITE_BLOCK_PROCESSING_SSZ {
         let filename = format!("block_slot_{}_root{}.ssz", block.slot(), root);
         let mut path = std::env::temp_dir().join("lighthouse");

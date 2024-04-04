@@ -66,7 +66,7 @@ pub fn run(
     }
 }
 
-fn main<T: EthSpec>(
+fn main<E: EthSpec>(
     lh_matches: &ArgMatches<'_>,
     bn_matches: &ArgMatches<'_>,
     eth2_network_config: &Eth2NetworkConfig,
@@ -79,7 +79,7 @@ fn main<T: EthSpec>(
         .map_err(|e| format!("Failed to build runtime: {}", e))?;
 
     // Run the boot node
-    runtime.block_on(server::run::<T>(
+    runtime.block_on(server::run::<E>(
         lh_matches,
         bn_matches,
         eth2_network_config,

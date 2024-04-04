@@ -112,10 +112,10 @@ docker run lighthouse:local lighthouse --help
 You can run a Docker beacon node with the following command:
 
 ```bash
-docker run -p 9000:9000/tcp -p 9000:9000/udp -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --network mainnet beacon --http --http-address 0.0.0.0
+docker run -p 9000:9000/tcp -p 9000:9000/udp -p 9001:9001/udp -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --network mainnet beacon --http --http-address 0.0.0.0
 ```
 
-> To join the Goerli testnet, use `--network goerli` instead.
+> To join the Holesky testnet, use `--network holesky` instead.
 
 > The `-v` (Volumes) and `-p` (Ports) and values are described below.
 
@@ -135,18 +135,18 @@ docker run -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse bea
 
 ### Ports
 
-In order to be a good peer and serve other peers you should expose port `9000` for both TCP and UDP.
+In order to be a good peer and serve other peers you should expose port `9000` for both TCP and UDP, and port `9001` for UDP.
 Use the `-p` flag to do this:
 
 ```bash
-docker run -p 9000:9000/tcp -p 9000:9000/udp sigp/lighthouse lighthouse beacon
+docker run -p 9000:9000/tcp -p 9000:9000/udp -p 9001:9001/udp sigp/lighthouse lighthouse beacon
 ```
 
 If you use the `--http` flag you may also want to expose the HTTP port with `-p
 127.0.0.1:5052:5052`.
 
 ```bash
-docker run -p 9000:9000/tcp -p 9000:9000/udp -p 127.0.0.1:5052:5052 sigp/lighthouse lighthouse beacon --http --http-address 0.0.0.0
+docker run -p 9000:9000/tcp -p 9000:9000/udp -p 9001:9001/udp -p 127.0.0.1:5052:5052 sigp/lighthouse lighthouse beacon --http --http-address 0.0.0.0
 ```
 
 [docker_hub]: https://hub.docker.com/repository/docker/sigp/lighthouse/

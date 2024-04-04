@@ -32,3 +32,9 @@ CANCUN_TIME=$((GENESIS_TIME + (DENEB_FORK_EPOCH * $SLOT_PER_EPOCH * SECONDS_PER_
 echo "CANCUN_TIME: $CANCUN_TIME"
 sed 's/"cancunTime".*$/"cancunTime": '"$CANCUN_TIME"',/g' $genesis_file > "/tmp/genesis.json"
 mv "/tmp/genesis.json" $genesis_file
+
+
+PRAGUE_TIME=$((GENESIS_TIME + (ELECTRA_FORK_EPOCH * $SLOT_PER_EPOCH * SECONDS_PER_SLOT)))
+echo "PRAGUE_TIME: $PRAGUE_TIME"
+sed 's/"pragueTime".*$/"pragueTime": '"$PRAGUE_TIME"',/g' $genesis_file > "/tmp/genesis.json"
+mv "/tmp/genesis.json" $genesis_file

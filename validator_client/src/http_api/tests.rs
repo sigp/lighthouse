@@ -68,6 +68,7 @@ impl ApiTester {
         let initialized_validators = InitializedValidators::from_definitions(
             validator_defs,
             validator_dir.path().into(),
+            Config::default(),
             log.clone(),
         )
         .await
@@ -209,9 +210,9 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self
             .client
-            .get_lighthouse_spec::<ConfigAndPresetDeneb>()
+            .get_lighthouse_spec::<ConfigAndPresetElectra>()
             .await
-            .map(|res| ConfigAndPreset::Deneb(res.data))
+            .map(|res| ConfigAndPreset::Electra(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
 
@@ -1175,6 +1176,58 @@ async fn validator_derived_builder_boost_factor_with_process_defaults() {
         .await
         .assert_validator_derived_builder_boost_factor(2, Some(u64::MAX))
         .await;
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_builder_proposals_true() {
+    let config = Config {
+        builder_proposals: true,
+        prefer_builder_proposals: false,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(None);
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_builder_proposals_false() {
+    let config = Config {
+        builder_proposals: false,
+        prefer_builder_proposals: false,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(Some(0));
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_prefer_builder_proposals_true() {
+    let config = Config {
+        builder_proposals: true,
+        prefer_builder_proposals: true,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(Some(u64::MAX));
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_prefer_builder_proposals_true_override() {
+    let config = Config {
+        builder_proposals: false,
+        prefer_builder_proposals: true,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(Some(u64::MAX));
 }
 
 #[tokio::test]

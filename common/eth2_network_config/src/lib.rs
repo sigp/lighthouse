@@ -462,7 +462,7 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Config, Eth1Data, GnosisEthSpec, Hash256, MainnetEthSpec};
+    use types::{Eth1Data, GnosisEthSpec, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -583,6 +583,8 @@ mod tests {
         } else {
             GenesisStateSource::Unknown
         };
+        // With Deneb enabled by default we must set a trusted setup here.
+        let kzg_trusted_setup = get_trusted_setup_from_config(&config).unwrap();
 
         let testnet = Eth2NetworkConfig {
             deposit_contract_deploy_block,
@@ -593,7 +595,7 @@ mod tests {
                 .map(Encode::as_ssz_bytes)
                 .map(Into::into),
             config,
-            kzg_trusted_setup: None,
+            kzg_trusted_setup: Some(kzg_trusted_setup),
         };
 
         testnet

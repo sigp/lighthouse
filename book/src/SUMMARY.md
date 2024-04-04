@@ -53,6 +53,7 @@
     * [MEV](./builders.md)
     * [Merge Migration](./merge-migration.md)
     * [Late Block Re-orgs](./late-block-re-orgs.md)
+    * [Blobs](./advanced-blobs.md)
 * [Built-In Documentation](./help_general.md)
     * [Beacon Node](./help_bn.md)
     * [Validator Client](./help_vc.md)

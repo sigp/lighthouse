@@ -13,7 +13,7 @@ FLAGS:
         --disable-auto-discover
             If present, do not attempt to discover new validators in the validators-dir. Validators will need to be
             manually added to the validator_definitions.yml file.
-        --disable-log-timestamp                  If present, do not include timestamps in logging output.
+        --disable-log-timestamp                     If present, do not include timestamps in logging output.
         --disable-malloc-tuning
             If present, do not configure the system allocator. Providing this flag will generally increase memory usage,
             it should only be provided when debugging specific memory allocation issues.
@@ -21,6 +21,14 @@ FLAGS:
             DEPRECATED. Use --broadcast. By default, Lighthouse publishes attestation, sync committee subscriptions and
             proposer preparation messages to all beacon nodes provided in the `--beacon-nodes flag`. This option changes
             that behaviour such that these api calls only go out to the first available and synced beacon node
+        --disable-slashing-protection-web3signer
+            Disable Lighthouse's slashing protection for all web3signer keys. This can reduce the I/O burden on the VC
+            but is only safe if slashing protection is enabled on the remote signer and is implemented correctly. DO NOT
+            ENABLE THIS FLAG UNLESS YOU ARE CERTAIN THAT SLASHING PROTECTION IS ENABLED ON THE REMOTE SIGNER. YOU WILL
+            GET SLASHED IF YOU USE THIS FLAG WITHOUT ENABLING WEB3SIGNER'S SLASHING PROTECTION.
+        --distributed
+            Enables functionality required for running the validator in a distributed validator cluster.
+
         --enable-doppelganger-protection
             If this flag is set, Lighthouse will delay startup for three epochs and monitor for messages on the network
             by any of the validators managed by this client. This will result in three (possibly four) epochs worth of
@@ -32,8 +40,8 @@ FLAGS:
             Enable per validator metrics for > 64 validators. Note: This flag is automatically enabled for <= 64
             validators. Enabling this metric for higher validator counts will lead to higher volume of prometheus
             metrics being collected.
-    -h, --help                                   Prints help information
-        --http                                   Enable the RESTful HTTP API server. Disabled by default.
+    -h, --help                                      Prints help information
+        --http                                      Enable the RESTful HTTP API server. Disabled by default.
         --http-allow-keystore-export
             If present, allow access to the DELETE /lighthouse/keystores HTTP API method, which allows exporting
             keystores and passwords to HTTP API consumers who have access to the API token. This method is useful for
@@ -47,7 +55,7 @@ FLAGS:
             flag unless you're certain that a new slashing protection database is required. Usually, your database will
             have been initialized when you imported your validator keys. If you misplace your database and then run with
             this flag you risk being slashed.
-        --log-color                              Force outputting colors when emitting logs to the terminal.
+        --log-color                                 Force outputting colors when emitting logs to the terminal.
         --logfile-compress
             If present, compress old log files. This can help reduce the space needed to store old logs.
 
@@ -55,7 +63,7 @@ FLAGS:
             If present, log files will be generated as world-readable meaning they can be read by any user on the
             machine. Note that logs can often contain sensitive information about your validator and so this flag should
             be used with caution. For Windows users, the log file permissions will be inherited from the parent folder.
-        --metrics                                Enable the Prometheus metrics HTTP server. Disabled by default.
+        --metrics                                   Enable the Prometheus metrics HTTP server. Disabled by default.
         --prefer-builder-proposals
             If this flag is set, Lighthouse will always prefer blocks constructed by builders, regardless of payload
             value.
@@ -69,7 +77,7 @@ FLAGS:
         --use-long-timeouts
             If present, the validator client will use longer timeouts for requests made to the beacon node. This flag is
             generally not recommended, longer timeouts can cause missed duties when fallbacks are used.
-    -V, --version                                Prints version information
+    -V, --version                                   Prints version information
 
 OPTIONS:
         --beacon-nodes <NETWORK_ADDRESSES>
@@ -209,4 +217,10 @@ OPTIONS:
         --validators-dir <VALIDATORS_DIR>
             The directory which contains the validator keystores, deposit data for each validator along with the common
             slashing protection database and the validator_definitions.yml
+        --web3-signer-keep-alive-timeout <MILLIS>
+            Keep-alive timeout for each web3signer connection. Set to 'null' to never timeout [default: 90000]
+
+        --web3-signer-max-idle-connections <COUNT>
+            Maximum number of idle connections to maintain per web3signer host. Default is unlimited.
 ```
+<style> .content main {max-width:88%;} </style>

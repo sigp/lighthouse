@@ -108,11 +108,10 @@ pub trait AvailabilityView<E: EthSpec> {
     /// 1. The blob entry at the index is empty and no block exists, or
     /// 2. The block exists and its commitment matches the blob's commitment.
     fn merge_single_blob(&mut self, index: usize, blob: Self::BlobType) {
-        let commitment = *blob.get_commitment();
         if let Some(cached_block) = self.get_cached_block() {
             let block_commitment_opt = cached_block.get_commitments().get(index).copied();
             if let Some(block_commitment) = block_commitment_opt {
-                if block_commitment == commitment {
+                if block_commitment == *blob.get_commitment() {
                     self.insert_blob_at_index(index, blob)
                 }
             }
@@ -182,9 +181,9 @@ macro_rules! impl_availability_view {
 
 impl_availability_view!(
     ProcessingComponents,
-    KzgCommitments<E>,
+    Arc<SignedBeaconBlock<E>>,
     KzgCommitment,
-    block_commitments,
+    block,
     blob_commitments
 );
 
@@ -212,12 +211,6 @@ pub trait GetCommitment<E: EthSpec> {
     fn get_commitment(&self) -> &KzgCommitment;
 }
 
-// These implementations are required to implement `AvailabilityView` for `ProcessingView`.
-impl<E: EthSpec> GetCommitments<E> for KzgCommitments<E> {
-    fn get_commitments(&self) -> KzgCommitments<E> {
-        self.clone()
-    }
-}
 impl<E: EthSpec> GetCommitment<E> for KzgCommitment {
     fn get_commitment(&self) -> &KzgCommitment {
         self
@@ -310,7 +303,7 @@ pub mod tests {
     }
 
     type ProcessingViewSetup<E> = (
-        KzgCommitments<E>,
+        Arc<SignedBeaconBlock<E>>,
         FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
         FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
     );
@@ -320,12 +313,6 @@ pub mod tests {
         valid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
         invalid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
     ) -> ProcessingViewSetup<E> {
-        let commitments = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .unwrap()
-            .clone();
         let blobs = FixedVector::from(
             valid_blobs
                 .iter()
@@ -338,7 +325,7 @@ pub mod tests {
                 .map(|blob_opt| blob_opt.as_ref().map(|blob| blob.kzg_commitment))
                 .collect::<Vec<_>>(),
         );
-        (commitments, blobs, invalid_blobs)
+        (Arc::new(block), blobs, invalid_blobs)
     }
 
     type PendingComponentsSetup<E> = (

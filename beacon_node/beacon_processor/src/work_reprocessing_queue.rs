@@ -82,12 +82,15 @@ pub enum ReprocessQueueMessage {
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
     /// hash until the gossip block is imported.
     RpcBlock(QueuedRpcBlock),
-    /// A block that was successfully processed. We use this to handle attestations and light client updates
+    /// A block that was successfully processed. We use this to handle attestations updates
     /// for unknown blocks.
     BlockImported {
         block_root: Hash256,
         parent_root: Hash256,
     },
+    /// A new `LightClientOptimisticUpdate` has been produced. We use this to handle light client
+    /// updates for unknown parent blocks.
+    NewLightClientOptimisticUpdate { parent_root: Hash256 },
     /// An unaggregated attestation that references an unknown block.
     UnknownBlockUnaggregate(QueuedUnaggregate),
     /// An aggregated attestation that references an unknown block.
@@ -156,10 +159,10 @@ pub struct IgnoredRpcBlock {
 /// A backfill batch work that has been queued for processing later.
 pub struct QueuedBackfillBatch(pub AsyncFn);
 
-impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch {
-    type Error = WorkEvent<T>;
+impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
+    type Error = WorkEvent<E>;
 
-    fn try_from(event: WorkEvent<T>) -> Result<Self, WorkEvent<T>> {
+    fn try_from(event: WorkEvent<E>) -> Result<Self, WorkEvent<E>> {
         match event {
             WorkEvent {
                 work: Work::ChainSegmentBackfill(process_fn),
@@ -170,8 +173,8 @@ impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch {
     }
 }
 
-impl<T: EthSpec> From<QueuedBackfillBatch> for WorkEvent<T> {
-    fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent<T> {
+impl<E: EthSpec> From<QueuedBackfillBatch> for WorkEvent<E> {
+    fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent<E> {
         WorkEvent {
             drop_during_sync: false,
             work: Work::ChainSegmentBackfill(queued_backfill_batch.0),
@@ -688,6 +691,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
                 }
+            }
+            InboundEvent::Msg(NewLightClientOptimisticUpdate { parent_root }) => {
                 // Unqueue the light client optimistic updates we have for this root, if any.
                 if let Some(queued_lc_id) = self
                     .awaiting_lc_updates_per_parent_root
@@ -959,7 +964,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
 mod tests {
     use super::*;
     use slot_clock::TestingSlotClock;
-    use types::Slot;
 
     #[test]
     fn backfill_processing_schedule_calculation() {

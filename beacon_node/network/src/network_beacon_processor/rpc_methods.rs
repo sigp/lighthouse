@@ -6,7 +6,6 @@ use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, Whe
 use beacon_processor::SendOnDrop;
 use itertools::process_results;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
-use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
@@ -140,7 +139,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let requested_blocks = request.block_roots().len();
         let mut block_stream = match self
             .chain
-            .get_blocks_checking_early_attester_cache(request.block_roots().to_vec(), &executor)
+            .get_blocks_checking_caches(request.block_roots().to_vec(), &executor)
         {
             Ok(block_stream) => block_stream,
             Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
@@ -305,7 +304,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match self.chain.get_light_client_bootstrap(&block_root) {
             Ok(Some((bootstrap, _))) => self.send_response(
                 peer_id,
-                Response::LightClientBootstrap(bootstrap),
+                Response::LightClientBootstrap(Arc::new(bootstrap)),
                 request_id,
             ),
             Ok(None) => self.send_error_response(
@@ -351,7 +350,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .epoch()
                 .map_or(self.chain.spec.max_request_blocks, |epoch| {
                     match self.chain.spec.fork_name_at_epoch(epoch) {
-                        ForkName::Deneb => self.chain.spec.max_request_blocks_deneb,
+                        ForkName::Deneb | ForkName::Electra => {
+                            self.chain.spec.max_request_blocks_deneb
+                        }
                         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                             self.chain.spec.max_request_blocks
                         }

@@ -6,6 +6,7 @@ edition = { workspace = true }
 
 [dependencies]
 discv5 = { workspace = true }
+gossipsub = { workspace = true }
 unsigned-varint = { version = "0.6", features = ["codec"] }
 ssz_types = { workspace = true }
 types = { workspace = true }
@@ -42,22 +43,32 @@ superstruct = { workspace = true }
 prometheus-client = "0.22.0"
 unused_port = { workspace = true }
 delay_map = { workspace = true }
-void = "1"
-libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p/", rev = "cfa3275ca17e502799ed56e555b6c0611752e369" }
+tracing = { workspace = true }
+byteorder = { workspace = true }
+bytes = { workspace = true }
+either = { workspace = true }
+
+# Local dependencies
+futures-ticker = "0.0.3"
+getrandom = "0.2.11"
+hex_fmt = "0.3.0"
+instant = "0.1.12"
+void = "1.0.2"
+base64 = "0.21.5"
+libp2p-mplex = "0.41"
 
 [dependencies.libp2p]
-git = "https://github.com/sigp/rust-libp2p/"
-rev = "cfa3275ca17e502799ed56e555b6c0611752e369"
+version = "0.53"
 default-features = false
-features = ["identify", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic"]
+features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic", "upnp"]
 
 [dev-dependencies]
 slog-term = { workspace = true }
 slog-async = { workspace = true }
 tempfile = { workspace = true }
-exit-future = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
+async-channel = { workspace = true }
 
 [features]
 libp2p-websocket = []

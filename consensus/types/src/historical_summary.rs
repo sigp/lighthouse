@@ -37,7 +37,7 @@ pub struct HistoricalSummary {
 }
 
 impl HistoricalSummary {
-    pub fn new<T: EthSpec>(state: &BeaconState<T>) -> Self {
+    pub fn new<E: EthSpec>(state: &BeaconState<E>) -> Self {
         Self {
             block_summary_root: state.block_roots().tree_hash_root(),
             state_summary_root: state.state_roots().tree_hash_root(),
@@ -81,7 +81,7 @@ impl<'a, N: Unsigned> CachedTreeHash<TreeHashCache> for HistoricalSummaryCache<'
 
 pub fn leaf_iter(
     values: &[HistoricalSummary],
-) -> impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator + '_ {
+) -> impl ExactSizeIterator<Item = [u8; BYTES_PER_CHUNK]> + '_ {
     values
         .iter()
         .map(|value| value.tree_hash_root())

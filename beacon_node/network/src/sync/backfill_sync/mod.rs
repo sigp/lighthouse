@@ -55,7 +55,7 @@ impl BatchConfig for BackFillBatchConfig {
     fn max_batch_processing_attempts() -> u8 {
         MAX_BATCH_PROCESSING_ATTEMPTS
     }
-    fn batch_attempt_hash<T: EthSpec>(blocks: &[RpcBlock<T>]) -> u64 {
+    fn batch_attempt_hash<E: EthSpec>(blocks: &[RpcBlock<E>]) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
@@ -332,7 +332,16 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     }
                     // If we have run out of peers in which to retry this batch, the backfill state
                     // transitions to a paused state.
-                    self.retry_batch_download(network, id)?;
+                    // We still need to reset the state for all the affected batches, so we should not
+                    // short circuit early
+                    if self.retry_batch_download(network, id).is_err() {
+                        debug!(
+                            self.log,
+                            "Batch could not be retried";
+                            "batch_id" => id,
+                            "error" => "no synced peers"
+                        );
+                    }
                 } else {
                     debug!(self.log, "Batch not found while removing peer";
                         "peer" => %peer_id, "batch" => id)

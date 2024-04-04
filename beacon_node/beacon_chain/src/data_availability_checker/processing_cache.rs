@@ -1,8 +1,9 @@
 use crate::data_availability_checker::AvailabilityView;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
-use types::{EthSpec, Hash256, Slot};
+use std::sync::Arc;
+use types::beacon_block_body::KzgCommitmentOpts;
+use types::{EthSpec, Hash256, SignedBeaconBlock};
 
 /// This cache is used only for gossip blocks/blobs and single block/blob lookups, to give req/resp
 /// a view of what we have and what we require. This cache serves a slightly different purpose than
@@ -28,36 +29,25 @@ impl<E: EthSpec> ProcessingCache<E> {
             .get(block_root)
             .map_or(false, |b| b.block_exists())
     }
-    pub fn incomplete_processing_components(&self, slot: Slot) -> Vec<Hash256> {
-        let mut roots_missing_components = vec![];
-        for (&block_root, info) in self.processing_cache.iter() {
-            if info.slot == slot && !info.is_available() {
-                roots_missing_components.push(block_root);
-            }
-        }
-        roots_missing_components
+    pub fn len(&self) -> usize {
+        self.processing_cache.len()
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct ProcessingComponents<E: EthSpec> {
-    slot: Slot,
     /// Blobs required for a block can only be known if we have seen the block. So `Some` here
     /// means we've seen it, a `None` means we haven't. The `kzg_commitments` value helps us figure
     /// out whether incoming blobs actually match the block.
-    pub block_commitments: Option<KzgCommitments<E>>,
+    pub block: Option<Arc<SignedBeaconBlock<E>>>,
     /// `KzgCommitments` for blobs are always known, even if we haven't seen the block. See
     /// `AvailabilityView`'s trait definition for more details.
     pub blob_commitments: KzgCommitmentOpts<E>,
 }
 
 impl<E: EthSpec> ProcessingComponents<E> {
-    pub fn new(slot: Slot) -> Self {
-        Self {
-            slot,
-            block_commitments: None,
-            blob_commitments: KzgCommitmentOpts::<E>::default(),
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -66,8 +56,7 @@ impl<E: EthSpec> ProcessingComponents<E> {
 impl<E: EthSpec> ProcessingComponents<E> {
     pub fn empty(_block_root: Hash256) -> Self {
         Self {
-            slot: Slot::new(0),
-            block_commitments: None,
+            block: None,
             blob_commitments: KzgCommitmentOpts::<E>::default(),
         }
     }

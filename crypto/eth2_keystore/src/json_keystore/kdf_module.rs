@@ -8,7 +8,6 @@ use crate::DKLEN;
 use hmac::{Hmac, Mac, NewMac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::convert::TryFrom;
 
 /// KDF module representation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
