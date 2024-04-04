@@ -570,6 +570,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             | ParentVerifyError::NotEnoughBlobsReturned
             | ParentVerifyError::ExtraBlocksReturned
             | ParentVerifyError::UnrequestedBlobId(_)
+            | ParentVerifyError::InvalidInclusionProof
+            | ParentVerifyError::UnrequestedHeader
             | ParentVerifyError::ExtraBlobsReturned
             | ParentVerifyError::InvalidIndex(_) => {
                 let e = e.into();
