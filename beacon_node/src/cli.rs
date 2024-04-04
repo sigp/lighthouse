@@ -1040,8 +1040,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("proposer-reorg-threshold")
                 .long("proposer-reorg-threshold")
                 .value_name("PERCENT")
-                .help("Percentage of vote weight below which to attempt a proposer reorg. \
+                .help("Percentage of head vote weight below which to attempt a proposer reorg. \
                        Default: 20%")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-parent-threshold")
+                .long("proposer-reorg-parent-threshold")
+                .value_name("PERCENT")
+                .help("Percentage of parent vote weight above which to attempt a proposer reorg. \
+                       Default: 160%")
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
