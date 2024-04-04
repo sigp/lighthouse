@@ -12,6 +12,7 @@ pub const CMD: &str = "wallet";
 pub fn cli_app() -> Command {
     Command::new(CMD)
         .about("Manage wallets, from which validator keys can be derived.")
+        .display_order(0)
         .arg(
             Arg::new(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)

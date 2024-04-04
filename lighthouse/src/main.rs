@@ -2,7 +2,9 @@ mod metrics;
 
 use beacon_node::ProductionBeaconNode;
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config};
+use clap_utils::{
+    flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config, FLAG_HEADER,
+};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
@@ -91,6 +93,7 @@ fn main() {
                     "DEPRECATED Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
                 )
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .arg(
@@ -156,6 +159,7 @@ fn main() {
             Arg::new("logfile-compress")
                 .long("logfile-compress")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help(
                     "If present, compress old log files. This can help reduce the space needed \
                     to store old logs.")
@@ -166,6 +170,7 @@ fn main() {
             Arg::new("logfile-no-restricted-perms")
                 .long("logfile-no-restricted-perms")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help(
                     "If present, log files will be generated as world-readable meaning they can be read by \
                     any user on the machine. Note that logs can often contain sensitive information \
@@ -190,6 +195,7 @@ fn main() {
                 .alias("log-colour")
                 .help("Force outputting colors when emitting logs to the terminal.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .global(true)
                 .display_order(0)
         )
@@ -197,6 +203,7 @@ fn main() {
             Arg::new("disable-log-timestamp")
             .long("disable-log-timestamp")
             .action(ArgAction::SetTrue)
+            .help_heading(FLAG_HEADER)
             .help("If present, do not include timestamps in logging output.")
             .global(true)
             .display_order(0)
@@ -273,6 +280,7 @@ fn main() {
                 .long("immediate-shutdown")
                 .hide(true)
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help(
                     "Shuts down immediately after the Beacon Node or Validator has successfully launched. \
                     Used for testing only, DO NOT USE IN PRODUCTION.")
@@ -288,6 +296,7 @@ fn main() {
                     specific memory allocation issues."
                 )
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .global(true)
                 .display_order(0)
         )

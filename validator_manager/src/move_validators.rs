@@ -85,14 +85,16 @@ pub fn cli_app() -> Command {
                 )
                 .required(true)
                 .requires(SRC_VC_TOKEN_FLAG)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(SRC_VC_TOKEN_FLAG)
                 .long(SRC_VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the source validator client.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(DEST_VC_URL_FLAG)
@@ -105,14 +107,16 @@ pub fn cli_app() -> Command {
                 )
                 .required(true)
                 .requires(DEST_VC_TOKEN_FLAG)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(DEST_VC_TOKEN_FLAG)
                 .long(DEST_VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the destination validator client.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(VALIDATORS_FLAG)
@@ -122,7 +126,8 @@ pub fn cli_app() -> Command {
                     "The validators to be moved. Either a list of 0x-prefixed \
                     validator pubkeys or the keyword \"all\".",
                 )
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(COUNT_FLAG)
@@ -130,7 +135,8 @@ pub fn cli_app() -> Command {
                 .value_name("VALIDATOR_COUNT")
                 .help("The number of validators to move.")
                 .conflicts_with(VALIDATORS_FLAG)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(GAS_LIMIT_FLAG)
@@ -141,7 +147,8 @@ pub fn cli_app() -> Command {
                     to leave this as the default value by not specifying this flag.",
                 )
                 .required(false)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(FEE_RECIPIENT_FLAG)
@@ -152,7 +159,8 @@ pub fn cli_app() -> Command {
                     fee recipient. Omit this flag to use the default value from the VC.",
                 )
                 .required(false)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(BUILDER_PROPOSALS_FLAG)
@@ -163,14 +171,16 @@ pub fn cli_app() -> Command {
                 )
                 .required(false)
                 .value_parser(["true", "false"])
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .action(ArgAction::SetTrue)
                 .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0),
         )
         .arg(
             Arg::new(BUILDER_BOOST_FACTOR_FLAG)
@@ -183,7 +193,8 @@ pub fn cli_app() -> Command {
                     a percentage multiplier to apply to the builder's payload value \
                     when choosing between a builder payload header and payload from \
                     the local execution node.",
-                ),
+                )
+                .display_order(0),
         )
         .arg(
             Arg::new(PREFER_BUILDER_PROPOSALS_FLAG)
@@ -194,7 +205,8 @@ pub fn cli_app() -> Command {
                 )
                 .required(false)
                 .value_parser(["true", "false"])
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 

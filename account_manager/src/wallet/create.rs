@@ -44,7 +44,8 @@ pub fn cli_app() -> Command {
                     "The wallet will be created with this name. It is not allowed to \
                             create two wallets with the same name for the same --base-dir.",
                 )
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(PASSWORD_FLAG)
@@ -56,7 +57,8 @@ pub fn cli_app() -> Command {
                     saved at that path. To avoid confusion, if the file does not already \
                     exist it must include a '.pass' suffix.",
                 )
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(TYPE_FLAG)
@@ -68,7 +70,8 @@ pub fn cli_app() -> Command {
                 )
                 .action(ArgAction::Set)
                 .value_parser([HD_TYPE])
-                .default_value(HD_TYPE),
+                .default_value(HD_TYPE)
+                .display_order(0)
         )
         .arg(
             Arg::new(MNEMONIC_FLAG)
@@ -78,13 +81,15 @@ pub fn cli_app() -> Command {
                     "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
                 )
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .action(ArgAction::SetTrue)
                 .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0)
         )
         .arg(
             Arg::new(MNEMONIC_LENGTH_FLAG)
@@ -109,7 +114,8 @@ pub fn cli_app() -> Command {
                             )),
                         }
                 })
-                .default_value("24"),
+                .default_value("24")
+                .display_order(0)
         )
 }
 
