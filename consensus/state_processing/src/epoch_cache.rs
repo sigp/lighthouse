@@ -12,16 +12,21 @@ pub struct PreEpochCache {
 }
 
 impl PreEpochCache {
-    pub fn new_for_next_epoch<E: EthSpec>(state: &BeaconState<E>) -> Result<Self, EpochCacheError> {
+    pub fn new_for_next_epoch<E: EthSpec>(
+        state: &mut BeaconState<E>,
+    ) -> Result<Self, EpochCacheError> {
         // The decision block root for the next epoch is the latest block root from this epoch.
         let latest_block_header = state.latest_block_header();
 
-        // State root should already have been filled in by `process_slot`, except in the case
-        // of a `partial_state_advance`.
-        if latest_block_header.state_root.is_zero() {
-            return Err(EpochCacheError::ZeroStateRoot);
-        }
-        let decision_block_root = latest_block_header.canonical_root();
+        let decision_block_root = if !latest_block_header.state_root.is_zero() {
+            latest_block_header.canonical_root()
+        } else {
+            // State root should already have been filled in by `process_slot`, except in the case
+            // of a `partial_state_advance`. Once we have tree-states this can be an error, and
+            // `self` can be immutable.
+            let state_root = state.update_tree_hash_cache()?;
+            state.get_latest_block_root(state_root)
+        };
 
         let epoch_key = EpochCacheKey {
             epoch: state.next_epoch()?,
