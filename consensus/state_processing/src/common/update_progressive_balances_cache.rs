@@ -3,23 +3,16 @@ use crate::metrics::{
     PARTICIPATION_CURR_EPOCH_TARGET_ATTESTING_GWEI_PROGRESSIVE_TOTAL,
     PARTICIPATION_PREV_EPOCH_TARGET_ATTESTING_GWEI_PROGRESSIVE_TOTAL,
 };
-use crate::per_epoch_processing::altair::ParticipationCache;
 use crate::{BlockProcessingError, EpochProcessingError};
 use lighthouse_metrics::set_gauge;
-use ssz_types::VariableList;
-use std::borrow::Cow;
-use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 use types::{
-    is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,
-    ParticipationFlags, ProgressiveBalancesCache,
+    is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, Epoch,
+    EpochTotalBalances, EthSpec, ParticipationFlags, ProgressiveBalancesCache, Validator,
 };
 
-/// Initializes the `ProgressiveBalancesCache` cache using balance values from the
-/// `ParticipationCache`. If the optional `&ParticipationCache` is not supplied, it will be computed
-/// from the `BeaconState`.
+/// Initializes the `ProgressiveBalancesCache` if it is unbuilt.
 pub fn initialize_progressive_balances_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
-    maybe_participation_cache: Option<&ParticipationCache>,
     spec: &ChainSpec,
 ) -> Result<(), BeaconStateError> {
     if !is_progressive_balances_enabled(state)
@@ -28,24 +21,42 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
         return Ok(());
     }
 
-    let participation_cache = match maybe_participation_cache {
-        Some(cache) => Cow::Borrowed(cache),
-        None => Cow::Owned(ParticipationCache::new(state, spec)?),
-    };
-
-    let previous_epoch_target_attesting_balance = participation_cache
-        .previous_epoch_target_attesting_balance_raw()
-        .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{e:?}")))?;
-
-    let current_epoch_target_attesting_balance = participation_cache
-        .current_epoch_target_attesting_balance_raw()
-        .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{e:?}")))?;
-
+    // Calculate the total flag balances for previous & current epoch in a single iteration.
+    // This calculates `get_total_balance(unslashed_participating_indices(..))` for each flag in
+    // the current and previous epoch.
     let current_epoch = state.current_epoch();
+    let previous_epoch = state.previous_epoch();
+    let mut previous_epoch_cache = EpochTotalBalances::new(spec);
+    let mut current_epoch_cache = EpochTotalBalances::new(spec);
+    for ((validator, current_epoch_flags), previous_epoch_flags) in state
+        .validators()
+        .iter()
+        .zip(state.current_epoch_participation()?)
+        .zip(state.previous_epoch_participation()?)
+    {
+        // Exclude slashed validators. We are calculating *unslashed* participating totals.
+        if validator.slashed {
+            continue;
+        }
+
+        // Update current epoch flag balances.
+        if validator.is_active_at(current_epoch) {
+            update_flag_total_balances(&mut current_epoch_cache, *current_epoch_flags, validator)?;
+        }
+        // Update previous epoch flag balances.
+        if validator.is_active_at(previous_epoch) {
+            update_flag_total_balances(
+                &mut previous_epoch_cache,
+                *previous_epoch_flags,
+                validator,
+            )?;
+        }
+    }
+
     state.progressive_balances_cache_mut().initialize(
         current_epoch,
-        previous_epoch_target_attesting_balance,
-        current_epoch_target_attesting_balance,
+        previous_epoch_cache,
+        current_epoch_cache,
     );
 
     update_progressive_balances_metrics(state.progressive_balances_cache())?;
@@ -53,43 +64,65 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
     Ok(())
 }
 
-/// Updates the `ProgressiveBalancesCache` when a new target attestation has been processed.
-pub fn update_progressive_balances_on_attestation<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    epoch: Epoch,
-    validator_index: usize,
-) -> Result<(), BlockProcessingError> {
-    if is_progressive_balances_enabled(state) {
-        let validator = state.get_validator(validator_index)?;
-        if !validator.slashed {
-            let validator_effective_balance = validator.effective_balance;
-            state
-                .progressive_balances_cache_mut()
-                .on_new_target_attestation(epoch, validator_effective_balance)?;
+/// During the initialization of the progressive balances for a single epoch, add
+/// `validator.effective_balance` to the flag total, for each flag present in `participation_flags`.
+///
+/// Pre-conditions:
+///
+/// - `validator` must not be slashed
+/// - the `participation_flags` must be for `validator` in the same epoch as the `total_balances`
+fn update_flag_total_balances(
+    total_balances: &mut EpochTotalBalances,
+    participation_flags: ParticipationFlags,
+    validator: &Validator,
+) -> Result<(), BeaconStateError> {
+    for (flag, balance) in total_balances.total_flag_balances.iter_mut().enumerate() {
+        if participation_flags.has_flag(flag)? {
+            balance.safe_add_assign(validator.effective_balance)?;
         }
     }
     Ok(())
 }
 
-/// Updates the `ProgressiveBalancesCache` when a target attester has been slashed.
-pub fn update_progressive_balances_on_slashing<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    validator_index: usize,
+/// Updates the `ProgressiveBalancesCache` when a new target attestation has been processed.
+pub fn update_progressive_balances_on_attestation<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    epoch: Epoch,
+    flag_index: usize,
+    validator_effective_balance: u64,
+    validator_slashed: bool,
 ) -> Result<(), BlockProcessingError> {
     if is_progressive_balances_enabled(state) {
-        let previous_epoch_participation = state.previous_epoch_participation()?;
-        let is_previous_epoch_target_attester =
-            is_target_attester_in_epoch::<T>(previous_epoch_participation, validator_index)?;
+        state.progressive_balances_cache_mut().on_new_attestation(
+            epoch,
+            validator_slashed,
+            flag_index,
+            validator_effective_balance,
+        )?;
+    }
+    Ok(())
+}
 
-        let current_epoch_participation = state.current_epoch_participation()?;
-        let is_current_epoch_target_attester =
-            is_target_attester_in_epoch::<T>(current_epoch_participation, validator_index)?;
+/// Updates the `ProgressiveBalancesCache` when a target attester has been slashed.
+pub fn update_progressive_balances_on_slashing<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    validator_index: usize,
+    validator_effective_balance: u64,
+) -> Result<(), BlockProcessingError> {
+    if is_progressive_balances_enabled(state) {
+        let previous_epoch_participation = *state
+            .previous_epoch_participation()?
+            .get(validator_index)
+            .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
 
-        let validator_effective_balance = state.get_effective_balance(validator_index)?;
+        let current_epoch_participation = *state
+            .current_epoch_participation()?
+            .get(validator_index)
+            .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
 
         state.progressive_balances_cache_mut().on_slashing(
-            is_previous_epoch_target_attester,
-            is_current_epoch_target_attester,
+            previous_epoch_participation,
+            current_epoch_participation,
             validator_effective_balance,
         )?;
     }
@@ -98,8 +131,8 @@ pub fn update_progressive_balances_on_slashing<T: EthSpec>(
 }
 
 /// Updates the `ProgressiveBalancesCache` on epoch transition.
-pub fn update_progressive_balances_on_epoch_transition<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn update_progressive_balances_on_epoch_transition<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
     if is_progressive_balances_enabled(state) {
@@ -127,16 +160,4 @@ pub fn update_progressive_balances_metrics(
     );
 
     Ok(())
-}
-
-fn is_target_attester_in_epoch<T: EthSpec>(
-    epoch_participation: &VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    validator_index: usize,
-) -> Result<bool, BlockProcessingError> {
-    let participation_flags = epoch_participation
-        .get(validator_index)
-        .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
-    participation_flags
-        .has_flag(TIMELY_TARGET_FLAG_INDEX)
-        .map_err(|e| e.into())
 }

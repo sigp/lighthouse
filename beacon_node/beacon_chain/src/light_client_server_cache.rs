@@ -8,7 +8,7 @@ use types::light_client_update::{FinalizedRootProofLen, FINALIZED_ROOT_INDEX};
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientFinalityUpdate,
-    LightClientHeader, LightClientOptimisticUpdate, Slot, SyncAggregate,
+    LightClientOptimisticUpdate, Slot, SyncAggregate,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
@@ -71,11 +71,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     /// results are cached either on disk or memory to be served via p2p and rest API
     pub fn recompute_and_cache_updates(
         &self,
-        log: &Logger,
         store: BeaconStore<T>,
         block_parent_root: &Hash256,
         block_slot: Slot,
         sync_aggregate: &SyncAggregate<T::EthSpec>,
+        log: &Logger,
+        chain_spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
         let _timer =
             metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES);
@@ -83,12 +84,13 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let signature_slot = block_slot;
         let attested_block_root = block_parent_root;
 
-        let attested_block = store.get_blinded_block(attested_block_root)?.ok_or(
-            BeaconChainError::DBInconsistent(format!(
-                "Block not available {:?}",
-                attested_block_root
-            )),
-        )?;
+        let attested_block =
+            store
+                .get_full_block(attested_block_root)?
+                .ok_or(BeaconChainError::DBInconsistent(format!(
+                    "Block not available {:?}",
+                    attested_block_root
+                )))?;
 
         let cached_parts = self.get_or_compute_prev_block_cache(
             store.clone(),
@@ -109,11 +111,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         };
         if is_latest_optimistic {
             // can create an optimistic update, that is more recent
-            *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate {
-                attested_header: block_to_light_client_header(attested_block.message()),
-                sync_aggregate: sync_aggregate.clone(),
+            *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate::new(
+                &attested_block,
+                sync_aggregate.clone(),
                 signature_slot,
-            });
+                chain_spec,
+            )?);
         };
 
         // Spec: Full nodes SHOULD provide the LightClientFinalityUpdate with the highest
@@ -127,17 +130,16 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         if is_latest_finality & !cached_parts.finalized_block_root.is_zero() {
             // Immediately after checkpoint sync the finalized block may not be available yet.
             if let Some(finalized_block) =
-                store.get_blinded_block(&cached_parts.finalized_block_root)?
+                store.get_full_block(&cached_parts.finalized_block_root)?
             {
-                *self.latest_finality_update.write() = Some(LightClientFinalityUpdate {
-                    // TODO: may want to cache this result from latest_optimistic_update if producing a
-                    // light_client header becomes expensive
-                    attested_header: block_to_light_client_header(attested_block.message()),
-                    finalized_header: block_to_light_client_header(finalized_block.message()),
-                    finality_branch: cached_parts.finality_branch.clone(),
-                    sync_aggregate: sync_aggregate.clone(),
+                *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
+                    &attested_block,
+                    &finalized_block,
+                    cached_parts.finality_branch.clone(),
+                    sync_aggregate.clone(),
                     signature_slot,
-                });
+                    chain_spec,
+                )?);
             } else {
                 debug!(
                     log,
@@ -206,7 +208,7 @@ struct LightClientCachedData {
 }
 
 impl LightClientCachedData {
-    fn from_state<T: EthSpec>(state: &mut BeaconState<T>) -> Result<Self, BeaconChainError> {
+    fn from_state<E: EthSpec>(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
         Ok(Self {
             finality_branch: state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?.into(),
             finalized_block_root: state.finalized_checkpoint().root,
@@ -214,43 +216,36 @@ impl LightClientCachedData {
     }
 }
 
-// Implements spec priorization rules:
+// Implements spec prioritization rules:
 // > Full nodes SHOULD provide the LightClientFinalityUpdate with the highest attested_header.beacon.slot (if multiple, highest signature_slot)
 //
 // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_finality_update
-fn is_latest_finality_update<T: EthSpec>(
-    prev: &LightClientFinalityUpdate<T>,
+fn is_latest_finality_update<E: EthSpec>(
+    prev: &LightClientFinalityUpdate<E>,
     attested_slot: Slot,
     signature_slot: Slot,
 ) -> bool {
-    if attested_slot > prev.attested_header.beacon.slot {
+    let prev_slot = prev.get_attested_header_slot();
+    if attested_slot > prev_slot {
         true
     } else {
-        attested_slot == prev.attested_header.beacon.slot && signature_slot > prev.signature_slot
+        attested_slot == prev_slot && signature_slot > *prev.signature_slot()
     }
 }
 
-// Implements spec priorization rules:
+// Implements spec prioritization rules:
 // > Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest attested_header.beacon.slot (if multiple, highest signature_slot)
 //
 // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_optimistic_update
-fn is_latest_optimistic_update<T: EthSpec>(
-    prev: &LightClientOptimisticUpdate<T>,
+fn is_latest_optimistic_update<E: EthSpec>(
+    prev: &LightClientOptimisticUpdate<E>,
     attested_slot: Slot,
     signature_slot: Slot,
 ) -> bool {
-    if attested_slot > prev.attested_header.beacon.slot {
+    let prev_slot = prev.get_slot();
+    if attested_slot > prev_slot {
         true
     } else {
-        attested_slot == prev.attested_header.beacon.slot && signature_slot > prev.signature_slot
-    }
-}
-
-fn block_to_light_client_header<T: EthSpec>(
-    block: BeaconBlockRef<T, types::BlindedPayload<T>>,
-) -> LightClientHeader {
-    // TODO: make fork aware
-    LightClientHeader {
-        beacon: block.block_header(),
+        attested_slot == prev_slot && signature_slot > *prev.signature_slot()
     }
 }

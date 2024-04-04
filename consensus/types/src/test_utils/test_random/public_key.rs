@@ -1,5 +1,4 @@
 use super::*;
-use bls::{PublicKey, SecretKey};
 
 impl TestRandom for PublicKey {
     fn random_for_test(rng: &mut impl RngCore) -> Self {

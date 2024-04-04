@@ -380,7 +380,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
                 let received_id = blob.id();
 
                 if !self.requested_ids.contains(&received_id) {
-                    Err(LookupVerifyError::UnrequestedBlobId)
+                    Err(LookupVerifyError::UnrequestedBlobId(received_id))
                 } else if !blob.verify_blob_sidecar_inclusion_proof().unwrap_or(false) {
                     Err(LookupVerifyError::InvalidInclusionProof)
                 } else if blob.block_root() != expected_block_root {
