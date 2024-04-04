@@ -1,5 +1,5 @@
 use super::signature_sets::Error as SignatureSetError;
-use crate::{ContextError, EpochCacheError};
+use crate::ContextError;
 use merkle_proof::MerkleTreeError;
 use safe_arith::ArithError;
 use ssz::DecodeError;
