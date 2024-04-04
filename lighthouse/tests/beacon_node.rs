@@ -2,8 +2,8 @@ use beacon_node::ClientConfig as Config;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+    DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
 };
 use beacon_processor::BeaconProcessorConfig;
 use eth1::Eth1Endpoint;
@@ -2200,8 +2200,8 @@ fn enable_proposer_re_orgs_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.chain.re_org_threshold,
-                Some(DEFAULT_RE_ORG_THRESHOLD)
+                config.chain.re_org_head_threshold,
+                Some(DEFAULT_RE_ORG_HEAD_THRESHOLD)
             );
             assert_eq!(
                 config.chain.re_org_max_epochs_since_finalization,
@@ -2219,15 +2219,26 @@ fn disable_proposer_re_orgs() {
     CommandLineTest::new()
         .flag("disable-proposer-reorgs", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_threshold, None));
+        .with_config(|config| {
+            assert_eq!(config.chain.re_org_head_threshold, None);
+            assert_eq!(config.chain.re_org_parent_threshold, None)
+        });
 }
 
 #[test]
-fn proposer_re_org_threshold() {
+fn proposer_re_org_parent_threshold() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-parent-threshold", Some("90"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.re_org_parent_threshold.unwrap().0, 90));
+}
+
+#[test]
+fn proposer_re_org_head_threshold() {
     CommandLineTest::new()
         .flag("proposer-reorg-threshold", Some("90"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_threshold.unwrap().0, 90));
+        .with_config(|config| assert_eq!(config.chain.re_org_head_threshold.unwrap().0, 90));
 }
 
 #[test]
