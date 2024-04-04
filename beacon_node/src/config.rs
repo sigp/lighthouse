@@ -4,7 +4,7 @@ use beacon_chain::chain_config::{
     DEFAULT_RE_ORG_PARENT_THRESHOLD,
 };
 use beacon_chain::TrustedSetup;
-use clap::{ArgMatches, Id};
+use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::{parse_flag, parse_required};
 use client::{ClientConfig, ClientGenesis};
@@ -980,8 +980,11 @@ pub fn parse_listening_addresses(
             return Err("No listening addresses provided".into());
         }
         (None, Some(ipv6)) => {
+
             // A single ipv6 address was provided. Set the ports
-            warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.");
+            if cli_args.value_source("port6") == Some(ValueSource::CommandLine) {
+                warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.");
+            }
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
