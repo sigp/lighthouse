@@ -1,5 +1,5 @@
 use self::committee_cache::get_active_validator_indices;
-use self::exit_cache::ExitCache;
+use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
 use crate::*;
 use compare_fields::CompareFields;
@@ -7,7 +7,7 @@ use compare_fields_derive::CompareFields;
 use derivative::Derivative;
 use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
-use pubkey_cache::PubkeyCache;
+pub use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
@@ -25,8 +25,9 @@ pub use self::committee_cache::{
     CommitteeCache,
 };
 pub use crate::beacon_state::balance::Balance;
+pub use crate::beacon_state::exit_cache::ExitCache;
 pub use crate::beacon_state::progressive_balances_cache::*;
-use crate::historical_summary::HistoricalSummary;
+pub use crate::beacon_state::slashings_cache::SlashingsCache;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
@@ -40,11 +41,15 @@ mod exit_cache;
 mod iter;
 mod progressive_balances_cache;
 mod pubkey_cache;
+mod slashings_cache;
 mod tests;
 mod tree_hash_cache;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
+
+pub type Validators<T> = VariableList<Validator, <T as EthSpec>::ValidatorRegistryLimit>;
+pub type Balances<T> = VariableList<u64, <T as EthSpec>::ValidatorRegistryLimit>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -97,13 +102,20 @@ pub enum Error {
     },
     RelativeEpochError(RelativeEpochError),
     ExitCacheUninitialized,
+    ExitCacheInvalidEpoch {
+        max_exit_epoch: Epoch,
+        request_epoch: Epoch,
+    },
+    SlashingsCacheUninitialized {
+        initialized_slot: Option<Slot>,
+        latest_block_slot: Slot,
+    },
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SyncCommitteeCacheUninitialized,
     BlsError(bls::Error),
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
     NonLinearTreeHashCacheHistory,
-    ParticipationCacheError(String),
     ProgressiveBalancesCacheNotInitialized,
     ProgressiveBalancesCacheInconsistent,
     TreeHashCacheSkippedSlot {
@@ -133,6 +145,7 @@ pub enum Error {
         epoch: Epoch,
     },
     IndexNotSupported(usize),
+    InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
 }
 
@@ -356,6 +369,18 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
+    pub slashings_cache: SlashingsCache,
+    /// Epoch cache of values that are useful for block processing that are static over an epoch.
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    pub epoch_cache: EpochCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[derivative(Clone(clone_with = "clone_default"))]
     pub tree_hash_cache: BeaconTreeHashCache<E>,
 }
 
@@ -422,6 +447,8 @@ impl<E: EthSpec> BeaconState<E> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
+            slashings_cache: SlashingsCache::default(),
+            epoch_cache: EpochCache::default(),
             tree_hash_cache: <_>::default(),
         })
     }
@@ -514,10 +541,8 @@ impl<E: EthSpec> BeaconState<E> {
     /// If the current epoch is the genesis epoch, the genesis_epoch is returned.
     pub fn previous_epoch(&self) -> Epoch {
         let current_epoch = self.current_epoch();
-        if current_epoch > E::genesis_epoch() {
-            current_epoch
-                .safe_sub(1)
-                .expect("current epoch greater than genesis implies greater than 0")
+        if let Ok(prev_epoch) = current_epoch.safe_sub(1) {
+            prev_epoch
         } else {
             current_epoch
         }
@@ -892,14 +917,16 @@ impl<E: EthSpec> BeaconState<E> {
         &mut self,
         sync_committee: &SyncCommittee<E>,
     ) -> Result<Vec<usize>, Error> {
-        let mut indices = Vec::with_capacity(sync_committee.pubkeys.len());
-        for pubkey in sync_committee.pubkeys.iter() {
-            indices.push(
-                self.get_validator_index(pubkey)?
-                    .ok_or(Error::PubkeyCacheInconsistent)?,
-            )
-        }
-        Ok(indices)
+        self.update_pubkey_cache()?;
+        sync_committee
+            .pubkeys
+            .iter()
+            .map(|pubkey| {
+                self.pubkey_cache()
+                    .get(pubkey)
+                    .ok_or(Error::PubkeyCacheInconsistent)
+            })
+            .collect()
     }
 
     /// Compute the sync committee indices for the next sync committee.
@@ -1212,7 +1239,11 @@ impl<E: EthSpec> BeaconState<E> {
     /// Convenience accessor for validators and balances simultaneously.
     pub fn validators_and_balances_and_progressive_balances_mut(
         &mut self,
-    ) -> (&mut [Validator], &mut [u64], &mut ProgressiveBalancesCache) {
+    ) -> (
+        &mut Validators<E>,
+        &mut Balances<E>,
+        &mut ProgressiveBalancesCache,
+    ) {
         match self {
             BeaconState::Base(state) => (
                 &mut state.validators,
@@ -1244,6 +1275,77 @@ impl<E: EthSpec> BeaconState<E> {
                 &mut state.balances,
                 &mut state.progressive_balances_cache,
             ),
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn mutable_validator_fields(
+        &mut self,
+    ) -> Result<
+        (
+            &mut Validators<E>,
+            &mut Balances<E>,
+            &VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+            &VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+            &mut VariableList<u64, E::ValidatorRegistryLimit>,
+            &mut ProgressiveBalancesCache,
+            &mut ExitCache,
+            &mut EpochCache,
+        ),
+        Error,
+    > {
+        match self {
+            BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Altair(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
+            BeaconState::Merge(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
+            BeaconState::Capella(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
+            BeaconState::Deneb(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
+            BeaconState::Electra(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
         }
     }
 
@@ -1336,14 +1438,12 @@ impl<E: EthSpec> BeaconState<E> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Epoch, Error> {
-        Ok(epoch.safe_add(1)?.safe_add(spec.max_seed_lookahead)?)
+        Ok(spec.compute_activation_exit_epoch(epoch)?)
     }
 
     /// Return the churn limit for the current epoch (number of validators who can leave per epoch).
     ///
-    /// Uses the epoch cache, and will error if it isn't initialized.
-    ///
-    /// Spec v0.12.1
+    /// Uses the current epoch committee cache, and will error if it isn't initialized.
     pub fn get_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         Ok(std::cmp::max(
             spec.min_per_epoch_churn_limit,
@@ -1356,9 +1456,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// Return the activation churn limit for the current epoch (number of validators who can enter per epoch).
     ///
-    /// Uses the epoch cache, and will error if it isn't initialized.
-    ///
-    /// Spec v1.4.0
+    /// Uses the current epoch committee cache, and will error if it isn't initialized.
     pub fn get_activation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         Ok(match self {
             BeaconState::Base(_)
@@ -1388,20 +1486,22 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(cache.get_attestation_duties(validator_index))
     }
 
-    /// Implementation of `get_total_balance`, matching the spec.
+    /// Compute the total active balance cache from scratch.
     ///
-    /// Returns minimum `EFFECTIVE_BALANCE_INCREMENT`, to avoid div by 0.
-    pub fn get_total_balance<'a, I: IntoIterator<Item = &'a usize>>(
-        &'a self,
-        validator_indices: I,
-        spec: &ChainSpec,
-    ) -> Result<u64, Error> {
-        let total_balance = validator_indices.into_iter().try_fold(0_u64, |acc, i| {
-            self.get_effective_balance(*i)
-                .and_then(|bal| Ok(acc.safe_add(bal)?))
-        })?;
+    /// This method should rarely be invoked because single-pass epoch processing keeps the total
+    /// active balance cache up to date.
+    pub fn compute_total_active_balance_slow(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        let current_epoch = self.current_epoch();
+
+        let mut total_active_balance = 0;
+
+        for validator in self.validators() {
+            if validator.is_active_at(current_epoch) {
+                total_active_balance.safe_add_assign(validator.effective_balance)?;
+            }
+        }
         Ok(std::cmp::max(
-            total_balance,
+            total_active_balance,
             spec.effective_balance_increment,
         ))
     }
@@ -1413,33 +1513,54 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// Returns minimum `EFFECTIVE_BALANCE_INCREMENT`, to avoid div by 0.
     pub fn get_total_active_balance(&self) -> Result<u64, Error> {
+        self.get_total_active_balance_at_epoch(self.current_epoch())
+    }
+
+    /// Get the cached total active balance while checking that it is for the correct `epoch`.
+    pub fn get_total_active_balance_at_epoch(&self, epoch: Epoch) -> Result<u64, Error> {
         let (initialized_epoch, balance) = self
             .total_active_balance()
             .ok_or(Error::TotalActiveBalanceCacheUninitialized)?;
 
-        let current_epoch = self.current_epoch();
-        if initialized_epoch == current_epoch {
+        if initialized_epoch == epoch {
             Ok(balance)
         } else {
             Err(Error::TotalActiveBalanceCacheInconsistent {
                 initialized_epoch,
-                current_epoch,
+                current_epoch: epoch,
             })
         }
     }
 
-    /// Build the total active balance cache.
+    /// Manually set the total active balance.
     ///
-    /// This function requires the current committee cache to be already built. It is called
-    /// automatically when `build_committee_cache` is called for the current epoch.
-    fn build_total_active_balance_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        // Order is irrelevant, so use the cached indices.
-        let current_epoch = self.current_epoch();
-        let total_active_balance = self.get_total_balance(
-            self.get_cached_active_validator_indices(RelativeEpoch::Current)?,
-            spec,
-        )?;
-        *self.total_active_balance_mut() = Some((current_epoch, total_active_balance));
+    /// This should only be called when the total active balance has been computed as part of
+    /// single-pass epoch processing (or `process_rewards_and_penalties` for phase0).
+    ///
+    /// This function will ensure the balance is never set to 0, thus conforming to the spec.
+    pub fn set_total_active_balance(&mut self, epoch: Epoch, balance: u64, spec: &ChainSpec) {
+        let safe_balance = std::cmp::max(balance, spec.effective_balance_increment);
+        *self.total_active_balance_mut() = Some((epoch, safe_balance));
+    }
+
+    /// Build the total active balance cache for the current epoch if it is not already built.
+    pub fn build_total_active_balance_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+        if self
+            .get_total_active_balance_at_epoch(self.current_epoch())
+            .is_err()
+        {
+            self.force_build_total_active_balance_cache(spec)?;
+        }
+        Ok(())
+    }
+
+    /// Build the total active balance cache, even if it is already built.
+    pub fn force_build_total_active_balance_cache(
+        &mut self,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let total_active_balance = self.compute_total_active_balance_slow(spec)?;
+        *self.total_active_balance_mut() = Some((self.current_epoch(), total_active_balance));
         Ok(())
     }
 
@@ -1452,8 +1573,10 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_epoch_participation_mut(
         &mut self,
         epoch: Epoch,
+        previous_epoch: Epoch,
+        current_epoch: Epoch,
     ) -> Result<&mut VariableList<ParticipationFlags, E::ValidatorRegistryLimit>, Error> {
-        if epoch == self.current_epoch() {
+        if epoch == current_epoch {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
@@ -1462,7 +1585,7 @@ impl<E: EthSpec> BeaconState<E> {
                 BeaconState::Deneb(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Electra(state) => Ok(&mut state.current_epoch_participation),
             }
-        } else if epoch == self.previous_epoch() {
+        } else if epoch == previous_epoch {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
@@ -1494,6 +1617,7 @@ impl<E: EthSpec> BeaconState<E> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
         self.build_exit_cache(spec)?;
+        self.build_slashings_cache()?;
 
         Ok(())
     }
@@ -1514,6 +1638,20 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(())
     }
 
+    /// Build the slashings cache if it needs to be built.
+    pub fn build_slashings_cache(&mut self) -> Result<(), Error> {
+        let latest_block_slot = self.latest_block_header().slot;
+        if !self.slashings_cache().is_initialized(latest_block_slot) {
+            *self.slashings_cache_mut() = SlashingsCache::new(latest_block_slot, self.validators());
+        }
+        Ok(())
+    }
+
+    pub fn slashings_cache_is_initialized(&self) -> bool {
+        let latest_block_slot = self.latest_block_header().slot;
+        self.slashings_cache().is_initialized(latest_block_slot)
+    }
+
     /// Drop all caches on the state.
     pub fn drop_all_caches(&mut self) -> Result<(), Error> {
         self.drop_total_active_balance_cache();
@@ -1524,6 +1662,8 @@ impl<E: EthSpec> BeaconState<E> {
         self.drop_tree_hash_cache();
         self.drop_progressive_balances_cache();
         *self.exit_cache_mut() = ExitCache::default();
+        *self.slashings_cache_mut() = SlashingsCache::default();
+        *self.epoch_cache_mut() = EpochCache::default();
         Ok(())
     }
 
@@ -1536,7 +1676,7 @@ impl<E: EthSpec> BeaconState<E> {
         })
     }
 
-    /// Build an epoch cache, unless it is has already been built.
+    /// Build a committee cache, unless it is has already been built.
     pub fn build_committee_cache(
         &mut self,
         relative_epoch: RelativeEpoch,
@@ -1557,7 +1697,7 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(())
     }
 
-    /// Always builds the previous epoch cache, even if it is already initialized.
+    /// Always builds the requested committee cache, even if it is already initialized.
     pub fn force_build_committee_cache(
         &mut self,
         relative_epoch: RelativeEpoch,
@@ -1586,42 +1726,17 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
     ///
-    /// Note: this function will not build any new committee caches, but will build the total
-    /// balance cache if the (new) current epoch cache is initialized.
-    pub fn advance_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+    /// Note: this function will not build any new committee caches, nor will it update the total
+    /// active balance cache. The total active balance cache must be updated separately.
+    pub fn advance_caches(&mut self) -> Result<(), Error> {
         self.committee_caches_mut().rotate_left(1);
-
-        // Re-compute total active balance for current epoch.
-        //
-        // This can only be computed once the state's effective balances have been updated
-        // for the current epoch. I.e. it is not possible to know this value with the same
-        // lookahead as the committee shuffling.
-        let curr = Self::committee_cache_index(RelativeEpoch::Current);
-        let curr_cache = mem::take(self.committee_cache_at_index_mut(curr)?);
-
-        // If current epoch cache is initialized, compute the total active balance from its
-        // indices. We check that the cache is initialized at the _next_ epoch because the slot has
-        // not yet been advanced.
-        let new_current_epoch = self.next_epoch()?;
-        if curr_cache.is_initialized_at(new_current_epoch) {
-            *self.total_active_balance_mut() = Some((
-                new_current_epoch,
-                self.get_total_balance(curr_cache.active_validator_indices(), spec)?,
-            ));
-        }
-        // If the cache is not initialized, then the previous cached value for the total balance is
-        // wrong, so delete it.
-        else {
-            self.drop_total_active_balance_cache();
-        }
-        *self.committee_cache_at_index_mut(curr)? = curr_cache;
 
         let next = Self::committee_cache_index(RelativeEpoch::Next);
         *self.committee_cache_at_index_mut(next)? = CommitteeCache::default();
         Ok(())
     }
 
-    fn committee_cache_index(relative_epoch: RelativeEpoch) -> usize {
+    pub(crate) fn committee_cache_index(relative_epoch: RelativeEpoch) -> usize {
         match relative_epoch {
             RelativeEpoch::Previous => 0,
             RelativeEpoch::Current => 1,
@@ -1795,6 +1910,9 @@ impl<E: EthSpec> BeaconState<E> {
         if config.exit_cache {
             *res.exit_cache_mut() = self.exit_cache().clone();
         }
+        if config.slashings_cache {
+            *res.slashings_cache_mut() = self.slashings_cache().clone();
+        }
         if config.tree_hash_cache {
             *res.tree_hash_cache_mut() = self.tree_hash_cache().clone();
         }
@@ -1813,9 +1931,8 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn is_eligible_validator(
         &self,
         previous_epoch: Epoch,
-        val_index: usize,
+        val: &Validator,
     ) -> Result<bool, Error> {
-        let val = self.get_validator(val_index)?;
         Ok(val.is_active_at(previous_epoch)
             || (val.slashed && previous_epoch.safe_add(Epoch::new(1))? < val.withdrawable_epoch))
     }
@@ -1853,6 +1970,13 @@ impl<E: EthSpec> BeaconState<E> {
             self.next_sync_committee()?.clone()
         };
         Ok(sync_committee)
+    }
+
+    /// Get the base reward for `validator_index` from the epoch cache.
+    ///
+    /// This function will error if the epoch cache is not initialized.
+    pub fn get_base_reward(&self, validator_index: usize) -> Result<u64, EpochCacheError> {
+        self.epoch_cache().get_base_reward(validator_index)
     }
 
     pub fn compute_merkle_proof(

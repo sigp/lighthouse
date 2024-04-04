@@ -1,6 +1,5 @@
 use super::*;
 use crate::common::{
-    altair::{get_base_reward, BaseRewardPerIncrement},
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
 };
@@ -54,8 +53,12 @@ pub mod base {
         ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        // Ensure the previous epoch cache exists.
+        // Ensure required caches are all built. These should be no-ops during regular operation.
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        initialize_epoch_cache(state, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
+        state.build_slashings_cache()?;
 
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
 
@@ -97,7 +100,6 @@ pub mod base {
 pub mod altair_deneb {
     use super::*;
     use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
-    use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 
     pub fn process_attestations<E: EthSpec>(
         state: &mut BeaconState<E>,
@@ -122,10 +124,9 @@ pub mod altair_deneb {
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-        state.build_committee_cache(RelativeEpoch::Current, spec)?;
-
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
+        let previous_epoch = ctxt.previous_epoch;
+        let current_epoch = ctxt.current_epoch;
 
         let attesting_indices = &verify_attestation_for_block_inclusion(
             state,
@@ -144,32 +145,36 @@ pub mod altair_deneb {
             get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
 
         // Update epoch participation flags.
-        let total_active_balance = state.get_total_active_balance()?;
-        let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
         let mut proposer_reward_numerator = 0;
         for index in attesting_indices {
             let index = *index as usize;
 
+            let validator_effective_balance = state.epoch_cache().get_effective_balance(index)?;
+            let validator_slashed = state.slashings_cache().is_slashed(index);
+
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let epoch_participation = state.get_epoch_participation_mut(data.target.epoch)?;
-                let validator_participation = epoch_participation
-                    .get_mut(index)
-                    .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
+                let epoch_participation = state.get_epoch_participation_mut(
+                    data.target.epoch,
+                    previous_epoch,
+                    current_epoch,
+                )?;
 
-                if participation_flag_indices.contains(&flag_index)
-                    && !validator_participation.has_flag(flag_index)?
-                {
-                    validator_participation.add_flag(flag_index)?;
-                    proposer_reward_numerator.safe_add_assign(
-                        get_base_reward(state, index, base_reward_per_increment, spec)?
-                            .safe_mul(weight)?,
-                    )?;
+                if participation_flag_indices.contains(&flag_index) {
+                    let validator_participation = epoch_participation
+                        .get_mut(index)
+                        .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
 
-                    if flag_index == TIMELY_TARGET_FLAG_INDEX {
+                    if !validator_participation.has_flag(flag_index)? {
+                        validator_participation.add_flag(flag_index)?;
+                        proposer_reward_numerator
+                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
+
                         update_progressive_balances_on_attestation(
                             state,
                             data.target.epoch,
-                            index,
+                            flag_index,
+                            validator_effective_balance,
+                            validator_slashed,
                         )?;
                     }
                 }
@@ -197,6 +202,8 @@ pub fn process_proposer_slashings<E: EthSpec>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    state.build_slashings_cache()?;
+
     // Verify and apply proposer slashings in series.
     // We have to verify in series because an invalid block may contain multiple slashings
     // for the same validator, and we need to correctly detect and reject that.
@@ -230,6 +237,8 @@ pub fn process_attester_slashings<E: EthSpec>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    state.build_slashings_cache()?;
+
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
         let slashable_indices =
             verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
