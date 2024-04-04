@@ -419,7 +419,7 @@ pub async fn proposer_boost_re_org_test(
         None,
         Some(Box::new(move |builder| {
             builder
-                .proposer_re_org_threshold(Some(ReOrgThreshold(re_org_threshold)))
+                .proposer_re_org_head_threshold(Some(ReOrgThreshold(re_org_threshold)))
                 .proposer_re_org_max_epochs_since_finalization(Epoch::new(
                     max_epochs_since_finalization,
                 ))

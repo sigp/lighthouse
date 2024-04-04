@@ -1219,13 +1219,23 @@ pub fn cli_app() -> Command {
                 .long("proposer-reorg-threshold")
                 .action(ArgAction::Set)
                 .value_name("PERCENT")
-                .help("Percentage of vote weight below which to attempt a proposer reorg. \
+                .help("Percentage of head vote weight below which to attempt a proposer reorg. \
                        Default: 20%")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )
         .arg(
-            Arg::new("proposer-reorg-epochs-since-finalization")
+            Arg::with_name("proposer-reorg-parent-threshold")
+                .long("proposer-reorg-parent-threshold")
+                .value_name("PERCENT")
+                .help("Percentage of parent vote weight above which to attempt a proposer reorg. \
+                       Default: 160%")
+                .conflicts_with("disable-proposer-reorgs")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-epochs-since-finalization")
                 .long("proposer-reorg-epochs-since-finalization")
                 .action(ArgAction::Set)
                 .value_name("EPOCHS")
