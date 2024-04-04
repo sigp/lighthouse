@@ -1225,7 +1225,7 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::with_name("proposer-reorg-parent-threshold")
+            Arg::new("proposer-reorg-parent-threshold")
                 .long("proposer-reorg-parent-threshold")
                 .value_name("PERCENT")
                 .help("Percentage of parent vote weight above which to attempt a proposer reorg. \
@@ -1235,7 +1235,7 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::with_name("proposer-reorg-epochs-since-finalization")
+            Arg::new("proposer-reorg-epochs-since-finalization")
                 .long("proposer-reorg-epochs-since-finalization")
                 .action(ArgAction::Set)
                 .value_name("EPOCHS")
