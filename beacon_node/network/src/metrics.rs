@@ -248,12 +248,6 @@ lazy_static! {
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_gossip_propagation_verification_delay_time",
-        "Duration between when the block is received and when it is verified for propagation.",
-        // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
-        decimal_buckets(-3,-1)
-    );
     pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_gossip_slot_start_delay_time",
         "Duration between when the block is received and the start of the slot it belongs to.",
@@ -264,6 +258,15 @@ lazy_static! {
         //decimal_buckets(-1,2)
 
     );
+    pub static ref BEACON_BLOCK_LAST_GOSSIP_VERIFICATION_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_last_gossip_delay",
+        "Keeps track of the time delay from the start of the slot to the point we propagate the block"
+    );
+    pub static ref BEACON_BLOCK_LAST_FULL_VERIFICATION_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_last_full_verification_delay",
+        "The time it takes to verify a beacon block."
+    );
+
     pub static ref BEACON_BLOCK_LAST_DELAY: Result<IntGauge> = try_create_int_gauge(
         "beacon_block_last_delay",
         "Keeps track of the last block's delay from the start of the slot"
@@ -277,11 +280,13 @@ lazy_static! {
     /*
      * Blob Delay Metrics
      */
-    pub static ref BEACON_BLOB_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_blob_gossip_propagation_verification_delay_time",
-        "Duration between when the blob is received over gossip and when it is verified for propagation.",
-        // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
-        decimal_buckets(-3,-1)
+    pub static ref BEACON_BLOB_LAST_GOSSIP_VERIFICATION_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_blob_last_gossip_delay",
+        "Keeps track of the time delay from the start of the slot to the point we propagate the blob"
+    );
+    pub static ref BEACON_BLOB_LAST_FULL_VERIFICATION_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_blob_last_full_verification_delay",
+        "The time it takes to verify a beacon blob"
     );
     pub static ref BEACON_BLOB_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_blob_gossip_slot_start_delay_time",

@@ -3002,6 +3002,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
+        #[cfg(test)]
         if let Some(seen_timestamp) = self.slot_clock.now_duration() {
             self.block_times_cache.write().set_time_observed(
                 block_root,
@@ -3022,6 +3023,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )?;
             publish_fn()?;
             let executed_block = chain.into_executed_block(execution_pending).await?;
+
             match executed_block {
                 ExecutedBlock::Available(block) => {
                     self.import_available_block(Box::new(block)).await
@@ -3222,10 +3224,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         match availability {
             Availability::Available(block) => {
-                // This is the time since start of the slot where all the components of the block have become available
-                let delay =
-                    get_slot_delay_ms(timestamp_now(), block.block.slot(), &self.slot_clock);
-                metrics::observe_duration(&metrics::BLOCK_AVAILABILITY_DELAY, delay);
                 // Block is fully available, import into fork choice
                 self.import_available_block(block).await
             }
@@ -3254,6 +3252,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             consensus_context,
         } = import_data;
 
+        // This is the time since start of the slot where all the components of the block have become available
+        let delay = get_slot_delay_ms(timestamp_now(), block.slot(), &self.slot_clock);
+        metrics::set_gauge(&metrics::BLOCK_AVAILABILITY_DELAY, delay.as_millis() as i64);
         // Record the time at which this block became available.
         self.block_times_cache.write().set_time_available(
             block_root,

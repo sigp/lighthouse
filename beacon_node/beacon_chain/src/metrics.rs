@@ -1122,11 +1122,9 @@ lazy_static! {
     /*
     * Availability related metrics
     */
-    pub static ref BLOCK_AVAILABILITY_DELAY: Result<Histogram> = try_create_histogram_with_buckets(
+    pub static ref BLOCK_AVAILABILITY_DELAY: Result<IntGauge> = try_create_int_gauge(
         "block_availability_delay",
         "Duration between start of the slot and the time at which all components of the block are available.",
-        // Create a custom bucket list for greater granularity in block delay
-        Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
     );
 
 

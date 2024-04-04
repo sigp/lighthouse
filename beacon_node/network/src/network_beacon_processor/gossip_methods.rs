@@ -27,7 +27,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
@@ -654,9 +654,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .ok()
                     .and_then(|now| now.checked_sub(seen_duration))
                 {
-                    metrics::observe_duration(
-                        &metrics::BEACON_BLOB_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME,
-                        duration,
+                    metrics::set_gauge(
+                        &metrics::BEACON_BLOB_LAST_GOSSIP_VERIFICATION_TIME,
+                        duration.as_millis() as i64,
                     );
                 }
                 self.process_gossip_verified_blob(peer_id, gossip_verified_blob, seen_duration)
@@ -747,9 +747,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         peer_id: PeerId,
         verified_blob: GossipVerifiedBlob<T>,
-        // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
+        let processing_start_time = Instant::now();
         let block_root = verified_blob.block_root();
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
@@ -764,6 +764,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root
                 );
                 self.chain.recompute_head_at_current_slot().await;
+
+                metrics::set_gauge(
+                    &metrics::BEACON_BLOB_LAST_FULL_VERIFICATION_TIME,
+                    processing_start_time.elapsed().as_millis() as i64,
+                );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
                 trace!(
@@ -923,9 +928,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .ok()
                     .and_then(|now| now.checked_sub(seen_duration))
                 {
-                    metrics::observe_duration(
-                        &metrics::BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME,
-                        duration,
+                    metrics::set_gauge(
+                        &metrics::BEACON_BLOCK_LAST_GOSSIP_VERIFICATION_TIME,
+                        duration.as_millis() as i64,
                     );
                 }
 
@@ -1130,9 +1135,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         verified_block: GossipVerifiedBlock<T>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         invalid_block_storage: InvalidBlockStorage,
-        // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
+        let processing_start_time = Instant::now();
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
@@ -1168,6 +1173,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
 
                 self.chain.recompute_head_at_current_slot().await;
+
+                metrics::set_gauge(
+                    &metrics::BEACON_BLOCK_LAST_FULL_VERIFICATION_TIME,
+                    processing_start_time.elapsed().as_millis() as i64,
+                );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
                 trace!(
