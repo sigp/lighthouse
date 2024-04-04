@@ -594,25 +594,7 @@ fn wrong_broadcast_flag() {
 #[test]
 fn latency_measurement_service() {
     CommandLineTest::new()
-        .flag("latency-measurement-service", None)
-        .run()
-        .with_config(|config| {
-            assert!(config.enable_latency_measurement_service);
-        });
-    CommandLineTest::new()
-        .flag("latency-measurement-service", None)
-        .run()
-        .with_config(|config| {
-            assert!(config.enable_latency_measurement_service);
-        });
-    CommandLineTest::new()
-        .flag("latency-measurement-service", None)
-        .run()
-        .with_config(|config| {
-            assert!(config.enable_latency_measurement_service);
-        });
-    CommandLineTest::new()
-        // .flag("latency-measurement-service", Some("false"))
+        .flag("disable-latency-measurement-service", None)
         .run()
         .with_config(|config| {
             assert!(!config.enable_latency_measurement_service);

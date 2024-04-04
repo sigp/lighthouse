@@ -1439,8 +1439,6 @@ pub fn cli_app() -> Command {
                 .long("progressive-balances")
                 .value_name("MODE")
                 .help("Deprecated. This optimisation is now the default and cannot be disabled.")
-                .takes_value(true)
-                .possible_values(&["fast", "disabled", "checked", "strict"])
                 .action(ArgAction::Set)
                 .display_order(0)
         )

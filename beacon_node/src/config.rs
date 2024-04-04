@@ -3,7 +3,7 @@ use beacon_chain::chain_config::{
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
 };
 use beacon_chain::TrustedSetup;
-use clap::ArgMatches;
+use clap::{ArgMatches, Id};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::{parse_flag, parse_required};
 use client::{ClientConfig, ClientGenesis};
@@ -103,7 +103,7 @@ pub fn get_config<E: EthSpec>(
      * Http API server
      */
 
-    if parse_flag(cli_args, "enable_http") {
+    if cli_args.get_one::<Id>("enable_http").is_some() {
         client_config.http_api.enabled = true;
 
         if let Some(address) = cli_args.get_one::<String>("http-address") {
@@ -843,7 +843,7 @@ pub fn get_config<E: EthSpec>(
         client_config.network.invalid_block_storage = Some(path);
     }
 
-    if cli_args.is_present("progressive-balances") {
+    if cli_args.get_one::<String>("progressive-balances").is_some() {
         warn!(
             log,
             "Progressive balances mode is deprecated";
