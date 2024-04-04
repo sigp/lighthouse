@@ -102,8 +102,8 @@ fn verify_casper_ffg_vote<E: EthSpec>(
         verify!(
             data.source == state.current_justified_checkpoint(),
             Invalid::WrongJustifiedCheckpoint {
-                state: state.current_justified_checkpoint(),
-                attestation: data.source,
+                state: Box::new(state.current_justified_checkpoint()),
+                attestation: Box::new(data.source),
                 is_current: true,
             }
         );
@@ -112,8 +112,8 @@ fn verify_casper_ffg_vote<E: EthSpec>(
         verify!(
             data.source == state.previous_justified_checkpoint(),
             Invalid::WrongJustifiedCheckpoint {
-                state: state.previous_justified_checkpoint(),
-                attestation: data.source,
+                state: Box::new(state.previous_justified_checkpoint()),
+                attestation: Box::new(data.source),
                 is_current: false,
             }
         );
