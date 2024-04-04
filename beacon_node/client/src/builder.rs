@@ -28,7 +28,10 @@ use eth2::{
 };
 use execution_layer::ExecutionLayer;
 use futures::channel::mpsc::Receiver;
-use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
+use genesis::{
+    interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH,
+    DEFAULT_EXECUTION_PAYLOAD_TRANSACTIONS_ROOT,
+};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
@@ -38,6 +41,7 @@ use slog::{debug, info, warn, Logger};
 use ssz::Decode;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -45,7 +49,7 @@ use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
-    ExecutionBlockHash, Hash256, SignedBeaconBlock,
+    ExecutionBlockHash, ExecutionPayloadHeaderMerge, Hash256, SignedBeaconBlock,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -263,6 +267,27 @@ where
                     genesis_time,
                     Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
                     None,
+                    &spec,
+                )?;
+                builder.genesis_state(genesis_state).map(|v| (v, None))?
+            }
+            ClientGenesis::InteropMerge {
+                validator_count,
+                genesis_time,
+            } => {
+                let execution_payload_header = ExecutionPayloadHeaderMerge {
+                    transactions_root: Hash256::from_str(
+                        DEFAULT_EXECUTION_PAYLOAD_TRANSACTIONS_ROOT,
+                    )
+                    .unwrap(),
+                    ..Default::default()
+                };
+                let keypairs = generate_deterministic_keypairs(validator_count);
+                let genesis_state = interop_genesis_state(
+                    &keypairs,
+                    genesis_time,
+                    Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                    Some(execution_payload_header.into()),
                     &spec,
                 )?;
                 builder.genesis_state(genesis_state).map(|v| (v, None))?

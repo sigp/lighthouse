@@ -1,7 +1,7 @@
 use crate::local_network::LocalNetwork;
 use node_test_rig::eth2::types::{BlockId, FinalityCheckpointsData, StateId};
 use std::time::Duration;
-use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, Slot, Unsigned};
+use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Slot, Unsigned};
 
 /// Checks that all of the validators have on-boarded by the start of the second eth1 voting
 /// period.
@@ -234,7 +234,7 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
     }
 
     let first = block_hashes[0];
-    if first.into_root() != Hash256::zero() && block_hashes.iter().all(|&item| item == first) {
+    if block_hashes.iter().all(|&item| item == first) {
         Ok(())
     } else {
         Err(format!(
@@ -328,6 +328,39 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             return Err(format!(
                 "Existing finality update too old: signature slot {signature_slot}, current slot {slot:?}"
             ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Verifies that there's been a block produced at every slot up to and including `slot`.
+pub async fn verify_full_blob_production_up_to<E: EthSpec>(
+    network: LocalNetwork<E>,
+    blob_start_slot: Slot,
+    upto_slot: Slot,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    slot_delay(upto_slot, slot_duration).await;
+    let remote_nodes = network.remote_nodes()?;
+    let remote_node = remote_nodes.first().unwrap();
+
+    for slot in blob_start_slot.as_u64()..=upto_slot.as_u64() {
+        // Ensure block exists.
+        let block = remote_node
+            .get_beacon_blocks::<E>(BlockId::Slot(Slot::new(slot)))
+            .await
+            .ok()
+            .flatten();
+
+        // Only check blobs if the blob exist. If you also want to ensure full block production, use
+        // the `verify_full_block_production_up_to` function.
+        if block.is_some() {
+            remote_node
+                .get_blobs::<E>(BlockId::Slot(Slot::new(slot)), None)
+                .await
+                .map_err(|e| format!("Failed to get blobs at slot {slot:?}: {e:?}"))?
+                .ok_or_else(|| format!("No blobs available at slot {slot:?}"))?;
         }
     }
 

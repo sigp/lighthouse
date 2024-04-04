@@ -49,6 +49,12 @@ pub async fn handle_rpc<E: EthSpec>(
                         .latest_execution_block(),
                 )
                 .unwrap()),
+                "0x0" => Ok(serde_json::to_value(
+                    ctx.execution_block_generator
+                        .read()
+                        .genesis_execution_block(),
+                )
+                .unwrap()),
                 other => Err((
                     format!("The tag {} is not supported", other),
                     BAD_PARAMS_ERROR_CODE,

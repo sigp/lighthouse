@@ -16,13 +16,11 @@
 #[macro_use]
 extern crate clap;
 
+mod basic_sim;
 mod checks;
 mod cli;
-mod eth1_sim;
 mod local_network;
-mod no_eth1_sim;
 mod retry;
-mod sync_sim;
 
 use cli::cli_app;
 use env_logger::{Builder, Env};
@@ -37,21 +35,7 @@ fn main() {
 
     let matches = cli_app().get_matches();
     match matches.subcommand() {
-        ("eth1-sim", Some(matches)) => match eth1_sim::run_eth1_sim(matches) {
-            Ok(()) => println!("Simulation exited successfully"),
-            Err(e) => {
-                eprintln!("Simulation exited with error: {}", e);
-                std::process::exit(1)
-            }
-        },
-        ("no-eth1-sim", Some(matches)) => match no_eth1_sim::run_no_eth1_sim(matches) {
-            Ok(()) => println!("Simulation exited successfully"),
-            Err(e) => {
-                eprintln!("Simulation exited with error: {}", e);
-                std::process::exit(1)
-            }
-        },
-        ("syncing-sim", Some(matches)) => match sync_sim::run_syncing_sim(matches) {
+        ("basic-sim", Some(matches)) => match basic_sim::run_basic_sim(matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);

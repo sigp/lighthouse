@@ -176,9 +176,21 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             rng: make_rng(),
         };
 
-        gen.insert_pow_block(0).unwrap();
+        //gen.insert_pow_block(0).unwrap();
+        // Merge from genesis
+        gen.insert_genesis_pos_block().unwrap();
 
         gen
+    }
+
+    pub fn insert_genesis_pos_block(&mut self) -> Result<(), String> {
+        // Insert block into block tree.
+        self.insert_block(Block::PoS(ExecutionPayloadMerge::default().into()))?;
+
+        // Set block has head.
+        self.head_block = Some(Block::PoS(ExecutionPayloadMerge::default().into()));
+
+        Ok(())
     }
 
     pub fn latest_block(&self) -> Option<Block<E>> {
@@ -187,6 +199,19 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
     pub fn latest_execution_block(&self) -> Option<ExecutionBlock> {
         self.latest_block()
+            .map(|block| block.as_execution_block(self.terminal_total_difficulty))
+    }
+
+    pub fn genesis_block(&self) -> Option<Block<E>> {
+        if let Some(genesis_block_hash) = self.block_hashes.get(&0) {
+            self.blocks.get(genesis_block_hash.first()?).cloned()
+        } else {
+            None
+        }
+    }
+
+    pub fn genesis_execution_block(&self) -> Option<ExecutionBlock> {
+        self.genesis_block()
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
