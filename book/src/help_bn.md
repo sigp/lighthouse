@@ -385,8 +385,11 @@ OPTIONS:
         --proposer-reorg-epochs-since-finalization <EPOCHS>
             Maximum number of epochs since finalization at which proposer reorgs are allowed. Default: 2
 
+        --proposer-reorg-parent-threshold <PERCENT>
+            Percentage of parent vote weight above which to attempt a proposer reorg. Default: 160%
+
         --proposer-reorg-threshold <PERCENT>
-            Percentage of vote weight below which to attempt a proposer reorg. Default: 20%
+            Percentage of head vote weight below which to attempt a proposer reorg. Default: 20%
 
         --prune-blobs <BOOLEAN>
             Prune blobs from Lighthouse's database when they are older than the data data availability boundary relative

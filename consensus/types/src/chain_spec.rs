@@ -114,6 +114,8 @@ pub struct ChainSpec {
      */
     pub safe_slots_to_update_justified: u64,
     pub proposer_score_boost: Option<u64>,
+    pub reorg_head_weight_threshold: Option<u64>,
+    pub reorg_parent_weight_threshold: Option<u64>,
 
     /*
      * Eth1
@@ -637,6 +639,8 @@ impl ChainSpec {
              */
             safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
+            reorg_head_weight_threshold: Some(20),
+            reorg_parent_weight_threshold: Some(160),
 
             /*
              * Eth1
@@ -907,6 +911,8 @@ impl ChainSpec {
              */
             safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
+            reorg_head_weight_threshold: Some(20),
+            reorg_parent_weight_threshold: Some(160),
 
             /*
              * Eth1
