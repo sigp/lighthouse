@@ -775,8 +775,6 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
-                self.chain_config.progressive_balances_mode,
-                &log,
             )?;
         }
 

@@ -1,4 +1,5 @@
 use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
+use crate::epoch_cache::initialize_epoch_cache;
 use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
@@ -23,6 +24,8 @@ pub fn process_epoch<E: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
+    state.build_total_active_balance_cache(spec)?;
+    initialize_epoch_cache(state, spec)?;
 
     // Load the struct we use to assign validators into sets based on their participation.
     //
@@ -52,7 +55,7 @@ pub fn process_epoch<E: EthSpec>(
     process_eth1_data_reset(state)?;
 
     // Update effective balances with hysteresis (lag).
-    process_effective_balance_updates(state, None, spec)?;
+    process_effective_balance_updates(state, spec)?;
 
     // Reset slashings
     process_slashings_reset(state)?;
@@ -67,7 +70,7 @@ pub fn process_epoch<E: EthSpec>(
     process_participation_record_updates(state)?;
 
     // Rotate the epoch caches to suit the epoch transition.
-    state.advance_caches(spec)?;
+    state.advance_caches()?;
 
     Ok(EpochProcessingSummary::Base {
         total_balances: validator_statuses.total_balances,
