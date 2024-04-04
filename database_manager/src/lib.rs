@@ -4,7 +4,7 @@ use beacon_chain::{
 };
 use beacon_node::{get_data_dir, get_slots_per_restore_point, ClientConfig};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::get_color_style;
+use clap_utils::{get_color_style, FLAG_HEADER};
 use environment::{Environment, RuntimeContext};
 use slog::{info, warn, Logger};
 use std::fs;
@@ -52,7 +52,8 @@ pub fn inspect_cli_app() -> Command {
                 .value_name("TAG")
                 .help("3-byte column ID (see `DBColumn`)")
                 .action(ArgAction::Set)
-                .required(true),
+                .required(true)
+                .display_order(0),
         )
         .arg(
             Arg::new("output")
@@ -60,40 +61,48 @@ pub fn inspect_cli_app() -> Command {
                 .value_name("TARGET")
                 .help("Select the type of output to show")
                 .default_value("sizes")
-                .value_parser(InspectTarget::VARIANTS.to_vec()),
+                .value_parser(InspectTarget::VARIANTS.to_vec())
+                .display_order(0),
         )
         .arg(
             Arg::new("skip")
                 .long("skip")
                 .value_name("N")
-                .help("Skip over the first N keys"),
+                .help("Skip over the first N keys")
+                .display_order(0),
         )
         .arg(
             Arg::new("limit")
                 .long("limit")
                 .value_name("N")
-                .help("Output at most N keys"),
+                .help("Output at most N keys")
+                .display_order(0),
         )
         .arg(
             Arg::new("freezer")
                 .long("freezer")
                 .help("Inspect the freezer DB rather than the hot DB")
                 .action(ArgAction::SetTrue)
-                .conflicts_with("blobs-db"),
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("blobs-db")
+                .display_order(0),
         )
         .arg(
             Arg::new("blobs-db")
                 .long("blobs-db")
                 .help("Inspect the blobs DB rather than the hot DB")
                 .action(ArgAction::SetTrue)
-                .conflicts_with("freezer"),
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("freezer")
+                .display_order(0),
         )
         .arg(
             Arg::new("output-dir")
                 .long("output-dir")
                 .value_name("DIR")
                 .help("Base directory for the output files. Defaults to the current directory")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 
@@ -107,21 +116,26 @@ pub fn compact_cli_app() -> Command {
                 .value_name("TAG")
                 .help("3-byte column ID (see `DBColumn`)")
                 .action(ArgAction::Set)
-                .required(true),
+                .required(true)
+                .display_order(0),
         )
         .arg(
             Arg::new("freezer")
                 .long("freezer")
                 .help("Inspect the freezer DB rather than the hot DB")
                 .action(ArgAction::SetTrue)
-                .conflicts_with("blobs-db"),
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("blobs-db")
+                .display_order(0),
         )
         .arg(
             Arg::new("blobs-db")
                 .long("blobs-db")
                 .help("Inspect the blobs DB rather than the hot DB")
                 .action(ArgAction::SetTrue)
-                .conflicts_with("freezer"),
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("freezer")
+                .display_order(0),
         )
 }
 
@@ -149,7 +163,9 @@ pub fn prune_states_app() -> Command {
                     "Commit to pruning states irreversably. Without this flag the command will \
                      just check that the database is capable of being pruned.",
                 )
-                .action(ArgAction::SetTrue),
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0),
         )
         .styles(get_color_style())
         .about("Prune all beacon states from the freezer database")
@@ -157,6 +173,7 @@ pub fn prune_states_app() -> Command {
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
+        .display_order(0)
         .visible_aliases(["db"])
         .styles(get_color_style())
         .about("Manage a beacon node database")
@@ -169,14 +186,16 @@ pub fn cli_app() -> Command {
                        Cannot be changed after initialization. \
                        [default: 2048 (mainnet) or 64 (minimal)]",
                 )
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new("freezer-dir")
                 .long("freezer-dir")
                 .value_name("DIR")
                 .help("Data directory for the freezer database.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new("blob-prune-margin-epochs")
@@ -187,14 +206,16 @@ pub fn cli_app() -> Command {
                        up until data_availability_boundary - blob_prune_margin_epochs.",
                 )
                 .action(ArgAction::Set)
-                .default_value("0"),
+                .default_value("0")
+                .display_order(0),
         )
         .arg(
             Arg::new("blobs-dir")
                 .long("blobs-dir")
                 .value_name("DIR")
                 .help("Data directory for the blobs database.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .subcommand(migrate_cli_app())
         .subcommand(version_cli_app())

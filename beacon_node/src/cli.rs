@@ -1,5 +1,5 @@
 use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Command};
-use clap_utils::get_color_style;
+use clap_utils::{get_color_style, FLAG_HEADER};
 use strum::VariantNames;
 use types::ProgressiveBalancesMode;
 
@@ -22,6 +22,7 @@ pub fn cli_app() -> Command {
                 .help("Data directory for network keys. Defaults to network/ inside the beacon node \
                        dir.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("freezer-dir")
@@ -29,6 +30,7 @@ pub fn cli_app() -> Command {
                 .value_name("DIR")
                 .help("Data directory for the freezer database.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("blobs-dir")
@@ -36,6 +38,7 @@ pub fn cli_app() -> Command {
                 .value_name("DIR")
                 .help("Data directory for the blobs database.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         /*
          * Network parameters.
@@ -44,8 +47,10 @@ pub fn cli_app() -> Command {
             Arg::new("subscribe-all-subnets")
                 .long("subscribe-all-subnets")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help("Subscribe to all subnets regardless of validator count. \
                        This will also advertise the beacon node as being long-lived subscribed to all subnets.")
+                .display_order(0)
         )
         .arg(
             Arg::new("import-all-attestations")
@@ -54,13 +59,16 @@ pub fn cli_app() -> Command {
                        This will only import attestations from already-subscribed subnets, use with \
                        --subscribe-all-subnets to ensure all attestations are received for import.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-packet-filter")
                 .long("disable-packet-filter")
                 .help("Disables the discovery packet filter. Useful for testing in smaller networks")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
         )
         .arg(
             Arg::new("shutdown-after-sync")
@@ -68,6 +76,8 @@ pub fn cli_app() -> Command {
                 .help("Shutdown beacon node as soon as sync is completed. Backfill sync will \
                        not be performed before shutdown.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("zero-ports")
@@ -76,6 +86,8 @@ pub fn cli_app() -> Command {
                 .help("Sets all listening TCP/UDP ports to 0, allowing the OS to choose some \
                        arbitrary free ports.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("listen-address")
@@ -92,6 +104,7 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Append)
                 .num_args(0..=2)
                 .default_value("0.0.0.0")
+                .display_order(0)
         )
         .arg(
             Arg::new("port")
@@ -103,6 +116,7 @@ pub fn cli_app() -> Command {
                       will apply to the IPv4 address and --port6 to the IPv6 address.")
                 .default_value("9000")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("port6")
@@ -112,6 +126,7 @@ pub fn cli_app() -> Command {
                       IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1.")
                 .default_value("9090")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("discovery-port")
@@ -119,6 +134,7 @@ pub fn cli_app() -> Command {
                 .value_name("PORT")
                 .help("The UDP port that discovery will listen on. Defaults to `port`")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("quic-port")
@@ -126,6 +142,7 @@ pub fn cli_app() -> Command {
                 .value_name("PORT")
                 .help("The UDP port that quic will listen on. Defaults to `port` + 1")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("discovery-port6")
@@ -134,6 +151,7 @@ pub fn cli_app() -> Command {
                 .help("The UDP port that discovery will listen on over IPv6 if listening over \
                       both IPv4 and IPv6. Defaults to `port6`")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("quic-port6")
@@ -142,12 +160,14 @@ pub fn cli_app() -> Command {
                 .help("The UDP port that quic will listen on over IPv6 if listening over \
                       both IPv4 and IPv6. Defaults to `port6` + 1")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("target-peers")
                 .long("target-peers")
                 .help("The target number of peers.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("boot-nodes")
@@ -156,6 +176,7 @@ pub fn cli_app() -> Command {
                 .value_name("ENR/MULTIADDR LIST")
                 .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network. Multiaddr is also supported.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("network-load")
@@ -165,18 +186,23 @@ pub fn cli_app() -> Command {
                 .default_value("3")
                 .hide(true)
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-upnp")
                 .long("disable-upnp")
                 .help("Disables UPnP support. Setting this will prevent Lighthouse from attempting to automatically establish external port mappings.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("private")
                 .long("private")
                 .help("Prevents sending various client identification information.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("enr-udp-port")
@@ -185,6 +211,7 @@ pub fn cli_app() -> Command {
                 .help("The UDP4 port of the local ENR. Set this only if you are sure other nodes \
                       can connect to your local node on this port over IPv4.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("enr-quic-port")
@@ -193,6 +220,7 @@ pub fn cli_app() -> Command {
                 .help("The quic UDP4 port that will be set on the local ENR. Set this only if you are sure other nodes \
                       can connect to your local node on this port over IPv4.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("enr-udp6-port")
@@ -201,6 +229,7 @@ pub fn cli_app() -> Command {
                 .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
                       can connect to your local node on this port over IPv6.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("enr-quic6-port")
@@ -209,6 +238,7 @@ pub fn cli_app() -> Command {
                 .help("The quic UDP6 port that will be set on the local ENR. Set this only if you are sure other nodes \
                       can connect to your local node on this port over IPv6.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("enr-tcp-port")
@@ -218,6 +248,7 @@ pub fn cli_app() -> Command {
                       can connect to your local node on this port over IPv4. The --port flag is \
                       used if this is not set.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("enr-tcp6-port")
@@ -227,6 +258,7 @@ pub fn cli_app() -> Command {
                       can connect to your local node on this port over IPv6. The --port6 flag is \
                       used if this is not set.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("enr-address")
@@ -240,23 +272,28 @@ pub fn cli_app() -> Command {
                       accordingly. To update both, set this flag twice with the different values.")
                 .action(ArgAction::Append)
                 .num_args(0..=2)
+                .display_order(0)
         )
         .arg(
             Arg::new("enr-match")
                 .short('e')
                 .long("enr-match")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help("Sets the local ENR IP address and port to match those set for lighthouse. \
                       Specifically, the IP address will be the value of --listen-address and the \
                       UDP port will be --discovery-port.")
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-enr-auto-update")
                 .short('x')
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .long("disable-enr-auto-update")
                 .help("Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
                 This disables this feature, fixing the ENR's IP/PORT to those specified on boot.")
+                .display_order(0)
         )
         .arg(
             Arg::new("libp2p-addresses")
@@ -265,6 +302,7 @@ pub fn cli_app() -> Command {
                 .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
                        without an ENR.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         // NOTE: This is hide because it is primarily a developer feature for testnets and
         // debugging. We remove it from the list to avoid clutter.
@@ -272,14 +310,18 @@ pub fn cli_app() -> Command {
             Arg::new("disable-discovery")
                 .long("disable-discovery")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
                 .hide(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-quic")
                 .long("disable-quic")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help("Disables the quic transport. The node will rely solely on the TCP transport for libp2p connections.")
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-peer-scoring")
@@ -287,7 +329,9 @@ pub fn cli_app() -> Command {
                 .help("Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
                         Using this flag on a real network may cause your node to become eclipsed and see a different view of the network")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .hide(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("trusted-peers")
@@ -295,18 +339,24 @@ pub fn cli_app() -> Command {
                 .value_name("TRUSTED_PEERS")
                 .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
                 .action(ArgAction::Set)
+                .display_order(0)
+                .display_order(0)
         )
         .arg(
             Arg::new("genesis-backfill")
                 .long("genesis-backfill")
                 .help("Attempts to download blocks all the way back to genesis when checkpoint syncing.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("enable-private-discovery")
                 .long("enable-private-discovery")
                 .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("self-limiter")
@@ -319,6 +369,8 @@ pub fn cli_app() -> Command {
                 used."
             )
             .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+            .display_order(0)
         )
         .arg(
             Arg::new("self-limiter-protocols")
@@ -335,6 +387,7 @@ pub fn cli_app() -> Command {
             .action(ArgAction::Append)
             .value_delimiter(';')
             .requires("self-limiter")
+            .display_order(0)
         )
         .arg(
             Arg::new("proposer-only")
@@ -343,6 +396,8 @@ pub fn cli_app() -> Command {
                        This will run the beacon node in a minimal configuration that is sufficient for block publishing only. This flag should be used \
                        for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-inbound-rate-limiter")
@@ -351,6 +406,8 @@ pub fn cli_app() -> Command {
                 "Disables the inbound rate limiter (requests received by this node)."
             )
             .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+            .display_order(0)
         )
         .arg(
             Arg::new("inbound-rate-limiter-protocols")
@@ -367,6 +424,7 @@ pub fn cli_app() -> Command {
             )
             .action(ArgAction::Set)
             .conflicts_with("disable-inbound-rate-limiter")
+            .display_order(0)
         )
         .arg(
             Arg::new("disable-backfill-rate-limiting")
@@ -375,6 +433,8 @@ pub fn cli_app() -> Command {
                     as possible, however it can result in resource contention which degrades staking performance. Stakers \
                     should generally choose to avoid this flag since backfill sync is not required for staking.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         /* REST API related arguments */
         .arg(
@@ -382,6 +442,8 @@ pub fn cli_app() -> Command {
                 .long("http")
                 .help("Enable the RESTful HTTP API server. Disabled by default.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("http-address")
@@ -391,6 +453,7 @@ pub fn cli_app() -> Command {
                 .help("Set the listen address for the RESTful HTTP API server.")
                 .default_value_if("enable_http", ArgPredicate::IsPresent, "127.0.0.1")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("http-port")
@@ -400,6 +463,7 @@ pub fn cli_app() -> Command {
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .default_value_if("enable_http", ArgPredicate::IsPresent, "5052")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("http-allow-origin")
@@ -411,6 +475,7 @@ pub fn cli_app() -> Command {
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5052).")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("http-spec-fork")
@@ -420,6 +485,7 @@ pub fn cli_app() -> Command {
                 .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
                        not be necessary to set this flag.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("http-enable-tls")
@@ -427,8 +493,10 @@ pub fn cli_app() -> Command {
                 .help("Serves the RESTful HTTP API server over TLS. This feature is currently \
                     experimental.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .requires("http-tls-cert")
                 .requires("http-tls-key")
+                .display_order(0)
         )
         .arg(
             Arg::new("http-tls-cert")
@@ -437,6 +505,7 @@ pub fn cli_app() -> Command {
                 .help("The path of the certificate to be used when serving the HTTP API server \
                     over TLS.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("http-tls-key")
@@ -445,15 +514,18 @@ pub fn cli_app() -> Command {
                 .help("The path of the private key to be used when serving the HTTP API server \
                     over TLS. Must not be password-protected.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("http-allow-sync-stalled")
                 .long("http-allow-sync-stalled")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .requires("enable_http")
                 .help("Forces the HTTP to indicate that the node is synced when sync is actually \
                     stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
                     MAINNET.")
+                .display_order(0)
         )
         .arg(
             Arg::new("http-sse-capacity-multiplier")
@@ -464,6 +536,7 @@ pub fn cli_app() -> Command {
                 .value_name("N")
                 .help("Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. \
                        Increasing this value can prevent messages from being dropped.")
+                .display_order(0)
         )
         .arg(
             Arg::new("http-duplicate-block-status")
@@ -474,6 +547,7 @@ pub fn cli_app() -> Command {
                 .value_name("STATUS_CODE")
                 .help("Status code to send when a block that is already known is POSTed to the \
                        HTTP API.")
+                .display_order(0)
         )
         .arg(
             Arg::new("http-enable-beacon-processor")
@@ -485,6 +559,7 @@ pub fn cli_app() -> Command {
                     alongside other tasks. When set to \"false\", HTTP API responses will be executed \
                     immediately.")
                 .action(ArgAction::Set)
+                .display_order(0)
                 .default_value_if("enable_http", ArgPredicate::IsPresent, "true")
         )
         /* Prometheus metrics HTTP server related arguments */
@@ -493,6 +568,8 @@ pub fn cli_app() -> Command {
                 .long("metrics")
                 .help("Enable the Prometheus metrics HTTP server. Disabled by default.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("metrics-address")
@@ -502,6 +579,7 @@ pub fn cli_app() -> Command {
                 .help("Set the listen address for the Prometheus metrics HTTP server.")
                 .default_value_if("metrics", ArgPredicate::IsPresent, "127.0.0.1")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("metrics-port")
@@ -511,6 +589,7 @@ pub fn cli_app() -> Command {
                 .help("Set the listen TCP port for the Prometheus metrics HTTP server.")
                 .default_value_if("metrics", ArgPredicate::IsPresent, "5054")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("metrics-allow-origin")
@@ -522,6 +601,7 @@ pub fn cli_app() -> Command {
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5054).")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("shuffling-cache-size")
@@ -530,6 +610,7 @@ pub fn cli_app() -> Command {
             This flag allows the user to set the shuffling cache size in epochs. \
             Shufflings are dependent on validator count and setting this value to a large number can consume a large amount of memory.")
             .action(ArgAction::Set)
+            .display_order(0)
         )
 
         /*
@@ -547,6 +628,7 @@ pub fn cli_app() -> Command {
                 validators, IP address and other personal information. Always use a HTTPS connection \
                 and never provide an untrusted URL.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("monitoring-endpoint-period")
@@ -556,6 +638,7 @@ pub fn cli_app() -> Command {
                        the monitoring-endpoint. Default: 60s")
                 .requires("monitoring-endpoint")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
 
         /*
@@ -569,6 +652,8 @@ pub fn cli_app() -> Command {
                        on localhost:5052 and import deposit logs from the execution node. This is \
                        equivalent to `--http` on merge-ready networks, or `--http --eth1` pre-merge")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
 
         /*
@@ -580,14 +665,18 @@ pub fn cli_app() -> Command {
                 .help("If present the node will connect to an eth1 node. This is required for \
                        block production, you must use this flag if you wish to serve a validator.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("dummy-eth1")
                 .long("dummy-eth1")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .conflicts_with("eth1")
                 .help("If present, uses an eth1 backend that generates static dummy data.\
                       Identical to the method used at the 2019 Canada interop.")
+                .display_order(0)
         )
         .arg(
             Arg::new("eth1-purge-cache")
@@ -595,6 +684,8 @@ pub fn cli_app() -> Command {
                 .value_name("PURGE-CACHE")
                 .help("Purges the eth1 block and deposit caches")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("eth1-blocks-per-log-query")
@@ -604,6 +695,7 @@ pub fn cli_app() -> Command {
                     This will reduce the size of responses from the Eth1 endpoint.")
                 .default_value("1000")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("eth1-cache-follow-distance")
@@ -614,6 +706,7 @@ pub fn cli_app() -> Command {
                        compensate for irregular Proof-of-Work block times, but setting it too low \
                        can make the node vulnerable to re-orgs.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("slots-per-restore-point")
@@ -623,6 +716,7 @@ pub fn cli_app() -> Command {
                        Cannot be changed after initialization. \
                        [default: 8192 (mainnet) or 64 (minimal)]")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("epochs-per-migration")
@@ -633,6 +727,7 @@ pub fn cli_app() -> Command {
                        writes")
                 .default_value("1")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("block-cache-size")
@@ -640,6 +735,7 @@ pub fn cli_app() -> Command {
                 .value_name("SIZE")
                 .help("Specifies how many blocks the database should cache in memory [default: 5]")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("historic-state-cache-size")
@@ -647,6 +743,7 @@ pub fn cli_app() -> Command {
                 .value_name("SIZE")
                 .help("Specifies how many states from the freezer database should cache in memory [default: 1]")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("state-cache-size")
@@ -654,6 +751,7 @@ pub fn cli_app() -> Command {
                 .value_name("STATE_CACHE_SIZE")
                 .help("Specifies the size of the snapshot cache [default: 3]")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         /*
          * Execution Layer Integration
@@ -667,6 +765,7 @@ pub fn cli_app() -> Command {
                        JSON-RPC connection. Uses the same endpoint to populate the \
                        deposit cache.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("execution-jwt")
@@ -677,6 +776,7 @@ pub fn cli_app() -> Command {
                        execution endpoint provided in the --execution-endpoint flag.")
                 .requires("execution-endpoint")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("execution-jwt-secret-key")
@@ -688,6 +788,7 @@ pub fn cli_app() -> Command {
                 .requires("execution-endpoint")
                 .conflicts_with("execution-jwt")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("execution-jwt-id")
@@ -699,6 +800,7 @@ pub fn cli_app() -> Command {
                        Set to empty by default")
                 .requires("execution-jwt")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("execution-jwt-version")
@@ -710,6 +812,7 @@ pub fn cli_app() -> Command {
                        Set to empty by default")
                 .requires("execution-jwt")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("suggested-fee-recipient")
@@ -720,6 +823,7 @@ pub fn cli_app() -> Command {
                        client instead of (or in addition to) setting it here.")
                 .requires("execution-endpoint")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("builder")
@@ -729,6 +833,7 @@ pub fn cli_app() -> Command {
                 .help("The URL of a service compatible with the MEV-boost API.")
                 .requires("execution-endpoint")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("execution-timeout-multiplier")
@@ -737,6 +842,7 @@ pub fn cli_app() -> Command {
                 .help("Unsigned integer to multiply the default execution timeouts by.")
                 .default_value("1")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         /* Deneb settings */
         .arg(
@@ -747,6 +853,7 @@ pub fn cli_app() -> Command {
                       NOTE: This will override the trusted setup that is generated \
                       from the mainnet kzg ceremony. Use with caution")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         /*
          * Database purging and compaction.
@@ -755,14 +862,18 @@ pub fn cli_app() -> Command {
             Arg::new("purge-db")
                 .long("purge-db")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help("If present, the chain database will be deleted. Use with caution.")
+                .display_order(0)
         )
         .arg(
             Arg::new("compact-db")
                 .long("compact-db")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help("If present, apply compaction to the database on start-up. Use with caution. \
                        It is generally not recommended unless auto-compaction is disabled.")
+                .display_order(0)
         )
         .arg(
             Arg::new("auto-compact-db")
@@ -770,6 +881,7 @@ pub fn cli_app() -> Command {
                 .help("Enable or disable automatic compaction of the database on finalization.")
                 .action(ArgAction::Set)
                 .default_value("true")
+                .display_order(0)
         )
         .arg(
             Arg::new("prune-payloads")
@@ -779,6 +891,7 @@ pub fn cli_app() -> Command {
                        reconstructed and sent to syncing peers.")
                 .action(ArgAction::Set)
                 .default_value("true")
+                .display_order(0)
         )
         .arg(
             Arg::new("prune-blobs")
@@ -788,6 +901,7 @@ pub fn cli_app() -> Command {
                        data availability boundary relative to the current epoch.")
                 .action(ArgAction::Set)
                 .default_value("true")
+                .display_order(0)
         )
         .arg(
             Arg::new("epochs-per-blob-prune")
@@ -798,6 +912,7 @@ pub fn cli_app() -> Command {
                        relative to the current epoch.")
                 .action(ArgAction::Set)
                 .default_value("1")
+                .display_order(0)
         )
         .arg(
             Arg::new("blob-prune-margin-epochs")
@@ -807,6 +922,7 @@ pub fn cli_app() -> Command {
                        up until data_availability_boundary - blob_prune_margin_epochs.")
                 .action(ArgAction::Set)
                 .default_value("0")
+                .display_order(0)
         )
 
         /*
@@ -821,6 +937,7 @@ pub fn cli_app() -> Command {
                 )
                 .value_name("GRAFFITI")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("max-skip-slots")
@@ -832,6 +949,7 @@ pub fn cli_app() -> Command {
                 )
                 .value_name("NUM_SLOTS")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         /*
          * Slasher.
@@ -845,6 +963,8 @@ pub fn cli_app() -> Command {
                      resources required."
                 )
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("slasher-dir")
@@ -855,6 +975,7 @@ pub fn cli_app() -> Command {
                 .value_name("PATH")
                 .action(ArgAction::Set)
                 .requires("slasher")
+                .display_order(0)
         )
         .arg(
             Arg::new("slasher-update-period")
@@ -865,6 +986,7 @@ pub fn cli_app() -> Command {
                 .value_name("SECONDS")
                 .requires("slasher")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("slasher-slot-offset")
@@ -877,6 +999,7 @@ pub fn cli_app() -> Command {
                 .value_name("SECONDS")
                 .requires("slasher")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("slasher-history-length")
@@ -888,6 +1011,7 @@ pub fn cli_app() -> Command {
                 .value_name("EPOCHS")
                 .requires("slasher")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("slasher-max-db-size")
@@ -898,6 +1022,7 @@ pub fn cli_app() -> Command {
                 .value_name("GIGABYTES")
                 .requires("slasher")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("slasher-att-cache-size")
@@ -906,6 +1031,7 @@ pub fn cli_app() -> Command {
                 .value_name("COUNT")
                 .requires("slasher")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("slasher-chunk-size")
@@ -916,6 +1042,7 @@ pub fn cli_app() -> Command {
                 .value_name("EPOCHS")
                 .requires("slasher")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("slasher-validator-chunk-size")
@@ -926,6 +1053,7 @@ pub fn cli_app() -> Command {
                 .value_name("NUM_VALIDATORS")
                 .requires("slasher")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("slasher-broadcast")
@@ -934,6 +1062,7 @@ pub fn cli_app() -> Command {
                        [Enabled by default].")
                 .action(ArgAction::Set)
                 .default_value("true")
+                .display_order(0)
         )
         .arg(
             Arg::new("slasher-backend")
@@ -943,6 +1072,7 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .value_parser(slasher::DatabaseBackend::VARIANTS.to_vec())
                 .requires("slasher")
+                .display_order(0)
         )
         .arg(
             Arg::new("wss-checkpoint")
@@ -955,6 +1085,7 @@ pub fn cli_app() -> Command {
                 )
                 .value_name("WSS_CHECKPOINT")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("checkpoint-state")
@@ -964,6 +1095,7 @@ pub fn cli_app() -> Command {
                 .value_name("STATE_SSZ")
                 .action(ArgAction::Set)
                 .requires("checkpoint-block")
+                .display_order(0)
         )
         .arg(
             Arg::new("checkpoint-block")
@@ -973,6 +1105,7 @@ pub fn cli_app() -> Command {
                 .value_name("BLOCK_SSZ")
                 .action(ArgAction::Set)
                 .requires("checkpoint-state")
+                .display_order(0)
         )
         .arg(
             Arg::new("checkpoint-blobs")
@@ -982,6 +1115,7 @@ pub fn cli_app() -> Command {
                 .value_name("BLOBS_SSZ")
                 .action(ArgAction::Set)
                 .requires("checkpoint-block")
+                .display_order(0)
         )
         .arg(
             Arg::new("checkpoint-sync-url")
@@ -990,6 +1124,7 @@ pub fn cli_app() -> Command {
                 .value_name("BEACON_NODE")
                 .action(ArgAction::Set)
                 .conflicts_with("checkpoint-state")
+                .display_order(0)
         )
         .arg(
             Arg::new("checkpoint-sync-url-timeout")
@@ -998,6 +1133,7 @@ pub fn cli_app() -> Command {
                 .value_name("SECONDS")
                 .action(ArgAction::Set)
                 .default_value("180")
+                .display_order(0)
         )
         .arg(
             Arg::new("allow-insecure-genesis-sync")
@@ -1008,21 +1144,27 @@ pub fn cli_app() -> Command {
                 .conflicts_with("checkpoint-sync-url")
                 .conflicts_with("checkpoint-state")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("reconstruct-historic-states")
                 .long("reconstruct-historic-states")
                 .help("After a checkpoint sync, reconstruct historic states in the database. This requires syncing all the way back to genesis.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("validator-monitor-auto")
                 .long("validator-monitor-auto")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help("Enables the automatic detection and monitoring of validators connected to the \
                     HTTP API and using the subnet subscription endpoint. This generally has the \
                     effect of providing additional logging and metrics for locally controlled \
                     validators.")
+                .display_order(0)
         )
         .arg(
             Arg::new("validator-monitor-pubkeys")
@@ -1032,6 +1174,7 @@ pub fn cli_app() -> Command {
                         logging.")
                 .value_name("PUBKEYS")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("validator-monitor-file")
@@ -1040,6 +1183,7 @@ pub fn cli_app() -> Command {
                     contained within a file at the given path.")
                 .value_name("PATH")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("validator-monitor-individual-tracking-threshold")
@@ -1051,6 +1195,7 @@ pub fn cli_app() -> Command {
                     high log volume when using many validators. Defaults to 64.")
                 .value_name("INTEGER")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-lock-timeouts")
@@ -1059,12 +1204,16 @@ pub fn cli_app() -> Command {
                        lead to less spurious failures on slow hardware but is considered \
                        experimental as it may obscure performance issues.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-proposer-reorgs")
                 .long("disable-proposer-reorgs")
                 .help("Do not attempt to reorg late blocks from other validators when proposing.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("proposer-reorg-threshold")
@@ -1074,6 +1223,7 @@ pub fn cli_app() -> Command {
                 .help("Percentage of vote weight below which to attempt a proposer reorg. \
                        Default: 20%")
                 .conflicts_with("disable-proposer-reorgs")
+                .display_order(0)
         )
         .arg(
             Arg::new("proposer-reorg-epochs-since-finalization")
@@ -1083,6 +1233,7 @@ pub fn cli_app() -> Command {
                 .help("Maximum number of epochs since finalization at which proposer reorgs are \
                        allowed. Default: 2")
                 .conflicts_with("disable-proposer-reorgs")
+                .display_order(0)
         )
         .arg(
             Arg::new("proposer-reorg-cutoff")
@@ -1094,6 +1245,7 @@ pub fn cli_app() -> Command {
                        ample time to propagate and be processed by the network. The default is \
                        1/12th of a slot (1 second on mainnet)")
                 .conflicts_with("disable-proposer-reorgs")
+                .display_order(0)
         )
         .arg(
             Arg::new("proposer-reorg-disallowed-offsets")
@@ -1107,6 +1259,7 @@ pub fn cli_app() -> Command {
                        avoided. Any offsets supplied with this flag will impose additional \
                        restrictions.")
                 .conflicts_with("disable-proposer-reorgs")
+                .display_order(0)
         )
         .arg(
             Arg::new("prepare-payload-lookahead")
@@ -1117,6 +1270,7 @@ pub fn cli_app() -> Command {
                        improve their payload after the first call, and high values are useful \
                        for ensuring the EL is given ample notice. Default: 1/3 of a slot.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("always-prepare-payload")
@@ -1126,6 +1280,8 @@ pub fn cli_app() -> Command {
                        recipient on this BN and also consider adjusting the \
                        --prepare-payload-lookahead flag.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("fork-choice-before-proposal-timeout")
@@ -1135,6 +1291,7 @@ pub fn cli_app() -> Command {
                        to 0, however you risk proposing atop the wrong parent block.")
                 .default_value("250")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("paranoid-block-proposal")
@@ -1145,6 +1302,8 @@ pub fn cli_app() -> Command {
                        otherwise.")
                 .hide(true)
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("builder-fallback-skips")
@@ -1154,6 +1313,7 @@ pub fn cli_app() -> Command {
                         and will use the local execution engine for payload construction.")
                 .default_value("3")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("builder-fallback-skips-per-epoch")
@@ -1164,6 +1324,7 @@ pub fn cli_app() -> Command {
                         payload construction.")
                 .default_value("8")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("builder-fallback-epochs-since-finalization")
@@ -1177,6 +1338,7 @@ pub fn cli_app() -> Command {
                         is set to propose.")
                 .default_value("3")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("builder-fallback-disable-checks")
@@ -1185,6 +1347,8 @@ pub fn cli_app() -> Command {
                         API will always be used for payload construction, regardless of recent chain \
                         conditions.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("builder-profit-threshold")
@@ -1192,6 +1356,7 @@ pub fn cli_app() -> Command {
                 .value_name("WEI_VALUE")
                 .help("This flag is deprecated and has no effect.")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("builder-user-agent")
@@ -1201,6 +1366,7 @@ pub fn cli_app() -> Command {
                        default is Lighthouse's version string.")
                 .requires("builder")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("reset-payload-statuses")
@@ -1209,6 +1375,8 @@ pub fn cli_app() -> Command {
                        already-imported blocks. This can assist in the recovery from a consensus \
                        failure caused by the execution layer.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-deposit-contract-sync")
@@ -1217,14 +1385,18 @@ pub fn cli_app() -> Command {
                       This overrides any previous option that depends on it. \
                       Useful if you intend to run a non-validating beacon node.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-optimistic-finalized-sync")
                 .long("disable-optimistic-finalized-sync")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .help("Force Lighthouse to verify every execution block hash with the execution \
                        client during finalized sync. By default block hashes will be checked in \
                        Lighthouse and only passed to the EL if initial verification fails.")
+                .display_order(0)
         )
         .arg(
             Arg::new("light-client-server")
@@ -1232,6 +1404,8 @@ pub fn cli_app() -> Command {
                 .help("Act as a full node supporting light clients on the p2p network \
                        [experimental]")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("gui")
@@ -1239,12 +1413,16 @@ pub fn cli_app() -> Command {
                 .help("Enable the graphical user interface and all its requirements. \
                       This enables --http and --validator-monitor-auto and enables SSE logging.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("always-prefer-builder-payload")
             .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
             .long("always-prefer-builder-payload")
             .help("This flag is deprecated and has no effect.")
+            .display_order(0)
         )
         .arg(
             Arg::new("invalid-gossip-verified-blocks-path")
@@ -1255,6 +1433,7 @@ pub fn cli_app() -> Command {
                     the block SSZ as a file at this path. This feature is only recommended for \
                     developers. This directory is not pruned, users should be careful to avoid \
                     filling up their disks.")
+            .display_order(0)
         )
         .arg(
             Arg::new("progressive-balances")
@@ -1268,6 +1447,7 @@ pub fn cli_app() -> Command {
                         Lighthouse team.")
                 .action(ArgAction::Set)
                 .value_parser(ProgressiveBalancesMode::VARIANTS.to_vec())
+                .display_order(0)
         )
         .arg(
             Arg::new("beacon-processor-max-workers")
@@ -1279,6 +1459,7 @@ pub fn cli_app() -> Command {
                         default value is the number of logical CPU cores on the host.")
                 .hide(true)
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("beacon-processor-work-queue-len")
@@ -1290,6 +1471,7 @@ pub fn cli_app() -> Command {
                 .default_value("16384")
                 .hide(true)
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("beacon-processor-reprocess-queue-len")
@@ -1301,6 +1483,7 @@ pub fn cli_app() -> Command {
                 .hide(true)
                 .default_value("12288")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("beacon-processor-attestation-batch-size")
@@ -1312,6 +1495,7 @@ pub fn cli_app() -> Command {
                 .hide(true)
                 .default_value("64")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("beacon-processor-aggregate-batch-size")
@@ -1324,12 +1508,15 @@ pub fn cli_app() -> Command {
                 .hide(true)
                 .default_value("64")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-duplicate-warn-logs")
                 .long("disable-duplicate-warn-logs")
                 .help("This flag is deprecated and has no effect.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))
 }

@@ -5,6 +5,7 @@ use crate::SECRETS_DIR_FLAG;
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
 use account_utils::{random_password, read_mnemonic_from_cli};
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use directory::ensure_dir_exists;
 use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use eth2_wallet::bip39::Seed;
@@ -29,7 +30,8 @@ pub fn cli_app() -> Command {
                 .help("The first of consecutive key indexes you wish to recover.")
                 .action(ArgAction::Set)
                 .required(false)
-                .default_value("0"),
+                .default_value("0")
+                .display_order(0)
         )
         .arg(
             Arg::new(COUNT_FLAG)
@@ -38,7 +40,8 @@ pub fn cli_app() -> Command {
                 .help("The number of validator keys you wish to recover. Counted consecutively from the provided `--first_index`.")
                 .action(ArgAction::Set)
                 .required(false)
-                .default_value("1"),
+                .default_value("1")
+                .display_order(0)
         )
         .arg(
             Arg::new(MNEMONIC_FLAG)
@@ -48,6 +51,7 @@ pub fn cli_app() -> Command {
                     "If present, the mnemonic will be read in from this file.",
                 )
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(SECRETS_DIR_FLAG)
@@ -57,7 +61,8 @@ pub fn cli_app() -> Command {
                     "The path where the validator keystore passwords will be stored. \
                     Defaults to ~/.lighthouse/{network}/secrets",
                 )
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(STORE_WITHDRAW_FLAG)
@@ -68,13 +73,17 @@ pub fn cli_app() -> Command {
                     instead generate them from the wallet seed when required.",
                 )
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0)
         )
 }
 

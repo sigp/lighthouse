@@ -1,7 +1,7 @@
 //! Simple logic for spawning a Lighthouse BootNode.
 
 use clap::{Arg, ArgAction, Command};
-use clap_utils::get_color_style;
+use clap_utils::{get_color_style, FLAG_HEADER};
 
 // TODO: Add DOS prevention CLI params
 pub fn cli_app() -> Command {
@@ -26,6 +26,7 @@ pub fn cli_app() -> Command {
                 .num_args(0..=2)
                 .required(true)
                 .conflicts_with("network-dir")
+                .display_order(0)
         )
         .arg(
             Arg::new("port")
@@ -34,6 +35,7 @@ pub fn cli_app() -> Command {
                 .help("The UDP port to listen on.")
                 .default_value("9000")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("port6")
@@ -42,7 +44,8 @@ pub fn cli_app() -> Command {
                 .help("The UDP port to listen on over IpV6 when listening over both Ipv4 and \
                       Ipv6. Defaults to 9090 when required.")
                 .default_value("9090")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("listen-address")
@@ -59,6 +62,7 @@ pub fn cli_app() -> Command {
                 .num_args(0..=2)
                 .default_value("0.0.0.0")
                 .action(ArgAction::Append)
+                .display_order(0)
         )
         .arg(
             Arg::new("boot-nodes")
@@ -66,7 +70,8 @@ pub fn cli_app() -> Command {
                 .allow_hyphen_values(true)
                 .value_name("ENR-LIST/Multiaddr")
                 .help("One or more comma-delimited base64-encoded ENR's or multiaddr strings of peers to initially add to the local routing table")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("enr-udp-port")
@@ -75,6 +80,7 @@ pub fn cli_app() -> Command {
                 .help("The UDP port of the boot node's ENR. This is the port that external peers will dial to reach this boot node. Set this only if the external port differs from the listening port.")
                 .action(ArgAction::Set)
                 .conflicts_with("network-dir")
+                .display_order(0)
         )
         .arg(
             Arg::new("enr-udp6-port")
@@ -83,21 +89,26 @@ pub fn cli_app() -> Command {
                 .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
                       can connect to your local node on this port over IpV6.")
                 .conflicts_with("network-dir")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("enable-enr-auto-update")
                 .short('x')
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .long("enable-enr-auto-update")
                 .help("Discovery can automatically update the node's local ENR with an external IP address and port as seen by other peers on the network. \
                 This enables this feature.")
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-packet-filter")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .long("disable-packet-filter")
                 .help("Disables discv5 packet filter. Useful for testing in smaller networks")
+                .display_order(0)
         )
         .arg(
             Arg::new("network-dir")
@@ -105,5 +116,6 @@ pub fn cli_app() -> Command {
                 .long("network-dir")
                 .help("The directory which contains the enr and it's associated private key")
                 .action(ArgAction::Set)
+                .display_order(0)
         )
 }

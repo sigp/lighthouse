@@ -21,6 +21,7 @@ pub const PUBKEYS_FLAG: &str = "pubkeys";
 pub fn cli_app() -> Command {
     Command::new(CMD)
         .about("Import or export slashing protection data to or from another client")
+        .display_order(0)
         .subcommand(
             Command::new(IMPORT_CMD)
                 .about("Import an interchange file")
@@ -28,6 +29,7 @@ pub fn cli_app() -> Command {
                     Arg::new(IMPORT_FILE_ARG)
                         .action(ArgAction::Set)
                         .value_name("FILE")
+                         .display_order(0)
                         .help("The slashing protection interchange file to import (.json)"),
                 )
         )
@@ -38,7 +40,8 @@ pub fn cli_app() -> Command {
                     Arg::new(EXPORT_FILE_ARG)
                         .action(ArgAction::Set)
                         .value_name("FILE")
-                        .help("The filename to export the interchange file to"),
+                        .help("The filename to export the interchange file to")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new(PUBKEYS_FLAG)
@@ -48,7 +51,8 @@ pub fn cli_app() -> Command {
                         .help(
                             "List of public keys to export history for. Keys should be 0x-prefixed, \
                              comma-separated. All known keys will be exported if omitted",
-                        ),
+                        )
+                        .display_order(0)
                 )
         )
 }

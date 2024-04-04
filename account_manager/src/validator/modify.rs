@@ -1,6 +1,7 @@
 use account_utils::validator_definitions::ValidatorDefinitions;
 use bls::PublicKey;
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use std::{collections::HashSet, path::PathBuf};
 
 pub const CMD: &str = "modify";
@@ -13,6 +14,7 @@ pub const ALL: &str = "all";
 pub fn cli_app() -> Command {
     Command::new(CMD)
         .about("Modify validator status in validator_definitions.yml.")
+        .display_order(0)
         .subcommand(
             Command::new(ENABLE)
                 .about("Enable validator(s) in validator_definitions.yml.")
@@ -21,14 +23,17 @@ pub fn cli_app() -> Command {
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
                         .help("Validator pubkey to enable")
-                        .action(ArgAction::Set),
+                        .action(ArgAction::Set)
+                        .display_order(0),
                 )
                 .arg(
                     Arg::new(ALL)
                         .long(ALL)
                         .help("Enable all validators in the validator directory")
                         .action(ArgAction::SetTrue)
-                        .conflicts_with(PUBKEY_FLAG),
+                        .help_heading(FLAG_HEADER)
+                        .conflicts_with(PUBKEY_FLAG)
+                        .display_order(0),
                 ),
         )
         .subcommand(
@@ -39,14 +44,17 @@ pub fn cli_app() -> Command {
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
                         .help("Validator pubkey to disable")
-                        .action(ArgAction::Set),
+                        .action(ArgAction::Set)
+                        .display_order(0),
                 )
                 .arg(
                     Arg::new(ALL)
                         .long(ALL)
                         .help("Disable all validators in the validator directory")
                         .action(ArgAction::SetTrue)
-                        .conflicts_with(PUBKEY_FLAG),
+                        .help_heading(FLAG_HEADER)
+                        .conflicts_with(PUBKEY_FLAG)
+                        .display_order(0),
                 ),
         )
 }

@@ -1,6 +1,7 @@
 use crate::wallet::create::STDIN_INPUTS_FLAG;
 use bls::{Keypair, PublicKey};
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use environment::Environment;
 use eth2::{
     types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
@@ -37,14 +38,16 @@ pub fn cli_app() -> Command {
                 .value_name("KEYSTORE_PATH")
                 .help("The path to the EIP-2335 voting keystore for the validator")
                 .action(ArgAction::Set)
-                .required(true),
+                .required(true)
+                .display_order(0)
         )
         .arg(
             Arg::new(PASSWORD_FILE_FLAG)
                 .long(PASSWORD_FILE_FLAG)
                 .value_name("PASSWORD_FILE_PATH")
                 .help("The path to the password file which unlocks the validator voting keystore")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(BEACON_SERVER_FLAG)
@@ -52,24 +55,29 @@ pub fn cli_app() -> Command {
                 .value_name("NETWORK_ADDRESS")
                 .help("Address to a beacon node HTTP API")
                 .default_value(DEFAULT_BEACON_NODE)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(NO_WAIT)
                 .long(NO_WAIT)
                 .help("Exits after publishing the voluntary exit without waiting for confirmation that the exit was included in the beacon chain")
+                .display_order(0)
         )
         .arg(
             Arg::new(NO_CONFIRMATION)
                 .long(NO_CONFIRMATION)
                 .help("Exits without prompting for confirmation that you understand the implications of a voluntary exit. This should be used with caution")
+                .display_order(0)
         )
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0)
         )
 }
 

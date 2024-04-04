@@ -83,13 +83,15 @@ fn main() {
              node, a validator client and utilities for managing validator accounts.",
         )
         .long_version(LONG_VERSION.as_str())
+        .display_order(0)
         .arg(
             Arg::new("env_log")
                 .short('l')
                 .help(
                     "DEPRECATED Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
                 )
-                .action(ArgAction::SetTrue),
+                .action(ArgAction::SetTrue)
+                .display_order(0)
         )
         .arg(
             Arg::new("logfile")
@@ -102,7 +104,8 @@ fn main() {
                     Once the number of log files exceeds the value specified in \
                     `--logfile-max-number` the oldest log file will be overwritten.")
                 .action(ArgAction::Set)
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("logfile-debug-level")
@@ -112,7 +115,8 @@ fn main() {
                 .action(ArgAction::Set)
                 .value_parser(["info", "debug", "trace", "warn", "error", "crit"])
                 .default_value("debug")
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("logfile-format")
@@ -122,6 +126,7 @@ fn main() {
                 .value_parser(["DEFAULT", "JSON"])
                 .action(ArgAction::Set)
                 .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("logfile-max-size")
@@ -132,7 +137,8 @@ fn main() {
                     to 0, background file logging is disabled.")
                 .action(ArgAction::Set)
                 .default_value("200")
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("logfile-max-number")
@@ -143,7 +149,8 @@ fn main() {
                     background file logging is disabled.")
                 .action(ArgAction::Set)
                 .default_value("5")
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("logfile-compress")
@@ -152,7 +159,8 @@ fn main() {
                 .help(
                     "If present, compress old log files. This can help reduce the space needed \
                     to store old logs.")
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("logfile-no-restricted-perms")
@@ -163,7 +171,8 @@ fn main() {
                     any user on the machine. Note that logs can often contain sensitive information \
                     about your validator and so this flag should be used with caution. For Windows users, \
                     the log file permissions will be inherited from the parent folder.")
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("log-format")
@@ -172,7 +181,8 @@ fn main() {
                 .help("Specifies the log format used when emitting logs to the terminal.")
                 .value_parser(["JSON"])
                 .action(ArgAction::Set)
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("log-color")
@@ -180,14 +190,16 @@ fn main() {
                 .alias("log-colour")
                 .help("Force outputting colors when emitting logs to the terminal.")
                 .action(ArgAction::SetTrue)
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("disable-log-timestamp")
             .long("disable-log-timestamp")
             .action(ArgAction::SetTrue)
             .help("If present, do not include timestamps in logging output.")
-            .global(true),
+            .global(true)
+            .display_order(0)
         )
         .arg(
             Arg::new("debug-level")
@@ -197,7 +209,8 @@ fn main() {
                 .action(ArgAction::Set)
                 .value_parser(["info", "debug", "trace", "warn", "error", "crit"])
                 .global(true)
-                .default_value("info"),
+                .default_value("info")
+                .display_order(0)
         )
         .arg(
             Arg::new("datadir")
@@ -209,7 +222,8 @@ fn main() {
                     "Used to specify a custom root data directory for lighthouse keys and databases. \
                     Defaults to $HOME/.lighthouse/{network} where network is the value of the `network` flag \
                     Note: Users should specify separate custom datadirs for different networks.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new("testnet-dir")
@@ -222,7 +236,8 @@ fn main() {
                       existing database.",
                 )
                 .action(ArgAction::Set)
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("network")
@@ -233,7 +248,7 @@ fn main() {
                 .conflicts_with("testnet-dir")
                 .action(ArgAction::Set)
                 .global(true)
-
+                .display_order(0)
         )
         .arg(
             Arg::new("dump-config")
@@ -242,6 +257,7 @@ fn main() {
                 .help("Dumps the config to a desired location. Used for testing only.")
                 .action(ArgAction::Set)
                 .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("dump-chain-config")
@@ -250,6 +266,7 @@ fn main() {
                 .help("Dumps the chain config to a desired location. Used for testing only.")
                 .action(ArgAction::Set)
                 .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("immediate-shutdown")
@@ -260,6 +277,7 @@ fn main() {
                     "Shuts down immediately after the Beacon Node or Validator has successfully launched. \
                     Used for testing only, DO NOT USE IN PRODUCTION.")
                 .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new(DISABLE_MALLOC_TUNING_FLAG)
@@ -270,7 +288,8 @@ fn main() {
                     specific memory allocation issues."
                 )
                 .action(ArgAction::SetTrue)
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("terminal-total-difficulty-override")
@@ -284,6 +303,7 @@ fn main() {
                        failure. Be extremely careful with this flag.")
                 .action(ArgAction::Set)
                 .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("terminal-block-hash-override")
@@ -297,6 +317,7 @@ fn main() {
                 .requires("terminal-block-hash-epoch-override")
                 .action(ArgAction::Set)
                 .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("terminal-block-hash-epoch-override")
@@ -310,6 +331,7 @@ fn main() {
                 .requires("terminal-block-hash-override")
                 .action(ArgAction::Set)
                 .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("safe-slots-to-import-optimistically")
@@ -323,6 +345,7 @@ fn main() {
                       this flag.")
                 .action(ArgAction::Set)
                 .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("genesis-state-url")
@@ -335,7 +358,8 @@ fn main() {
                     If the genesis state is already included in this binary then this value will be ignored.",
                 )
                 .action(ArgAction::Set)
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("genesis-state-url-timeout")
@@ -346,7 +370,8 @@ fn main() {
                 )
                 .action(ArgAction::Set)
                 .default_value("180")
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())

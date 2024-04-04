@@ -10,6 +10,7 @@ use account_utils::{
     ZeroizeString,
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::fs;
 use std::path::PathBuf;
@@ -40,7 +41,8 @@ pub fn cli_app() -> Command {
                 .help("Path to a single keystore to be imported.")
                 .conflicts_with(DIR_FLAG)
                 .required_unless_present(DIR_FLAG)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(DIR_FLAG)
@@ -54,20 +56,25 @@ pub fn cli_app() -> Command {
                 )
                 .conflicts_with(KEYSTORE_FLAG)
                 .required_unless_present(KEYSTORE_FLAG)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0),
         )
         .arg(
             Arg::new(REUSE_PASSWORD_FLAG)
                 .long(REUSE_PASSWORD_FLAG)
                 .action(ArgAction::SetTrue)
-                .help("If present, the same password will be used for all imported keystores."),
+                .help_heading(FLAG_HEADER)
+                .help("If present, the same password will be used for all imported keystores.")
+                .display_order(0),
         )
         .arg(
             Arg::new(PASSWORD_FLAG)
@@ -80,7 +87,8 @@ pub fn cli_app() -> Command {
                     The password will be copied to the `validator_definitions.yml` file, so after \
                     import we strongly recommend you delete the file at KEYSTORE_PASSWORD_PATH.",
                 )
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 

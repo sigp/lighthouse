@@ -2,6 +2,7 @@ use super::common::*;
 use crate::DumpConfig;
 use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_from_user};
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use eth2::{
     lighthouse_vc::std_types::KeystoreJsonStr,
     types::{StateId, ValidatorId},
@@ -53,7 +54,8 @@ pub fn cli_app() -> Command {
                     files will be created. The directory will be created if it does not exist.",
                 )
                 .required(true)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(DEPOSIT_GWEI_FLAG)
@@ -64,7 +66,8 @@ pub fn cli_app() -> Command {
                     required for an active validator (MAX_EFFECTIVE_BALANCE)",
                 )
                 .conflicts_with(DISABLE_DEPOSITS_FLAG)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(FIRST_INDEX_FLAG)
@@ -73,7 +76,8 @@ pub fn cli_app() -> Command {
                 .help("The first of consecutive key indexes you wish to create.")
                 .action(ArgAction::Set)
                 .required(false)
-                .default_value("0"),
+                .default_value("0")
+                .display_order(0),
         )
         .arg(
             Arg::new(COUNT_FLAG)
@@ -81,21 +85,25 @@ pub fn cli_app() -> Command {
                 .value_name("VALIDATOR_COUNT")
                 .help("The number of validators to create, regardless of how many already exist")
                 .conflicts_with("at-most")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(MNEMONIC_FLAG)
                 .long(MNEMONIC_FLAG)
                 .value_name("MNEMONIC_PATH")
                 .help("If present, the mnemonic will be read in from this file.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .action(ArgAction::SetTrue)
                 .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0)
+                .help_heading(FLAG_HEADER),
         )
         .arg(
             Arg::new(DISABLE_DEPOSITS_FLAG)
@@ -106,7 +114,9 @@ pub fn cli_app() -> Command {
                     Using this flag will save several seconds per validator if the \
                     user has an alternate strategy for submitting deposits.",
                 )
-                .action(ArgAction::SetTrue),
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0),
         )
         .arg(
             Arg::new(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG)
@@ -118,7 +128,9 @@ pub fn cli_app() -> Command {
                     necessary to keep backups of voting keystore passwords if the \
                     mnemonic is safely backed up.",
                 )
-                .action(ArgAction::SetTrue),
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0),
         )
         .arg(
             Arg::new(ETH1_WITHDRAWAL_ADDRESS_FLAG)
@@ -130,7 +142,8 @@ pub fn cli_app() -> Command {
                     with the mnemonic-derived withdrawal public key in EIP-2334 format.",
                 )
                 .conflicts_with(DISABLE_DEPOSITS_FLAG)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(GAS_LIMIT_FLAG)
@@ -141,7 +154,8 @@ pub fn cli_app() -> Command {
                     to leave this as the default value by not specifying this flag.",
                 )
                 .required(false)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(FEE_RECIPIENT_FLAG)
@@ -152,7 +166,8 @@ pub fn cli_app() -> Command {
                     fee recipient. Omit this flag to use the default value from the VC.",
                 )
                 .required(false)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(BUILDER_PROPOSALS_FLAG)
@@ -163,7 +178,8 @@ pub fn cli_app() -> Command {
                 )
                 .required(false)
                 .value_parser(["true", "false"])
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(BEACON_NODE_FLAG)
@@ -176,16 +192,19 @@ pub fn cli_app() -> Command {
                     prevent the same validator being created twice and therefore slashable \
                     conditions.",
                 )
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .long(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
                 .help(
                     "If present, allows BLS withdrawal credentials rather than an execution \
                     address. This is not recommended.",
-                ),
+                )
+                .display_order(0),
         )
         .arg(
             Arg::new(BUILDER_BOOST_FACTOR_FLAG)
@@ -198,7 +217,8 @@ pub fn cli_app() -> Command {
                     a percentage multiplier to apply to the builder's payload value \
                     when choosing between a builder payload header and payload from \
                     the local execution node.",
-                ),
+                )
+                .display_order(0),
         )
         .arg(
             Arg::new(PREFER_BUILDER_PROPOSALS_FLAG)
@@ -209,7 +229,8 @@ pub fn cli_app() -> Command {
                 )
                 .required(false)
                 .value_parser(["true", "false"])
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 

@@ -20,7 +20,7 @@ mod state_root;
 mod transition_blocks;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::parse_optional;
+use clap_utils::{parse_optional, FLAG_HEADER};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::Eth2NetworkConfig;
 use parse_ssz::run_parse_ssz;
@@ -34,6 +34,7 @@ fn main() {
 
     let matches = Command::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
+        .display_order(0)
         .about("Performs various testing-related tasks, including defining testnets.")
         .arg(
             Arg::new("spec")
@@ -43,7 +44,8 @@ fn main() {
                 .action(ArgAction::Set)
                 .value_parser(["minimal", "mainnet", "gnosis"])
                 .default_value("mainnet")
-                .global(true),
+                .global(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("testnet-dir")
@@ -52,7 +54,8 @@ fn main() {
                 .value_name("PATH")
                 .action(ArgAction::Set)
                 .global(true)
-                .help("The testnet dir."),
+                .help("The testnet dir.")
+                .display_order(0)
         )
         .arg(
             Arg::new("network")
@@ -62,6 +65,7 @@ fn main() {
                 .global(true)
                 .help("The network to use. Defaults to mainnet.")
                 .conflicts_with("testnet-dir")
+                .display_order(0)
         )
         .subcommand(
             Command::new("skip-slots")
@@ -73,7 +77,8 @@ fn main() {
                         .long("output-path")
                         .value_name("PATH")
                         .action(ArgAction::Set)
-                        .help("Path to output a SSZ file."),
+                        .help("Path to output a SSZ file.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("pre-state-path")
@@ -81,14 +86,16 @@ fn main() {
                         .value_name("PATH")
                         .action(ArgAction::Set)
                         .conflicts_with("beacon-url")
-                        .help("Path to a SSZ file of the pre-state."),
+                        .help("Path to a SSZ file of the pre-state.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("beacon-url")
                         .long("beacon-url")
                         .value_name("URL")
                         .action(ArgAction::Set)
-                        .help("URL to a beacon-API provider."),
+                        .help("URL to a beacon-API provider.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("state-id")
@@ -96,7 +103,8 @@ fn main() {
                         .value_name("STATE_ID")
                         .action(ArgAction::Set)
                         .requires("beacon-url")
-                        .help("Identifier for a state as per beacon-API standards (slot, root, etc.)"),
+                        .help("Identifier for a state as per beacon-API standards (slot, root, etc.)")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("runs")
@@ -104,27 +112,32 @@ fn main() {
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
                         .default_value("1")
-                        .help("Number of repeat runs, useful for benchmarking."),
+                        .help("Number of repeat runs, useful for benchmarking.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("state-root")
                         .long("state-root")
                         .value_name("HASH256")
                         .action(ArgAction::Set)
-                        .help("Tree hash root of the provided state, to avoid computing it."),
+                        .help("Tree hash root of the provided state, to avoid computing it.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("slots")
                         .long("slots")
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
-                        .help("Number of slots to skip forward."),
+                        .help("Number of slots to skip forward.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("partial-state-advance")
                         .long("partial-state-advance")
                         .action(ArgAction::SetTrue)
-                        .help("If present, don't compute state roots when skipping forward."),
+                        .help_heading(FLAG_HEADER)
+                        .help("If present, don't compute state roots when skipping forward.")
+                        .display_order(0)
                 )
         )
         .subcommand(
@@ -137,7 +150,8 @@ fn main() {
                         .action(ArgAction::Set)
                         .conflicts_with("beacon-url")
                         .requires("block-path")
-                        .help("Path to load a BeaconState from as SSZ."),
+                        .help("Path to load a BeaconState from as SSZ.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("block-path")
@@ -146,35 +160,40 @@ fn main() {
                         .action(ArgAction::Set)
                         .conflicts_with("beacon-url")
                         .requires("pre-state-path")
-                        .help("Path to load a SignedBeaconBlock from as SSZ."),
+                        .help("Path to load a SignedBeaconBlock from as SSZ.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("post-state-output-path")
                         .long("post-state-output-path")
                         .value_name("PATH")
                         .action(ArgAction::Set)
-                        .help("Path to output the post-state."),
+                        .help("Path to output the post-state.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("pre-state-output-path")
                         .long("pre-state-output-path")
                         .value_name("PATH")
                         .action(ArgAction::Set)
-                        .help("Path to output the pre-state, useful when used with --beacon-url."),
+                        .help("Path to output the pre-state, useful when used with --beacon-url.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("block-output-path")
                         .long("block-output-path")
                         .value_name("PATH")
                         .action(ArgAction::Set)
-                        .help("Path to output the block, useful when used with --beacon-url."),
+                        .help("Path to output the block, useful when used with --beacon-url.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("beacon-url")
                         .long("beacon-url")
                         .value_name("URL")
                         .action(ArgAction::Set)
-                        .help("URL to a beacon-API provider."),
+                        .help("URL to a beacon-API provider.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("block-id")
@@ -182,7 +201,8 @@ fn main() {
                         .value_name("BLOCK_ID")
                         .action(ArgAction::Set)
                         .requires("beacon-url")
-                        .help("Identifier for a block as per beacon-API standards (slot, root, etc.)"),
+                        .help("Identifier for a block as per beacon-API standards (slot, root, etc.)")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("runs")
@@ -190,27 +210,34 @@ fn main() {
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
                         .default_value("1")
-                        .help("Number of repeat runs, useful for benchmarking."),
+                        .help("Number of repeat runs, useful for benchmarking.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("no-signature-verification")
                         .long("no-signature-verification")
                         .action(ArgAction::SetTrue)
+                        .help_heading(FLAG_HEADER)
                         .help("Disable signature verification.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("exclude-cache-builds")
                         .long("exclude-cache-builds")
                         .action(ArgAction::SetTrue)
+                        .help_heading(FLAG_HEADER)
                         .help("If present, pre-build the committee and tree-hash caches without \
-                            including them in the timings."),
+                            including them in the timings.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("exclude-post-block-thc")
                         .long("exclude-post-block-thc")
                         .action(ArgAction::SetTrue)
+                        .help_heading(FLAG_HEADER)
                         .help("If present, don't rebuild the tree-hash-cache after applying \
-                            the block."),
+                            the block.")
+                        .display_order(0)
                 )
         )
         .subcommand(
@@ -226,20 +253,23 @@ fn main() {
                         .default_value("json")
                         .value_parser(["json", "yaml"])
                         .help("Output format to use")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("type")
                         .value_name("TYPE")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("Type to decode"),
+                        .help("Type to decode")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("ssz-file")
                         .value_name("FILE")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("Path to SSZ bytes"),
+                        .help("Path to SSZ bytes")
+                        .display_order(0)
                 )
         )
         .subcommand(
@@ -255,6 +285,7 @@ fn main() {
                         .help("Path to an Eth1 JSON-RPC IPC endpoint")
                         .action(ArgAction::Set)
                         .required(true)
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("confirmations")
@@ -262,7 +293,8 @@ fn main() {
                         .long("confirmations")
                         .action(ArgAction::Set)
                         .default_value("3")
-                        .help("The number of block confirmations before declaring the contract deployed."),
+                        .help("The number of block confirmations before declaring the contract deployed.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("validator-count")
@@ -271,7 +303,8 @@ fn main() {
                         .action(ArgAction::Set)
                         .help("If present, makes `validator_count` number of INSECURE deterministic deposits after \
                                 deploying the deposit contract."
-                        ),
+                        )
+                        .display_order(0)
                 )
         )
         .subcommand(
@@ -283,7 +316,8 @@ fn main() {
                         .long("eth1-endpoint")
                         .value_name("HTTP_SERVER")
                         .action(ArgAction::Set)
-                        .help("Deprecated. Use --eth1-endpoints."),
+                        .help("Deprecated. Use --eth1-endpoints.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("eth1-endpoints")
@@ -295,7 +329,8 @@ fn main() {
                             "One or more comma-delimited URLs to eth1 JSON-RPC http APIs. \
                                 If multiple endpoints are given the endpoints are used as \
                                 fallback in the given order.",
-                        ),
+                        )
+                        .display_order(0)
                 ),
         )
         .subcommand(
@@ -308,7 +343,8 @@ fn main() {
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
                         .default_value("1024")
-                        .help("The number of validators in the genesis state."),
+                        .help("The number of validators in the genesis state.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("genesis-time")
@@ -316,7 +352,8 @@ fn main() {
                         .short('t')
                         .value_name("UNIX_EPOCH")
                         .action(ArgAction::Set)
-                        .help("The value for state.genesis_time. Defaults to now."),
+                        .help("The value for state.genesis_time. Defaults to now.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("genesis-fork-version")
@@ -326,7 +363,8 @@ fn main() {
                         .help(
                             "Used to avoid reply attacks between testnets. Recommended to set to
                               non-default.",
-                        ),
+                        )
+                        .display_order(0)
                 ),
         )
         .subcommand(
@@ -340,7 +378,8 @@ fn main() {
                         .value_name("PATH")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The path to the SSZ file"),
+                        .help("The path to the SSZ file")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("genesis-time")
@@ -348,7 +387,8 @@ fn main() {
                         .value_name("UNIX_EPOCH")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The value for state.genesis_time."),
+                        .help("The value for state.genesis_time.")
+                        .display_order(0)
                 ),
         )
         .subcommand(
@@ -365,7 +405,8 @@ fn main() {
                         .value_name("PATH")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The path to the SSZ file"),
+                        .help("The path to the SSZ file")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("mnemonic")
@@ -376,7 +417,8 @@ fn main() {
                             "replace nephew blur decorate waste convince soup column \
                             orient excite play baby",
                         )
-                        .help("The mnemonic for key derivation."),
+                        .help("The mnemonic for key derivation.")
+                        .display_order(0)
                 ),
         )
         .subcommand(
@@ -394,7 +436,8 @@ fn main() {
                             `execution_payload_header.random`")
                         .default_value(
                             "0x0000000000000000000000000000000000000000000000000000000000000000",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("genesis-time")
@@ -402,6 +445,7 @@ fn main() {
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
                         .help("The genesis time when generating an execution payload.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("base-fee-per-gas")
@@ -409,7 +453,8 @@ fn main() {
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
                         .help("The base fee per gas field in the execution payload generated.")
-                        .default_value("1000000000"),
+                        .default_value("1000000000")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("gas-limit")
@@ -417,7 +462,8 @@ fn main() {
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
                         .help("The gas limit field in the execution payload generated.")
-                        .default_value("30000000"),
+                        .default_value("30000000")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("file")
@@ -425,7 +471,8 @@ fn main() {
                         .value_name("FILE")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("Output file"),
+                        .help("Output file")
+                        .display_order(0)
                 ).arg(
                 Arg::new("fork")
                     .long("fork")
@@ -434,6 +481,7 @@ fn main() {
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
                     .value_parser(["merge", "bellatrix", "capella", "deneb", "capella"])
+                    .display_order(0)
             )
         )
         .subcommand(
@@ -447,23 +495,29 @@ fn main() {
                         .long("force")
                         .short('f')
                         .action(ArgAction::SetTrue)
-                        .help("Overwrites any previous testnet configurations"),
+                        .help_heading(FLAG_HEADER)
+                        .help("Overwrites any previous testnet configurations")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("interop-genesis-state")
                         .long("interop-genesis-state")
                         .action(ArgAction::SetTrue)
+                        .help_heading(FLAG_HEADER)
                         .help(
                             "If present, a interop-style genesis.ssz file will be generated.",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("derived-genesis-state")
                         .long("derived-genesis-state")
                         .action(ArgAction::SetTrue)
+                        .help_heading(FLAG_HEADER)
                         .help(
                             "If present, a genesis.ssz file will be generated with keys generated from a given mnemonic.",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("mnemonic-phrase")
@@ -471,7 +525,8 @@ fn main() {
                         .value_name("MNEMONIC_PHRASE")
                         .action(ArgAction::Set)
                         .requires("derived-genesis-state")
-                        .help("The mnemonic with which we generate the validator keys for a derived genesis state"),
+                        .help("The mnemonic with which we generate the validator keys for a derived genesis state")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("min-genesis-time")
@@ -481,56 +536,64 @@ fn main() {
                         .help(
                             "The minimum permitted genesis time. For non-eth1 testnets will be
                               the genesis time. Defaults to now.",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("min-genesis-active-validator-count")
                         .long("min-genesis-active-validator-count")
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
-                        .help("The number of validators required to trigger eth2 genesis."),
+                        .help("The number of validators required to trigger eth2 genesis.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("genesis-delay")
                         .long("genesis-delay")
                         .value_name("SECONDS")
                         .action(ArgAction::Set)
-                        .help("The delay between sufficient eth1 deposits and eth2 genesis."),
+                        .help("The delay between sufficient eth1 deposits and eth2 genesis.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("min-deposit-amount")
                         .long("min-deposit-amount")
                         .value_name("GWEI")
                         .action(ArgAction::Set)
-                        .help("The minimum permitted deposit amount."),
+                        .help("The minimum permitted deposit amount.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("max-effective-balance")
                         .long("max-effective-balance")
                         .value_name("GWEI")
                         .action(ArgAction::Set)
-                        .help("The amount required to become a validator."),
+                        .help("The amount required to become a validator.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("effective-balance-increment")
                         .long("effective-balance-increment")
                         .value_name("GWEI")
                         .action(ArgAction::Set)
-                        .help("The steps in effective balance calculation."),
+                        .help("The steps in effective balance calculation.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("ejection-balance")
                         .long("ejection-balance")
                         .value_name("GWEI")
                         .action(ArgAction::Set)
-                        .help("The balance at which a validator gets ejected."),
+                        .help("The balance at which a validator gets ejected.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("eth1-follow-distance")
                         .long("eth1-follow-distance")
                         .value_name("ETH1_BLOCKS")
                         .action(ArgAction::Set)
-                        .help("The distance to follow behind the eth1 chain head."),
+                        .help("The distance to follow behind the eth1 chain head.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("genesis-fork-version")
@@ -540,28 +603,32 @@ fn main() {
                         .help(
                             "Used to avoid reply attacks between testnets. Recommended to set to
                               non-default.",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("seconds-per-slot")
                         .long("seconds-per-slot")
                         .value_name("SECONDS")
                         .action(ArgAction::Set)
-                        .help("Eth2 slot time"),
+                        .help("Eth2 slot time")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("seconds-per-eth1-block")
                         .long("seconds-per-eth1-block")
                         .value_name("SECONDS")
                         .action(ArgAction::Set)
-                        .help("Eth1 block time"),
+                        .help("Eth1 block time")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("eth1-id")
                         .long("eth1-id")
                         .value_name("ETH1_ID")
                         .action(ArgAction::Set)
-                        .help("The chain id and network id for the eth1 testnet."),
+                        .help("The chain id and network id for the eth1 testnet.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("deposit-contract-address")
@@ -569,7 +636,8 @@ fn main() {
                         .value_name("ETH1_ADDRESS")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The address of the deposit contract."),
+                        .help("The address of the deposit contract.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("deposit-contract-deploy-block")
@@ -580,7 +648,8 @@ fn main() {
                         .help(
                             "The block the deposit contract was deployed. Setting this is a huge
                               optimization for nodes, please do it.",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("altair-fork-epoch")
@@ -589,7 +658,8 @@ fn main() {
                         .action(ArgAction::Set)
                         .help(
                             "The epoch at which to enable the Altair hard fork",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("bellatrix-fork-epoch")
@@ -598,7 +668,8 @@ fn main() {
                         .action(ArgAction::Set)
                         .help(
                             "The epoch at which to enable the Bellatrix hard fork",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("capella-fork-epoch")
@@ -607,7 +678,8 @@ fn main() {
                         .action(ArgAction::Set)
                         .help(
                             "The epoch at which to enable the Capella hard fork",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("deneb-fork-epoch")
@@ -616,7 +688,8 @@ fn main() {
                         .action(ArgAction::Set)
                         .help(
                             "The epoch at which to enable the Deneb hard fork",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("electra-fork-epoch")
@@ -625,7 +698,8 @@ fn main() {
                         .action(ArgAction::Set)
                         .help(
                             "The epoch at which to enable the Electra hard fork",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("ttd")
@@ -634,14 +708,16 @@ fn main() {
                         .action(ArgAction::Set)
                         .help(
                             "The terminal total difficulty",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("eth1-block-hash")
                         .long("eth1-block-hash")
                         .value_name("BLOCK_HASH")
                         .action(ArgAction::Set)
-                        .help("The eth1 block hash used when generating a genesis state."),
+                        .help("The eth1 block hash used when generating a genesis state.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("execution-payload-header")
@@ -650,28 +726,32 @@ fn main() {
                         .action(ArgAction::Set)
                         .required(false)
                         .help("Path to file containing `ExecutionPayloadHeader` SSZ bytes to be \
-                            used in the genesis state."),
+                            used in the genesis state.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("validator-count")
                         .long("validator-count")
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
-                        .help("The number of validators when generating a genesis state."),
+                        .help("The number of validators when generating a genesis state.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("genesis-time")
                         .long("genesis-time")
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
-                        .help("The genesis time when generating a genesis state."),
+                        .help("The genesis time when generating a genesis state.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("proposer-score-boost")
                         .long("proposer-score-boost")
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
-                        .help("The proposer score boost to apply as a percentage, e.g. 70 = 70%"),
+                        .help("The proposer score boost to apply as a percentage, e.g. 70 = 70%")
+                        .display_order(0)
                 )
 
         )
@@ -684,7 +764,8 @@ fn main() {
                         .value_name("GWEI")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The amount (in Gwei) that was deposited"),
+                        .help("The amount (in Gwei) that was deposited")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("deposit-data")
@@ -695,7 +776,8 @@ fn main() {
                         .help(
                             "A 0x-prefixed hex string of the deposit data. Should include the
                             function signature.",
-                        ),
+                        )
+                        .display_order(0)
                 ),
         )
         .subcommand(
@@ -707,7 +789,8 @@ fn main() {
                         .value_name("IP_ADDRESS")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The IP address to be included in the ENR and used for discovery"),
+                        .help("The IP address to be included in the ENR and used for discovery")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("udp-port")
@@ -715,7 +798,8 @@ fn main() {
                         .value_name("UDP_PORT")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The UDP port to be included in the ENR and used for discovery"),
+                        .help("The UDP port to be included in the ENR and used for discovery")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("tcp-port")
@@ -725,7 +809,8 @@ fn main() {
                         .required(true)
                         .help(
                             "The TCP port to be included in the ENR and used for application comms",
-                        ),
+                        )
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("output-dir")
@@ -733,7 +818,8 @@ fn main() {
                         .value_name("OUTPUT_DIRECTORY")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The directory in which to create the network dir"),
+                        .help("The directory in which to create the network dir")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("genesis-fork-version")
@@ -744,7 +830,8 @@ fn main() {
                         .help(
                             "Used to avoid reply attacks between testnets. Recommended to set to
                               non-default.",
-                        ),
+                        )
+                        .display_order(0)
                 ),
         )
         .subcommand(
@@ -756,7 +843,8 @@ fn main() {
                         .value_name("COUNT")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("Produces validators in the range of 0..count."),
+                        .help("Produces validators in the range of 0..count.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("base-dir")
@@ -764,14 +852,16 @@ fn main() {
                         .value_name("BASE_DIR")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The base directory where validator keypairs and secrets are stored"),
+                        .help("The base directory where validator keypairs and secrets are stored")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("node-count")
                         .long("node-count")
                         .value_name("NODE_COUNT")
                         .action(ArgAction::Set)
-                        .help("The number of nodes to divide the validator keys to"),
+                        .help("The number of nodes to divide the validator keys to")
+                        .display_order(0)
                 )
         )
         .subcommand(
@@ -785,7 +875,8 @@ fn main() {
                         .value_name("COUNT")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("Produces validators in the range of 0..count."),
+                        .help("Produces validators in the range of 0..count.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("base-dir")
@@ -793,14 +884,16 @@ fn main() {
                         .value_name("BASE_DIR")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The base directory where validator keypairs and secrets are stored"),
+                        .help("The base directory where validator keypairs and secrets are stored")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("node-count")
                         .long("node-count")
                         .value_name("NODE_COUNT")
                         .action(ArgAction::Set)
-                        .help("The number of nodes to divide the validator keys to"),
+                        .help("The number of nodes to divide the validator keys to")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("mnemonic-phrase")
@@ -808,7 +901,8 @@ fn main() {
                         .value_name("MNEMONIC_PHRASE")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("The mnemonic with which we generate the validator keys"),
+                        .help("The mnemonic with which we generate the validator keys")
+                        .display_order(0)
                 )
         )
         .subcommand(
@@ -820,7 +914,8 @@ fn main() {
                         .value_name("SSZ_STATE")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("BeaconState to generate committees from (SSZ)"),
+                        .help("BeaconState to generate committees from (SSZ)")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("attestations")
@@ -828,7 +923,8 @@ fn main() {
                         .value_name("JSON_ATTESTATIONS")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("List of Attestations to convert to indexed form (JSON)"),
+                        .help("List of Attestations to convert to indexed form (JSON)")
+                        .display_order(0)
                 )
         )
         .subcommand(
@@ -840,14 +936,16 @@ fn main() {
                         .value_name("PATH")
                         .action(ArgAction::Set)
                         .conflicts_with("beacon-url")
-                        .help("Path to load a SignedBeaconBlock from as SSZ."),
+                        .help("Path to load a SignedBeaconBlock from as SSZ.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("beacon-url")
                         .long("beacon-url")
                         .value_name("URL")
                         .action(ArgAction::Set)
-                        .help("URL to a beacon-API provider."),
+                        .help("URL to a beacon-API provider.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("block-id")
@@ -855,7 +953,8 @@ fn main() {
                         .value_name("BLOCK_ID")
                         .action(ArgAction::Set)
                         .requires("beacon-url")
-                        .help("Identifier for a block as per beacon-API standards (slot, root, etc.)"),
+                        .help("Identifier for a block as per beacon-API standards (slot, root, etc.)")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("runs")
@@ -863,7 +962,8 @@ fn main() {
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
                         .default_value("1")
-                        .help("Number of repeat runs, useful for benchmarking."),
+                        .help("Number of repeat runs, useful for benchmarking.")
+                        .display_order(0)
                 )
         )
         .subcommand(
@@ -875,14 +975,16 @@ fn main() {
                         .value_name("PATH")
                         .action(ArgAction::Set)
                         .conflicts_with("beacon-url")
-                        .help("Path to load a BeaconState from as SSZ."),
+                        .help("Path to load a BeaconState from as SSZ.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("beacon-url")
                         .long("beacon-url")
                         .value_name("URL")
                         .action(ArgAction::Set)
-                        .help("URL to a beacon-API provider."),
+                        .help("URL to a beacon-API provider.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("state-id")
@@ -890,7 +992,8 @@ fn main() {
                         .value_name("BLOCK_ID")
                         .action(ArgAction::Set)
                         .requires("beacon-url")
-                        .help("Identifier for a state as per beacon-API standards (slot, root, etc.)"),
+                        .help("Identifier for a state as per beacon-API standards (slot, root, etc.)")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("runs")
@@ -898,7 +1001,8 @@ fn main() {
                         .value_name("INTEGER")
                         .action(ArgAction::Set)
                         .default_value("1")
-                        .help("Number of repeat runs, useful for benchmarking."),
+                        .help("Number of repeat runs, useful for benchmarking.")
+                        .display_order(0)
                 )
         )
         .subcommand(
@@ -912,7 +1016,8 @@ fn main() {
                         .value_name("PATH")
                         .action(ArgAction::Set)
                         .required(true)
-                        .help("Path to write the JWT secret."),
+                        .help("Path to write the JWT secret.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("listen-address")
@@ -921,6 +1026,7 @@ fn main() {
                         .action(ArgAction::Set)
                         .help("The server will listen on this address.")
                         .default_value("127.0.0.1")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("listen-port")
@@ -929,6 +1035,7 @@ fn main() {
                         .action(ArgAction::Set)
                         .help("The server will listen on this port.")
                         .default_value("8551")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("all-payloads-valid")
@@ -938,6 +1045,7 @@ fn main() {
                             Set to 'true' to return VALID. Set to 'false' to return SYNCING.")
                         .default_value("false")
                         .hide(true)
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("shanghai-time")
@@ -946,6 +1054,7 @@ fn main() {
                         .action(ArgAction::Set)
                         .help("The payload timestamp that enables Shanghai. Defaults to the mainnet value.")
                         .default_value("1681338479")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("cancun-time")
@@ -954,6 +1063,7 @@ fn main() {
                         .action(ArgAction::Set)
                         .help("The payload timestamp that enables Cancun. No default is provided \
                                 until Cancun is triggered on mainnet.")
+                        .display_order(0)
                 )
                 .arg(
                     Arg::new("prague-time")
@@ -962,6 +1072,7 @@ fn main() {
                         .action(ArgAction::Set)
                         .help("The payload timestamp that enables Prague. No default is provided \
                                 until Prague is triggered on mainnet.")
+                        .display_order(0)
                 )
         )
         .get_matches();

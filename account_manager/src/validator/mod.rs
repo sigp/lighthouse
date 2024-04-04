@@ -17,6 +17,7 @@ pub const CMD: &str = "validator";
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
+        .display_order(0)
         .about("Provides commands for managing Eth2 validators.")
         .arg(
             Arg::new(VALIDATOR_DIR_FLAG)

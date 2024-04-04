@@ -5,6 +5,7 @@ use account_utils::{
     random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use directory::{
     ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR,
 };
@@ -37,14 +38,16 @@ pub fn cli_app() -> Command {
                 .long(WALLET_NAME_FLAG)
                 .value_name("WALLET_NAME")
                 .help("Use the wallet identified by this name")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(WALLET_PASSWORD_FLAG)
                 .long(WALLET_PASSWORD_FLAG)
                 .value_name("WALLET_PASSWORD_PATH")
                 .help("A path to a file containing the password which will unlock the wallet.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(WALLETS_DIR_FLAG)
@@ -52,7 +55,8 @@ pub fn cli_app() -> Command {
                 .value_name(WALLETS_DIR_FLAG)
                 .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
                 .action(ArgAction::Set)
-                .conflicts_with("datadir"),
+                .conflicts_with("datadir")
+                .display_order(0)
         )
         .arg(
             Arg::new(SECRETS_DIR_FLAG)
@@ -63,7 +67,8 @@ pub fn cli_app() -> Command {
                     Defaults to ~/.lighthouse/{network}/secrets",
                 )
                 .conflicts_with("datadir")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(DEPOSIT_GWEI_FLAG)
@@ -73,7 +78,8 @@ pub fn cli_app() -> Command {
                     "The GWEI value of the deposit amount. Defaults to the minimum amount \
                     required for an active validator (MAX_EFFECTIVE_BALANCE)",
                 )
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(STORE_WITHDRAW_FLAG)
@@ -84,6 +90,8 @@ pub fn cli_app() -> Command {
                     instead generate them from the wallet seed when required.",
                 )
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new(COUNT_FLAG)
@@ -91,7 +99,8 @@ pub fn cli_app() -> Command {
                 .value_name("VALIDATOR_COUNT")
                 .help("The number of validators to create, regardless of how many already exist")
                 .conflicts_with("at-most")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(AT_MOST_FLAG)
@@ -102,14 +111,17 @@ pub fn cli_app() -> Command {
                     reach the given count. Never deletes an existing validator.",
                 )
                 .conflicts_with("count")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0)
         )
 }
 

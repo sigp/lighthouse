@@ -16,6 +16,8 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
                                         or when there is no default public network to connect to. \
                                         During these times you must specify a --testnet-dir.";
 
+pub const FLAG_HEADER: &str = "Flags";
+
 /// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
 pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {

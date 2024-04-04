@@ -1,6 +1,7 @@
 use super::common::*;
 use crate::DumpConfig;
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -30,7 +31,8 @@ pub fn cli_app() -> Command {
                     \"validators.json\".",
                 )
                 .required(true)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(VC_URL_FLAG)
@@ -43,18 +45,21 @@ pub fn cli_app() -> Command {
                 )
                 .default_value("http://localhost:5062")
                 .requires(VC_TOKEN_FLAG)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(VC_TOKEN_FLAG)
                 .long(VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the validator client.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(IGNORE_DUPLICATES_FLAG)
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .long(IGNORE_DUPLICATES_FLAG)
                 .help(
                     "If present, ignore any validators which already exist on the VC. \
@@ -63,7 +68,8 @@ pub fn cli_app() -> Command {
                     slashable conditions, it might be an indicator that something is amiss. \
                     Users should also be careful to avoid submitting duplicate deposits for \
                     validators that already exist on the VC.",
-                ),
+                )
+                .display_order(0),
         )
 }
 
