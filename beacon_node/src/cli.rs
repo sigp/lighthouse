@@ -1,7 +1,6 @@
 use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Command};
 use clap_utils::{get_color_style, FLAG_HEADER};
 use strum::VariantNames;
-use types::ProgressiveBalancesMode;
 
 pub fn cli_app() -> Command {
     Command::new("beacon_node")
@@ -1439,14 +1438,10 @@ pub fn cli_app() -> Command {
             Arg::new("progressive-balances")
                 .long("progressive-balances")
                 .value_name("MODE")
-                .help("Control the progressive balances cache mode. The default `fast` mode uses \
-                        the cache to speed up fork choice. A more conservative `checked` mode \
-                        compares the cache's results against results without the cache. If \
-                        there is a mismatch, it falls back to the cache-free result. Using the \
-                        default `fast` mode is recommended unless advised otherwise by the \
-                        Lighthouse team.")
+                .help("Deprecated. This optimisation is now the default and cannot be disabled.")
+                .takes_value(true)
+                .possible_values(&["fast", "disabled", "checked", "strict"])
                 .action(ArgAction::Set)
-                .value_parser(ProgressiveBalancesMode::VARIANTS.to_vec())
                 .display_order(0)
         )
         .arg(
