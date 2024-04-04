@@ -1438,7 +1438,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
         // If the block was enshrined as head too late for attestations to be created for it,
         // log a debug warning and increment a metric.
         let format_delay = |delay: &Option<Duration>| {
-            delay.map_or("unknown".to_string(), |d| format!("{}", d.as_millis()))
+            delay.map_or("unknown".to_string(), |d| format!("{:?}", d))
         };
         if late_head {
             metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
