@@ -1,9 +1,10 @@
+use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use crate::common::{get_attestation_participation_flag_indices, get_attesting_indices};
 use std::mem;
 use std::sync::Arc;
 use types::{
-    BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EthSpec, Fork,
-    ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VariableList,
+    BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
+    Fork, ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VariableList,
 };
 
 /// Translate the participation information from the epoch prior to the fork into Altair's format.
@@ -53,7 +54,7 @@ pub fn upgrade_to_altair<E: EthSpec>(
         VariableList::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
     let inactivity_scores = VariableList::new(vec![0; pre.validators.len()])?;
 
-    let temp_sync_committee = Arc::new(SyncCommittee::temporary()?);
+    let temp_sync_committee = Arc::new(SyncCommittee::temporary());
 
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
@@ -101,14 +102,19 @@ pub fn upgrade_to_altair<E: EthSpec>(
         next_sync_committee: temp_sync_committee,            // not read
         // Caches
         total_active_balance: pre.total_active_balance,
+        progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
+        slashings_cache: mem::take(&mut pre.slashings_cache),
+        epoch_cache: EpochCache::default(),
         tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
     });
 
     // Fill in previous epoch participation from the pre state's pending attestations.
     translate_participation(&mut post, &pre.previous_epoch_attestations, spec)?;
+
+    initialize_progressive_balances_cache(&mut post, spec)?;
 
     // Fill in sync committees
     // Note: A duplicate committee is assigned for the current and next committee at the fork

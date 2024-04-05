@@ -47,7 +47,8 @@ use crate::{
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{
-    ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock, ResetPayloadStatuses,
+    ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
+    ResetPayloadStatuses,
 };
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -298,10 +299,10 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let beacon_block = store
             .get_full_block(&beacon_block_root)?
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
-        let beacon_state_root = beacon_block.state_root();
-        let beacon_state = store
-            .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-            .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+        let current_slot = fork_choice.fc_store().get_current_slot();
+        let (_, beacon_state) = store
+            .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root())?
+            .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
         let snapshot = BeaconSnapshot {
             beacon_block_root,
@@ -669,10 +670,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .get_full_block(&new_view.head_block_root)?
                         .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
-                    let beacon_state_root = beacon_block.state_root();
-                    let beacon_state: BeaconState<T::EthSpec> = self
-                        .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-                        .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+                    let (_, beacon_state) = self
+                        .store
+                        .get_advanced_hot_state(
+                            new_view.head_block_root,
+                            current_slot,
+                            beacon_block.state_root(),
+                        )?
+                        .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
                     Ok(BeaconSnapshot {
                         beacon_block: Arc::new(beacon_block),
@@ -756,10 +761,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Drop the old cache head nice and early to try and free the memory as soon as possible.
         drop(old_cached_head);
-
-        // Prune blobs in the background.
-        self.store_migrator
-            .process_prune_blobs(self.data_availability_boundary());
 
         // If the finalized checkpoint changed, perform some updates.
         //
@@ -990,6 +991,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
+        self.observed_slashable.write().prune(
+            new_view
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
+        );
+
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .map(|mut snapshot_cache| {
@@ -1056,6 +1064,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_view.finalized_checkpoint,
             self.head_tracker.clone(),
         )?;
+
+        // Prune blobs in the background.
+        if let Some(data_availability_boundary) = self.data_availability_boundary() {
+            self.store_migrator
+                .process_prune_blobs(data_availability_boundary);
+        }
 
         // Take a write-lock on the canonical head and signal for it to prune.
         self.canonical_head.fork_choice_write_lock().prune()?;

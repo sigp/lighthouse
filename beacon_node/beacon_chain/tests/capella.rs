@@ -7,8 +7,8 @@ use types::*;
 const VALIDATOR_COUNT: usize = 32;
 type E = MainnetEthSpec;
 
-fn verify_execution_payload_chain<T: EthSpec>(chain: &[FullPayload<T>]) {
-    let mut prev_ep: Option<FullPayload<T>> = None;
+fn verify_execution_payload_chain<E: EthSpec>(chain: &[FullPayload<E>]) {
+    let mut prev_ep: Option<FullPayload<E>> = None;
 
     for ep in chain {
         assert!(!ep.is_default_with_empty_roots());
@@ -133,13 +133,8 @@ async fn base_altair_merge_capella() {
     for _ in (merge_fork_slot.as_u64() + 3)..capella_fork_slot.as_u64() {
         harness.extend_slots(1).await;
         let block = &harness.chain.head_snapshot().beacon_block;
-        let full_payload: FullPayload<E> = block
-            .message()
-            .body()
-            .execution_payload()
-            .unwrap()
-            .clone()
-            .into();
+        let full_payload: FullPayload<E> =
+            block.message().body().execution_payload().unwrap().into();
         // pre-capella shouldn't have withdrawals
         assert!(full_payload.withdrawals_root().is_err());
         execution_payloads.push(full_payload);
@@ -151,13 +146,8 @@ async fn base_altair_merge_capella() {
     for _ in 0..16 {
         harness.extend_slots(1).await;
         let block = &harness.chain.head_snapshot().beacon_block;
-        let full_payload: FullPayload<E> = block
-            .message()
-            .body()
-            .execution_payload()
-            .unwrap()
-            .clone()
-            .into();
+        let full_payload: FullPayload<E> =
+            block.message().body().execution_payload().unwrap().into();
         // post-capella should have withdrawals
         assert!(full_payload.withdrawals_root().is_ok());
         execution_payloads.push(full_payload);

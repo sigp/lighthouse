@@ -1,24 +1,24 @@
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
 use environment::null_logger;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
-    types::{BlockId as CoreBlockId, ForkChoiceNode, StateId as CoreStateId, *},
+    types::{
+        BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
+    },
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
-use execution_layer::test_utils::TestingBuilder;
-use execution_layer::test_utils::DEFAULT_BUILDER_THRESHOLD_WEI;
 use execution_layer::test_utils::{
-    Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+    MockBuilder, Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{
-    test_utils::{create_api_server, create_api_server_on_port, ApiServer},
+    test_utils::{create_api_server, ApiServer},
     BlockId, StateId,
 };
 use lighthouse_network::{Enr, EnrExt, PeerId};
@@ -28,9 +28,9 @@ use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_slot_processing;
+use state_processing::state_advance::partial_state_advance;
 use std::convert::TryInto;
 use std::sync::Arc;
-use tokio::sync::oneshot;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
@@ -63,23 +63,22 @@ struct ApiTester {
     harness: Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
-    next_block: SignedBlockContents<E>,
-    reorg_block: SignedBlockContents<E>,
+    next_block: PublishBlockRequest<E>,
+    reorg_block: PublishBlockRequest<E>,
     attestations: Vec<Attestation<E>>,
     contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
-    _server_shutdown: oneshot::Sender<()>,
     network_rx: NetworkReceivers<E>,
     local_enr: Enr,
     external_peer_id: PeerId,
-    mock_builder: Option<Arc<TestingBuilder<E>>>,
+    mock_builder: Option<Arc<MockBuilder<E>>>,
 }
 
 struct ApiTesterConfig {
     spec: ChainSpec,
-    builder_threshold: Option<u128>,
+    retain_historic_states: bool,
 }
 
 impl Default for ApiTesterConfig {
@@ -88,8 +87,15 @@ impl Default for ApiTesterConfig {
         spec.shard_committee_period = 2;
         Self {
             spec,
-            builder_threshold: None,
+            retain_historic_states: false,
         }
+    }
+}
+
+impl ApiTesterConfig {
+    fn retain_historic_states(mut self) -> Self {
+        self.retain_historic_states = true;
+        self
     }
 }
 
@@ -112,20 +118,28 @@ impl ApiTester {
     }
 
     pub async fn new_from_config(config: ApiTesterConfig) -> Self {
-        // Get a random unused port
         let spec = config.spec;
-        let port = unused_port::unused_tcp4_port().unwrap();
-        let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
-        let harness = Arc::new(
-            BeaconChainHarness::builder(MainnetEthSpec)
-                .spec(spec.clone())
-                .logger(logging::test_logger())
-                .deterministic_keypairs(VALIDATOR_COUNT)
-                .fresh_ephemeral_store()
-                .mock_execution_layer_with_builder(beacon_url.clone(), config.builder_threshold)
-                .build(),
-        );
+        let mut harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .spec(spec.clone())
+            .chain_config(ChainConfig {
+                reconstruct_historic_states: config.retain_historic_states,
+                ..ChainConfig::default()
+            })
+            .logger(logging::test_logger())
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .mock_execution_layer_with_config()
+            .build();
+
+        harness
+            .mock_execution_layer
+            .as_ref()
+            .unwrap()
+            .server
+            .execution_block_generator()
+            .move_to_terminal_block()
+            .unwrap();
 
         harness.advance_slot();
 
@@ -156,13 +170,13 @@ impl ApiTester {
         let (next_block, _next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
-        let next_block = SignedBlockContents::from(next_block);
+        let next_block = PublishBlockRequest::from(next_block);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
-            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap() + 1)
             .await;
-        let reorg_block = SignedBlockContents::from(reorg_block);
+        let reorg_block = PublishBlockRequest::from(reorg_block);
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -234,31 +248,38 @@ impl ApiTester {
         let log = null_logger().unwrap();
 
         let ApiServer {
+            ctx: _,
             server,
-            listening_socket: _,
-            shutdown_tx,
+            listening_socket,
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server_on_port(chain.clone(), log, port).await;
+        } = create_api_server(chain.clone(), &harness.runtime, log).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
+
+        // Late-initalize the mock builder now that the mock execution node and beacon API ports
+        // have been allocated.
+        let beacon_api_port = listening_socket.port();
+        let beacon_url =
+            SensitiveUrl::parse(format!("http://127.0.0.1:{beacon_api_port}").as_str()).unwrap();
+        let mock_builder_server = harness.set_mock_builder(beacon_url.clone());
+
+        // Start the mock builder service prior to building the chain out.
+        harness.runtime.task_executor.spawn(
+            async move { mock_builder_server.await },
+            "mock_builder_server",
+        );
+
+        let mock_builder = harness.mock_builder.clone();
 
         let client = BeaconNodeHttpClient::new(
             beacon_url,
             Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
         );
 
-        let builder_ref = harness.mock_builder.as_ref().unwrap().clone();
-        harness.runtime.task_executor.spawn(
-            async move { builder_ref.run().await },
-            "mock_builder_server",
-        );
-
-        let mock_builder = harness.mock_builder.clone();
-
         Self {
-            harness,
+            harness: Arc::new(harness),
             chain,
             client,
             next_block,
@@ -268,7 +289,6 @@ impl ApiTester {
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
-            _server_shutdown: shutdown_tx,
             network_rx,
             local_enr,
             external_peer_id,
@@ -292,13 +312,13 @@ impl ApiTester {
         let (next_block, _next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
-        let next_block = SignedBlockContents::from(next_block);
+        let next_block = PublishBlockRequest::from(next_block);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
-        let reorg_block = SignedBlockContents::from(reorg_block);
+        let reorg_block = PublishBlockRequest::from(reorg_block);
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -322,13 +342,13 @@ impl ApiTester {
         let log = null_logger().unwrap();
 
         let ApiServer {
+            ctx: _,
             server,
             listening_socket,
-            shutdown_tx,
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), log).await;
+        } = create_api_server(chain.clone(), &harness.runtime, log).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
@@ -353,7 +373,6 @@ impl ApiTester {
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
-            _server_shutdown: shutdown_tx,
             network_rx,
             local_enr,
             external_peer_id,
@@ -371,20 +390,13 @@ impl ApiTester {
             .test_post_validator_register_validator()
             .await;
         // Make sure bids always meet the minimum threshold.
-        tester
-            .mock_builder
-            .as_ref()
-            .unwrap()
-            .builder
-            .add_operation(Operation::Value(Uint256::from(
-                DEFAULT_BUILDER_THRESHOLD_WEI,
-            )));
+        tester.mock_builder.as_ref().unwrap();
         tester
     }
 
-    pub async fn new_mev_tester_no_builder_threshold() -> Self {
+    pub async fn new_mev_tester_default_payload_value() -> Self {
         let mut config = ApiTesterConfig {
-            builder_threshold: Some(0),
+            retain_historic_states: false,
             spec: E::default_spec(),
         };
         config.spec.altair_fork_epoch = Some(Epoch::new(0));
@@ -397,7 +409,6 @@ impl ApiTester {
             .mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_BUILDER_PAYLOAD_VALUE_WEI,
             )));
@@ -617,7 +628,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_beacon_blocks_finalized<T: EthSpec>(self) -> Self {
+    pub async fn test_beacon_blocks_finalized<E: EthSpec>(self) -> Self {
         for block_id in self.interesting_block_ids() {
             let block_root = block_id.root(&self.chain);
             let block = block_id.full_block(&self.chain).await;
@@ -636,6 +647,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
+                .metadata
                 .finalized
                 .unwrap();
 
@@ -653,7 +665,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_beacon_blinded_blocks_finalized<T: EthSpec>(self) -> Self {
+    pub async fn test_beacon_blinded_blocks_finalized<E: EthSpec>(self) -> Self {
         for block_id in self.interesting_block_ids() {
             let block_root = block_id.root(&self.chain);
             let block = block_id.full_block(&self.chain).await;
@@ -672,6 +684,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
+                .metadata
                 .finalized
                 .unwrap();
 
@@ -709,6 +722,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
+                .metadata
                 .finalized
                 .unwrap();
 
@@ -831,6 +845,18 @@ impl ApiTester {
                     .await
                     .unwrap()
                     .map(|res| res.data);
+                let result_post_index_ids = self
+                    .client
+                    .post_beacon_states_validator_balances(state_id.0, validator_index_ids)
+                    .await
+                    .unwrap()
+                    .map(|res| res.data);
+                let result_post_pubkey_ids = self
+                    .client
+                    .post_beacon_states_validator_balances(state_id.0, validator_pubkey_ids)
+                    .await
+                    .unwrap()
+                    .map(|res| res.data);
 
                 let expected = state_opt.map(|(state, _execution_optimistic, _finalized)| {
                     let mut validators = Vec::with_capacity(validator_indices.len());
@@ -849,6 +875,8 @@ impl ApiTester {
 
                 assert_eq!(result_index_ids, expected, "{:?}", state_id);
                 assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
+                assert_eq!(result_post_index_ids, expected, "{:?}", state_id);
+                assert_eq!(result_post_pubkey_ids, expected, "{:?}", state_id);
             }
         }
 
@@ -894,7 +922,6 @@ impl ApiTester {
                         .await
                         .unwrap()
                         .map(|res| res.data);
-
                     let result_pubkey_ids = self
                         .client
                         .get_beacon_states_validators(
@@ -902,6 +929,18 @@ impl ApiTester {
                             Some(validator_pubkey_ids.as_slice()),
                             None,
                         )
+                        .await
+                        .unwrap()
+                        .map(|res| res.data);
+                    let post_result_index_ids = self
+                        .client
+                        .post_beacon_states_validators(state_id.0, Some(validator_index_ids), None)
+                        .await
+                        .unwrap()
+                        .map(|res| res.data);
+                    let post_result_pubkey_ids = self
+                        .client
+                        .post_beacon_states_validators(state_id.0, Some(validator_pubkey_ids), None)
                         .await
                         .unwrap()
                         .map(|res| res.data);
@@ -940,6 +979,8 @@ impl ApiTester {
 
                     assert_eq!(result_index_ids, expected, "{:?}", state_id);
                     assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
+                    assert_eq!(post_result_index_ids, expected, "{:?}", state_id);
+                    assert_eq!(post_result_pubkey_ids, expected, "{:?}", state_id);
                 }
             }
         }
@@ -1251,20 +1292,138 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_beacon_blocks_ssz_valid(mut self) -> Self {
+        let next_block = &self.next_block;
+
+        self.client
+            .post_beacon_blocks_ssz(next_block)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid blocks should be sent to network"
+        );
+
+        self
+    }
+
     pub async fn test_post_beacon_blocks_invalid(mut self) -> Self {
-        let mut next_block = self.next_block.clone().deconstruct().0;
-        *next_block.message_mut().proposer_index_mut() += 1;
+        let block = self
+            .harness
+            .make_block_with_modifier(
+                self.harness.get_current_state(),
+                self.harness.get_current_slot(),
+                |b| {
+                    *b.state_root_mut() = Hash256::zero();
+                },
+            )
+            .await
+            .0;
 
         assert!(self
             .client
-            .post_beacon_blocks(&SignedBlockContents::from(next_block))
+            .post_beacon_blocks(&PublishBlockRequest::from(block))
             .await
             .is_err());
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
-            "invalid blocks should be sent to network"
+            "gossip valid blocks should be sent to network"
         );
+
+        self
+    }
+
+    pub async fn test_post_beacon_blocks_ssz_invalid(mut self) -> Self {
+        let block = self
+            .harness
+            .make_block_with_modifier(
+                self.harness.get_current_state(),
+                self.harness.get_current_slot(),
+                |b| {
+                    *b.state_root_mut() = Hash256::zero();
+                },
+            )
+            .await
+            .0;
+
+        assert!(self
+            .client
+            .post_beacon_blocks_ssz(&PublishBlockRequest::from(block))
+            .await
+            .is_err());
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "gossip valid blocks should be sent to network"
+        );
+
+        self
+    }
+
+    pub async fn test_post_beacon_blocks_duplicate(self) -> Self {
+        let block_contents = self
+            .harness
+            .make_block(
+                self.harness.get_current_state(),
+                self.harness.get_current_slot(),
+            )
+            .await
+            .0
+            .into();
+
+        assert!(self
+            .client
+            .post_beacon_blocks(&block_contents)
+            .await
+            .is_ok());
+
+        // Blinded deneb block contents is just the blinded block
+        let blinded_block_contents = block_contents.signed_block().clone_as_blinded();
+
+        // Test all the POST methods in sequence, they should all behave the same.
+        let responses = vec![
+            self.client
+                .post_beacon_blocks(&block_contents)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blocks_v2(&block_contents, None)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blocks_ssz(&block_contents)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blocks_v2_ssz(&block_contents, None)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blinded_blocks(&blinded_block_contents)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blinded_blocks_v2(&blinded_block_contents, None)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blinded_blocks_ssz(&blinded_block_contents)
+                .await
+                .unwrap_err(),
+            self.client
+                .post_beacon_blinded_blocks_v2_ssz(&blinded_block_contents, None)
+                .await
+                .unwrap_err(),
+        ];
+        for (i, response) in responses.into_iter().enumerate() {
+            assert_eq!(
+                response.status().unwrap(),
+                StatusCode::ACCEPTED,
+                "response {i}"
+            );
+        }
 
         self
     }
@@ -1430,6 +1589,39 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_blob_sidecars(self, use_indices: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Finalized);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+        let num_blobs = block.num_expected_blobs();
+        let blob_indices = if use_indices {
+            Some(
+                (0..num_blobs.saturating_sub(1) as u64)
+                    .into_iter()
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            None
+        };
+        let result = match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), blob_indices.as_deref())
+            .await
+        {
+            Ok(result) => result.unwrap().data,
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        assert_eq!(
+            result.len(),
+            blob_indices.map_or(num_blobs, |indices| indices.len())
+        );
+        let expected = block.slot();
+        assert_eq!(result.get(0).unwrap().slot(), expected);
+
+        self
+    }
+
     pub async fn test_beacon_blocks_attestations(self) -> Self {
         for block_id in self.interesting_block_ids() {
             let result = self
@@ -1506,6 +1698,65 @@ impl ApiTester {
             self.network_rx.network_recv.recv().await.is_some(),
             "if some attestations are valid, we should send them to the network"
         );
+
+        self
+    }
+
+    pub async fn test_get_beacon_light_client_bootstrap(self) -> Self {
+        let block_id = BlockId(CoreBlockId::Finalized);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+
+        let result = match self
+            .client
+            .get_light_client_bootstrap::<E>(block_root)
+            .await
+        {
+            Ok(result) => result.unwrap().data,
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        let expected = block.slot();
+        assert_eq!(result.get_slot(), expected);
+
+        self
+    }
+
+    pub async fn test_get_beacon_light_client_optimistic_update(self) -> Self {
+        // get_beacon_light_client_optimistic_update returns Ok(None) on 404 NOT FOUND
+        let result = match self
+            .client
+            .get_beacon_light_client_optimistic_update::<E>()
+            .await
+        {
+            Ok(result) => result.map(|res| res.data),
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        let expected = self
+            .chain
+            .light_client_server_cache
+            .get_latest_optimistic_update();
+        assert_eq!(result, expected);
+
+        self
+    }
+
+    pub async fn test_get_beacon_light_client_finality_update(self) -> Self {
+        let result = match self
+            .client
+            .get_beacon_light_client_finality_update::<E>()
+            .await
+        {
+            Ok(result) => result.map(|res| res.data),
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        let expected = self
+            .chain
+            .light_client_server_cache
+            .get_latest_finality_update();
+        assert_eq!(result, expected);
 
         self
     }
@@ -1680,9 +1931,9 @@ impl ApiTester {
     pub async fn test_get_config_spec(self) -> Self {
         let result = self
             .client
-            .get_config_spec::<ConfigAndPresetCapella>()
+            .get_config_spec::<ConfigAndPresetElectra>()
             .await
-            .map(|res| ConfigAndPreset::Capella(res.data))
+            .map(|res| ConfigAndPreset::Electra(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
 
@@ -1761,9 +2012,15 @@ impl ApiTester {
     }
 
     pub async fn test_get_node_health(self) -> Self {
-        let status = self.client.get_node_health().await.unwrap();
-        assert_eq!(status, StatusCode::OK);
-
+        let status = self.client.get_node_health().await;
+        match status {
+            Ok(_) => {
+                panic!("should return 503 error status code");
+            }
+            Err(e) => {
+                assert_eq!(e.status().unwrap(), 503);
+            }
+        }
         self
     }
 
@@ -2267,7 +2524,9 @@ impl ApiTester {
             .unwrap();
 
         self.chain.slot_clock.set_current_time(
-            current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY - Duration::from_millis(1),
+            current_epoch_start
+                - self.chain.spec.maximum_gossip_clock_disparity()
+                - Duration::from_millis(1),
         );
 
         let dependent_root = self
@@ -2304,9 +2563,9 @@ impl ApiTester {
             "should not get attester duties outside of tolerance"
         );
 
-        self.chain
-            .slot_clock
-            .set_current_time(current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+        self.chain.slot_clock.set_current_time(
+            current_epoch_start - self.chain.spec.maximum_gossip_clock_disparity(),
+        );
 
         self.client
             .get_validator_duties_proposer(current_epoch)
@@ -2370,7 +2629,7 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks::<E, FullPayload<E>>(slot, &randao_reveal, None)
+                .get_validator_blocks::<E>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
                 .data
@@ -2378,7 +2637,8 @@ impl ApiTester {
                 .0;
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
-            let signed_block_contents = SignedBlockContents::from(signed_block.clone());
+            let signed_block_contents =
+                PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
 
             self.client
                 .post_beacon_blocks(&signed_block_contents)
@@ -2393,13 +2653,201 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_block_production_ssz(self) -> Self {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+
+            let proposer_pubkey_bytes = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|duty| duty.slot == slot)
+                .map(|duty| duty.pubkey)
+                .unwrap();
+            let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+            let sk = self
+                .validator_keypairs()
+                .iter()
+                .find(|kp| kp.pk == proposer_pubkey)
+                .map(|kp| kp.sk.clone())
+                .unwrap();
+
+            let randao_reveal = {
+                let domain = self.chain.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = epoch.signing_root(domain);
+                sk.sign(message).into()
+            };
+
+            let block_bytes = self
+                .client
+                .get_validator_blocks_ssz::<E>(slot, &randao_reveal, None)
+                .await
+                .unwrap()
+                .expect("block bytes");
+
+            let block_contents =
+                FullBlockContents::<E>::from_ssz_bytes(&block_bytes, &self.chain.spec)
+                    .expect("block contents bytes can be decoded");
+
+            let signed_block_contents =
+                block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+
+            self.client
+                .post_beacon_blocks_ssz(&signed_block_contents)
+                .await
+                .unwrap();
+
+            assert_eq!(
+                self.chain.head_beacon_block(),
+                *signed_block_contents.signed_block()
+            );
+
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
+    /// Check that the metadata from the headers & JSON response body are consistent, and that the
+    /// consensus block value is non-zero.
+    fn check_block_v3_metadata(
+        metadata: &ProduceBlockV3Metadata,
+        response: &JsonProduceBlockV3Response<E>,
+    ) {
+        // Compare fork name to ForkVersionedResponse rather than metadata consensus_version, which
+        // is deserialized to a dummy value.
+        assert_eq!(Some(metadata.consensus_version), response.version);
+        assert_eq!(ForkName::Base, response.metadata.consensus_version);
+        assert_eq!(
+            metadata.execution_payload_blinded,
+            response.metadata.execution_payload_blinded
+        );
+        assert_eq!(
+            metadata.execution_payload_value,
+            response.metadata.execution_payload_value
+        );
+        assert_eq!(
+            metadata.consensus_block_value,
+            response.metadata.consensus_block_value
+        );
+        assert!(!metadata.consensus_block_value.is_zero());
+    }
+
+    pub async fn test_block_production_v3_ssz(self) -> Self {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+
+            let proposer_pubkey_bytes = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|duty| duty.slot == slot)
+                .map(|duty| duty.pubkey)
+                .unwrap();
+            let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+            let sk = self
+                .validator_keypairs()
+                .iter()
+                .find(|kp| kp.pk == proposer_pubkey)
+                .map(|kp| kp.sk.clone())
+                .unwrap();
+
+            let randao_reveal = {
+                let domain = self.chain.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = epoch.signing_root(domain);
+                sk.sign(message).into()
+            };
+
+            let (response, metadata) = self
+                .client
+                .get_validator_blocks_v3_ssz::<E>(slot, &randao_reveal, None, None)
+                .await
+                .unwrap();
+
+            match response {
+                ProduceBlockV3Response::Blinded(blinded_block) => {
+                    assert!(metadata.execution_payload_blinded);
+                    assert_eq!(
+                        metadata.consensus_version,
+                        blinded_block.to_ref().fork_name(&self.chain.spec).unwrap()
+                    );
+                    let signed_blinded_block =
+                        blinded_block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+
+                    self.client
+                        .post_beacon_blinded_blocks_ssz(&signed_blinded_block)
+                        .await
+                        .unwrap();
+
+                    let head_block = self.chain.head_beacon_block().clone_as_blinded();
+                    assert_eq!(head_block, signed_blinded_block);
+
+                    self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                }
+                ProduceBlockV3Response::Full(block_contents) => {
+                    assert!(!metadata.execution_payload_blinded);
+                    assert_eq!(
+                        metadata.consensus_version,
+                        block_contents
+                            .block()
+                            .to_ref()
+                            .fork_name(&self.chain.spec)
+                            .unwrap()
+                    );
+                    let signed_block_contents =
+                        block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+
+                    self.client
+                        .post_beacon_blocks_ssz(&signed_block_contents)
+                        .await
+                        .unwrap();
+
+                    assert_eq!(
+                        self.chain.head_beacon_block(),
+                        *signed_block_contents.signed_block()
+                    );
+
+                    self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                }
+            }
+        }
+
+        self
+    }
+
     pub async fn test_block_production_no_verify_randao(self) -> Self {
         for _ in 0..E::slots_per_epoch() {
             let slot = self.chain.slot().unwrap();
 
             let block = self
                 .client
-                .get_validator_blocks_modular::<E, FullPayload<E>>(
+                .get_validator_blocks_modular::<E>(
                     slot,
                     &Signature::infinity().unwrap().into(),
                     None,
@@ -2457,13 +2905,13 @@ impl ApiTester {
 
             // Check failure with no `skip_randao_verification` passed.
             self.client
-                .get_validator_blocks::<E, FullPayload<E>>(slot, &bad_randao_reveal, None)
+                .get_validator_blocks::<E>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
             // Check failure with `skip_randao_verification` (requires infinity sig).
             self.client
-                .get_validator_blocks_modular::<E, FullPayload<E>>(
+                .get_validator_blocks_modular::<E>(
                     slot,
                     &bad_randao_reveal,
                     None,
@@ -2478,7 +2926,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_blinded_block_production<Payload: AbstractExecPayload<E>>(&self) {
+    pub async fn test_blinded_block_production(&self) {
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -2518,7 +2966,7 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blinded_blocks::<E, Payload>(slot, &randao_reveal, None)
+                .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
                 .data;
@@ -2530,23 +2978,101 @@ impl ApiTester {
                 .await
                 .unwrap();
 
-            // This converts the generic `Payload` to a concrete type for comparison.
-            let head_block = SignedBeaconBlock::from(signed_block.clone());
-            assert_eq!(head_block, signed_block);
+            let head_block = self
+                .client
+                .get_beacon_blocks(CoreBlockId::Head)
+                .await
+                .unwrap()
+                .unwrap()
+                .data;
+
+            assert_eq!(head_block.clone_as_blinded(), signed_block);
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
     }
 
-    pub async fn test_blinded_block_production_no_verify_randao<Payload: AbstractExecPayload<E>>(
-        self,
-    ) -> Self {
+    pub async fn test_blinded_block_production_ssz(&self) {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+
+            let proposer_pubkey_bytes = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|duty| duty.slot == slot)
+                .map(|duty| duty.pubkey)
+                .unwrap();
+            let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+            let sk = self
+                .validator_keypairs()
+                .iter()
+                .find(|kp| kp.pk == proposer_pubkey)
+                .map(|kp| kp.sk.clone())
+                .unwrap();
+
+            let randao_reveal = {
+                let domain = self.chain.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = epoch.signing_root(domain);
+                sk.sign(message).into()
+            };
+
+            let block_contents_bytes = self
+                .client
+                .get_validator_blinded_blocks_ssz::<E>(slot, &randao_reveal, None)
+                .await
+                .unwrap()
+                .expect("block bytes");
+
+            let block_contents =
+                FullBlockContents::<E>::from_ssz_bytes(&block_contents_bytes, &self.chain.spec)
+                    .expect("block contents bytes can be decoded");
+
+            let signed_block_contents =
+                block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+
+            self.client
+                .post_beacon_blinded_blocks_ssz(
+                    &signed_block_contents.signed_block().clone_as_blinded(),
+                )
+                .await
+                .unwrap();
+
+            let head_block = self
+                .client
+                .get_beacon_blocks(CoreBlockId::Head)
+                .await
+                .unwrap()
+                .unwrap()
+                .data;
+
+            let signed_block = signed_block_contents.signed_block();
+            assert_eq!(head_block, **signed_block);
+
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+    }
+
+    pub async fn test_blinded_block_production_no_verify_randao(self) -> Self {
         for _ in 0..E::slots_per_epoch() {
             let slot = self.chain.slot().unwrap();
 
-            let block = self
+            let blinded_block = self
                 .client
-                .get_validator_blinded_blocks_modular::<E, Payload>(
+                .get_validator_blinded_blocks_modular::<E>(
                     slot,
                     &Signature::infinity().unwrap().into(),
                     None,
@@ -2555,18 +3081,14 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .data;
-            assert_eq!(block.slot(), slot);
+            assert_eq!(blinded_block.slot(), slot);
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
 
         self
     }
 
-    pub async fn test_blinded_block_production_verify_randao_invalid<
-        Payload: AbstractExecPayload<E>,
-    >(
-        self,
-    ) -> Self {
+    pub async fn test_blinded_block_production_verify_randao_invalid(self) -> Self {
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -2606,13 +3128,13 @@ impl ApiTester {
 
             // Check failure with full randao verification enabled.
             self.client
-                .get_validator_blinded_blocks::<E, Payload>(slot, &bad_randao_reveal, None)
+                .get_validator_blinded_blocks::<E>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
             // Check failure with `skip_randao_verification` (requires infinity sig).
             self.client
-                .get_validator_blinded_blocks_modular::<E, Payload>(
+                .get_validator_blinded_blocks_modular::<E>(
                     slot,
                     &bad_randao_reveal,
                     None,
@@ -2981,6 +3503,69 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_validator_liveness_epoch(self) -> Self {
+        let epoch = self.chain.epoch().unwrap();
+        let head_state = self.chain.head_beacon_state_cloned();
+        let indices = (0..head_state.validators().len())
+            .map(|i| i as u64)
+            .collect::<Vec<_>>();
+
+        // Construct the expected response
+        let expected: Vec<StandardLivenessResponseData> = head_state
+            .validators()
+            .iter()
+            .enumerate()
+            .map(|(index, _)| StandardLivenessResponseData {
+                index: index as u64,
+                is_live: false,
+            })
+            .collect();
+
+        let result = self
+            .client
+            .post_validator_liveness_epoch(epoch, &indices)
+            .await
+            .unwrap()
+            .data;
+
+        assert_eq!(result, expected);
+
+        // Attest to the current slot
+        self.client
+            .post_beacon_pool_attestations(self.attestations.as_slice())
+            .await
+            .unwrap();
+
+        let result = self
+            .client
+            .post_validator_liveness_epoch(epoch, &indices)
+            .await
+            .unwrap()
+            .data;
+
+        let committees = head_state
+            .get_beacon_committees_at_slot(self.chain.slot().unwrap())
+            .unwrap();
+        let attesting_validators: Vec<usize> = committees
+            .into_iter()
+            .flat_map(|committee| committee.committee.iter().cloned())
+            .collect();
+        // All attesters should now be considered live
+        let expected = expected
+            .into_iter()
+            .map(|mut a| {
+                if attesting_validators.contains(&(a.index as usize)) {
+                    a.is_live = true;
+                }
+                a
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(result, expected);
+
+        self
+    }
+
     // Helper function for tests that require a valid RANDAO signature.
     async fn get_test_randao(&self, slot: Slot, epoch: Epoch) -> (u64, SignatureBytes) {
         let fork = self.chain.canonical_head.cached_head().head_fork();
@@ -3016,6 +3601,87 @@ impl ApiTester {
         (proposer_index, randao_reveal)
     }
 
+    pub async fn test_payload_v3_respects_registration(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        let payload: BlindedPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Blinded(payload) => {
+                payload.body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
+        };
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(payload.fee_recipient(), expected_fee_recipient);
+        assert_eq!(payload.gas_limit(), 11_111_111);
+
+        self
+    }
+
+    pub async fn test_payload_v3_zero_builder_boost_factor(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(0))
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        let payload: FullPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(payload.fee_recipient(), expected_fee_recipient);
+        assert_eq!(payload.gas_limit(), 16_384);
+
+        self
+    }
+
+    pub async fn test_payload_v3_max_builder_boost_factor(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(u64::MAX))
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        let payload: BlindedPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Blinded(payload) => {
+                payload.body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
+        };
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(payload.fee_recipient(), expected_fee_recipient);
+        assert_eq!(payload.gas_limit(), 11_111_111);
+
+        self
+    }
+
     pub async fn test_payload_respects_registration(self) -> Self {
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
@@ -3024,7 +3690,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3046,6 +3712,7 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
+
         self
     }
 
@@ -3054,7 +3721,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::GasLimit(30_000_000));
 
         let slot = self.chain.slot().unwrap();
@@ -3064,7 +3730,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3088,6 +3754,39 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_payload_v3_accepts_mutated_gas_limit(self) -> Self {
+        // Mutate gas limit.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::GasLimit(30_000_000));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        let payload: BlindedPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Blinded(payload) => {
+                payload.body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
+        };
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(payload.fee_recipient(), expected_fee_recipient);
+        assert_eq!(payload.gas_limit(), 30_000_000);
+
+        self
+    }
+
     pub async fn test_payload_accepts_changed_fee_recipient(self) -> Self {
         let test_fee_recipient = "0x4242424242424242424242424242424242424242"
             .parse::<Address>()
@@ -3097,7 +3796,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::FeeRecipient(test_fee_recipient));
 
         let slot = self.chain.slot().unwrap();
@@ -3107,7 +3805,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3129,6 +3827,41 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_payload_v3_accepts_changed_fee_recipient(self) -> Self {
+        let test_fee_recipient = "0x4242424242424242424242424242424242424242"
+            .parse::<Address>()
+            .unwrap();
+
+        // Mutate fee recipient.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::FeeRecipient(test_fee_recipient));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        let payload: BlindedPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Blinded(payload) => {
+                payload.body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
+        };
+
+        assert_eq!(payload.fee_recipient(), test_fee_recipient);
+
+        self
+    }
+
     pub async fn test_payload_rejects_invalid_parent_hash(self) -> Self {
         let invalid_parent_hash =
             "0x4242424242424242424242424242424242424242424242424242424242424242"
@@ -3139,7 +3872,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::ParentHash(invalid_parent_hash));
 
         let slot = self.chain.slot().unwrap();
@@ -3156,7 +3888,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3178,6 +3910,49 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_payload_v3_rejects_invalid_parent_hash(self) -> Self {
+        let invalid_parent_hash =
+            "0x4242424242424242424242424242424242424242424242424242424242424242"
+                .parse::<Hash256>()
+                .unwrap();
+
+        // Mutate parent hash.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::ParentHash(invalid_parent_hash));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let expected_parent_hash = self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .latest_execution_payload_header()
+            .unwrap()
+            .block_hash();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        let payload: FullPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a blinded payload"),
+        };
+
+        assert_eq!(payload.parent_hash(), expected_parent_hash);
+
+        self
+    }
+
     pub async fn test_payload_rejects_invalid_prev_randao(self) -> Self {
         let invalid_prev_randao =
             "0x4242424242424242424242424242424242424242424242424242424242424242"
@@ -3188,7 +3963,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::PrevRandao(invalid_prev_randao));
 
         let slot = self.chain.slot().unwrap();
@@ -3199,12 +3973,11 @@ impl ApiTester {
             .cached_head()
             .head_random()
             .unwrap();
-
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3226,6 +3999,47 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_payload_v3_rejects_invalid_prev_randao(self) -> Self {
+        let invalid_prev_randao =
+            "0x4242424242424242424242424242424242424242424242424242424242424242"
+                .parse::<Hash256>()
+                .unwrap();
+
+        // Mutate prev randao.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::PrevRandao(invalid_prev_randao));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let expected_prev_randao = self
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_random()
+            .unwrap();
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        let payload: FullPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
+        assert_eq!(payload.prev_randao(), expected_prev_randao);
+
+        self
+    }
+
     pub async fn test_payload_rejects_invalid_block_number(self) -> Self {
         let invalid_block_number = 2;
 
@@ -3233,7 +4047,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::BlockNumber(invalid_block_number));
 
         let slot = self.chain.slot().unwrap();
@@ -3251,7 +4064,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3273,6 +4086,47 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_payload_v3_rejects_invalid_block_number(self) -> Self {
+        let invalid_block_number = 2;
+
+        // Mutate block number.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::BlockNumber(invalid_block_number));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let expected_block_number = self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .latest_execution_payload_header()
+            .unwrap()
+            .block_number()
+            + 1;
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        let payload: FullPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
+        assert_eq!(payload.block_number(), expected_block_number);
+
+        self
+    }
+
     pub async fn test_payload_rejects_invalid_timestamp(self) -> Self {
         let invalid_timestamp = 2;
 
@@ -3280,7 +4134,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Timestamp(invalid_timestamp));
 
         let slot = self.chain.slot().unwrap();
@@ -3297,7 +4150,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3319,12 +4172,48 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_payload_rejects_invalid_signature(self) -> Self {
+    pub async fn test_payload_v3_rejects_invalid_timestamp(self) -> Self {
+        let invalid_timestamp = 2;
+
+        // Mutate timestamp.
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
-            .invalid_signatures();
+            .add_operation(Operation::Timestamp(invalid_timestamp));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let min_expected_timestamp = self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .latest_execution_payload_header()
+            .unwrap()
+            .timestamp();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        let payload: FullPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a blinded payload"),
+        };
+
+        assert!(payload.timestamp() > min_expected_timestamp);
+
+        self
+    }
+
+    pub async fn test_payload_rejects_invalid_signature(self) -> Self {
+        self.mock_builder.as_ref().unwrap().invalid_signatures();
 
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
@@ -3333,7 +4222,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3350,6 +4239,29 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        self
+    }
+
+    pub async fn test_payload_v3_rejects_invalid_signature(self) -> Self {
+        self.mock_builder.as_ref().unwrap().invalid_signatures();
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        match payload_type.data {
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
         self
     }
 
@@ -3370,7 +4282,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3387,6 +4299,36 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        self
+    }
+
+    pub async fn test_builder_v3_chain_health_skips(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+
+        // Since we are proposing this slot, start the count from the previous slot.
+        let prev_slot = slot - Slot::new(1);
+        let head_slot = self.chain.canonical_head.cached_head().head_slot();
+        let epoch = self.chain.epoch().unwrap();
+
+        // Inclusive here to make sure we advance one slot past the threshold.
+        for _ in (prev_slot - head_slot).as_usize()..=self.chain.config.builder_fallback_skips {
+            self.harness.advance_slot();
+        }
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        match payload_type.data {
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
         self
     }
 
@@ -3413,7 +4355,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3442,7 +4384,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3459,6 +4401,63 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+
+        self
+    }
+
+    pub async fn test_builder_v3_chain_health_skips_per_epoch(self) -> Self {
+        // Fill an epoch with `builder_fallback_skips_per_epoch` skip slots.
+        for i in 0..E::slots_per_epoch() {
+            if i == 0 || i as usize > self.chain.config.builder_fallback_skips_per_epoch {
+                self.harness
+                    .extend_chain(
+                        1,
+                        BlockStrategy::OnCanonicalHead,
+                        AttestationStrategy::AllValidators,
+                    )
+                    .await;
+            }
+            self.harness.advance_slot();
+        }
+
+        let next_slot = self.chain.slot().unwrap();
+
+        let (_, randao_reveal) = self
+            .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
+            .await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        match payload_type.data {
+            ProduceBlockV3Response::Blinded(_) => (),
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
+        };
+
+        // Without proposing, advance into the next slot, this should make us cross the threshold
+        // number of skips, causing us to use the fallback.
+        self.harness.advance_slot();
+        let next_slot = self.chain.slot().unwrap();
+
+        let (_, randao_reveal) = self
+            .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
+            .await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        match payload_type.data {
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
 
         self
     }
@@ -3491,7 +4490,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3530,7 +4529,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3547,6 +4546,78 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
+
+        self
+    }
+
+    pub async fn test_builder_v3_chain_health_epochs_since_finalization(self) -> Self {
+        let skips = E::slots_per_epoch()
+            * self.chain.config.builder_fallback_epochs_since_finalization as u64;
+
+        for _ in 0..skips {
+            self.harness.advance_slot();
+        }
+
+        // Fill the next epoch with blocks, should be enough to justify, not finalize.
+        for _ in 0..E::slots_per_epoch() {
+            self.harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+            self.harness.advance_slot();
+        }
+
+        let next_slot = self.chain.slot().unwrap();
+
+        let (_, randao_reveal) = self
+            .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
+            .await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        match payload_type.data {
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
+        // Fill another epoch with blocks, should be enough to finalize. (Sneaky plus 1 because this
+        // scenario starts at an epoch boundary).
+        for _ in 0..E::slots_per_epoch() + 1 {
+            self.harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+            self.harness.advance_slot();
+        }
+
+        let next_slot = self.chain.slot().unwrap();
+
+        let (_, randao_reveal) = self
+            .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
+            .await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        match payload_type.data {
+            ProduceBlockV3Response::Blinded(_) => (),
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
+        };
 
         self
     }
@@ -3573,7 +4644,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3597,40 +4668,43 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_payload_rejects_inadequate_builder_threshold(self) -> Self {
-        // Mutate value.
-        self.mock_builder
-            .as_ref()
-            .unwrap()
-            .builder
-            .add_operation(Operation::Value(Uint256::from(
-                DEFAULT_BUILDER_THRESHOLD_WEI - 1,
-            )));
+    pub async fn test_builder_v3_chain_health_optimistic_head(self) -> Self {
+        // Make sure the next payload verification will return optimistic before advancing the chain.
+        self.harness.mock_execution_layer.as_ref().map(|el| {
+            el.server.all_payloads_syncing(true);
+            el
+        });
+        self.harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+        self.harness.advance_slot();
 
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
 
-        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload: BlindedPayload<E> = self
+        let (payload_type, metadata) = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
             .await
-            .unwrap()
-            .data
-            .body()
-            .execution_payload()
-            .unwrap()
-            .into();
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        let payload: FullPayload<E> = match payload_type.data {
+            ProduceBlockV3Response::Full(payload) => {
+                payload.block().body().execution_payload().unwrap().into()
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(payload.fee_recipient(), expected_fee_recipient);
+
         self
     }
 
@@ -3639,7 +4713,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
             )));
@@ -3651,7 +4724,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3671,12 +4744,40 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_builder_payload_v3_chosen_when_more_profitable(self) -> Self {
+        // Mutate value.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
+            )));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        match payload_type.data {
+            ProduceBlockV3Response::Blinded(_) => (),
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
+        };
+
+        self
+    }
+
     pub async fn test_local_payload_chosen_when_equally_profitable(self) -> Self {
         // Mutate value.
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
             )));
@@ -3688,7 +4789,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3708,12 +4809,40 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_local_payload_v3_chosen_when_equally_profitable(self) -> Self {
+        // Mutate value.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+            )));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        match payload_type.data {
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
+        self
+    }
+
     pub async fn test_local_payload_chosen_when_more_profitable(self) -> Self {
         // Mutate value.
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI - 1,
             )));
@@ -3725,7 +4854,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3745,37 +4874,51 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_local_payload_v3_chosen_when_more_profitable(self) -> Self {
+        // Mutate value.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI - 1,
+            )));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        match payload_type.data {
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
+        self
+    }
+
     pub async fn test_builder_works_post_capella(self) -> Self {
         // Ensure builder payload is chosen
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
             )));
 
         let slot = self.chain.slot().unwrap();
-        let propose_state = self
-            .harness
-            .chain
-            .state_at_slot(slot, StateSkipConfig::WithoutStateRoots)
-            .unwrap();
-        let withdrawals = get_expected_withdrawals(&propose_state, &self.chain.spec).unwrap();
-        let withdrawals_root = withdrawals.tree_hash_root();
-        // Set withdrawals root for builder
-        self.mock_builder
-            .as_ref()
-            .unwrap()
-            .builder
-            .add_operation(Operation::WithdrawalsRoot(withdrawals_root));
-
         let epoch = self.chain.epoch().unwrap();
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3795,12 +4938,39 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_builder_works_post_deneb(self) -> Self {
+        // Ensure builder payload is chosen
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
+            )));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        let _block_contents = match payload_type.data {
+            ProduceBlockV3Response::Blinded(payload) => payload,
+            ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
+        };
+
+        self
+    }
+
     pub async fn test_lighthouse_rejects_invalid_withdrawals_root(self) -> Self {
         // Ensure builder payload *would be* chosen
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
             )));
@@ -3808,7 +4978,6 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .builder
             .add_operation(Operation::WithdrawalsRoot(Hash256::repeat_byte(0x42)));
 
         let slot = self.chain.slot().unwrap();
@@ -3817,7 +4986,7 @@ impl ApiTester {
 
         let payload: BlindedPayload<E> = self
             .client
-            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
             .data
@@ -3834,6 +5003,39 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        self
+    }
+
+    pub async fn test_lighthouse_rejects_invalid_withdrawals_root_v3(self) -> Self {
+        // Ensure builder payload *would be* chosen
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
+            )));
+        // Set withdrawals root to something invalid
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::WithdrawalsRoot(Hash256::repeat_byte(0x42)));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let (payload_type, metadata) = self
+            .client
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .await
+            .unwrap();
+        Self::check_block_v3_metadata(&metadata, &payload_type);
+
+        match payload_type.data {
+            ProduceBlockV3Response::Full(_) => (),
+            ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+        };
+
         self
     }
 
@@ -3905,26 +5107,6 @@ impl ApiTester {
             .unwrap();
 
         assert!(deposits.data.is_empty());
-
-        self
-    }
-
-    pub async fn test_get_lighthouse_beacon_states_ssz(self) -> Self {
-        for state_id in self.interesting_state_ids() {
-            let result = self
-                .client
-                .get_lighthouse_beacon_states_ssz(&state_id.0, &self.chain.spec)
-                .await
-                .unwrap();
-
-            let mut expected = state_id
-                .state(&self.chain)
-                .ok()
-                .map(|(state, _execution_optimistic, _finalized)| state);
-            expected.as_mut().map(|state| state.drop_all_caches());
-
-            assert_eq!(result, expected, "{:?}", state_id);
-        }
 
         self
     }
@@ -4142,7 +5324,7 @@ impl ApiTester {
             .unwrap();
 
         let expected_reorg = EventKind::ChainReorg(SseChainReorg {
-            slot: self.next_block.signed_block().slot(),
+            slot: self.reorg_block.signed_block().slot(),
             depth: 1,
             old_head_block: self.next_block.signed_block().canonical_root(),
             old_head_state: self.next_block.signed_block().state_root(),
@@ -4156,6 +5338,8 @@ impl ApiTester {
             execution_optimistic: false,
         });
 
+        self.harness.advance_slot();
+
         self.client
             .post_beacon_blocks(&self.reorg_block)
             .await
@@ -4168,6 +5352,71 @@ impl ApiTester {
         )
         .await;
         assert_eq!(reorg_event.as_slice(), &[expected_reorg]);
+
+        self
+    }
+
+    pub async fn test_get_expected_withdrawals_invalid_state(self) -> Self {
+        let state_id = CoreStateId::Root(Hash256::zero());
+
+        let result = self.client.get_expected_withdrawals(&state_id).await;
+
+        match result {
+            Err(e) => {
+                assert_eq!(e.status().unwrap(), 404);
+            }
+            _ => panic!("query did not fail correctly"),
+        }
+
+        self
+    }
+
+    pub async fn test_get_expected_withdrawals_capella(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let state_id = CoreStateId::Slot(slot);
+
+        // calculate the expected withdrawals
+        let (mut state, _, _) = StateId(state_id).state(&self.chain).unwrap();
+        let proposal_slot = state.slot() + 1;
+        let proposal_epoch = proposal_slot.epoch(E::slots_per_epoch());
+        let (state_root, _, _) = StateId(state_id).root(&self.chain).unwrap();
+        if proposal_epoch != state.current_epoch() {
+            let _ = partial_state_advance(
+                &mut state,
+                Some(state_root),
+                proposal_slot,
+                &self.chain.spec,
+            );
+        }
+        let expected_withdrawals = get_expected_withdrawals(&state, &self.chain.spec).unwrap();
+
+        // fetch expected withdrawals from the client
+        let result = self.client.get_expected_withdrawals(&state_id).await;
+        match result {
+            Ok(withdrawal_response) => {
+                assert_eq!(withdrawal_response.execution_optimistic, Some(false));
+                assert_eq!(withdrawal_response.finalized, Some(false));
+                assert_eq!(withdrawal_response.data, expected_withdrawals.to_vec());
+            }
+            Err(_) => {
+                panic!("query failed incorrectly");
+            }
+        }
+
+        self
+    }
+
+    pub async fn test_get_expected_withdrawals_pre_capella(self) -> Self {
+        let state_id = CoreStateId::Head;
+
+        let result = self.client.get_expected_withdrawals(&state_id).await;
+
+        match result {
+            Err(e) => {
+                assert_eq!(e.status().unwrap(), 400);
+            }
+            _ => panic!("query did not fail correctly"),
+        }
 
         self
     }
@@ -4279,11 +5528,11 @@ impl ApiTester {
     }
 }
 
-async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin, T: EthSpec>(
+async fn poll_events<S: Stream<Item = Result<EventKind<E>, eth2::Error>> + Unpin, E: EthSpec>(
     stream: &mut S,
     num_events: usize,
     timeout: Duration,
-) -> Vec<EventKind<T>> {
+) -> Vec<EventKind<E>> {
     let mut events = Vec::new();
 
     let collect_stream_fut = async {
@@ -4392,10 +5641,34 @@ async fn post_beacon_blocks_valid() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_beacon_blocks_ssz_valid() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_blocks_ssz_valid()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_post_beacon_blocks_ssz_invalid() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_blocks_ssz_invalid()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_invalid() {
     ApiTester::new()
         .await
         .test_post_beacon_blocks_invalid()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_beacon_blocks_duplicate() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_blocks_duplicate()
         .await;
 }
 
@@ -4508,6 +5781,42 @@ async fn node_get() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_light_client_bootstrap() {
+    let config = ApiTesterConfig {
+        spec: ForkName::Altair.make_genesis_spec(E::default_spec()),
+        ..<_>::default()
+    };
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_beacon_light_client_bootstrap()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_light_client_optimistic_update() {
+    let config = ApiTesterConfig {
+        spec: ForkName::Altair.make_genesis_spec(E::default_spec()),
+        ..<_>::default()
+    };
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_beacon_light_client_optimistic_update()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_light_client_finality_update() {
+    let config = ApiTesterConfig {
+        spec: ForkName::Altair.make_genesis_spec(E::default_spec()),
+        ..<_>::default()
+    };
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_beacon_light_client_finality_update()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_early() {
     ApiTester::new()
         .await
@@ -4534,7 +5843,7 @@ async fn get_validator_duties_attester_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer() {
-    ApiTester::new()
+    ApiTester::new_from_config(ApiTesterConfig::default().retain_historic_states())
         .await
         .test_get_validator_duties_proposer()
         .await;
@@ -4542,7 +5851,7 @@ async fn get_validator_duties_proposer() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer_with_skip_slots() {
-    ApiTester::new()
+    ApiTester::new_from_config(ApiTesterConfig::default().retain_historic_states())
         .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_proposer()
@@ -4580,10 +5889,43 @@ async fn block_production_verify_randao_invalid() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn blinded_block_production_full_payload_premerge() {
+async fn block_production_ssz_full_payload() {
+    ApiTester::new().await.test_block_production_ssz().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_ssz_with_skip_slots() {
     ApiTester::new()
         .await
-        .test_blinded_block_production::<FullPayload<_>>()
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_block_production_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_ssz_v3() {
+    ApiTester::new().await.test_block_production_v3_ssz().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_v3_ssz_with_skip_slots() {
+    ApiTester::new()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_block_production_v3_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_full_payload_premerge() {
+    ApiTester::new().await.test_blinded_block_production().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_ssz_full_payload_premerge() {
+    ApiTester::new()
+        .await
+        .test_blinded_block_production_ssz()
         .await;
 }
 
@@ -4592,7 +5934,16 @@ async fn blinded_block_production_with_skip_slots_full_payload_premerge() {
     ApiTester::new()
         .await
         .skip_slots(E::slots_per_epoch() * 2)
-        .test_blinded_block_production::<FullPayload<_>>()
+        .test_blinded_block_production()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_ssz_with_skip_slots_full_payload_premerge() {
+    ApiTester::new()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_blinded_block_production_ssz()
         .await;
 }
 
@@ -4600,7 +5951,7 @@ async fn blinded_block_production_with_skip_slots_full_payload_premerge() {
 async fn blinded_block_production_no_verify_randao_full_payload_premerge() {
     ApiTester::new()
         .await
-        .test_blinded_block_production_no_verify_randao::<FullPayload<_>>()
+        .test_blinded_block_production_no_verify_randao()
         .await;
 }
 
@@ -4608,16 +5959,13 @@ async fn blinded_block_production_no_verify_randao_full_payload_premerge() {
 async fn blinded_block_production_verify_randao_invalid_full_payload_premerge() {
     ApiTester::new()
         .await
-        .test_blinded_block_production_verify_randao_invalid::<FullPayload<_>>()
+        .test_blinded_block_production_verify_randao_invalid()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn blinded_block_production_blinded_payload_premerge() {
-    ApiTester::new()
-        .await
-        .test_blinded_block_production::<BlindedPayload<_>>()
-        .await;
+    ApiTester::new().await.test_blinded_block_production().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4625,7 +5973,7 @@ async fn blinded_block_production_with_skip_slots_blinded_payload_premerge() {
     ApiTester::new()
         .await
         .skip_slots(E::slots_per_epoch() * 2)
-        .test_blinded_block_production::<BlindedPayload<_>>()
+        .test_blinded_block_production()
         .await;
 }
 
@@ -4633,7 +5981,7 @@ async fn blinded_block_production_with_skip_slots_blinded_payload_premerge() {
 async fn blinded_block_production_no_verify_randao_blinded_payload_premerge() {
     ApiTester::new()
         .await
-        .test_blinded_block_production_no_verify_randao::<BlindedPayload<_>>()
+        .test_blinded_block_production_no_verify_randao()
         .await;
 }
 
@@ -4641,7 +5989,7 @@ async fn blinded_block_production_no_verify_randao_blinded_payload_premerge() {
 async fn blinded_block_production_verify_randao_invalid_blinded_payload_premerge() {
     ApiTester::new()
         .await
-        .test_blinded_block_production_verify_randao_invalid::<BlindedPayload<_>>()
+        .test_blinded_block_production_verify_randao_invalid()
         .await;
 }
 
@@ -4746,10 +6094,42 @@ async fn post_validator_register_valid() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_zero_builder_boost_factor() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_zero_builder_boost_factor()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_max_builder_boost_factor() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_max_builder_boost_factor()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_valid_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_respects_registration()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_register_gas_limit_mutation() {
     ApiTester::new_mev_tester()
         .await
         .test_payload_accepts_mutated_gas_limit()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_gas_limit_mutation_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_accepts_mutated_gas_limit()
         .await;
 }
 
@@ -4762,10 +6142,26 @@ async fn post_validator_register_fee_recipient_mutation() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_fee_recipient_mutation_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_accepts_changed_fee_recipient()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blinded_block_invalid_parent_hash() {
     ApiTester::new_mev_tester()
         .await
         .test_payload_rejects_invalid_parent_hash()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_full_block_invalid_parent_hash_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_rejects_invalid_parent_hash()
         .await;
 }
 
@@ -4778,10 +6174,26 @@ async fn get_blinded_block_invalid_prev_randao() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_full_block_invalid_prev_randao_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_rejects_invalid_prev_randao()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blinded_block_invalid_block_number() {
     ApiTester::new_mev_tester()
         .await
         .test_payload_rejects_invalid_block_number()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_full_block_invalid_block_number_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_rejects_invalid_block_number()
         .await;
 }
 
@@ -4794,10 +6206,26 @@ async fn get_blinded_block_invalid_timestamp() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_full_block_invalid_timestamp_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_rejects_invalid_timestamp()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blinded_block_invalid_signature() {
     ApiTester::new_mev_tester()
         .await
         .test_payload_rejects_invalid_signature()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_full_block_invalid_signature_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_v3_rejects_invalid_signature()
         .await;
 }
 
@@ -4810,10 +6238,26 @@ async fn builder_chain_health_skips() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_chain_health_skips_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_builder_v3_chain_health_skips()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_chain_health_skips_per_epoch() {
     ApiTester::new_mev_tester()
         .await
         .test_builder_chain_health_skips_per_epoch()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_chain_health_skips_per_epoch_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_builder_v3_chain_health_skips_per_epoch()
         .await;
 }
 
@@ -4826,6 +6270,14 @@ async fn builder_chain_health_epochs_since_finalization() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_chain_health_epochs_since_finalization_v3() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_builder_v3_chain_health_epochs_since_finalization()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_chain_health_optimistic_head() {
     ApiTester::new_mev_tester()
         .await
@@ -4834,16 +6286,16 @@ async fn builder_chain_health_optimistic_head() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn builder_inadequate_builder_threshold() {
+async fn builder_chain_health_optimistic_head_v3() {
     ApiTester::new_mev_tester()
         .await
-        .test_payload_rejects_inadequate_builder_threshold()
+        .test_builder_v3_chain_health_optimistic_head()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_payload_chosen_by_profit() {
-    ApiTester::new_mev_tester_no_builder_threshold()
+    ApiTester::new_mev_tester_default_payload_value()
         .await
         .test_builder_payload_chosen_when_more_profitable()
         .await
@@ -4854,9 +6306,21 @@ async fn builder_payload_chosen_by_profit() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_payload_chosen_by_profit_v3() {
+    ApiTester::new_mev_tester_default_payload_value()
+        .await
+        .test_builder_payload_v3_chosen_when_more_profitable()
+        .await
+        .test_local_payload_v3_chosen_when_equally_profitable()
+        .await
+        .test_local_payload_v3_chosen_when_more_profitable()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_capella() {
     let mut config = ApiTesterConfig {
-        builder_threshold: Some(0),
+        retain_historic_states: false,
         spec: E::default_spec(),
     };
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
@@ -4870,6 +6334,56 @@ async fn builder_works_post_capella() {
         .test_builder_works_post_capella()
         .await
         .test_lighthouse_rejects_invalid_withdrawals_root()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_works_post_deneb() {
+    let mut config = ApiTesterConfig {
+        retain_historic_states: false,
+        spec: E::default_spec(),
+    };
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_post_validator_register_validator()
+        .await
+        .test_builder_works_post_deneb()
+        .await
+        .test_lighthouse_rejects_invalid_withdrawals_root_v3()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blob_sidecars() {
+    let mut config = ApiTesterConfig {
+        retain_historic_states: false,
+        spec: E::default_spec(),
+    };
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_post_beacon_blocks_valid()
+        .await
+        .test_get_blob_sidecars(false)
+        .await
+        .test_get_blob_sidecars(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_liveness_epoch() {
+    ApiTester::new()
+        .await
+        .test_post_validator_liveness_epoch()
         .await;
 }
 
@@ -4893,8 +6407,6 @@ async fn lighthouse_endpoints() {
         .await
         .test_get_lighthouse_eth1_deposit_cache()
         .await
-        .test_get_lighthouse_beacon_states_ssz()
-        .await
         .test_get_lighthouse_staking()
         .await
         .test_get_lighthouse_database_info()
@@ -4910,5 +6422,39 @@ async fn optimistic_responses() {
     ApiTester::new_with_hard_forks(true, true)
         .await
         .test_check_optimistic_responses()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn expected_withdrawals_invalid_pre_capella() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_expected_withdrawals_pre_capella()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn expected_withdrawals_invalid_state() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_expected_withdrawals_invalid_state()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn expected_withdrawals_valid_capella() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_expected_withdrawals_capella()
         .await;
 }

@@ -1,5 +1,7 @@
 use std::mem;
-use types::{BeaconState, BeaconStateDeneb, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
+use types::{
+    BeaconState, BeaconStateDeneb, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec, Fork,
+};
 
 /// Transform a `Capella` state into an `Deneb` state.
 pub fn upgrade_to_deneb<E: EthSpec>(
@@ -63,9 +65,12 @@ pub fn upgrade_to_deneb<E: EthSpec>(
         historical_summaries: pre.historical_summaries.clone(),
         // Caches
         total_active_balance: pre.total_active_balance,
+        progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
+        slashings_cache: mem::take(&mut pre.slashings_cache),
+        epoch_cache: EpochCache::default(),
         tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
     });
 

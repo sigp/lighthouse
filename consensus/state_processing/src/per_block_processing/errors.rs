@@ -76,23 +76,16 @@ pub enum BlockProcessingError {
         expected: u64,
         found: u64,
     },
+    ExecutionInvalidBlobsLen {
+        max: usize,
+        actual: usize,
+    },
     ExecutionInvalid,
     ConsensusContext(ContextError),
+    EpochCacheError(EpochCacheError),
     WithdrawalsRootMismatch {
         expected: Hash256,
         found: Hash256,
-    },
-    BlobVersionHashMismatch,
-    /// The number of commitments in blob transactions in the payload does not match the number
-    /// of commitments in the block.
-    BlobNumCommitmentsMismatch {
-        commitments_processed_in_block: usize,
-        /// This number depic
-        commitments_processed_in_transactions: usize,
-    },
-    BlobVersionHashIndexOutOfBounds {
-        index: usize,
-        length: usize,
     },
     WithdrawalCredentialsInvalid,
     DepositReceiptError,
@@ -137,6 +130,12 @@ impl From<SyncAggregateInvalid> for BlockProcessingError {
 impl From<ContextError> for BlockProcessingError {
     fn from(e: ContextError) -> Self {
         BlockProcessingError::ConsensusContext(e)
+    }
+}
+
+impl From<EpochCacheError> for BlockProcessingError {
+    fn from(e: EpochCacheError) -> Self {
+        BlockProcessingError::EpochCacheError(e)
     }
 }
 
@@ -328,9 +327,11 @@ pub enum AttestationInvalid {
     ///
     /// `is_current` is `true` if the attestation was compared to the
     /// `state.current_justified_checkpoint`, `false` if compared to `state.previous_justified_checkpoint`.
+    ///
+    /// Checkpoints have been boxed to keep the error size down and prevent clippy failures.
     WrongJustifiedCheckpoint {
-        state: Checkpoint,
-        attestation: Checkpoint,
+        state: Box<Checkpoint>,
+        attestation: Box<Checkpoint>,
         is_current: bool,
     },
     /// The aggregation bitfield length is not the smallest possible size to represent the committee.

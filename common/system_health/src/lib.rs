@@ -198,12 +198,31 @@ pub fn observe_system_health_vc(
     }
 }
 
+/// Observes if NAT traversal is possible.
+pub fn observe_nat() -> bool {
+    let discv5_nat = lighthouse_network::metrics::get_int_gauge(
+        &lighthouse_network::metrics::NAT_OPEN,
+        &["discv5"],
+    )
+    .map(|g| g.get() == 1)
+    .unwrap_or_default();
+
+    let libp2p_nat = lighthouse_network::metrics::get_int_gauge(
+        &lighthouse_network::metrics::NAT_OPEN,
+        &["libp2p"],
+    )
+    .map(|g| g.get() == 1)
+    .unwrap_or_default();
+
+    discv5_nat || libp2p_nat
+}
+
 /// Observes the Beacon Node system health.
-pub fn observe_system_health_bn<TSpec: EthSpec>(
+pub fn observe_system_health_bn<E: EthSpec>(
     sysinfo: Arc<RwLock<System>>,
     data_dir: PathBuf,
     app_uptime: u64,
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    network_globals: Arc<NetworkGlobals<E>>,
 ) -> SystemHealthBN {
     let system_health = observe_system_health(sysinfo.clone(), data_dir, app_uptime);
 
@@ -223,11 +242,7 @@ pub fn observe_system_health_bn<TSpec: EthSpec>(
         .unwrap_or_else(|| (String::from("None"), 0, 0));
 
     // Determine if the NAT is open or not.
-    let nat_open = lighthouse_network::metrics::NAT_OPEN
-        .as_ref()
-        .map(|v| v.get())
-        .unwrap_or(0)
-        != 0;
+    let nat_open = observe_nat();
 
     SystemHealthBN {
         system_health,

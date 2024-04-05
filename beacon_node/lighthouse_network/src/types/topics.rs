@@ -1,7 +1,7 @@
-use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
-use serde_derive::{Deserialize, Serialize};
+use gossipsub::{IdentTopic as Topic, TopicHash};
+use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
-use types::{EthSpec, ForkName, SubnetId, SyncSubnetId};
+use types::{ChainSpec, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned};
 
 use crate::Subnet;
 
@@ -22,7 +22,6 @@ pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
 pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
 pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
-pub const EIP_6110_TOPIC: &str = "eip_6110";
 
 pub const BASE_CORE_TOPICS: [GossipKind; 5] = [
     GossipKind::BeaconBlock,
@@ -44,7 +43,7 @@ pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
 pub const DENEB_CORE_TOPICS: [GossipKind; 0] = [];
 
 /// Returns the core topics associated with each fork that are new to the previous fork
-pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName) -> Vec<GossipKind> {
+pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> Vec<GossipKind> {
     match fork_name {
         ForkName::Base => BASE_CORE_TOPICS.to_vec(),
         ForkName::Altair => ALTAIR_CORE_TOPICS.to_vec(),
@@ -53,23 +52,37 @@ pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName) -> Vec<GossipKind> {
         ForkName::Deneb => {
             // All of deneb blob topics are core topics
             let mut deneb_blob_topics = Vec::new();
-            for i in 0..T::max_blobs_per_block() {
-                deneb_blob_topics.push(GossipKind::BlobSidecar(i as u64));
+            for i in 0..spec.blob_sidecar_subnet_count {
+                deneb_blob_topics.push(GossipKind::BlobSidecar(i));
             }
             let mut deneb_topics = DENEB_CORE_TOPICS.to_vec();
             deneb_topics.append(&mut deneb_blob_topics);
             deneb_topics
         }
-        ForkName::Eip6110 => vec![GossipKind::Eip6110],
+        ForkName::Electra => vec![],
     }
+}
+
+/// Returns all the attestation and sync committee topics, for a given fork.
+pub fn attestation_sync_committee_topics<E: EthSpec>() -> impl Iterator<Item = GossipKind> {
+    (0..E::SubnetBitfieldLength::to_usize())
+        .map(|subnet_id| GossipKind::Attestation(SubnetId::new(subnet_id as u64)))
+        .chain(
+            (0..E::SyncCommitteeSubnetCount::to_usize()).map(|sync_committee_id| {
+                GossipKind::SyncCommitteeMessage(SyncSubnetId::new(sync_committee_id as u64))
+            }),
+        )
 }
 
 /// Returns all the topics that we need to subscribe to for a given fork
 /// including topics from older forks and new topics for the current fork.
-pub fn core_topics_to_subscribe<T: EthSpec>(mut current_fork: ForkName) -> Vec<GossipKind> {
-    let mut topics = fork_core_topics::<T>(&current_fork);
+pub fn core_topics_to_subscribe<E: EthSpec>(
+    mut current_fork: ForkName,
+    spec: &ChainSpec,
+) -> Vec<GossipKind> {
+    let mut topics = fork_core_topics::<E>(&current_fork, spec);
     while let Some(previous_fork) = current_fork.previous_fork() {
-        let previous_fork_topics = fork_core_topics::<T>(&previous_fork);
+        let previous_fork_topics = fork_core_topics::<E>(&previous_fork, spec);
         topics.extend(previous_fork_topics);
         current_fork = previous_fork;
     }
@@ -119,8 +132,6 @@ pub enum GossipKind {
     LightClientFinalityUpdate,
     /// Topic for publishing optimistic updates for light clients.
     LightClientOptimisticUpdate,
-    /// Topic for publishing EIP-6110 messages.
-    Eip6110,
 }
 
 impl std::fmt::Display for GossipKind {
@@ -261,7 +272,6 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
             GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
-            GossipKind::Eip6110 => EIP_6110_TOPIC.into(),
         };
         write!(
             f,
@@ -439,14 +449,18 @@ mod tests {
     #[test]
     fn test_core_topics_to_subscribe() {
         type E = MainnetEthSpec;
+        let spec = E::default_spec();
         let mut all_topics = Vec::new();
-        let mut deneb_core_topics = fork_core_topics::<E>(&ForkName::Deneb);
+        let mut deneb_core_topics = fork_core_topics::<E>(&ForkName::Deneb, &spec);
         all_topics.append(&mut deneb_core_topics);
         all_topics.extend(CAPELLA_CORE_TOPICS);
         all_topics.extend(ALTAIR_CORE_TOPICS);
         all_topics.extend(BASE_CORE_TOPICS);
 
         let latest_fork = *ForkName::list_all().last().unwrap();
-        assert_eq!(core_topics_to_subscribe::<E>(latest_fork), all_topics);
+        assert_eq!(
+            core_topics_to_subscribe::<E>(latest_fork, &spec),
+            all_topics
+        );
     }
 }

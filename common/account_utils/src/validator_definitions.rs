@@ -3,11 +3,13 @@
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
-use crate::{default_keystore_password_path, write_file_via_temporary, ZeroizeString};
+use crate::{
+    default_keystore_password_path, read_password_string, write_file_via_temporary, ZeroizeString,
+};
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use slog::{error, Logger};
 use std::collections::HashSet;
 use std::fs::{self, File};
@@ -43,6 +45,18 @@ pub enum Error {
     UnableToOpenKeystore(eth2_keystore::Error),
     /// The validator directory could not be created.
     UnableToCreateValidatorDir(PathBuf),
+    UnableToReadKeystorePassword(String),
+    KeystoreWithoutPassword,
+}
+
+/// Defines how a password for a validator keystore will be persisted.
+pub enum PasswordStorage {
+    /// Store the password in the `validator_definitions.yml` file.
+    ValidatorDefinitions(ZeroizeString),
+    /// Store the password in a separate, dedicated file (likely in the "secrets" directory).
+    File(PathBuf),
+    /// Don't store the password at all.
+    None,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Hash, Eq)]
@@ -92,6 +106,34 @@ impl SigningDefinition {
     pub fn is_local_keystore(&self) -> bool {
         matches!(self, SigningDefinition::LocalKeystore { .. })
     }
+
+    pub fn voting_keystore_password(&self) -> Result<Option<ZeroizeString>, Error> {
+        match self {
+            SigningDefinition::LocalKeystore {
+                voting_keystore_password: Some(password),
+                ..
+            } => Ok(Some(password.clone())),
+            SigningDefinition::LocalKeystore {
+                voting_keystore_password_path: Some(path),
+                ..
+            } => read_password_string(path)
+                .map(Into::into)
+                .map(Option::Some)
+                .map_err(Error::UnableToReadKeystorePassword),
+            SigningDefinition::LocalKeystore { .. } => Err(Error::KeystoreWithoutPassword),
+            SigningDefinition::Web3Signer(_) => Ok(None),
+        }
+    }
+
+    pub fn voting_keystore_password_path(&self) -> Option<&PathBuf> {
+        match self {
+            SigningDefinition::LocalKeystore {
+                voting_keystore_password_path: Some(path),
+                ..
+            } => Some(path),
+            _ => None,
+        }
+    }
 }
 
 /// A validator that may be initialized by this validator client.
@@ -115,6 +157,12 @@ pub struct ValidatorDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_builder_proposals: Option<bool>,
+    #[serde(default)]
     pub description: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
@@ -127,18 +175,27 @@ impl ValidatorDefinition {
     /// ## Notes
     ///
     /// This function does not check the password against the keystore.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_keystore_with_password<P: AsRef<Path>>(
         voting_keystore_path: P,
-        voting_keystore_password: Option<ZeroizeString>,
+        voting_keystore_password_storage: PasswordStorage,
         graffiti: Option<GraffitiString>,
         suggested_fee_recipient: Option<Address>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_boost_factor: Option<u64>,
+        prefer_builder_proposals: Option<bool>,
     ) -> Result<Self, Error> {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
             Keystore::from_json_file(&voting_keystore_path).map_err(Error::UnableToOpenKeystore)?;
         let voting_public_key = keystore.public_key().ok_or(Error::InvalidKeystorePubkey)?;
+        let (voting_keystore_password_path, voting_keystore_password) =
+            match voting_keystore_password_storage {
+                PasswordStorage::ValidatorDefinitions(password) => (None, Some(password)),
+                PasswordStorage::File(path) => (Some(path), None),
+                PasswordStorage::None => (None, None),
+            };
 
         Ok(ValidatorDefinition {
             enabled: true,
@@ -148,9 +205,11 @@ impl ValidatorDefinition {
             suggested_fee_recipient,
             gas_limit,
             builder_proposals,
+            builder_boost_factor,
+            prefer_builder_proposals,
             signing_definition: SigningDefinition::LocalKeystore {
                 voting_keystore_path,
-                voting_keystore_password_path: None,
+                voting_keystore_password_path,
                 voting_keystore_password,
             },
         })
@@ -296,6 +355,8 @@ impl ValidatorDefinitions {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,
@@ -319,7 +380,8 @@ impl ValidatorDefinitions {
     pub fn save<P: AsRef<Path>>(&self, validators_dir: P) -> Result<(), Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         let temp_path = validators_dir.as_ref().join(CONFIG_TEMP_FILENAME);
-        let bytes = serde_yaml::to_vec(self).map_err(Error::UnableToEncodeFile)?;
+        let mut bytes = vec![];
+        serde_yaml::to_writer(&mut bytes, self).map_err(Error::UnableToEncodeFile)?;
 
         write_file_via_temporary(&config_path, &temp_path, &bytes)
             .map_err(Error::UnableToWriteFile)?;
@@ -345,6 +407,13 @@ impl ValidatorDefinitions {
     /// Returns a mutable slice of all `ValidatorDefinition` in `self`.
     pub fn as_mut_slice(&mut self) -> &mut [ValidatorDefinition] {
         self.0.as_mut_slice()
+    }
+
+    // Returns an iterator over all the `voting_keystore_password_paths` in self.
+    pub fn iter_voting_keystore_password_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.0
+            .iter()
+            .filter_map(|def| def.signing_definition.voting_keystore_password_path())
     }
 }
 

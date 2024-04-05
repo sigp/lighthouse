@@ -2,16 +2,17 @@ use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::blob_to_kzg_commitment;
 use kzg::KzgCommitment;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KZGBlobToKZGCommitmentInput {
     pub blob: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct KZGBlobToKZGCommitment<E: EthSpec> {
     pub input: KZGBlobToKZGCommitmentInput,
     pub output: Option<String>,
@@ -34,7 +35,7 @@ impl<E: EthSpec> Case for KZGBlobToKZGCommitment<E> {
         let kzg = get_kzg()?;
 
         let commitment = parse_blob::<E>(&self.input.blob).and_then(|blob| {
-            blob_to_kzg_commitment::<E>(&kzg, blob).map_err(|e| {
+            blob_to_kzg_commitment::<E>(&kzg, &blob).map_err(|e| {
                 Error::InternalError(format!("Failed to compute kzg commitment: {:?}", e))
             })
         });

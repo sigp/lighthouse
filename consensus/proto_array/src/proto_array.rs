@@ -1,6 +1,6 @@
 use crate::error::InvalidBestNodeInfo;
 use crate::{error::Error, Block, ExecutionStatus, JustifiedBalances};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -884,7 +884,7 @@ impl ProtoArray {
                         }
                     } else {
                         // Choose the winner by weight.
-                        if child.weight >= best_child.weight {
+                        if child.weight > best_child.weight {
                             change_to_child
                         } else {
                             no_change
@@ -910,7 +910,7 @@ impl ProtoArray {
         Ok(())
     }
 
-    /// Indicates if the node itself is viable for the head, or if it's best descendant is viable
+    /// Indicates if the node itself is viable for the head, or if its best descendant is viable
     /// for the head.
     fn node_leads_to_viable_head<E: EthSpec>(
         &self,
@@ -961,16 +961,9 @@ impl ProtoArray {
             node_justified_checkpoint
         };
 
-        let mut correct_justified = self.justified_checkpoint.epoch == genesis_epoch
-            || voting_source.epoch == self.justified_checkpoint.epoch;
-
-        if let Some(node_unrealized_justified_checkpoint) = node.unrealized_justified_checkpoint {
-            if !correct_justified && self.justified_checkpoint.epoch + 1 == current_epoch {
-                correct_justified = node_unrealized_justified_checkpoint.epoch
-                    >= self.justified_checkpoint.epoch
-                    && voting_source.epoch + 2 >= current_epoch;
-            }
-        }
+        let correct_justified = self.justified_checkpoint.epoch == genesis_epoch
+            || voting_source.epoch == self.justified_checkpoint.epoch
+            || voting_source.epoch + 2 >= current_epoch;
 
         let correct_finalized = self.finalized_checkpoint.epoch == genesis_epoch
             || self.is_finalized_checkpoint_or_descendant::<E>(node.root);
@@ -1035,13 +1028,11 @@ impl ProtoArray {
             .epoch
             .start_slot(E::slots_per_epoch());
 
-        let mut node = if let Some(node) = self
+        let Some(mut node) = self
             .indices
             .get(&root)
             .and_then(|index| self.nodes.get(*index))
-        {
-            node
-        } else {
+        else {
             // An unknown root is not a finalized descendant. This line can only
             // be reached if the user supplies a root that is not known to fork
             // choice.

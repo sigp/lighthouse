@@ -18,13 +18,20 @@ pub trait Handler {
 
     fn handler_name(&self) -> String;
 
+    // Add forks here to exclude them from EF spec testing. Helpful for adding future or
+    // unspecified forks.
+    // TODO(electra): Enable Electra once spec tests are available.
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![ForkName::Electra]
+    }
+
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         Self::Case::is_enabled_for_fork(fork_name)
     }
 
     fn run(&self) {
         for fork_name in ForkName::list_all() {
-            if self.is_enabled_for_fork(fork_name) {
+            if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name)
             }
         }
@@ -564,6 +571,13 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
+        // No FCU override tests prior to bellatrix.
+        if self.handler_name == "should_override_forkchoice_update"
+            && (fork_name == ForkName::Base || fork_name == ForkName::Altair)
+        {
+            return false;
+        }
+
         // These tests check block validity (which may include signatures) and there is no need to
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))
@@ -787,6 +801,34 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
             //
             // https://github.com/sigp/lighthouse/issues/4022
             && fork_name != ForkName::Capella && fork_name != ForkName::Deneb
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KzgInclusionMerkleProofValidityHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E> {
+    type Case = cases::KzgInclusionMerkleProofValidity<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "merkle_proof"
+    }
+
+    fn handler_name(&self) -> String {
+        "single_merkle_proof".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // Enabled in Deneb
+        fork_name != ForkName::Base
+            && fork_name != ForkName::Altair
+            && fork_name != ForkName::Merge
+            && fork_name != ForkName::Capella
     }
 }
 

@@ -4,13 +4,14 @@ use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
-use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
+use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
-use slog::{crit, info, warn};
+use slog::{crit, info};
+use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
@@ -22,8 +23,6 @@ fn bls_library_name() -> &'static str {
         "blst-portable"
     } else if cfg!(feature = "modern") {
         "blst-modern"
-    } else if cfg!(feature = "milagro") {
-        "milagro"
     } else {
         "blst"
     }
@@ -81,19 +80,10 @@ fn main() {
             ).as_str()
         )
         .arg(
-            Arg::with_name("spec")
-                .short("s")
-                .long("spec")
-                .value_name("DEPRECATED")
-                .help("This flag is deprecated, it will be disallowed in a future release. This \
-                    value is now derived from the --network or --testnet-dir flags.")
-                .takes_value(true)
-                .global(true)
-        )
-        .arg(
             Arg::with_name("env_log")
                 .short("l")
-                .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
+                .help(
+                    "DEPRECATED Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
                 )
                 .takes_value(false),
         )
@@ -324,11 +314,36 @@ fn main() {
                 .takes_value(true)
                 .global(true)
         )
+        .arg(
+            Arg::with_name("genesis-state-url")
+                .long("genesis-state-url")
+                .value_name("URL")
+                .help(
+                    "A URL of a beacon-API compatible server from which to download the genesis state. \
+                    Checkpoint sync server URLs can generally be used with this flag. \
+                    If not supplied, a default URL or the --checkpoint-sync-url may be used. \
+                    If the genesis state is already included in this binary then this value will be ignored.",
+                )
+                .takes_value(true)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("genesis-state-url-timeout")
+                .long("genesis-state-url-timeout")
+                .value_name("SECONDS")
+                .help(
+                    "The timeout in seconds for the request to --genesis-state-url.",
+                )
+                .takes_value(true)
+                .default_value("180")
+                .global(true),
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .subcommand(database_manager::cli_app())
+        .subcommand(validator_manager::cli_app())
         .get_matches();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
@@ -346,11 +361,6 @@ fn main() {
             );
             exit(1)
         }
-    }
-
-    // Debugging output for libp2p and external crates.
-    if matches.is_present("env_log") {
-        Builder::from_env(Env::default()).init();
     }
 
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
@@ -494,7 +504,7 @@ fn run<E: EthSpec>(
     };
 
     let logger_config = LoggerConfig {
-        path: log_path,
+        path: log_path.clone(),
         debug_level: String::from(debug_level),
         logfile_debug_level: String::from(logfile_debug_level),
         log_format: log_format.map(String::from),
@@ -512,10 +522,39 @@ fn run<E: EthSpec>(
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_network_config(Some(eth2_network_config))?
+        .eth2_network_config(eth2_network_config)?
         .build()?;
 
     let log = environment.core_context().log().clone();
+
+    // Log panics properly.
+    {
+        let log = log.clone();
+        std::panic::set_hook(Box::new(move |info| {
+            crit!(
+                log,
+                "Task panic. This is a bug!";
+                "location" => info.location().map(ToString::to_string),
+                "message" => info.payload().downcast_ref::<String>(),
+                "backtrace" => %Backtrace::capture(),
+                "advice" => "Please check above for a backtrace and notify the developers",
+            );
+        }));
+    }
+
+    let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+
+    if tracing_log_path.is_none() {
+        tracing_log_path = Some(
+            parse_path_or_default(matches, "datadir")?
+                .join(DEFAULT_BEACON_NODE_DIR)
+                .join("logs"),
+        )
+    }
+
+    let path = tracing_log_path.clone().unwrap();
+
+    logging::create_tracing_layer(path);
 
     // Allow Prometheus to export the time at which the process was started.
     metrics::expose_process_start_time(&log);
@@ -523,16 +562,9 @@ fn run<E: EthSpec>(
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();
 
-    if matches.is_present("spec") {
-        warn!(
-            log,
-            "The --spec flag is deprecated and will be removed in a future release"
-        );
-    }
-
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
-        warn!(
+        slog::warn!(
             log,
             "CPU seems incompatible with optimized Lighthouse build";
             "advice" => "If you get a SIGILL, please try Lighthouse portable build"
@@ -558,10 +590,20 @@ fn run<E: EthSpec>(
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 
-    if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
+    if let Some(sub_matches) = matches.subcommand_matches(account_manager::CMD) {
         eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
+
+        // Exit as soon as account manager returns control.
+        return Ok(());
+    }
+
+    if let Some(sub_matches) = matches.subcommand_matches(validator_manager::CMD) {
+        eprintln!("Running validator manager for {} network", network_name);
+
+        // Pass the entire `environment` to the account manager so it can run blocking operations.
+        validator_manager::run::<E>(sub_matches, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());
@@ -624,8 +666,8 @@ fn run<E: EthSpec>(
                 executor.clone().spawn(
                     async move {
                         if let Err(e) = ProductionValidatorClient::new(context, config)
+                            .and_then(|mut vc| async move { vc.start_service().await })
                             .await
-                            .and_then(|mut vc| vc.start_service())
                         {
                             crit!(log, "Failed to start validator client"; "reason" => e);
                             // Ignore the error since it always occurs during normal operation when

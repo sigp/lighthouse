@@ -2,47 +2,45 @@
 
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::TopicHash;
-use libp2p::gossipsub::{DataTransform, GossipsubMessage, RawGossipsubMessage};
 use snap::raw::{decompress_len, Decoder, Encoder};
 use ssz::{Decode, Encode};
-use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockEip6110, SignedBeaconBlockMerge, SignedBlobSidecar,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, BlobSidecar, EthSpec, ForkContext, ForkName,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
+    SignedBeaconBlockMerge, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum PubsubMessage<T: EthSpec> {
+pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of a new block.
-    BeaconBlock(Arc<SignedBeaconBlock<T>>),
-    /// Gossipsub message providing notification of a [`SignedBlobSidecar`] along with the subnet id where it was received.
-    BlobSidecar(Box<(u64, SignedBlobSidecar<T>)>),
+    BeaconBlock(Arc<SignedBeaconBlock<E>>),
+    /// Gossipsub message providing notification of a [`BlobSidecar`] along with the subnet id where it was received.
+    BlobSidecar(Box<(u64, Arc<BlobSidecar<E>>)>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
-    AggregateAndProofAttestation(Box<SignedAggregateAndProof<T>>),
+    AggregateAndProofAttestation(Box<SignedAggregateAndProof<E>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
-    Attestation(Box<(SubnetId, Attestation<T>)>),
+    Attestation(Box<(SubnetId, Attestation<E>)>),
     /// Gossipsub message providing notification of a voluntary exit.
     VoluntaryExit(Box<SignedVoluntaryExit>),
     /// Gossipsub message providing notification of a new proposer slashing.
     ProposerSlashing(Box<ProposerSlashing>),
     /// Gossipsub message providing notification of a new attester slashing.
-    AttesterSlashing(Box<AttesterSlashing<T>>),
+    AttesterSlashing(Box<AttesterSlashing<E>>),
     /// Gossipsub message providing notification of partially aggregated sync committee signatures.
-    SignedContributionAndProof(Box<SignedContributionAndProof<T>>),
+    SignedContributionAndProof(Box<SignedContributionAndProof<E>>),
     /// Gossipsub message providing notification of unaggregated sync committee signatures with its subnet id.
     SyncCommitteeMessage(Box<(SyncSubnetId, SyncCommitteeMessage)>),
     /// Gossipsub message for BLS to execution change messages.
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
     /// Gossipsub message providing notification of a light client finality update.
-    LightClientFinalityUpdate(Box<LightClientFinalityUpdate<T>>),
+    LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
     /// Gossipsub message providing notification of a light client optimistic update.
-    LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<T>>),
+    LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<E>>),
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
@@ -59,12 +57,12 @@ impl SnappyTransform {
     }
 }
 
-impl DataTransform for SnappyTransform {
+impl gossipsub::DataTransform for SnappyTransform {
     // Provides the snappy decompression from RawGossipsubMessages
     fn inbound_transform(
         &self,
-        raw_message: RawGossipsubMessage,
-    ) -> Result<GossipsubMessage, std::io::Error> {
+        raw_message: gossipsub::RawMessage,
+    ) -> Result<gossipsub::Message, std::io::Error> {
         // check the length of the raw bytes
         let len = decompress_len(&raw_message.data)?;
         if len > self.max_size_per_message {
@@ -78,7 +76,7 @@ impl DataTransform for SnappyTransform {
         let decompressed_data = decoder.decompress_vec(&raw_message.data)?;
 
         // Build the GossipsubMessage struct
-        Ok(GossipsubMessage {
+        Ok(gossipsub::Message {
             source: raw_message.source,
             data: decompressed_data,
             sequence_number: raw_message.sequence_number,
@@ -105,7 +103,7 @@ impl DataTransform for SnappyTransform {
     }
 }
 
-impl<T: EthSpec> PubsubMessage<T> {
+impl<E: EthSpec> PubsubMessage<E> {
     /// Returns the topics that each pubsub message will be sent across, given a supported
     /// gossipsub encoding and fork version.
     pub fn topics(&self, encoding: GossipEncoding, fork_version: [u8; 4]) -> Vec<GossipTopic> {
@@ -173,28 +171,28 @@ impl<T: EthSpec> PubsubMessage<T> {
                     GossipKind::BeaconBlock => {
                         let beacon_block =
                             match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                                Some(ForkName::Base) => SignedBeaconBlock::<T>::Base(
+                                Some(ForkName::Base) => SignedBeaconBlock::<E>::Base(
                                     SignedBeaconBlockBase::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Altair) => SignedBeaconBlock::<T>::Altair(
+                                Some(ForkName::Altair) => SignedBeaconBlock::<E>::Altair(
                                     SignedBeaconBlockAltair::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Merge) => SignedBeaconBlock::<T>::Merge(
+                                Some(ForkName::Merge) => SignedBeaconBlock::<E>::Merge(
                                     SignedBeaconBlockMerge::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Capella) => SignedBeaconBlock::<T>::Capella(
+                                Some(ForkName::Capella) => SignedBeaconBlock::<E>::Capella(
                                     SignedBeaconBlockCapella::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Deneb) => SignedBeaconBlock::<T>::Deneb(
+                                Some(ForkName::Deneb) => SignedBeaconBlock::<E>::Deneb(
                                     SignedBeaconBlockDeneb::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Eip6110) => SignedBeaconBlock::<T>::Eip6110(
-                                    SignedBeaconBlockEip6110::from_ssz_bytes(data)
+                                Some(ForkName::Electra) => SignedBeaconBlock::<E>::Electra(
+                                    SignedBeaconBlockElectra::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 None => {
@@ -208,9 +206,11 @@ impl<T: EthSpec> PubsubMessage<T> {
                     }
                     GossipKind::BlobSidecar(blob_index) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            Some(ForkName::Deneb) | Some(ForkName::Eip6110) => {
-                                let blob_sidecar = SignedBlobSidecar::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?;
+                            Some(ForkName::Deneb | ForkName::Electra) => {
+                                let blob_sidecar = Arc::new(
+                                    BlobSidecar::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                );
                                 Ok(PubsubMessage::BlobSidecar(Box::new((
                                     *blob_index,
                                     blob_sidecar,
@@ -267,17 +267,31 @@ impl<T: EthSpec> PubsubMessage<T> {
                         )))
                     }
                     GossipKind::LightClientFinalityUpdate => {
-                        let light_client_finality_update =
-                            LightClientFinalityUpdate::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
+                        let light_client_finality_update = match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                            Some(&fork_name) => {
+                                    LightClientFinalityUpdate::from_ssz_bytes(data, fork_name)
+                                    .map_err(|e| format!("{:?}", e))?
+                            },
+                            None => return Err(format!(
+                                "light_client_finality_update topic invalid for given fork digest {:?}",
+                                gossip_topic.fork_digest
+                            )),
+                        };
                         Ok(PubsubMessage::LightClientFinalityUpdate(Box::new(
                             light_client_finality_update,
                         )))
                     }
                     GossipKind::LightClientOptimisticUpdate => {
-                        let light_client_optimistic_update =
-                            LightClientOptimisticUpdate::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
+                        let light_client_optimistic_update = match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                            Some(&fork_name) => {
+                                LightClientOptimisticUpdate::from_ssz_bytes(data, fork_name)
+                                .map_err(|e| format!("{:?}", e))?
+                            },
+                            None => return Err(format!(
+                                "light_client_optimistic_update topic invalid for given fork digest {:?}",
+                                gossip_topic.fork_digest
+                            )),
+                        };
                         Ok(PubsubMessage::LightClientOptimisticUpdate(Box::new(
                             light_client_optimistic_update,
                         )))
@@ -318,7 +332,7 @@ impl<T: EthSpec> PubsubMessage<T> {
     }
 }
 
-impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
+impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PubsubMessage::BeaconBlock(block) => write!(
@@ -330,7 +344,8 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::BlobSidecar(data) => write!(
                 f,
                 "BlobSidecar: slot: {}, blob index: {}",
-                data.1.message.slot, data.1.message.index,
+                data.1.slot(),
+                data.1.index,
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

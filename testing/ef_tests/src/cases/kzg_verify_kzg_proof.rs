@@ -1,10 +1,11 @@
 use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::verify_kzg_proof;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KZGVerifyKZGProofInput {
     pub commitment: String,
     pub z: String,
@@ -13,7 +14,7 @@ pub struct KZGVerifyKZGProofInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct KZGVerifyKZGProof<E: EthSpec> {
     pub input: KZGVerifyKZGProofInput,
     pub output: Option<bool>,

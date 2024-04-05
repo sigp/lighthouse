@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use libp2p::core::connection::ConnectionId;
-use types::light_client_bootstrap::LightClientBootstrap;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use libp2p::swarm::ConnectionId;
+use types::{BlobSidecar, EthSpec, LightClientBootstrap, SignedBeaconBlock};
 
 use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
-        OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
+        OldBlocksByRangeRequest, OldBlocksByRangeRequestV1, OldBlocksByRangeRequestV2,
+        RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
     },
     OutboundRequest, SubstreamId,
 };
@@ -44,19 +44,30 @@ pub enum Request {
     BlobsByRoot(BlobsByRootRequest),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
-    fn from(req: Request) -> OutboundRequest<TSpec> {
+impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
+    fn from(req: Request) -> OutboundRequest<E> {
         match req {
             Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
-            Request::BlocksByRange(BlocksByRangeRequest { start_slot, count }) => {
-                OutboundRequest::BlocksByRange(OldBlocksByRangeRequest {
-                    start_slot,
-                    count,
-                    step: 1,
-                })
+            Request::BlocksByRange(r) => match r {
+                BlocksByRangeRequest::V1(req) => OutboundRequest::BlocksByRange(
+                    OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
+                        start_slot: req.start_slot,
+                        count: req.count,
+                        step: 1,
+                    }),
+                ),
+                BlocksByRangeRequest::V2(req) => OutboundRequest::BlocksByRange(
+                    OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                        start_slot: req.start_slot,
+                        count: req.count,
+                        step: 1,
+                    }),
+                ),
+            },
+            Request::LightClientBootstrap(_) => {
+                unreachable!("Lighthouse never makes an outbound light client request")
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
-            Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
             Request::BlobsByRoot(r) => OutboundRequest::BlobsByRoot(r),
             Request::Status(s) => OutboundRequest::Status(s),
         }
@@ -70,23 +81,23 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
 //       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
 //       `RPCCodedResponse`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Response<TSpec: EthSpec> {
+pub enum Response<E: EthSpec> {
     /// A Status message.
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
-    BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    BlocksByRange(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
-    BlobsByRange(Option<Arc<BlobSidecar<TSpec>>>),
+    BlobsByRange(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
-    /// A response to a LightClientUpdate request.
-    LightClientBootstrap(LightClientBootstrap<TSpec>),
+    BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
-    BlobsByRoot(Option<Arc<BlobSidecar<TSpec>>>),
+    BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
+    /// A response to a LightClientUpdate request.
+    LightClientBootstrap(Arc<LightClientBootstrap<E>>),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
-    fn from(resp: Response<TSpec>) -> RPCCodedResponse<TSpec> {
+impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
+    fn from(resp: Response<E>) -> RPCCodedResponse<E> {
         match resp {
             Response::BlocksByRoot(r) => match r {
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRoot(b)),
@@ -97,7 +108,7 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
             },
             Response::BlobsByRoot(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::SidecarByRoot(b)),
+                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRoot(b)),
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRoot),
             },
             Response::BlobsByRange(r) => match r {

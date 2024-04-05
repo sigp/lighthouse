@@ -196,7 +196,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// safely dropped.
     pub fn validator_subscriptions(
         &mut self,
-        subscriptions: Vec<ValidatorSubscription>,
+        subscriptions: impl Iterator<Item = ValidatorSubscription>,
     ) -> Result<(), String> {
         // If the node is in a proposer-only state, we ignore all subnet subscriptions.
         if self.proposer_only {
@@ -227,7 +227,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     warn!(self.log,
                         "Failed to compute subnet id for validator subscription";
                         "error" => ?e,
-                        "validator_index" => subscription.validator_index
                     );
                     continue;
                 }
@@ -257,13 +256,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     warn!(self.log,
                         "Subscription to subnet error";
                         "error" => e,
-                        "validator_index" => subscription.validator_index,
                     );
                 } else {
                     trace!(self.log,
                         "Subscribed to subnet for aggregator duties";
                         "exact_subnet" => ?exact_subnet,
-                        "validator_index" => subscription.validator_index
                     );
                 }
             }
@@ -302,9 +299,16 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// Gets the long lived subnets the node should be subscribed to during the current epoch and
     /// the remaining duration for which they remain valid.
     fn recompute_long_lived_subnets_inner(&mut self) -> Result<Duration, ()> {
-        let current_epoch = self.beacon_chain.epoch().map_err(
-            |e| error!(self.log, "Failed to get the current epoch from clock"; "err" => ?e),
-        )?;
+        let current_epoch = self.beacon_chain.epoch().map_err(|e| {
+            if !self
+                .beacon_chain
+                .slot_clock
+                .is_prior_to_genesis()
+                .unwrap_or(false)
+            {
+                error!(self.log, "Failed to get the current epoch from clock"; "err" => ?e)
+            }
+        })?;
 
         let (subnets, next_subscription_epoch) = SubnetId::compute_subnets_for_epoch::<T::EthSpec>(
             self.node_id.raw().into(),

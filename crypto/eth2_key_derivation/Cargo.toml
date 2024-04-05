@@ -2,16 +2,16 @@
 name = "eth2_key_derivation"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sha2 = "0.10"
-zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
-num-bigint-dig = { version = "0.6.0", features = ["zeroize"] }
-ring = "0.16.19"
-bls = { path = "../bls" }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+num-bigint-dig = { version = "0.8.4", features = ["zeroize"] }
+ring = { workspace = true }
+bls = { workspace = true }
 
 [dev-dependencies]
-hex = "0.4.2"
+hex = { workspace = true }

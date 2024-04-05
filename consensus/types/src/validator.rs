@@ -2,7 +2,7 @@ use crate::{
     test_utils::TestRandom, Address, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
     PublicKeyBytes,
 };
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -75,6 +75,22 @@ impl Validator {
         self.activation_eligibility_epoch <= state.finalized_checkpoint().epoch
         // Has not yet been activated
         && self.activation_epoch == spec.far_future_epoch
+    }
+
+    /// Returns `true` if the validator *could* be eligible for activation at `epoch`.
+    ///
+    /// Eligibility depends on finalization, so we assume best-possible finalization. This function
+    /// returning true is a necessary but *not sufficient* condition for a validator to activate in
+    /// the epoch transition at the end of `epoch`.
+    pub fn could_be_eligible_for_activation_at(&self, epoch: Epoch, spec: &ChainSpec) -> bool {
+        // Has not yet been activated
+        self.activation_epoch == spec.far_future_epoch
+        // Placement in queue could be finalized.
+        //
+        // NOTE: the epoch distance is 1 rather than 2 because we consider the activations that
+        // occur at the *end* of `epoch`, after `process_justification_and_finalization` has already
+        // updated the state's checkpoint.
+        && self.activation_eligibility_epoch < epoch
     }
 
     /// Returns `true` if the validator has eth1 withdrawal credential.

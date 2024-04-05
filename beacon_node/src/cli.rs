@@ -1,4 +1,4 @@
-use clap::{App, Arg};
+use clap::{App, Arg, ArgGroup};
 use strum::VariantNames;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
@@ -81,11 +81,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("The address lighthouse will listen for UDP and TCP connections. To listen \
                       over IpV4 and IpV6 set this flag twice with the different values.\n\
                       Examples:\n\
-                      - --listen-address '0.0.0.0' will listen over Ipv4.\n\
-                      - --listen-address '::' will listen over Ipv6.\n\
+                      - --listen-address '0.0.0.0' will listen over IPv4.\n\
+                      - --listen-address '::' will listen over IPv6.\n\
                       - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
-                      Ipv4 and Ipv6. The order of the given addresses is not relevant. However, \
-                      multiple Ipv4, or multiple Ipv6 addresses will not be accepted.")
+                      IPv4 and IPv6. The order of the given addresses is not relevant. However, \
+                      multiple IPv4, or multiple IPv6 addresses will not be accepted.")
                 .multiple(true)
                 .max_values(2)
                 .default_value("0.0.0.0")
@@ -95,9 +95,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("port")
                 .long("port")
                 .value_name("PORT")
-                .help("The TCP/UDP port to listen on. The UDP port can be modified by the \
-                      --discovery-port flag. If listening over both Ipv4 and Ipv6 the --port flag \
-                      will apply to the Ipv4 address and --port6 to the Ipv6 address.")
+                .help("The TCP/UDP ports to listen on. There are two UDP ports. \
+                      The discovery UDP port will be set to this value and the Quic UDP port will be set to this value + 1. The discovery port can be modified by the \
+                      --discovery-port flag and the quic port can be modified by the --quic-port flag. If listening over both IPv4 and IPv6 the --port flag \
+                      will apply to the IPv4 address and --port6 to the IPv6 address.")
                 .default_value("9000")
                 .takes_value(true),
         )
@@ -105,8 +106,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("port6")
                 .long("port6")
                 .value_name("PORT")
-                .help("The TCP/UDP port to listen on over IpV6 when listening over both Ipv4 and \
-                      Ipv6. Defaults to 9090 when required.")
+                .help("The TCP/UDP ports to listen on over IPv6 when listening over both IPv4 and \
+                      IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1.")
                 .default_value("9090")
                 .takes_value(true),
         )
@@ -118,12 +119,26 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("quic-port")
+                .long("quic-port")
+                .value_name("PORT")
+                .help("The UDP port that quic will listen on. Defaults to `port` + 1")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("discovery-port6")
                 .long("discovery-port6")
                 .value_name("PORT")
-                .help("The UDP port that discovery will listen on over IpV6 if listening over \
-                      both Ipv4 and IpV6. Defaults to `port6`")
-                .hidden(true) // TODO: implement dual stack via two sockets in discv5.
+                .help("The UDP port that discovery will listen on over IPv6 if listening over \
+                      both IPv4 and IPv6. Defaults to `port6`")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("quic-port6")
+                .long("quic-port6")
+                .value_name("PORT")
+                .help("The UDP port that quic will listen on over IPv6 if listening over \
+                      both IPv4 and IPv6. Defaults to `port6` + 1")
                 .takes_value(true),
         )
         .arg(
@@ -166,7 +181,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-udp-port")
                 .value_name("PORT")
                 .help("The UDP4 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV4.")
+                      can connect to your local node on this port over IPv4.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-quic-port")
+                .long("enr-quic-port")
+                .value_name("PORT")
+                .help("The quic UDP4 port that will be set on the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IPv4.")
                 .takes_value(true),
         )
         .arg(
@@ -174,7 +197,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-udp6-port")
                 .value_name("PORT")
                 .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV6.")
+                      can connect to your local node on this port over IPv6.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-quic6-port")
+                .long("enr-quic6-port")
+                .value_name("PORT")
+                .help("The quic UDP6 port that will be set on the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IPv6.")
                 .takes_value(true),
         )
         .arg(
@@ -182,7 +213,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-tcp-port")
                 .value_name("PORT")
                 .help("The TCP4 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV4. The --port flag is \
+                      can connect to your local node on this port over IPv4. The --port flag is \
                       used if this is not set.")
                 .takes_value(true),
         )
@@ -191,7 +222,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-tcp6-port")
                 .value_name("PORT")
                 .help("The TCP6 port of the local ENR. Set this only if you are sure other nodes \
-                      can connect to your local node on this port over IpV6. The --port6 flag is \
+                      can connect to your local node on this port over IPv6. The --port6 flag is \
                       used if this is not set.")
                 .takes_value(true),
         )
@@ -205,7 +236,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       discovery. Set this only if you are sure other nodes can connect to your \
                       local node on this address. This will update the `ip4` or `ip6` ENR fields \
                       accordingly. To update both, set this flag twice with the different values.")
-                .requires("enr-udp-port")
                 .multiple(true)
                 .max_values(2)
                 .takes_value(true),
@@ -233,11 +263,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        without an ENR.")
                 .takes_value(true),
         )
+        // NOTE: This is hidden because it is primarily a developer feature for testnets and
+        // debugging. We remove it from the list to avoid clutter.
         .arg(
             Arg::with_name("disable-discovery")
                 .long("disable-discovery")
                 .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
-                .takes_value(false),
+                .hidden(true)
+        )
+        .arg(
+            Arg::with_name("disable-quic")
+                .long("disable-quic")
+                .help("Disables the quic transport. The node will rely solely on the TCP transport for libp2p connections.")
         )
         .arg(
             Arg::with_name("disable-peer-scoring")
@@ -324,22 +361,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-address")
                 .long("http-address")
+                .requires("enable_http")
                 .value_name("ADDRESS")
                 .help("Set the listen address for the RESTful HTTP API server.")
-                .default_value("127.0.0.1")
+                .default_value_if("enable_http", None, "127.0.0.1")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("http-port")
                 .long("http-port")
+                .requires("enable_http")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
-                .default_value("5052")
+                .default_value_if("enable_http", None, "5052")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("http-allow-origin")
                 .long("http-allow-origin")
+                .requires("enable_http")
                 .value_name("ORIGIN")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
@@ -348,13 +388,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("http-disable-legacy-spec")
-                .long("http-disable-legacy-spec")
-                .hidden(true)
-        )
-        .arg(
             Arg::with_name("http-spec-fork")
                 .long("http-spec-fork")
+                .requires("enable_http")
                 .value_name("FORK")
                 .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
                        not be necessary to set this flag.")
@@ -372,6 +408,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-tls-cert")
                 .long("http-tls-cert")
+                .requires("enable_http")
                 .help("The path of the certificate to be used when serving the HTTP API server \
                     over TLS.")
                 .takes_value(true)
@@ -379,6 +416,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-tls-key")
                 .long("http-tls-key")
+                .requires("enable_http")
                 .help("The path of the private key to be used when serving the HTTP API server \
                     over TLS. Must not be password-protected.")
                 .takes_value(true)
@@ -386,9 +424,42 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-allow-sync-stalled")
                 .long("http-allow-sync-stalled")
+                .requires("enable_http")
                 .help("Forces the HTTP to indicate that the node is synced when sync is actually \
                     stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
                     MAINNET.")
+        )
+        .arg(
+            Arg::with_name("http-sse-capacity-multiplier")
+                .long("http-sse-capacity-multiplier")
+                .requires("enable_http")
+                .takes_value(true)
+                .default_value_if("enable_http", None, "1")
+                .value_name("N")
+                .help("Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. \
+                       Increasing this value can prevent messages from being dropped.")
+        )
+        .arg(
+            Arg::with_name("http-duplicate-block-status")
+                .long("http-duplicate-block-status")
+                .requires("enable_http")
+                .takes_value(true)
+                .default_value_if("enable_http", None, "202")
+                .value_name("STATUS_CODE")
+                .help("Status code to send when a block that is already known is POSTed to the \
+                       HTTP API.")
+        )
+        .arg(
+            Arg::with_name("http-enable-beacon-processor")
+                .long("http-enable-beacon-processor")
+                .requires("enable_http")
+                .value_name("BOOLEAN")
+                .help("The beacon processor is a scheduler which provides quality-of-service and \
+                    DoS protection. When set to \"true\", HTTP API requests will be queued and scheduled \
+                    alongside other tasks. When set to \"false\", HTTP API responses will be executed \
+                    immediately.")
+                .takes_value(true)
+                .default_value_if("enable_http", None, "true")
         )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
@@ -401,22 +472,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("metrics-address")
                 .long("metrics-address")
                 .value_name("ADDRESS")
+                .requires("metrics")
                 .help("Set the listen address for the Prometheus metrics HTTP server.")
-                .default_value("127.0.0.1")
+                .default_value_if("metrics", None, "127.0.0.1")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("metrics-port")
                 .long("metrics-port")
+                .requires("metrics")
                 .value_name("PORT")
                 .help("Set the listen TCP port for the Prometheus metrics HTTP server.")
-                .default_value("5054")
+                .default_value_if("metrics", None, "5054")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("metrics-allow-origin")
                 .long("metrics-allow-origin")
                 .value_name("ORIGIN")
+                .requires("metrics")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \
@@ -489,24 +563,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       Identical to the method used at the 2019 Canada interop.")
         )
         .arg(
-            Arg::with_name("eth1-endpoint")
-                .long("eth1-endpoint")
-                .value_name("HTTP-ENDPOINT")
-                .help("Deprecated. Use --eth1-endpoints.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("eth1-endpoints")
-                .long("eth1-endpoints")
-                .value_name("HTTP-ENDPOINTS")
-                .conflicts_with("eth1-endpoint")
-                .help("One http endpoint for a web3 connection to an execution node. \
-                       Note: This flag is now only useful for testing, use `--execution-endpoint` \
-                       flag to connect to an execution node on mainnet and testnets.
-                       Defaults to http://127.0.0.1:8545.")
-                .takes_value(true)
-        )
-        .arg(
             Arg::with_name("eth1-purge-cache")
                 .long("eth1-purge-cache")
                 .value_name("PURGE-CACHE")
@@ -542,6 +598,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("epochs-per-migration")
+                .long("epochs-per-migration")
+                .value_name("N")
+                .help("The number of epochs to wait between running the migration of data from the \
+                       hot DB to the cold DB. Less frequent runs can be useful for minimizing disk \
+                       writes")
+                .default_value("1")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("block-cache-size")
                 .long("block-cache-size")
                 .value_name("SIZE")
@@ -555,17 +621,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many states from the freezer database should cache in memory [default: 1]")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("state-cache-size")
+                .long("state-cache-size")
+                .value_name("STATE_CACHE_SIZE")
+                .help("Specifies the size of the snapshot cache [default: 3]")
+                .takes_value(true)
+        )
         /*
          * Execution Layer Integration
          */
-        .arg(
-            Arg::with_name("merge")
-                .long("merge")
-                .help("Deprecated. The feature activates automatically when --execution-endpoint \
-                    is supplied.")
-                .takes_value(false)
-                .hidden(true)
-        )
         .arg(
             Arg::with_name("execution-endpoint")
                 .long("execution-endpoint")
@@ -646,7 +711,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("1")
                 .takes_value(true)
         )
-        /* 4844 settings */
+        /* Deneb settings */
         .arg(
             Arg::with_name("trusted-setup-file-override")
                 .long("trusted-setup-file-override")
@@ -689,6 +754,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("prune-blobs")
                 .long("prune-blobs")
+                .value_name("BOOLEAN")
                 .help("Prune blobs from Lighthouse's database when they are older than the data \
                        data availability boundary relative to the current epoch.")
                 .takes_value(true)
@@ -697,6 +763,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("epochs-per-blob-prune")
                 .long("epochs-per-blob-prune")
+                .value_name("EPOCHS")
                 .help("The epoch interval with which to prune blobs from Lighthouse's \
                        database when they are older than the data availability boundary \
                        relative to the current epoch.")
@@ -706,6 +773,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("blob-prune-margin-epochs")
                 .long("blob-prune-margin-epochs")
+                .value_name("EPOCHS")
                 .help("The margin for blob pruning in epochs. The oldest blobs are pruned \
                        up until data_availability_boundary - blob_prune_margin_epochs.")
                 .takes_value(true)
@@ -729,7 +797,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("max-skip-slots")
                 .long("max-skip-slots")
                 .help(
-                    "Refuse to skip more than this many slots when processing a block or attestation. \
+                    "Refuse to skip more than this many slots when processing an attestation. \
                     This prevents nodes on minority forks from wasting our time and disk space, \
                     but could also cause unnecessary consensus failures, so is disabled by default."
                 )
@@ -834,8 +902,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slasher-broadcast")
                 .long("slasher-broadcast")
                 .help("Broadcast slashings found by the slasher to the rest of the network \
-                       [disabled by default].")
-                .requires("slasher")
+                       [Enabled by default].")
+                .takes_value(true)
+                .default_value("true")
         )
         .arg(
             Arg::with_name("slasher-backend")
@@ -877,6 +946,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("checkpoint-state")
         )
         .arg(
+            Arg::with_name("checkpoint-blobs")
+                .long("checkpoint-blobs")
+                .help("Set the checkpoint blobs to start syncing from. Must be aligned and match \
+                       --checkpoint-block. Using --checkpoint-sync-url instead is recommended.")
+                .value_name("BLOBS_SSZ")
+                .takes_value(true)
+                .requires("checkpoint-block")
+        )
+        .arg(
             Arg::with_name("checkpoint-sync-url")
                 .long("checkpoint-sync-url")
                 .help("Set the remote beacon node HTTP endpoint to use for checkpoint sync.")
@@ -890,7 +968,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")
                 .value_name("SECONDS")
                 .takes_value(true)
-                .default_value("60")
+                .default_value("180")
+        )
+        .arg(
+            Arg::with_name("allow-insecure-genesis-sync")
+                .long("allow-insecure-genesis-sync")
+                .help("Enable syncing from genesis, which is generally insecure and incompatible with data availability checks. \
+                    Checkpoint syncing is the preferred method for syncing a node. \
+                    Only use this flag when testing. DO NOT use on mainnet!")
+                .conflicts_with("checkpoint-sync-url")
+                .conflicts_with("checkpoint-state")
+                .takes_value(false)
         )
         .arg(
             Arg::with_name("reconstruct-historic-states")
@@ -952,8 +1040,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("proposer-reorg-threshold")
                 .long("proposer-reorg-threshold")
                 .value_name("PERCENT")
-                .help("Percentage of vote weight below which to attempt a proposer reorg. \
+                .help("Percentage of head vote weight below which to attempt a proposer reorg. \
                        Default: 20%")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-parent-threshold")
+                .long("proposer-reorg-parent-threshold")
+                .value_name("PERCENT")
+                .help("Percentage of parent vote weight above which to attempt a proposer reorg. \
+                       Default: 160%")
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
@@ -1068,15 +1164,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("builder-profit-threshold")
                 .long("builder-profit-threshold")
                 .value_name("WEI_VALUE")
-                .help("The minimum reward in wei provided to the proposer by a block builder for \
-                    an external payload to be considered for inclusion in a proposal. If this \
-                    threshold is not met, the local EE's payload will be used. This is currently \
-                    *NOT* in comparison to the value of the local EE's payload. It simply checks \
-                    whether the total proposer reward from an external payload is equal to or \
-                    greater than this value. In the future, a comparison to a local payload is \
-                    likely to be added. Example: Use 250000000000000000 to set the threshold to \
-                     0.25 ETH.")
-                .default_value("0")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
         )
         .arg(
@@ -1089,22 +1177,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("count-unrealized")
-                .long("count-unrealized")
-                .hidden(true)
-                .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .default_value("true")
-        )
-        .arg(
-            Arg::with_name("count-unrealized-full")
-                .long("count-unrealized-full")
-                .hidden(true)
-                .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .default_value("false")
-        )
-        .arg(
             Arg::with_name("reset-payload-statuses")
                 .long("reset-payload-statuses")
                 .help("When present, Lighthouse will forget the payload statuses of any \
@@ -1115,7 +1187,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("disable-deposit-contract-sync")
                 .long("disable-deposit-contract-sync")
-                .help("Explictly disables syncing of deposit logs from the execution node. \
+                .help("Explicitly disables syncing of deposit logs from the execution node. \
                       This overrides any previous option that depends on it. \
                       Useful if you intend to run a non-validating beacon node.")
                 .takes_value(false)
@@ -1137,7 +1209,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("gui")
                 .long("gui")
-                .hidden(true)
                 .help("Enable the graphical user interface and all its requirements. \
                       This enables --http and --validator-monitor-auto and enables SSE logging.")
                 .takes_value(false)
@@ -1145,11 +1216,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("always-prefer-builder-payload")
             .long("always-prefer-builder-payload")
-            .help("If set, the beacon node always uses the payload from the builder instead of the local payload.")
-            // The builder profit threshold flag is used to provide preference
-            // to local payloads, therefore it fundamentally conflicts with
-            // always using the builder.
-            .conflicts_with("builder-profit-threshold")
+            .help("This flag is deprecated and has no effect.")
         )
         .arg(
             Arg::with_name("invalid-gossip-verified-blocks-path")
@@ -1160,4 +1227,75 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     developers. This directory is not pruned, users should be careful to avoid \
                     filling up their disks.")
         )
+        .arg(
+            Arg::with_name("progressive-balances")
+                .long("progressive-balances")
+                .value_name("MODE")
+                .help("Deprecated. This optimisation is now the default and cannot be disabled.")
+                .takes_value(true)
+                .possible_values(&["fast", "disabled", "checked", "strict"])
+        )
+        .arg(
+            Arg::with_name("beacon-processor-max-workers")
+                .long("beacon-processor-max-workers")
+                .value_name("INTEGER")
+                .help("Specifies the maximum concurrent tasks for the task scheduler. Increasing \
+                        this value may increase resource consumption. Reducing the value \
+                        may result in decreased resource usage and diminished performance. The \
+                        default value is the number of logical CPU cores on the host.")
+                .hidden(true)
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-work-queue-len")
+                .long("beacon-processor-work-queue-len")
+                .value_name("INTEGER")
+                .help("Specifies the length of the inbound event queue. \
+                        Higher values may prevent messages from being dropped while lower values \
+                        may help protect the node from becoming overwhelmed.")
+                .default_value("16384")
+                .hidden(true)
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-reprocess-queue-len")
+                .long("beacon-processor-reprocess-queue-len")
+                .value_name("INTEGER")
+                .help("Specifies the length of the queue for messages requiring delayed processing. \
+                        Higher values may prevent messages from being dropped while lower values \
+                        may help protect the node from becoming overwhelmed.")
+                .hidden(true)
+                .default_value("12288")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-attestation-batch-size")
+                .long("beacon-processor-attestation-batch-size")
+                .value_name("INTEGER")
+                .help("Specifies the number of gossip attestations in a signature verification batch. \
+                       Higher values may reduce CPU usage in a healthy network whilst lower values may \
+                       increase CPU usage in an unhealthy or hostile network.")
+                .hidden(true)
+                .default_value("64")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-aggregate-batch-size")
+                .long("beacon-processor-aggregate-batch-size")
+                .value_name("INTEGER")
+                .help("Specifies the number of gossip aggregate attestations in a signature \
+                       verification batch. \
+                       Higher values may reduce CPU usage in a healthy network while lower values may \
+                       increase CPU usage in an unhealthy or hostile network.")
+                .hidden(true)
+                .default_value("64")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("disable-duplicate-warn-logs")
+                .long("disable-duplicate-warn-logs")
+                .help("This flag is deprecated and has no effect.")
+                .takes_value(false)
+        )
+        .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))
 }

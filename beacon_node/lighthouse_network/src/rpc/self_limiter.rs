@@ -19,22 +19,22 @@ use super::{
 
 /// A request that was rate limited or waiting on rate limited requests for the same peer and
 /// protocol.
-struct QueuedRequest<Id: ReqId, TSpec: EthSpec> {
-    req: OutboundRequest<TSpec>,
+struct QueuedRequest<Id: ReqId, E: EthSpec> {
+    req: OutboundRequest<E>,
     request_id: Id,
 }
 
-pub(crate) struct SelfRateLimiter<Id: ReqId, TSpec: EthSpec> {
+pub(crate) struct SelfRateLimiter<Id: ReqId, E: EthSpec> {
     /// Requests queued for sending per peer. This requests are stored when the self rate
     /// limiter rejects them. Rate limiting is based on a Peer and Protocol basis, therefore
     /// are stored in the same way.
-    delayed_requests: HashMap<(PeerId, Protocol), VecDeque<QueuedRequest<Id, TSpec>>>,
+    delayed_requests: HashMap<(PeerId, Protocol), VecDeque<QueuedRequest<Id, E>>>,
     /// The delay required to allow a peer's outbound request per protocol.
     next_peer_request: DelayQueue<(PeerId, Protocol)>,
     /// Rate limiter for our own requests.
     limiter: RateLimiter,
     /// Requests that are ready to be sent.
-    ready_requests: SmallVec<[BehaviourAction<Id, TSpec>; 3]>,
+    ready_requests: SmallVec<[BehaviourAction<Id, E>; 3]>,
     /// Slog logger.
     log: Logger,
 }
@@ -48,7 +48,7 @@ pub enum Error {
     RateLimited,
 }
 
-impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
+impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     /// Creates a new [`SelfRateLimiter`] based on configration values.
     pub fn new(config: OutboundRateLimiterConfig, log: Logger) -> Result<Self, &'static str> {
         debug!(log, "Using self rate limiting params"; "config" => ?config);
@@ -64,15 +64,15 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
     }
 
     /// Checks if the rate limiter allows the request. If it's allowed, returns the
-    /// [`NetworkBehaviourAction`] that should be emitted. When not allowed, the request is delayed
+    /// [`ToSwarm`] that should be emitted. When not allowed, the request is delayed
     /// until it can be sent.
     pub fn allows(
         &mut self,
         peer_id: PeerId,
         request_id: Id,
-        req: OutboundRequest<TSpec>,
-    ) -> Result<BehaviourAction<Id, TSpec>, Error> {
-        let protocol = req.protocol();
+        req: OutboundRequest<E>,
+    ) -> Result<BehaviourAction<Id, E>, Error> {
+        let protocol = req.versioned_protocol().protocol();
         // First check that there are not already other requests waiting to be sent.
         if let Some(queued_requests) = self.delayed_requests.get_mut(&(peer_id, protocol)) {
             queued_requests.push_back(QueuedRequest { req, request_id });
@@ -95,15 +95,15 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
     }
 
     /// Auxiliary function to deal with self rate limiting outcomes. If the rate limiter allows the
-    /// request, the [`NetworkBehaviourAction`] that should be emitted is returned. If the request
+    /// request, the [`ToSwarm`] that should be emitted is returned. If the request
     /// should be delayed, it's returned with the duration to wait.
     fn try_send_request(
         limiter: &mut RateLimiter,
         peer_id: PeerId,
         request_id: Id,
-        req: OutboundRequest<TSpec>,
+        req: OutboundRequest<E>,
         log: &Logger,
-    ) -> Result<BehaviourAction<Id, TSpec>, (QueuedRequest<Id, TSpec>, Duration)> {
+    ) -> Result<BehaviourAction<Id, E>, (QueuedRequest<Id, E>, Duration)> {
         match limiter.allows(&peer_id, &req) {
             Ok(()) => Ok(BehaviourAction::NotifyHandler {
                 peer_id,
@@ -111,7 +111,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
                 event: RPCSend::Request(request_id, req),
             }),
             Err(e) => {
-                let protocol = req.protocol();
+                let protocol = req.versioned_protocol();
                 match e {
                     RateLimitedErr::TooLarge => {
                         // this should never happen with default parameters. Let's just send the request.
@@ -119,7 +119,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
                         crit!(
                            log,
                             "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters.";
-                            "protocol" => %req.protocol()
+                            "protocol" => %req.versioned_protocol().protocol()
                         );
                         Ok(BehaviourAction::NotifyHandler {
                             peer_id,
@@ -128,7 +128,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
                         })
                     }
                     RateLimitedErr::TooSoon(wait_time) => {
-                        debug!(log, "Self rate limiting"; "protocol" => %protocol, "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
+                        debug!(log, "Self rate limiting"; "protocol" => %protocol.protocol(), "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
                         Err((QueuedRequest { req, request_id }, wait_time))
                     }
                 }
@@ -160,7 +160,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
         }
     }
 
-    pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id, TSpec>> {
+    pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id, E>> {
         // First check the requests that were self rate limited, since those might add events to
         // the queue. Also do this this before rate limiter prunning to avoid removing and
         // immediately adding rate limiting keys.

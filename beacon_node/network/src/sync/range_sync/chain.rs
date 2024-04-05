@@ -1,10 +1,10 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
+use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
 };
-use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::{BeaconChainTypes, CountUnrealized};
+use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
@@ -101,8 +101,6 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// Batches validated by this chain.
     validated_batches: u64,
 
-    is_finalized_segment: bool,
-
     /// The chain's log.
     log: slog::Logger,
 }
@@ -128,7 +126,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_slot: Slot,
         target_head_root: Hash256,
         peer_id: PeerId,
-        is_finalized_segment: bool,
         log: &slog::Logger,
     ) -> Self {
         let mut peers = FnvHashMap::default();
@@ -136,16 +133,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
 
-        let target_slot = if is_finalized_segment {
-            target_head_slot + (2 * T::EthSpec::slots_per_epoch()) + 1
-        } else {
-            target_head_slot
-        };
-
         SyncingChain {
             id,
             start_epoch,
-            target_head_slot: target_slot,
+            target_head_slot,
             target_head_root,
             batches: BTreeMap::new(),
             peers,
@@ -156,7 +147,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
             validated_batches: 0,
-            is_finalized_segment,
             log: log.new(o!("chain" => id)),
         }
     }
@@ -231,7 +221,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        beacon_block: Option<BlockWrapper<T::EthSpec>>,
+        beacon_block: Option<RpcBlock<T::EthSpec>>,
     ) -> ProcessingResult {
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
@@ -304,19 +294,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return Ok(KeepChain);
         }
 
-        let beacon_processor_send = match network.processor_channel_if_enabled() {
-            Some(channel) => channel,
-            None => return Ok(KeepChain),
+        let Some(beacon_processor) = network.beacon_processor_if_enabled() else {
+            return Ok(KeepChain);
         };
 
-        let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
-            None => {
-                return Err(RemoveChain::WrongChainState(format!(
-                    "Trying to process a batch that does not exist: {}",
-                    batch_id
-                )));
-            }
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            return Err(RemoveChain::WrongChainState(format!(
+                "Trying to process a batch that does not exist: {}",
+                batch_id
+            )));
         };
 
         // NOTE: We send empty batches to the processor in order to trigger the block processor
@@ -324,17 +310,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // for removing chains and checking completion is in the callback.
 
         let blocks = batch.start_processing()?;
-        let count_unrealized = if self.is_finalized_segment {
-            CountUnrealized::False
-        } else {
-            CountUnrealized::True
-        };
-        let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id, count_unrealized);
+        let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id);
         self.current_processing_batch = Some(batch_id);
 
-        let work_event = BeaconWorkEvent::chain_segment(process_id, blocks);
-
-        if let Err(e) = beacon_processor_send.try_send(work_event) {
+        if let Err(e) = beacon_processor.send_chain_segment(process_id, blocks) {
             crit!(self.log, "Failed to send chain segment to processor."; "msg" => "process_batch",
                 "error" => %e, "batch" => self.processing_target);
             // This is unlikely to happen but it would stall syncing since the batch now has no
@@ -844,9 +823,24 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
             if !batch.is_expecting_block(peer_id, &request_id) {
+                debug!(
+                    self.log,
+                    "Batch not expecting block";
+                    "batch_epoch" => batch_id,
+                    "batch_state" => ?batch.state(),
+                    "peer_id" => %peer_id,
+                    "request_id" => %request_id
+                );
                 return Ok(KeepChain);
             }
-            debug!(self.log, "Batch failed. RPC Error"; "batch_epoch" => batch_id);
+            debug!(
+                self.log,
+                "Batch failed. RPC Error";
+                "batch_epoch" => batch_id,
+                "batch_state" => ?batch.state(),
+                "peer_id" => %peer_id,
+                "request_id" => %request_id
+            );
             if let Some(active_requests) = self.peers.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }
@@ -858,6 +852,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
             self.retry_batch_download(network, batch_id)
         } else {
+            debug!(
+                self.log,
+                "Batch not found";
+                "batch_epoch" => batch_id,
+                "peer_id" => %peer_id,
+                "request_id" => %request_id
+            );
             // this could be an error for an old batch, removed when the chain advances
             Ok(KeepChain)
         }
@@ -869,9 +870,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
-        let batch = match self.batches.get_mut(&batch_id) {
-            Some(batch) => batch,
-            None => return Ok(KeepChain),
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            return Ok(KeepChain);
         };
 
         // Find a peer to request the batch
@@ -885,7 +885,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .collect::<Vec<_>>();
             // Sort peers prioritizing unrelated peers with less active requests.
             priorized_peers.sort_unstable();
-            priorized_peers.get(0).map(|&(_, _, peer)| peer)
+            priorized_peers.first().map(|&(_, _, peer)| peer)
         };
 
         if let Some(peer) = new_peer {

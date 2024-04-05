@@ -2,7 +2,7 @@
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::EthSpec;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_types::typenum::Unsigned;
 use std::collections::HashSet;
 use std::fmt::{self, Display};
@@ -39,10 +39,10 @@ impl SyncSubnetId {
     }
 
     /// Compute required subnets to subscribe to given the sync committee indices.
-    pub fn compute_subnets_for_sync_committee<T: EthSpec>(
+    pub fn compute_subnets_for_sync_committee<E: EthSpec>(
         sync_committee_indices: &[u64],
     ) -> Result<HashSet<Self>, ArithError> {
-        let subcommittee_size = T::SyncSubcommitteeSize::to_u64();
+        let subcommittee_size = E::SyncSubcommitteeSize::to_u64();
 
         sync_committee_indices
             .iter()

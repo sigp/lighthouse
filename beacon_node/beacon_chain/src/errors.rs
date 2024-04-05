@@ -26,7 +26,7 @@ use state_processing::{
     },
     signature_sets::Error as SignatureSetError,
     state_advance::Error as StateAdvanceError,
-    BlockProcessingError, BlockReplayError, SlotProcessingError,
+    BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
 };
 use std::time::Duration;
 use task_executor::ShutdownReason;
@@ -55,6 +55,7 @@ pub enum BeaconChainError {
     SlotClockDidNotStart,
     NoStateForSlot(Slot),
     BeaconStateError(BeaconStateError),
+    EpochCacheError(EpochCacheError),
     DBInconsistent(String),
     DBError(store::Error),
     ForkChoiceError(ForkChoiceError),
@@ -62,6 +63,7 @@ pub enum BeaconChainError {
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
     SlotProcessingError(SlotProcessingError),
+    EpochProcessingError(EpochProcessingError),
     StateAdvanceError(StateAdvanceError),
     UnableToAdvanceState(String),
     NoStateForAttestation {
@@ -148,6 +150,8 @@ pub enum BeaconChainError {
     BlockVariantLacksExecutionPayload(Hash256),
     ExecutionLayerErrorPayloadReconstruction(ExecutionBlockHash, Box<execution_layer::Error>),
     EngineGetCapabilititesFailed(Box<execution_layer::Error>),
+    ExecutionLayerGetBlockByNumberFailed(Box<execution_layer::Error>),
+    ExecutionLayerGetBlockByHashFailed(Box<execution_layer::Error>),
     BlockHashMissingFromExecutionLayer(ExecutionBlockHash),
     InconsistentPayloadReconstructed {
         slot: Slot,
@@ -216,10 +220,14 @@ pub enum BeaconChainError {
     BlsToExecutionConflictsWithPool,
     InconsistentFork(InconsistentFork),
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
+    UnableToPublish,
     AvailabilityCheckError(AvailabilityCheckError),
+    LightClientError(LightClientError),
+    UnsupportedFork,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
+easy_from_to!(EpochProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
 easy_from_to!(SyncCommitteeMessageValidationError, BeaconChainError);
 easy_from_to!(ExitValidationError, BeaconChainError);
@@ -243,6 +251,8 @@ easy_from_to!(StateAdvanceError, BeaconChainError);
 easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
+easy_from_to!(EpochCacheError, BeaconChainError);
+easy_from_to!(LightClientError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
@@ -251,6 +261,7 @@ pub enum BlockProductionError {
     UnableToProduceAtSlot(Slot),
     SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
+    EpochCacheError(EpochCacheError),
     ForkChoiceError(ForkChoiceError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
@@ -267,25 +278,21 @@ pub enum BlockProductionError {
     BlockingFailed(execution_layer::Error),
     TerminalPoWBlockLookupFailed(execution_layer::Error),
     GetPayloadFailed(execution_layer::Error),
-    GetBlobsFailed(execution_layer::Error),
-    BlobPayloadMismatch {
-        blob_block_hash: ExecutionBlockHash,
-        payload_block_hash: ExecutionBlockHash,
-    },
-    NoBlobsCached,
     FailedToReadFinalizedBlock(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
     ShuttingDown,
+    MissingBlobs,
     MissingSyncAggregate,
     MissingExecutionPayload,
     MissingKzgCommitment(String),
-    TokioJoin(tokio::task::JoinError),
+    TokioJoin(JoinError),
     BeaconChain(BeaconChainError),
     InvalidPayloadFork,
     TrustedSetupNotInitialized,
     InvalidBlockVariant(String),
     KzgError(kzg::Error),
+    FailedToBuildBlobSidecars(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
@@ -294,3 +301,4 @@ easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(Eth1ChainError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);
+easy_from_to!(EpochCacheError, BlockProductionError);

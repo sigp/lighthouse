@@ -1,5 +1,5 @@
 use super::SECRET_KEY_BYTES_LEN;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 /// Provides a wrapper around a `[u8; SECRET_KEY_BYTES_LEN]` that implements `Zeroize` on `Drop`.

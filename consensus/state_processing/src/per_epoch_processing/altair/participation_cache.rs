@@ -11,49 +11,23 @@
 //! Additionally, this cache is returned from the `altair::process_epoch` function and can be used
 //! to get useful summaries about the validator participation in an epoch.
 
-use safe_arith::{ArithError, SafeArith};
 use types::{
     consts::altair::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX,
     },
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
+    Balance, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
+    RelativeEpoch,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     InvalidFlagIndex(usize),
     InvalidValidatorIndex(usize),
 }
 
-/// A balance which will never be below the specified `minimum`.
-///
-/// This is an effort to ensure the `EFFECTIVE_BALANCE_INCREMENT` minimum is always respected.
-#[derive(PartialEq, Debug, Clone, Copy)]
-struct Balance {
-    raw: u64,
-    minimum: u64,
-}
-
-impl Balance {
-    /// Initialize the balance to `0`, or the given `minimum`.
-    pub fn zero(minimum: u64) -> Self {
-        Self { raw: 0, minimum }
-    }
-
-    /// Returns the balance with respect to the initialization `minimum`.
-    pub fn get(&self) -> u64 {
-        std::cmp::max(self.raw, self.minimum)
-    }
-
-    /// Add-assign to the balance.
-    pub fn safe_add_assign(&mut self, other: u64) -> Result<(), ArithError> {
-        self.raw.safe_add_assign(other)
-    }
-}
-
 /// Caches the participation values for one epoch (either the previous or current).
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 struct SingleEpochParticipationCache {
     /// Maps an active validator index to their participation flags.
     ///
@@ -76,7 +50,7 @@ struct SingleEpochParticipationCache {
 }
 
 impl SingleEpochParticipationCache {
-    fn new<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Self {
+    fn new<E: EthSpec>(state: &BeaconState<E>, spec: &ChainSpec) -> Self {
         let num_validators = state.validators().len();
         let zero_balance = Balance::zero(spec.effective_balance_increment);
 
@@ -92,6 +66,14 @@ impl SingleEpochParticipationCache {
         self.total_flag_balances
             .get(flag_index)
             .map(Balance::get)
+            .ok_or(Error::InvalidFlagIndex(flag_index))
+    }
+
+    /// Returns the raw total balance of attesters who have `flag_index` set.
+    fn total_flag_balance_raw(&self, flag_index: usize) -> Result<Balance, Error> {
+        self.total_flag_balances
+            .get(flag_index)
+            .copied()
             .ok_or(Error::InvalidFlagIndex(flag_index))
     }
 
@@ -122,15 +104,15 @@ impl SingleEpochParticipationCache {
     /// - The provided `state` **must** be Altair. An error will be returned otherwise.
     /// - An error will be returned if the `val_index` validator is inactive at the given
     ///     `relative_epoch`.
-    fn process_active_validator<T: EthSpec>(
+    fn process_active_validator<E: EthSpec>(
         &mut self,
         val_index: usize,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         current_epoch: Epoch,
         relative_epoch: RelativeEpoch,
     ) -> Result<(), BeaconStateError> {
-        let val_balance = state.get_effective_balance(val_index)?;
         let validator = state.get_validator(val_index)?;
+        let val_balance = validator.effective_balance;
 
         // Sanity check to ensure the validator is active.
         let epoch = relative_epoch.into_epoch(current_epoch);
@@ -173,7 +155,7 @@ impl SingleEpochParticipationCache {
 }
 
 /// Maintains a cache to be used during `altair::process_epoch`.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ParticipationCache {
     current_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.current_epoch`.
@@ -191,8 +173,8 @@ impl ParticipationCache {
     /// ## Errors
     ///
     /// - The provided `state` **must** be an Altair state. An error will be returned otherwise.
-    pub fn new<T: EthSpec>(
-        state: &BeaconState<T>,
+    pub fn new<E: EthSpec>(
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
         let current_epoch = state.current_epoch();
@@ -291,6 +273,11 @@ impl ParticipationCache {
             .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
     }
 
+    pub fn current_epoch_target_attesting_balance_raw(&self) -> Result<Balance, Error> {
+        self.current_epoch_participation
+            .total_flag_balance_raw(TIMELY_TARGET_FLAG_INDEX)
+    }
+
     pub fn previous_epoch_total_active_balance(&self) -> u64 {
         self.previous_epoch_participation.total_active_balance.get()
     }
@@ -298,6 +285,11 @@ impl ParticipationCache {
     pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, Error> {
         self.previous_epoch_participation
             .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
+    }
+
+    pub fn previous_epoch_target_attesting_balance_raw(&self) -> Result<Balance, Error> {
+        self.previous_epoch_participation
+            .total_flag_balance_raw(TIMELY_TARGET_FLAG_INDEX)
     }
 
     pub fn previous_epoch_source_attesting_balance(&self) -> Result<u64, Error> {

@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::compute_kzg_proof;
 use kzg::KzgProof;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::marker::PhantomData;
 use std::str::FromStr;
 use types::Hash256;
@@ -13,13 +13,14 @@ pub fn parse_point(point: &str) -> Result<Hash256, Error> {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KZGComputeKZGProofInput {
     pub blob: String,
     pub z: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct KZGComputeKZGProof<E: EthSpec> {
     pub input: KZGComputeKZGProofInput,
     pub output: Option<(String, Hash256)>,
@@ -47,7 +48,7 @@ impl<E: EthSpec> Case for KZGComputeKZGProof<E> {
 
         let kzg = get_kzg()?;
         let proof = parse_input(&self.input).and_then(|(blob, z)| {
-            compute_kzg_proof::<E>(&kzg, blob, z)
+            compute_kzg_proof::<E>(&kzg, &blob, z)
                 .map_err(|e| Error::InternalError(format!("Failed to compute kzg proof: {:?}", e)))
         });
 

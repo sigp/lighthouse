@@ -1,7 +1,7 @@
+use crate::beacon_block_body::format_kzg_commitments;
 use crate::*;
-use bls::Signature;
 use derivative::Derivative;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
 use superstruct::superstruct;
@@ -37,7 +37,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb, Eip6110),
+    variants(Base, Altair, Merge, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -78,8 +78,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockCapella<E, Payload>,
     #[superstruct(only(Deneb), partial_getter(rename = "message_deneb"))]
     pub message: BeaconBlockDeneb<E, Payload>,
-    #[superstruct(only(Eip6110), partial_getter(rename = "message_eip6110"))]
-    pub message: BeaconBlockEip6110<E, Payload>,
+    #[superstruct(only(Electra), partial_getter(rename = "message_electra"))]
+    pub message: BeaconBlockElectra<E, Payload>,
     pub signature: Signature,
 }
 
@@ -103,6 +103,16 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     /// SSZ decode with fork variant determined by slot.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         Self::from_ssz_bytes_with(bytes, |bytes| BeaconBlock::from_ssz_bytes(bytes, spec))
+    }
+
+    /// SSZ decode with explicit fork variant.
+    pub fn from_ssz_bytes_for_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes_with(bytes, |bytes| {
+            BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+        })
     }
 
     /// SSZ decode which attempts to decode all variants (slow).
@@ -149,8 +159,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             BeaconBlock::Deneb(message) => {
                 SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb { message, signature })
             }
-            BeaconBlock::Eip6110(message) => {
-                SignedBeaconBlock::Eip6110(SignedBeaconBlockEip6110 { message, signature })
+            BeaconBlock::Electra(message) => {
+                SignedBeaconBlock::Electra(SignedBeaconBlockElectra { message, signature })
             }
         }
     }
@@ -252,6 +262,23 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     /// Returns the `tree_hash_root` of the block.
     pub fn canonical_root(&self) -> Hash256 {
         self.message().tree_hash_root()
+    }
+
+    pub fn num_expected_blobs(&self) -> usize {
+        self.message()
+            .body()
+            .blob_kzg_commitments()
+            .map(|c| c.len())
+            .unwrap_or(0)
+    }
+
+    /// Used for displaying commitments in logs.
+    pub fn commitments_formatted(&self) -> String {
+        let Ok(commitments) = self.message().body().blob_kzg_commitments() else {
+            return "[]".to_string();
+        };
+
+        format_kzg_commitments(commitments.as_ref())
     }
 }
 
@@ -445,20 +472,20 @@ impl<E: EthSpec> SignedBeaconBlockDeneb<E, BlindedPayload<E>> {
     }
 }
 
-impl<E: EthSpec> SignedBeaconBlockEip6110<E, BlindedPayload<E>> {
+impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
-        execution_payload: ExecutionPayloadEip6110<E>,
-    ) -> SignedBeaconBlockEip6110<E, FullPayload<E>> {
-        let SignedBeaconBlockEip6110 {
+        execution_payload: ExecutionPayloadElectra<E>,
+    ) -> SignedBeaconBlockElectra<E, FullPayload<E>> {
+        let SignedBeaconBlockElectra {
             message:
-                BeaconBlockEip6110 {
+                BeaconBlockElectra {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root,
                     body:
-                        BeaconBlockBodyEip6110 {
+                        BeaconBlockBodyElectra {
                             randao_reveal,
                             eth1_data,
                             graffiti,
@@ -468,20 +495,20 @@ impl<E: EthSpec> SignedBeaconBlockEip6110<E, BlindedPayload<E>> {
                             deposits,
                             voluntary_exits,
                             sync_aggregate,
-                            execution_payload: BlindedPayloadEip6110 { .. },
+                            execution_payload: BlindedPayloadElectra { .. },
                             bls_to_execution_changes,
                             blob_kzg_commitments,
                         },
                 },
             signature,
         } = self;
-        SignedBeaconBlockEip6110 {
-            message: BeaconBlockEip6110 {
+        SignedBeaconBlockElectra {
+            message: BeaconBlockElectra {
                 slot,
                 proposer_index,
                 parent_root,
                 state_root,
-                body: BeaconBlockBodyEip6110 {
+                body: BeaconBlockBodyElectra {
                     randao_reveal,
                     eth1_data,
                     graffiti,
@@ -491,7 +518,7 @@ impl<E: EthSpec> SignedBeaconBlockEip6110<E, BlindedPayload<E>> {
                     deposits,
                     voluntary_exits,
                     sync_aggregate,
-                    execution_payload: FullPayloadEip6110 { execution_payload },
+                    execution_payload: FullPayloadElectra { execution_payload },
                     bls_to_execution_changes,
                     blob_kzg_commitments,
                 },
@@ -518,15 +545,15 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Deneb(block), Some(ExecutionPayload::Deneb(payload))) => {
                 SignedBeaconBlock::Deneb(block.into_full_block(payload))
             }
-            (SignedBeaconBlock::Eip6110(block), Some(ExecutionPayload::Eip6110(payload))) => {
-                SignedBeaconBlock::Eip6110(block.into_full_block(payload))
+            (SignedBeaconBlock::Electra(block), Some(ExecutionPayload::Electra(payload))) => {
+                SignedBeaconBlock::Electra(block.into_full_block(payload))
             }
             // avoid wildcard matching forks so that compiler will
             // direct us here when a new fork has been added
             (SignedBeaconBlock::Merge(_), _) => return None,
             (SignedBeaconBlock::Capella(_), _) => return None,
             (SignedBeaconBlock::Deneb(_), _) => return None,
-            (SignedBeaconBlock::Eip6110(_), _) => return None,
+            (SignedBeaconBlock::Electra(_), _) => return None,
         };
         Some(full_block)
     }
@@ -669,10 +696,31 @@ pub mod ssz_tagged_signed_beacon_block {
                 ForkName::Deneb => Ok(SignedBeaconBlock::Deneb(
                     SignedBeaconBlockDeneb::from_ssz_bytes(body)?,
                 )),
-                ForkName::Eip6110 => Ok(SignedBeaconBlock::Eip6110(
-                    SignedBeaconBlockEip6110::from_ssz_bytes(body)?,
+                ForkName::Electra => Ok(SignedBeaconBlock::Electra(
+                    SignedBeaconBlockElectra::from_ssz_bytes(body)?,
                 )),
             }
+        }
+    }
+}
+
+pub mod ssz_tagged_signed_beacon_block_arc {
+    use super::*;
+    pub mod encode {
+        pub use super::ssz_tagged_signed_beacon_block::encode::*;
+    }
+
+    pub mod decode {
+        pub use super::ssz_tagged_signed_beacon_block::decode::{is_ssz_fixed_len, ssz_fixed_len};
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+        use std::sync::Arc;
+
+        pub fn from_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            bytes: &[u8],
+        ) -> Result<Arc<SignedBeaconBlock<E, Payload>>, DecodeError> {
+            ssz_tagged_signed_beacon_block::decode::from_ssz_bytes(bytes).map(Arc::new)
         }
     }
 }
@@ -742,7 +790,14 @@ mod test {
                 BeaconBlock::Capella(BeaconBlockCapella::empty(spec)),
                 sig.clone(),
             ),
-            SignedBeaconBlock::from_block(BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec)), sig),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Electra(BeaconBlockElectra::empty(spec)),
+                sig,
+            ),
         ];
 
         for block in blocks {

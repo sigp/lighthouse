@@ -6,7 +6,6 @@ use crate::{
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
-use types::blob_sidecar::BlobSidecarList;
 use types::*;
 
 pub struct CacheItem<E: EthSpec> {
@@ -70,7 +69,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             },
         };
 
-        let (block, blobs) = block.deconstruct();
+        let (_, block, blobs) = block.deconstruct();
         let item = CacheItem {
             epoch,
             committee_lengths,
@@ -99,9 +98,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         spec: &ChainSpec,
     ) -> Result<Option<Attestation<E>>, Error> {
         let lock = self.item.read();
-        let item = if let Some(item) = lock.as_ref() {
-            item
-        } else {
+        let Some(item) = lock.as_ref() else {
             return Ok(None);
         };
 

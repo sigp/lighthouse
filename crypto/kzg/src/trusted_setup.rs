@@ -1,4 +1,4 @@
-use c_kzg::{BYTES_PER_G1_POINT, BYTES_PER_G2_POINT, FIELD_ELEMENTS_PER_BLOB};
+use c_kzg::{BYTES_PER_G1_POINT, BYTES_PER_G2_POINT};
 use serde::{
     de::{self, Deserializer, Visitor},
     Deserialize, Serialize,
@@ -18,13 +18,12 @@ struct G2Point([u8; BYTES_PER_G2_POINT]);
 /// The serialize/deserialize implementations are written according to
 /// the format specified in the the ethereum consensus specs trusted setup files.
 ///
-/// See https://github.com/ethereum/consensus-specs/blob/dev/presets/mainnet/trusted_setups/testing_trusted_setups.json
+/// See https://github.com/ethereum/consensus-specs/blob/dev/presets/mainnet/trusted_setups/trusted_setup_4096.json
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrustedSetup {
-    #[serde(rename = "setup_G1")]
-    #[serde(deserialize_with = "deserialize_g1_points")]
+    #[serde(rename = "g1_lagrange")]
     g1_points: Vec<G1Point>,
-    #[serde(rename = "setup_G2")]
+    #[serde(rename = "g2_monomial")]
     g2_points: Vec<G2Point>,
 }
 
@@ -132,23 +131,6 @@ impl<'de> Deserialize<'de> for G2Point {
 
         deserializer.deserialize_str(G2PointVisitor)
     }
-}
-
-fn deserialize_g1_points<'de, D>(deserializer: D) -> Result<Vec<G1Point>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let mut decoded: Vec<G1Point> = serde::de::Deserialize::deserialize(deserializer)?;
-    // FIELD_ELEMENTS_PER_BLOB is a compile time parameter that
-    // depends on whether lighthouse is compiled with minimal or mainnet features.
-    // Minimal and mainnet trusted setup parameters differ only by the
-    // number of G1 points they contain.
-    //
-    // Hence, we truncate the number of G1 points after deserialisation
-    // to ensure that we have the right number of g1 points in the
-    // trusted setup.
-    decoded.truncate(FIELD_ELEMENTS_PER_BLOB);
-    Ok(decoded)
 }
 
 fn strip_prefix(s: &str) -> &str {

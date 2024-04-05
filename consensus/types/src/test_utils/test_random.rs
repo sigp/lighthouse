@@ -2,7 +2,6 @@ use crate::*;
 use rand::RngCore;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
-use ssz_types::typenum::Unsigned;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -30,7 +29,7 @@ pub trait TestRandom {
 
 impl<T> TestRandom for PhantomData<T> {
     fn random_for_test(_rng: &mut impl RngCore) -> Self {
-        PhantomData::default()
+        PhantomData
     }
 }
 

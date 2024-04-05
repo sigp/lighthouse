@@ -3,20 +3,23 @@ use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
-use crate::type_name::TypeName;
-use serde_derive::Deserialize;
+use serde::Deserialize;
+use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
+use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_epoch_processing::capella::process_historical_summaries_update;
+use state_processing::per_epoch_processing::effective_balance_updates::{
+    process_effective_balance_updates, process_effective_balance_updates_slow,
+};
 use state_processing::per_epoch_processing::{
     altair, base,
-    effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
-    process_registry_updates, process_slashings,
+    process_registry_updates, process_registry_updates_slow, process_slashings,
+    process_slashings_slow,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
 };
 use state_processing::EpochProcessingError;
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
-use types::{BeaconState, ChainSpec, EthSpec, ForkName};
+use types::BeaconState;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {
@@ -105,12 +108,10 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Eip6110(_) => {
+            | BeaconState::Electra(_) => {
+                initialize_progressive_balances_cache(state, spec)?;
                 let justification_and_finalization_state =
-                    altair::process_justification_and_finalization(
-                        state,
-                        &altair::ParticipationCache::new(state, spec).unwrap(),
-                    )?;
+                    altair::process_justification_and_finalization(state)?;
                 justification_and_finalization_state.apply_changes_to_state(state);
                 Ok(())
             }
@@ -124,24 +125,26 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
             BeaconState::Base(_) => {
                 let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
                 validator_statuses.process_attestations(state)?;
-                base::process_rewards_and_penalties(state, &mut validator_statuses, spec)
+                base::process_rewards_and_penalties(state, &validator_statuses, spec)
             }
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Eip6110(_) => altair::process_rewards_and_penalties(
-                state,
-                &altair::ParticipationCache::new(state, spec).unwrap(),
-                spec,
-            ),
+            | BeaconState::Electra(_) => altair::process_rewards_and_penalties_slow(state, spec),
         }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for RegistryUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_registry_updates(state, spec)
+        initialize_epoch_cache(state, spec)?;
+
+        if let BeaconState::Base(_) = state {
+            process_registry_updates(state, spec)
+        } else {
+            process_registry_updates_slow(state, spec)
+        }
     }
 }
 
@@ -161,14 +164,8 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Eip6110(_) => {
-                process_slashings(
-                    state,
-                    altair::ParticipationCache::new(state, spec)
-                        .unwrap()
-                        .current_epoch_total_active_balance(),
-                    spec,
-                )?;
+            | BeaconState::Electra(_) => {
+                process_slashings_slow(state, spec)?;
             }
         };
         Ok(())
@@ -183,7 +180,11 @@ impl<E: EthSpec> EpochTransition<E> for Eth1DataReset {
 
 impl<E: EthSpec> EpochTransition<E> for EffectiveBalanceUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_effective_balance_updates(state, spec)
+        if let BeaconState::Base(_) = state {
+            process_effective_balance_updates(state, spec)
+        } else {
+            process_effective_balance_updates_slow(state, spec)
+        }
     }
 }
 
@@ -213,7 +214,7 @@ impl<E: EthSpec> EpochTransition<E> for HistoricalRootsUpdate {
 impl<E: EthSpec> EpochTransition<E> for HistoricalSummariesUpdate {
     fn run(state: &mut BeaconState<E>, _spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
-            BeaconState::Capella(_) | BeaconState::Deneb(_) => {
+            BeaconState::Capella(_) | BeaconState::Deneb(_) | BeaconState::Electra(_) => {
                 process_historical_summaries_update(state)
             }
             _ => Ok(()),
@@ -239,7 +240,7 @@ impl<E: EthSpec> EpochTransition<E> for SyncCommitteeUpdates {
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Eip6110(_) => altair::process_sync_committee_updates(state, spec),
+            | BeaconState::Electra(_) => altair::process_sync_committee_updates(state, spec),
         }
     }
 }
@@ -252,11 +253,7 @@ impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Eip6110(_) => altair::process_inactivity_updates(
-                state,
-                &altair::ParticipationCache::new(state, spec).unwrap(),
-                spec,
-            ),
+            | BeaconState::Electra(_) => altair::process_inactivity_updates_slow(state, spec),
         }
     }
 }
@@ -269,7 +266,7 @@ impl<E: EthSpec> EpochTransition<E> for ParticipationFlagUpdates {
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Eip6110(_) => altair::process_participation_flag_updates(state),
+            | BeaconState::Electra(_) => altair::process_participation_flag_updates(state),
         }
     }
 }
@@ -320,7 +317,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                 T::name() != "participation_record_updates"
                     && T::name() != "historical_summaries_update"
             }
-            ForkName::Capella | ForkName::Deneb | ForkName::Eip6110 => {
+            ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                 T::name() != "participation_record_updates"
                     && T::name() != "historical_roots_update"
             }
@@ -330,17 +327,20 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         self.metadata.bls_setting.unwrap_or_default().check()?;
 
-        let mut state = self.pre.clone();
+        let spec = &testing_spec::<E>(fork_name);
+        let mut pre_state = self.pre.clone();
+
+        // Processing requires the committee caches.
+        pre_state.build_all_committee_caches(spec).unwrap();
+
+        let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        let spec = &testing_spec::<E>(fork_name);
+        if let Some(post_state) = expected.as_mut() {
+            post_state.build_all_committee_caches(spec).unwrap();
+        }
 
-        let mut result = (|| {
-            // Processing requires the committee caches.
-            state.build_all_committee_caches(spec)?;
-
-            T::run(&mut state, spec).map(|_| state)
-        })();
+        let mut result = T::run(&mut state, spec).map(|_| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }

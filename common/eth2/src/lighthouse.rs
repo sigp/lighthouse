@@ -8,19 +8,16 @@ mod standard_block_rewards;
 mod sync_committee_rewards;
 
 use crate::{
-    ok_or_error,
     types::{
-        BeaconState, ChainSpec, DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock,
-        GenericResponse, ValidatorId,
+        DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock, GenericResponse, ValidatorId,
     },
-    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot, StateId, StatusCode,
+    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot,
 };
 use proto_array::core::ProtoArray;
-use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
-use store::{AnchorInfo, Split, StoreConfig};
+use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
 
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
@@ -42,12 +39,12 @@ four_byte_option_impl!(four_byte_option_hash256, Hash256);
 /// Information returned by `peers` and `connected_peers`.
 // TODO: this should be deserializable..
 #[derive(Debug, Clone, Serialize)]
-#[serde(bound = "T: EthSpec")]
-pub struct Peer<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+pub struct Peer<E: EthSpec> {
     /// The Peer's ID
     pub peer_id: String,
     /// The PeerInfo associated with the peer.
-    pub peer_info: PeerInfo<T>,
+    pub peer_info: PeerInfo<E>,
 }
 
 /// The results of validators voting during an epoch.
@@ -57,8 +54,6 @@ pub struct Peer<T: EthSpec> {
 pub struct GlobalValidatorInclusionData {
     /// The total effective balance of all active validators during the _current_ epoch.
     pub current_epoch_active_gwei: u64,
-    /// The total effective balance of all active validators during the _previous_ epoch.
-    pub previous_epoch_active_gwei: u64,
     /// The total effective balance of all validators who attested during the _current_ epoch and
     /// agreed with the state about the beacon block at the first slot of the _current_ epoch.
     pub current_epoch_target_attesting_gwei: u64,
@@ -95,8 +90,8 @@ pub struct ValidatorInclusionData {
 
 #[cfg(target_os = "linux")]
 use {
-    procinfo::pid, psutil::cpu::os::linux::CpuTimesExt,
-    psutil::memory::os::linux::VirtualMemoryExt, psutil::process::Process,
+    psutil::cpu::os::linux::CpuTimesExt, psutil::memory::os::linux::VirtualMemoryExt,
+    psutil::process::Process,
 };
 
 /// Reports on the health of the Lighthouse instance.
@@ -238,11 +233,13 @@ pub struct ProcessHealth {
     /// The pid of this process.
     pub pid: u32,
     /// The number of threads used by this pid.
-    pub pid_num_threads: i32,
+    pub pid_num_threads: i64,
     /// The total resident memory used by this pid.
     pub pid_mem_resident_set_size: u64,
     /// The total virtual memory used by this pid.
     pub pid_mem_virtual_memory_size: u64,
+    /// The total shared memory used by this pid.
+    pub pid_mem_shared_memory_size: u64,
     /// Number of cpu seconds consumed by this pid.
     pub pid_process_seconds_total: u64,
 }
@@ -262,7 +259,12 @@ impl ProcessHealth {
             .memory_info()
             .map_err(|e| format!("Unable to get process memory info: {:?}", e))?;
 
-        let stat = pid::stat_self().map_err(|e| format!("Unable to get stat: {:?}", e))?;
+        let me = procfs::process::Process::myself()
+            .map_err(|e| format!("Unable to get process: {:?}", e))?;
+        let stat = me
+            .stat()
+            .map_err(|e| format!("Unable to get stat: {:?}", e))?;
+
         let process_times = process
             .cpu_times()
             .map_err(|e| format!("Unable to get process cpu times : {:?}", e))?;
@@ -272,6 +274,7 @@ impl ProcessHealth {
             pid_num_threads: stat.num_threads,
             pid_mem_resident_set_size: process_mem.rss(),
             pid_mem_virtual_memory_size: process_mem.vms(),
+            pid_mem_shared_memory_size: process_mem.shared(),
             pid_process_seconds_total: process_times.busy().as_secs()
                 + process_times.children_system().as_secs()
                 + process_times.children_system().as_secs(),
@@ -359,30 +362,10 @@ pub struct DatabaseInfo {
     pub config: StoreConfig,
     pub split: Split,
     pub anchor: Option<AnchorInfo>,
+    pub blob_info: BlobInfo,
 }
 
 impl BeaconNodeHttpClient {
-    /// Perform a HTTP GET request, returning `None` on a 404 error.
-    async fn get_bytes_opt<U: IntoUrl>(&self, url: U) -> Result<Option<Vec<u8>>, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
-        match ok_or_error(response).await {
-            Ok(resp) => Ok(Some(
-                resp.bytes()
-                    .await
-                    .map_err(Error::Reqwest)?
-                    .into_iter()
-                    .collect::<Vec<_>>(),
-            )),
-            Err(err) => {
-                if err.status() == Some(StatusCode::NOT_FOUND) {
-                    Ok(None)
-                } else {
-                    Err(err)
-                }
-            }
-        }
-    }
-
     /// `GET lighthouse/health`
     pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
         let mut path = self.server.full.clone();
@@ -505,28 +488,6 @@ impl BeaconNodeHttpClient {
             .push("deposit_cache");
 
         self.get(path).await
-    }
-
-    /// `GET lighthouse/beacon/states/{state_id}/ssz`
-    pub async fn get_lighthouse_beacon_states_ssz<E: EthSpec>(
-        &self,
-        state_id: &StateId,
-        spec: &ChainSpec,
-    ) -> Result<Option<BeaconState<E>>, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("beacon")
-            .push("states")
-            .push(&state_id.to_string())
-            .push("ssz");
-
-        self.get_bytes_opt(path)
-            .await?
-            .map(|bytes| BeaconState::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
-            .transpose()
     }
 
     /// `GET lighthouse/staking`

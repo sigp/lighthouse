@@ -6,14 +6,11 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    BeaconChain, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
+    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
-use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
-use state_processing::{
-    per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
-};
+use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use types::{
     BeaconState, BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
 };
@@ -29,6 +26,10 @@ lazy_static! {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
+        .chain_config(ChainConfig {
+            reconstruct_historic_states: true,
+            ..ChainConfig::default()
+        })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -56,9 +57,7 @@ fn massive_skips() {
     assert!(state.slot() > 1, "the state should skip at least one slot");
     assert_eq!(
         error,
-        SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
-            BeaconStateError::InsufficientValidators
-        )),
+        SlotProcessingError::BeaconStateError(BeaconStateError::InsufficientValidators),
         "should return error indicating that validators have been slashed out"
     )
 }
@@ -685,9 +684,9 @@ async fn run_skip_slot_test(skip_slots: u64) {
         .chain
         .process_block(
             harness_a.chain.head_snapshot().beacon_block_root,
-            harness_a.chain.head_snapshot().beacon_block.clone(),
-            CountUnrealized::True,
+            harness_a.get_head_block(),
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();

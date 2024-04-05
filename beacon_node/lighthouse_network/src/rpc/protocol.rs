@@ -1,13 +1,9 @@
 use super::methods::*;
-use crate::rpc::{
-    codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec},
-    methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
-    MaxRequestBlocks, MAX_REQUEST_BLOCKS,
-};
+use crate::rpc::codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec};
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};
-use libp2p::core::{InboundUpgrade, ProtocolName, UpgradeInfo};
+use libp2p::core::{InboundUpgrade, UpgradeInfo};
 use ssz::Encode;
 use ssz_types::VariableList;
 use std::io;
@@ -21,9 +17,9 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BlobSidecar, EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
+    BeaconBlockMerge, BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName,
+    MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -69,10 +65,17 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
+    pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Electra(BeaconBlockElectra::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+
     /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
     /// We calculate the value from its fields instead of constructing the block and checking the length.
     /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
-    /// with `MAX_RPC_SIZE_POST_MERGE`.
+    /// with `max_chunk_size`.
     pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize =
     // Size of a full altair block
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
@@ -88,25 +91,13 @@ lazy_static! {
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
-
-    pub static ref SIGNED_BEACON_BLOCK_EIP6110_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
-    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_eip6110_size() // adding max size of execution payload (~16gb)
-    + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
+                                    //
+    pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX: usize = *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_electra_size() // adding max size of execution payload (~16gb)
+    + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
 
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
-        VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
-    .as_ssz_bytes()
-    .len();
-    pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize =
-        VariableList::<Hash256, MaxRequestBlocks>::from(vec![
-            Hash256::zero();
-            MAX_REQUEST_BLOCKS
-                as usize
-        ])
-    .as_ssz_bytes()
-    .len();
     pub static ref ERROR_TYPE_MIN: usize =
         VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
     .as_ssz_bytes()
@@ -119,39 +110,22 @@ lazy_static! {
         ])
     .as_ssz_bytes()
     .len();
-
-    pub static ref BLOB_SIDECAR_MIN: usize = BlobSidecar::<MainnetEthSpec>::empty().as_ssz_bytes().len();
-    pub static ref BLOB_SIDECAR_MAX: usize = BlobSidecar::<MainnetEthSpec>::max_size();
-
-    //FIXME(sean) these are underestimates
-    pub static ref SIGNED_BLOCK_AND_BLOBS_MIN: usize = *BLOB_SIDECAR_MIN + *SIGNED_BEACON_BLOCK_BASE_MIN;
-    pub static ref SIGNED_BLOCK_AND_BLOBS_MAX: usize =*BLOB_SIDECAR_MAX + *SIGNED_BEACON_BLOCK_DENEB_MAX;
 }
 
-/// The maximum bytes that can be sent across the RPC pre-merge.
-pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
-/// The maximum bytes that can be sent across the RPC post-merge.
-pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
-pub(crate) const MAX_RPC_SIZE_POST_CAPELLA: usize = 10 * 1_048_576; // 10M
-                                                                    // FIXME(sean) should this be increased to account for blobs?
-pub(crate) const MAX_RPC_SIZE_POST_DENEB: usize = 10 * 1_048_576; // 10M
-pub(crate) const MAX_RPC_SIZE_POST_EIP6110: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
-/// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
-const TTFB_TIMEOUT: u64 = 5;
 /// The number of seconds to wait for the first bytes of a request once a protocol has been
 /// established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 15;
 
 /// Returns the maximum bytes that can be sent across the RPC.
-pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
+pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize {
     match fork_context.current_fork() {
-        ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
-        ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
-        ForkName::Capella => MAX_RPC_SIZE_POST_CAPELLA,
-        ForkName::Deneb => MAX_RPC_SIZE_POST_DENEB,
-        ForkName::Eip6110 => MAX_RPC_SIZE_POST_EIP6110,
+        ForkName::Altair | ForkName::Base => max_chunk_size / 10,
+        ForkName::Merge => max_chunk_size,
+        ForkName::Capella => max_chunk_size,
+        ForkName::Deneb => max_chunk_size,
+        ForkName::Electra => max_chunk_size,
     }
 }
 
@@ -178,7 +152,11 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         ),
         ForkName::Deneb => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
-            *SIGNED_BEACON_BLOCK_DENEB_MAX, // EIP 4844 block is larger than all prior fork blocks
+            *SIGNED_BEACON_BLOCK_DENEB_MAX, // Deneb block is larger than all prior fork blocks
+        ),
+        ForkName::Electra => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
         ),
         ForkName::Eip6110 => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
@@ -217,21 +195,6 @@ pub enum Protocol {
     LightClientBootstrap,
 }
 
-/// RPC Versions
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Version {
-    /// Version 1 of RPC
-    V1,
-    /// Version 2 of RPC
-    V2,
-}
-
-/// RPC Encondings supported.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Encoding {
-    SSZSnappy,
-}
-
 impl Protocol {
     pub(crate) fn terminator(self) -> Option<ResponseTermination> {
         match self {
@@ -248,6 +211,87 @@ impl Protocol {
     }
 }
 
+/// RPC Encondings supported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Encoding {
+    SSZSnappy,
+}
+
+/// All valid protocol name and version combinations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SupportedProtocol {
+    StatusV1,
+    GoodbyeV1,
+    BlocksByRangeV1,
+    BlocksByRangeV2,
+    BlocksByRootV1,
+    BlocksByRootV2,
+    BlobsByRangeV1,
+    BlobsByRootV1,
+    PingV1,
+    MetaDataV1,
+    MetaDataV2,
+    LightClientBootstrapV1,
+}
+
+impl SupportedProtocol {
+    pub fn version_string(&self) -> &'static str {
+        match self {
+            SupportedProtocol::StatusV1 => "1",
+            SupportedProtocol::GoodbyeV1 => "1",
+            SupportedProtocol::BlocksByRangeV1 => "1",
+            SupportedProtocol::BlocksByRangeV2 => "2",
+            SupportedProtocol::BlocksByRootV1 => "1",
+            SupportedProtocol::BlocksByRootV2 => "2",
+            SupportedProtocol::BlobsByRangeV1 => "1",
+            SupportedProtocol::BlobsByRootV1 => "1",
+            SupportedProtocol::PingV1 => "1",
+            SupportedProtocol::MetaDataV1 => "1",
+            SupportedProtocol::MetaDataV2 => "2",
+            SupportedProtocol::LightClientBootstrapV1 => "1",
+        }
+    }
+
+    pub fn protocol(&self) -> Protocol {
+        match self {
+            SupportedProtocol::StatusV1 => Protocol::Status,
+            SupportedProtocol::GoodbyeV1 => Protocol::Goodbye,
+            SupportedProtocol::BlocksByRangeV1 => Protocol::BlocksByRange,
+            SupportedProtocol::BlocksByRangeV2 => Protocol::BlocksByRange,
+            SupportedProtocol::BlocksByRootV1 => Protocol::BlocksByRoot,
+            SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
+            SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
+            SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
+            SupportedProtocol::PingV1 => Protocol::Ping,
+            SupportedProtocol::MetaDataV1 => Protocol::MetaData,
+            SupportedProtocol::MetaDataV2 => Protocol::MetaData,
+            SupportedProtocol::LightClientBootstrapV1 => Protocol::LightClientBootstrap,
+        }
+    }
+
+    fn currently_supported(fork_context: &ForkContext) -> Vec<ProtocolId> {
+        let mut supported = vec![
+            ProtocolId::new(Self::StatusV1, Encoding::SSZSnappy),
+            ProtocolId::new(Self::GoodbyeV1, Encoding::SSZSnappy),
+            // V2 variants have higher preference then V1
+            ProtocolId::new(Self::BlocksByRangeV2, Encoding::SSZSnappy),
+            ProtocolId::new(Self::BlocksByRangeV1, Encoding::SSZSnappy),
+            ProtocolId::new(Self::BlocksByRootV2, Encoding::SSZSnappy),
+            ProtocolId::new(Self::BlocksByRootV1, Encoding::SSZSnappy),
+            ProtocolId::new(Self::PingV1, Encoding::SSZSnappy),
+            ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
+            ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),
+        ];
+        if fork_context.fork_exists(ForkName::Deneb) {
+            supported.extend_from_slice(&[
+                ProtocolId::new(SupportedProtocol::BlobsByRootV1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
+            ]);
+        }
+        supported
+    }
+}
+
 impl std::fmt::Display for Encoding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
@@ -257,54 +301,25 @@ impl std::fmt::Display for Encoding {
     }
 }
 
-impl std::fmt::Display for Version {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let repr = match self {
-            Version::V1 => "1",
-            Version::V2 => "2",
-        };
-        f.write_str(repr)
-    }
-}
-
 #[derive(Debug, Clone)]
-pub struct RPCProtocol<TSpec: EthSpec> {
+pub struct RPCProtocol<E: EthSpec> {
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
     pub enable_light_client_server: bool,
-    pub phantom: PhantomData<TSpec>,
+    pub phantom: PhantomData<E>,
+    pub ttfb_timeout: Duration,
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
+impl<E: EthSpec> UpgradeInfo for RPCProtocol<E> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
     /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
-        let mut supported_protocols = vec![
-            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
-            // V2 variants have higher preference then V1
-            ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
-        ];
-
-        if let ForkName::Deneb = self.fork_context.current_fork() {
-            supported_protocols.extend_from_slice(&[
-                ProtocolId::new(Protocol::BlobsByRoot, Version::V1, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlobsByRange, Version::V1, Encoding::SSZSnappy),
-            ]);
-        }
-
+        let mut supported_protocols = SupportedProtocol::currently_supported(&self.fork_context);
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
-                Protocol::LightClientBootstrap,
-                Version::V1,
+                SupportedProtocol::LightClientBootstrapV1,
                 Encoding::SSZSnappy,
             ));
         }
@@ -334,11 +349,8 @@ impl RpcLimits {
 /// Tracks the types in a protocol id.
 #[derive(Clone, Debug)]
 pub struct ProtocolId {
-    /// The RPC message type/name.
-    pub message_name: Protocol,
-
-    /// The version of the RPC.
-    pub version: Version,
+    /// The protocol name and version
+    pub versioned_protocol: SupportedProtocol,
 
     /// The encoding of the RPC.
     pub encoding: Encoding,
@@ -347,10 +359,16 @@ pub struct ProtocolId {
     protocol_id: String,
 }
 
+impl AsRef<str> for ProtocolId {
+    fn as_ref(&self) -> &str {
+        self.protocol_id.as_ref()
+    }
+}
+
 impl ProtocolId {
     /// Returns min and max size for messages of given protocol id requests.
-    pub fn rpc_request_limits(&self) -> RpcLimits {
-        match self.message_name {
+    pub fn rpc_request_limits(&self, spec: &ChainSpec) -> RpcLimits {
+        match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -359,21 +377,17 @@ impl ProtocolId {
                 <GoodbyeReason as Encode>::ssz_fixed_len(),
                 <GoodbyeReason as Encode>::ssz_fixed_len(),
             ),
+            // V1 and V2 requests are the same
             Protocol::BlocksByRange => RpcLimits::new(
-                <OldBlocksByRangeRequest as Encode>::ssz_fixed_len(),
-                <OldBlocksByRangeRequest as Encode>::ssz_fixed_len(),
+                <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
+                <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlocksByRoot => {
-                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
-            }
+            Protocol::BlocksByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
             Protocol::BlobsByRange => RpcLimits::new(
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
-            Protocol::BlobsByRoot => {
-                // TODO: This looks wrong to me
-                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
-            }
+            Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -387,8 +401,8 @@ impl ProtocolId {
     }
 
     /// Returns min and max size for messages of given protocol id responses.
-    pub fn rpc_response_limits<T: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
-        match self.message_name {
+    pub fn rpc_response_limits<E: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
+        match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -396,18 +410,15 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRange => RpcLimits::new(*BLOB_SIDECAR_MIN, *BLOB_SIDECAR_MAX),
-            Protocol::BlobsByRoot => {
-                // TODO: wrong too
-                RpcLimits::new(*SIGNED_BLOCK_AND_BLOBS_MIN, *SIGNED_BLOCK_AND_BLOBS_MAX)
-            }
+            Protocol::BlobsByRange => rpc_blob_limits::<E>(),
+            Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
             ),
             Protocol::MetaData => RpcLimits::new(
-                <MetaDataV1<T> as Encode>::ssz_fixed_len(),
-                <MetaDataV2<T> as Encode>::ssz_fixed_len(),
+                <MetaDataV1<E> as Encode>::ssz_fixed_len(),
+                <MetaDataV2<E> as Encode>::ssz_fixed_len(),
             ),
             Protocol::LightClientBootstrap => RpcLimits::new(
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
@@ -419,41 +430,47 @@ impl ProtocolId {
     /// Returns `true` if the given `ProtocolId` should expect `context_bytes` in the
     /// beginning of the stream, else returns `false`.
     pub fn has_context_bytes(&self) -> bool {
-        match self.message_name {
-            Protocol::BlocksByRange | Protocol::BlocksByRoot => match self.version {
-                Version::V2 => true,
-                Version::V1 => false,
-            },
-            Protocol::LightClientBootstrap => match self.version {
-                Version::V2 | Version::V1 => true,
-            },
-            Protocol::BlobsByRoot | Protocol::BlobsByRange => true,
-            Protocol::Goodbye | Protocol::Ping | Protocol::Status | Protocol::MetaData => false,
+        match self.versioned_protocol {
+            SupportedProtocol::BlocksByRangeV2
+            | SupportedProtocol::BlocksByRootV2
+            | SupportedProtocol::BlobsByRangeV1
+            | SupportedProtocol::BlobsByRootV1
+            | SupportedProtocol::LightClientBootstrapV1 => true,
+            SupportedProtocol::StatusV1
+            | SupportedProtocol::BlocksByRootV1
+            | SupportedProtocol::BlocksByRangeV1
+            | SupportedProtocol::PingV1
+            | SupportedProtocol::MetaDataV1
+            | SupportedProtocol::MetaDataV2
+            | SupportedProtocol::GoodbyeV1 => false,
         }
     }
 }
 
 /// An RPC protocol ID.
 impl ProtocolId {
-    pub fn new(message_name: Protocol, version: Version, encoding: Encoding) -> Self {
+    pub fn new(versioned_protocol: SupportedProtocol, encoding: Encoding) -> Self {
         let protocol_id = format!(
             "{}/{}/{}/{}",
-            PROTOCOL_PREFIX, message_name, version, encoding
+            PROTOCOL_PREFIX,
+            versioned_protocol.protocol(),
+            versioned_protocol.version_string(),
+            encoding
         );
 
         ProtocolId {
-            message_name,
-            version,
+            versioned_protocol,
             encoding,
             protocol_id,
         }
     }
 }
 
-impl ProtocolName for ProtocolId {
-    fn protocol_name(&self) -> &[u8] {
-        self.protocol_id.as_bytes()
-    }
+pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
+    RpcLimits::new(
+        BlobSidecar::<E>::empty().as_ssz_bytes().len(),
+        BlobSidecar::<E>::max_size(),
+    )
 }
 
 /* Inbound upgrade */
@@ -461,22 +478,22 @@ impl ProtocolName for ProtocolId {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket, TSpec> = (InboundRequest<TSpec>, InboundFramed<TSocket, TSpec>);
-pub type InboundFramed<TSocket, TSpec> =
-    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<TSpec>>;
+pub type InboundOutput<TSocket, E> = (InboundRequest<E>, InboundFramed<TSocket, E>);
+pub type InboundFramed<TSocket, E> =
+    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<E>>;
 
-impl<TSocket, TSpec> InboundUpgrade<TSocket> for RPCProtocol<TSpec>
+impl<TSocket, E> InboundUpgrade<TSocket> for RPCProtocol<E>
 where
     TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    TSpec: EthSpec,
+    E: EthSpec,
 {
-    type Output = InboundOutput<TSocket, TSpec>;
+    type Output = InboundOutput<TSocket, E>;
     type Error = RPCError;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
     fn upgrade_inbound(self, socket: TSocket, protocol: ProtocolId) -> Self::Future {
         async move {
-            let protocol_name = protocol.message_name;
+            let versioned_protocol = protocol.versioned_protocol;
             // convert the socket to tokio compatible socket
             let socket = socket.compat();
             let codec = match protocol.encoding {
@@ -490,13 +507,18 @@ where
                 }
             };
             let mut timed_socket = TimeoutStream::new(socket);
-            timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
+            timed_socket.set_read_timeout(Some(self.ttfb_timeout));
 
             let socket = Framed::new(Box::pin(timed_socket), codec);
 
             // MetaData requests should be empty, return the stream
-            match protocol_name {
-                Protocol::MetaData => Ok((InboundRequest::MetaData(PhantomData), socket)),
+            match versioned_protocol {
+                SupportedProtocol::MetaDataV1 => {
+                    Ok((InboundRequest::MetaData(MetadataRequest::new_v1()), socket))
+                }
+                SupportedProtocol::MetaDataV2 => {
+                    Ok((InboundRequest::MetaData(MetadataRequest::new_v2()), socket))
+                }
                 _ => {
                     match tokio::time::timeout(
                         Duration::from_secs(REQUEST_TIMEOUT),
@@ -517,7 +539,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum InboundRequest<TSpec: EthSpec> {
+pub enum InboundRequest<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
@@ -526,11 +548,11 @@ pub enum InboundRequest<TSpec: EthSpec> {
     BlobsByRoot(BlobsByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
-    MetaData(PhantomData<TSpec>),
+    MetaData(MetadataRequest<E>),
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> InboundRequest<TSpec> {
+impl<E: EthSpec> InboundRequest<E> {
     /* These functions are used in the handler for stream management */
 
     /// Number of responses expected for this request.
@@ -538,9 +560,9 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
         match self {
             InboundRequest::Status(_) => 1,
             InboundRequest::Goodbye(_) => 0,
-            InboundRequest::BlocksByRange(req) => req.count,
-            InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
-            InboundRequest::BlobsByRange(req) => req.count * TSpec::max_blobs_per_block() as u64,
+            InboundRequest::BlocksByRange(req) => *req.count(),
+            InboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
+            InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
@@ -548,18 +570,27 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
         }
     }
 
-    /// Gives the corresponding `Protocol` to this request.
-    pub fn protocol(&self) -> Protocol {
+    /// Gives the corresponding `SupportedProtocol` to this request.
+    pub fn versioned_protocol(&self) -> SupportedProtocol {
         match self {
-            InboundRequest::Status(_) => Protocol::Status,
-            InboundRequest::Goodbye(_) => Protocol::Goodbye,
-            InboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
-            InboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
-            InboundRequest::BlobsByRange(_) => Protocol::BlobsByRange,
-            InboundRequest::BlobsByRoot(_) => Protocol::BlobsByRoot,
-            InboundRequest::Ping(_) => Protocol::Ping,
-            InboundRequest::MetaData(_) => Protocol::MetaData,
-            InboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            InboundRequest::Status(_) => SupportedProtocol::StatusV1,
+            InboundRequest::Goodbye(_) => SupportedProtocol::GoodbyeV1,
+            InboundRequest::BlocksByRange(req) => match req {
+                OldBlocksByRangeRequest::V1(_) => SupportedProtocol::BlocksByRangeV1,
+                OldBlocksByRangeRequest::V2(_) => SupportedProtocol::BlocksByRangeV2,
+            },
+            InboundRequest::BlocksByRoot(req) => match req {
+                BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
+                BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
+            },
+            InboundRequest::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
+            InboundRequest::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
+            InboundRequest::Ping(_) => SupportedProtocol::PingV1,
+            InboundRequest::MetaData(req) => match req {
+                MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
+                MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
+            },
+            InboundRequest::LightClientBootstrap(_) => SupportedProtocol::LightClientBootstrapV1,
         }
     }
 
@@ -672,7 +703,7 @@ impl std::error::Error for RPCError {
     }
 }
 
-impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
+impl<E: EthSpec> std::fmt::Display for InboundRequest<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InboundRequest::Status(status) => write!(f, "Status Message: {}", status),

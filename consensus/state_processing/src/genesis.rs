@@ -5,20 +5,20 @@ use crate::common::DepositDataTree;
 use crate::per_block_processing::UNSET_DEPOSIT_RECEIPTS_START_INDEX;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
-    upgrade_to_eip6110,
+    upgrade_to_electra,
 };
 use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
-use types::DEPOSIT_TREE_DEPTH;
 use types::*;
 
-pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
+/// Initialize a `BeaconState` from genesis data.
+pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     eth1_block_hash: Hash256,
     eth1_timestamp: u64,
     deposits: Vec<Deposit>,
-    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
+    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     spec: &ChainSpec,
-) -> Result<BeaconState<T>, BlockProcessingError> {
+) -> Result<BeaconState<E>, BlockProcessingError> {
     let genesis_time = eth2_genesis_time(eth1_timestamp, spec)?;
     let eth1_data = Eth1Data {
         deposit_root: Hash256::zero(),
@@ -57,7 +57,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 
     if spec
         .altair_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
     {
         upgrade_to_altair(&mut state, spec)?;
 
@@ -67,7 +67,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // Similarly, perform an upgrade to the merge if configured from genesis.
     if spec
         .bellatrix_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
     {
         // this will set state.latest_execution_payload_header = ExecutionPayloadHeaderMerge::default()
         upgrade_to_bellatrix(&mut state, spec)?;
@@ -85,7 +85,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // Upgrade to capella if configured from genesis
     if spec
         .capella_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
     {
         upgrade_to_capella(&mut state, spec)?;
 
@@ -102,7 +102,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // Upgrade to deneb if configured from genesis
     if spec
         .deneb_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
     {
         upgrade_to_deneb(&mut state, spec)?;
 
@@ -116,30 +116,33 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         }
     }
 
-    // Upgrade to eip6110 if configured from genesis
+    // Upgrade to electra if configured from genesis.
     if spec
-        .eip6110_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+        .electra_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
     {
-        upgrade_to_eip6110(&mut state, spec)?;
+        upgrade_to_electra(&mut state, spec)?;
 
-        // Remove intermediate Eip4844 fork from `state.fork`.
-        state.fork_mut().previous_version = spec.eip6110_fork_version;
+        // Remove intermediate Deneb fork from `state.fork`.
+        state.fork_mut().previous_version = spec.electra_fork_version;
 
         // Override latest execution payload header.
-        // See https://github.com/ethereum/consensus-specs/blob/dev/specs/_features/eip6110/beacon-chain.md#testing
-        if let Some(ExecutionPayloadHeader::Eip6110(header)) = execution_payload_header {
-            *state.latest_execution_payload_header_eip6110_mut()? = header;
+        // See https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#testing
+        if let Some(ExecutionPayloadHeader::Electra(header)) = execution_payload_header {
+            *state.latest_execution_payload_header_electra_mut()? = header.clone();
         }
     }
+
+    // Now that we have our validators, initialize the caches (including the committees)
+    state.build_caches(spec)?;
 
     Ok(state)
 }
 
 /// Determine whether a candidate genesis state is suitable for starting the chain.
-pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> bool {
+pub fn is_valid_genesis_state<E: EthSpec>(state: &BeaconState<E>, spec: &ChainSpec) -> bool {
     state
-        .get_active_validator_indices(T::genesis_epoch(), spec)
+        .get_active_validator_indices(E::genesis_epoch(), spec)
         .map_or(false, |active_validators| {
             state.genesis_time() >= spec.min_genesis_time
                 && active_validators.len() as u64 >= spec.min_genesis_active_validator_count
@@ -147,11 +150,11 @@ pub fn is_valid_genesis_state<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSp
 }
 
 /// Activate genesis validators, if their balance is acceptable.
-pub fn process_activations<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_activations<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let (validators, balances) = state.validators_and_balances_mut();
+    let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
     for (index, validator) in validators.iter_mut().enumerate() {
         let balance = balances
             .get(index)
@@ -162,8 +165,8 @@ pub fn process_activations<T: EthSpec>(
             spec.max_effective_balance,
         );
         if validator.effective_balance == spec.max_effective_balance {
-            validator.activation_eligibility_epoch = T::genesis_epoch();
-            validator.activation_epoch = T::genesis_epoch();
+            validator.activation_eligibility_epoch = E::genesis_epoch();
+            validator.activation_epoch = E::genesis_epoch();
         }
     }
     Ok(())

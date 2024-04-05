@@ -7,13 +7,22 @@ use lighthouse_metrics::{
 use slog::Logger;
 use slog_term::Decorator;
 use std::io::{Result, Write};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use tracing_appender::non_blocking::NonBlocking;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_logging_layer::LoggingLayer;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
 pub mod async_record;
 mod sse_logging_components;
+mod tracing_logging_layer;
+mod tracing_metrics_layer;
+
 pub use sse_logging_components::SSELoggingComponents;
+pub use tracing_metrics_layer::MetricsLayer;
 
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
@@ -211,6 +220,61 @@ impl TimeLatch {
         }
 
         is_elapsed
+    }
+}
+
+pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
+    let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
+        .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
+    {
+        Ok(filter) => filter,
+        Err(e) => {
+            eprintln!("Failed to initialize dependency logging {e}");
+            return;
+        }
+    };
+
+    let Ok(libp2p_writer) = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .max_log_files(2)
+        .filename_prefix("libp2p")
+        .filename_suffix("log")
+        .build(base_tracing_log_path.clone())
+    else {
+        eprintln!("Failed to initialize libp2p rolling file appender");
+        return;
+    };
+
+    let Ok(discv5_writer) = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .max_log_files(2)
+        .filename_prefix("discv5")
+        .filename_suffix("log")
+        .build(base_tracing_log_path.clone())
+    else {
+        eprintln!("Failed to initialize discv5 rolling file appender");
+        return;
+    };
+
+    let (libp2p_non_blocking_writer, libp2p_guard) = NonBlocking::new(libp2p_writer);
+    let (discv5_non_blocking_writer, discv5_guard) = NonBlocking::new(discv5_writer);
+
+    let custom_layer = LoggingLayer {
+        libp2p_non_blocking_writer,
+        libp2p_guard,
+        discv5_non_blocking_writer,
+        discv5_guard,
+    };
+
+    if let Err(e) = tracing_subscriber::fmt()
+        .with_env_filter(filter_layer)
+        .with_writer(std::io::sink)
+        .finish()
+        .with(MetricsLayer)
+        .with(custom_layer)
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging {e}");
     }
 }
 

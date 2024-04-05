@@ -2,17 +2,18 @@ use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::compute_blob_kzg_proof;
 use kzg::KzgProof;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KZGComputeBlobKZGProofInput {
     pub blob: String,
     pub commitment: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct KZGComputeBlobKZGProof<E: EthSpec> {
     pub input: KZGComputeBlobKZGProofInput,
     pub output: Option<String>,

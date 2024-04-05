@@ -18,8 +18,8 @@ fn error(reason: ExitInvalid) -> BlockOperationError<ExitInvalid> {
 /// Returns `Ok(())` if the `Exit` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.12.1
-pub fn verify_exit<T: EthSpec>(
-    state: &BeaconState<T>,
+pub fn verify_exit<E: EthSpec>(
+    state: &BeaconState<E>,
     current_epoch: Option<Epoch>,
     signed_exit: &SignedVoluntaryExit,
     verify_signatures: VerifySignatures,

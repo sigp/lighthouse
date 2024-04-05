@@ -6,7 +6,6 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_utils::hex::encode as hex_encode;
 use ssz::{Decode, Encode};
-use std::convert::TryInto;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
@@ -27,10 +26,7 @@ impl<Pub> Copy for GenericPublicKeyBytes<Pub> {}
 
 impl<Pub> Clone for GenericPublicKeyBytes<Pub> {
     fn clone(&self) -> Self {
-        Self {
-            bytes: self.bytes,
-            _phantom: PhantomData,
-        }
+        *self
     }
 }
 

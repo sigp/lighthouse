@@ -22,8 +22,7 @@ extern crate lazy_static;
 use bls::{Keypair, PublicKey, SecretKey};
 use ethereum_hashing::hash;
 use num_bigint::BigUint;
-use serde_derive::{Deserialize, Serialize};
-use std::convert::TryInto;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::PathBuf;
 

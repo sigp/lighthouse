@@ -1,4 +1,4 @@
-use c_kzg::{Bytes48, BYTES_PER_PROOF};
+use c_kzg::BYTES_PER_PROOF;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use ssz_derive::{Decode, Encode};
@@ -11,16 +11,17 @@ use tree_hash::{PackedEncoding, TreeHash};
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgProof(pub [u8; BYTES_PER_PROOF]);
 
-impl From<KzgProof> for Bytes48 {
+impl From<KzgProof> for c_kzg::Bytes48 {
     fn from(value: KzgProof) -> Self {
         value.0.into()
     }
 }
 
 impl KzgProof {
+    /// Creates a valid proof using `G1_POINT_AT_INFINITY`.
     pub fn empty() -> Self {
         let mut bytes = [0; BYTES_PER_PROOF];
-        bytes[0] = 192;
+        bytes[0] = 0xc0;
         Self(bytes)
     }
 }
@@ -28,12 +29,6 @@ impl KzgProof {
 impl fmt::Display for KzgProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", serde_utils::hex::encode(self.0))
-    }
-}
-
-impl Default for KzgProof {
-    fn default() -> Self {
-        KzgProof([0; BYTES_PER_PROOF])
     }
 }
 
@@ -81,25 +76,8 @@ impl<'de> Deserialize<'de> for KzgProof {
     where
         D: Deserializer<'de>,
     {
-        pub struct StringVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for StringVisitor {
-            type Value = String;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a hex string with 0x prefix")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(value.to_string())
-            }
-        }
-
-        let string = deserializer.deserialize_str(StringVisitor)?;
-        <Self as std::str::FromStr>::from_str(&string).map_err(serde::de::Error::custom)
+        let string = String::deserialize(deserializer)?;
+        Self::from_str(&string).map_err(serde::de::Error::custom)
     }
 }
 
@@ -132,7 +110,6 @@ impl Debug for KzgProof {
     }
 }
 
-#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary<'_> for KzgProof {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let mut bytes = [0u8; BYTES_PER_PROOF];

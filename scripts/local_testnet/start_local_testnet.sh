@@ -102,16 +102,8 @@ execute_command_add_PID() {
 echo "executing: ./setup.sh >> $LOG_DIR/setup.log"
 ./setup.sh >> $LOG_DIR/setup.log 2>&1
 
-# Update future hardforks time in the EL genesis file based on the CL genesis time
-GENESIS_TIME=$(lcli pretty-ssz state_merge $TESTNET_DIR/genesis.ssz  | jq | grep -Po 'genesis_time": "\K.*\d')
-echo $GENESIS_TIME
-CAPELLA_TIME=$((GENESIS_TIME + (CAPELLA_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
-echo $CAPELLA_TIME
-sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $genesis_file
-DENEB_TIME=$((GENESIS_TIME + (DENEB_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
-echo $DENEB_TIME
-sed -i 's/"shardingForkTime".*$/"shardingForkTime": '"$DENEB_TIME"',/g' $genesis_file
-cat $genesis_file
+# Call setup_time.sh to update future hardforks time in the EL genesis file based on the CL genesis time
+./setup_time.sh $genesis_file
 
 # Delay to let boot_enr.yaml to be created
 execute_command_add_PID bootnode.log ./bootnode.sh
@@ -141,12 +133,13 @@ sleeping 20
 
 # Reset the `genesis.json` config file fork times.
 sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' $genesis_file
-sed -i 's/"shardingForkTime".*$/"shardingForkTime": 0,/g' $genesis_file
+sed -i 's/"cancunTime".*$/"cancunTime": 0,/g' $genesis_file
+sed -i 's/"pragueTime".*$/"pragueTime": 0,/g' $genesis_file
 
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     secret=$DATADIR/geth_datadir$bn/geth/jwtsecret
     echo $secret
-    execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_http_port_base + $bn)) http://localhost:$((EL_base_auth_http + $bn)) $secret
+    execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_udp_tcp_base + $bn + 100)) $((BN_http_port_base + $bn)) http://localhost:$((EL_base_auth_http + $bn)) $secret
 done
 
 # Start requested number of validator clients

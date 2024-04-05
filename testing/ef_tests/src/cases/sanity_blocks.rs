@@ -2,12 +2,12 @@ use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
     ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
-use types::{BeaconState, EthSpec, ForkName, RelativeEpoch, SignedBeaconBlock};
+use types::{BeaconState, RelativeEpoch, SignedBeaconBlock};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {
@@ -67,7 +67,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
         let spec = &testing_spec::<E>(fork_name);
 
         // Processing requires the epoch cache.
-        bulk_state.build_all_caches(spec).unwrap();
+        bulk_state.build_caches(spec).unwrap();
 
         // Spawning a second state to call the VerifyIndiviual strategy to avoid bitrot.
         // See https://github.com/sigp/lighthouse/issues/742.

@@ -1,13 +1,13 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced};
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
     http_metrics::metrics,
-    validator_store::ValidatorStore,
+    validator_store::{Error as ValidatorStoreError, ValidatorStore},
     OfflineOnFailure,
 };
 use environment::RuntimeContext;
 use futures::future::join_all;
-use slog::{crit, error, info, trace};
+use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -193,7 +193,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .fold(HashMap::new(), |mut map, duty_and_proof| {
                 map.entry(duty_and_proof.duty.committee_index)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(duty_and_proof);
                 map
             });
@@ -395,6 +395,20 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .await
             {
                 Ok(()) => Some((attestation, duty.validator_index)),
+                Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                    // A pubkey can be missing when a validator was recently
+                    // removed via the API.
+                    warn!(
+                        log,
+                        "Missing pubkey for attestation";
+                        "info" => "a validator may have recently been removed from this VC",
+                        "pubkey" => ?pubkey,
+                        "validator" => ?duty.pubkey,
+                        "committee_index" => committee_index,
+                        "slot" => slot.as_u64(),
+                    );
+                    None
+                }
                 Err(e) => {
                     crit!(
                         log,
@@ -416,12 +430,18 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .flatten()
             .unzip();
 
+        if attestations.is_empty() {
+            warn!(log, "No attestations were published");
+            return Ok(None);
+        }
+
         // Post the attestations to the BN.
         match self
             .beacon_nodes
-            .first_success(
+            .request(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
+                ApiTopic::Attestations,
                 |beacon_node| async move {
                     let _timer = metrics::start_timer_vec(
                         &metrics::ATTESTATION_SERVICE_TIMES,
@@ -477,6 +497,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     ) -> Result<(), String> {
         let log = self.context.log();
 
+        if !validator_duties
+            .iter()
+            .any(|duty_and_proof| duty_and_proof.selection_proof.is_some())
+        {
+            // Exit early if no validator is aggregator
+            return Ok(());
+        }
+
         let aggregated_attestation = &self
             .beacon_nodes
             .first_success(
@@ -527,10 +555,20 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .await
             {
                 Ok(aggregate) => Some(aggregate),
+                Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                    // A pubkey can be missing when a validator was recently
+                    // removed via the API.
+                    debug!(
+                        log,
+                        "Missing pubkey for aggregate";
+                        "pubkey" => ?pubkey,
+                    );
+                    None
+                }
                 Err(e) => {
                     crit!(
                         log,
-                        "Failed to sign attestation";
+                        "Failed to sign aggregate";
                         "error" => ?e,
                         "pubkey" => ?duty.pubkey,
                     );

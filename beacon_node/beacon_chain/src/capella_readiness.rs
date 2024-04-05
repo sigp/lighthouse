@@ -1,5 +1,4 @@
-//! Provides tools for checking if a node is ready for the Capella upgrade and following merge
-//! transition.
+//! Provides tools for checking if a node is ready for the Capella upgrade.
 
 use crate::{BeaconChain, BeaconChainTypes};
 use execution_layer::http::{

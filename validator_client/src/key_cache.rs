@@ -47,6 +47,12 @@ pub struct KeyCache {
 
 type SerializedKeyMap = HashMap<Uuid, ZeroizeHash>;
 
+impl Default for KeyCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyCache {
     pub fn new() -> Self {
         KeyCache {

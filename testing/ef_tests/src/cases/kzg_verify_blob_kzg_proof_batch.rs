@@ -1,10 +1,12 @@
 use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::validate_blobs;
-use serde_derive::Deserialize;
+use kzg::Error as KzgError;
+use serde::Deserialize;
 use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KZGVerifyBlobKZGProofBatchInput {
     pub blobs: Vec<String>,
     pub commitments: Vec<String>,
@@ -12,7 +14,7 @@ pub struct KZGVerifyBlobKZGProofBatchInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct KZGVerifyBlobKZGProofBatch<E: EthSpec> {
     pub input: KZGVerifyBlobKZGProofBatchInput,
     pub output: Option<bool>,
@@ -52,10 +54,23 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProofBatch<E> {
         };
 
         let kzg = get_kzg()?;
-        let result = parse_input(&self.input).and_then(|(commitments, blobs, proofs)| {
-            validate_blobs::<E>(&kzg, &commitments, &blobs, &proofs)
-                .map_err(|e| Error::InternalError(format!("Failed to validate blobs: {:?}", e)))
-        });
+
+        let result =
+            parse_input(&self.input).and_then(
+                |(commitments, blobs, proofs)| match validate_blobs::<E>(
+                    &kzg,
+                    &commitments,
+                    blobs.iter().collect(),
+                    &proofs,
+                ) {
+                    Ok(_) => Ok(true),
+                    Err(KzgError::KzgVerificationFailed) => Ok(false),
+                    Err(e) => Err(Error::InternalError(format!(
+                        "Failed to validate blobs: {:?}",
+                        e
+                    ))),
+                },
+            );
 
         compare_result::<bool, _>(&result, &self.output)
     }

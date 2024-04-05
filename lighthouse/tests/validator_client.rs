@@ -1,4 +1,4 @@
-use validator_client::Config;
+use validator_client::{ApiTopic, Config};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
@@ -99,12 +99,6 @@ fn beacon_nodes_flag() {
             );
             assert_eq!(config.beacon_nodes[1].to_string(), "https://infura.io/");
         });
-}
-
-#[test]
-fn allow_unsynced_flag() {
-    // No-op, but doesn't crash.
-    CommandLineTest::new().flag("allow-unsynced", None).run();
 }
 
 #[test]
@@ -260,6 +254,7 @@ fn http_flag() {
 fn http_address_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("127.0.0.99"))
         .flag("unencrypted-http-transport", None)
         .run()
@@ -269,6 +264,7 @@ fn http_address_flag() {
 fn http_address_ipv6_flag() {
     let addr = "::1".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("::1"))
         .flag("unencrypted-http-transport", None)
         .run()
@@ -279,6 +275,7 @@ fn http_address_ipv6_flag() {
 fn missing_unencrypted_http_transport_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-address", Some("127.0.0.99"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
@@ -286,6 +283,7 @@ fn missing_unencrypted_http_transport_flag() {
 #[test]
 fn http_port_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-port", Some("9090"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, 9090));
@@ -293,6 +291,7 @@ fn http_port_flag() {
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-allow-origin", Some("http://localhost:9009"))
         .run()
         .with_config(|config| {
@@ -305,9 +304,40 @@ fn http_allow_origin_flag() {
 #[test]
 fn http_allow_origin_all_flag() {
     CommandLineTest::new()
+        .flag("http", None)
         .flag("http-allow-origin", Some("*"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
+}
+#[test]
+fn http_allow_keystore_export_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run()
+        .with_config(|config| assert!(!config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_allow_keystore_export_present() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("http-allow-keystore-export", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run()
+        .with_config(|config| assert!(!config.http_api.store_passwords_in_secrets_dir));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_present() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("http-store-passwords-in-secrets-dir", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.store_passwords_in_secrets_dir));
 }
 
 // Tests for Metrics flags.
@@ -322,6 +352,7 @@ fn metrics_flag() {
 fn metrics_address_flag() {
     let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-address", Some("127.0.0.99"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
@@ -330,6 +361,7 @@ fn metrics_address_flag() {
 fn metrics_address_ipv6_flag() {
     let addr = "::1".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-address", Some("::1"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
@@ -337,6 +369,7 @@ fn metrics_address_ipv6_flag() {
 #[test]
 fn metrics_port_flag() {
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-port", Some("9090"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, 9090));
@@ -344,6 +377,7 @@ fn metrics_port_flag() {
 #[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-allow-origin", Some("http://localhost:9009"))
         .run()
         .with_config(|config| {
@@ -356,6 +390,7 @@ fn metrics_allow_origin_flag() {
 #[test]
 fn metrics_allow_origin_all_flag() {
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-allow-origin", Some("*"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.allow_origin, Some("*".to_string())));
@@ -387,23 +422,20 @@ fn no_doppelganger_protection_flag() {
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
 #[test]
-fn block_delay_ms() {
+fn produce_block_v3_flag() {
     CommandLineTest::new()
-        .flag("block-delay-ms", Some("2000"))
+        .flag("produce-block-v3", None)
         .run()
-        .with_config(|config| {
-            assert_eq!(
-                config.block_delay,
-                Some(std::time::Duration::from_millis(2000))
-            )
-        });
+        .with_config(|config| assert!(config.produce_block_v3));
 }
+
 #[test]
-fn no_block_delay_ms() {
+fn no_produce_block_v3_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert_eq!(config.block_delay, None));
+        .with_config(|config| assert!(!config.produce_block_v3));
 }
+
 #[test]
 fn no_gas_limit_flag() {
     CommandLineTest::new()
@@ -432,6 +464,32 @@ fn builder_proposals_flag() {
         .with_config(|config| assert!(config.builder_proposals));
 }
 #[test]
+fn builder_boost_factor_flag() {
+    CommandLineTest::new()
+        .flag("builder-boost-factor", Some("150"))
+        .run()
+        .with_config(|config| assert_eq!(config.builder_boost_factor, Some(150)));
+}
+#[test]
+fn no_builder_boost_factor_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.builder_boost_factor, None));
+}
+#[test]
+fn prefer_builder_proposals_flag() {
+    CommandLineTest::new()
+        .flag("prefer-builder-proposals", None)
+        .run()
+        .with_config(|config| assert!(config.prefer_builder_proposals));
+}
+#[test]
+fn no_prefer_builder_proposals_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.prefer_builder_proposals));
+}
+#[test]
 fn no_builder_registration_timestamp_override_flag() {
     CommandLineTest::new()
         .run()
@@ -458,20 +516,78 @@ fn monitoring_endpoint() {
             assert_eq!(api_conf.update_period_secs, Some(30));
         });
 }
-#[test]
-fn disable_run_on_all_default() {
-    CommandLineTest::new().run().with_config(|config| {
-        assert!(!config.disable_run_on_all);
-    });
-}
 
 #[test]
-fn disable_run_on_all() {
+fn disable_run_on_all_flag() {
     CommandLineTest::new()
         .flag("disable-run-on-all", None)
         .run()
         .with_config(|config| {
-            assert!(config.disable_run_on_all);
+            assert_eq!(config.broadcast_topics, vec![]);
+        });
+    // --broadcast flag takes precedence
+    CommandLineTest::new()
+        .flag("disable-run-on-all", None)
+        .flag("broadcast", Some("attestations"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
+        });
+}
+
+#[test]
+fn no_broadcast_flag() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.broadcast_topics, vec![ApiTopic::Subscriptions]);
+    });
+}
+
+#[test]
+fn broadcast_flag() {
+    // "none" variant
+    CommandLineTest::new()
+        .flag("broadcast", Some("none"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![]);
+        });
+    // "none" with other values is ignored
+    CommandLineTest::new()
+        .flag("broadcast", Some("none,sync-committee"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::SyncCommittee]);
+        });
+    // Other valid variants
+    CommandLineTest::new()
+        .flag("broadcast", Some("blocks, subscriptions"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.broadcast_topics,
+                vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            );
+        });
+    // Omitted "subscription" overrides default
+    CommandLineTest::new()
+        .flag("broadcast", Some("attestations"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
+        });
+}
+
+#[test]
+#[should_panic(expected = "Unknown API topic")]
+fn wrong_broadcast_flag() {
+    CommandLineTest::new()
+        .flag("broadcast", Some("foo, subscriptions"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.broadcast_topics,
+                vec![ApiTopic::Blocks, ApiTopic::Subscriptions],
+            );
         });
 }
 
@@ -497,5 +613,43 @@ fn latency_measurement_service() {
         .run()
         .with_config(|config| {
             assert!(!config.enable_latency_measurement_service);
+        });
+}
+
+#[test]
+fn validator_registration_batch_size() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.validator_registration_batch_size, 500);
+    });
+    CommandLineTest::new()
+        .flag("validator-registration-batch-size", Some("100"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.validator_registration_batch_size, 100);
+        });
+}
+
+#[test]
+#[should_panic]
+fn validator_registration_batch_size_zero_value() {
+    CommandLineTest::new()
+        .flag("validator-registration-batch-size", Some("0"))
+        .run();
+}
+
+#[test]
+fn validator_disable_web3_signer_slashing_protection_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_web3signer_slashing_protection);
+    });
+}
+
+#[test]
+fn validator_disable_web3_signer_slashing_protection() {
+    CommandLineTest::new()
+        .flag("disable-slashing-protection-web3signer", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_web3signer_slashing_protection);
         });
 }
