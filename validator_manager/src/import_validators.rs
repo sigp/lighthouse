@@ -71,7 +71,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 pub struct ImportConfig {
     pub validators_file_path: PathBuf,
     pub vc_url: SensitiveUrl,
-    pub vc_token_path: PathBuf,
     pub ignore_duplicates: bool,
 }
 
@@ -80,7 +79,6 @@ impl ImportConfig {
         Ok(Self {
             validators_file_path: clap_utils::parse_required(matches, VALIDATORS_FILE_FLAG)?,
             vc_url: clap_utils::parse_required(matches, VC_URL_FLAG)?,
-            vc_token_path: clap_utils::parse_required(matches, VC_TOKEN_FLAG)?,
             ignore_duplicates: matches.is_present(IGNORE_DUPLICATES_FLAG),
         })
     }
@@ -102,7 +100,6 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
     let ImportConfig {
         validators_file_path,
         vc_url,
-        vc_token_path,
         ignore_duplicates,
     } = config;
 
@@ -125,7 +122,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
 
     let count = validators.len();
 
-    let (http_client, _keystores) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
+    let (http_client, _keystores) = vc_http_client(vc_url.clone()).await?;
 
     eprintln!(
         "Starting to submit {} validators to VC, each validator may take several seconds",
@@ -261,15 +258,12 @@ pub mod tests {
         pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
             let dir = tempdir().unwrap();
             let vc = ApiTester::new_with_http_config(http_config).await;
-            let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
-            fs::write(&vc_token_path, &vc.api_token).unwrap();
 
             Self {
                 import_config: ImportConfig {
                     // This field will be overwritten later on.
                     validators_file_path: dir.path().into(),
                     vc_url: vc.url.clone(),
-                    vc_token_path,
                     ignore_duplicates: false,
                 },
                 vc,

@@ -196,7 +196,6 @@ pub fn validator_import_defaults() {
             let expected = ImportConfig {
                 validators_file_path: PathBuf::from("./vals.json"),
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
-                vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: false,
             };
             assert_eq!(expected, config);
@@ -213,7 +212,6 @@ pub fn validator_import_misc_flags() {
             let expected = ImportConfig {
                 validators_file_path: PathBuf::from("./vals.json"),
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
-                vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: true,
             };
             assert_eq!(expected, config);
@@ -245,9 +243,7 @@ pub fn validator_move_defaults() {
         .assert_success(|config| {
             let expected = MoveConfig {
                 src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
-                src_vc_token_path: PathBuf::from("./1.json"),
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
-                dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::All,
                 builder_proposals: None,
                 builder_boost_factor: None,
@@ -280,9 +276,7 @@ pub fn validator_move_misc_flags_0() {
         .assert_success(|config| {
             let expected = MoveConfig {
                 src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
-                src_vc_token_path: PathBuf::from("./1.json"),
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
-                dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::Specific(vec![
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
@@ -311,9 +305,7 @@ pub fn validator_move_misc_flags_1() {
         .assert_success(|config| {
             let expected = MoveConfig {
                 src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
-                src_vc_token_path: PathBuf::from("./1.json"),
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
-                dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::Specific(vec![
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
                 ]),
@@ -343,9 +335,7 @@ pub fn validator_move_misc_flags_2() {
         .assert_success(|config| {
             let expected = MoveConfig {
                 src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
-                src_vc_token_path: PathBuf::from("./1.json"),
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
-                dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::Specific(vec![
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
                 ]),
@@ -373,9 +363,7 @@ pub fn validator_move_count() {
         .assert_success(|config| {
             let expected = MoveConfig {
                 src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
-                src_vc_token_path: PathBuf::from("./1.json"),
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
-                dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::Count(42),
                 builder_proposals: None,
                 builder_boost_factor: None,
