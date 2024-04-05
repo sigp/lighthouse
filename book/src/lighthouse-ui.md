@@ -13,7 +13,7 @@ Siren is a user interface built for Lighthouse that connects to a Lighthouse Bea
 a Lighthouse Validator Client to monitor performance and display key validator
 metrics.
 
-The UI is currently in active development. Its resides in the
+The UI is currently in active development. It resides in the
 [Siren](https://github.com/sigp/siren) repository.
 
 ## Topics
@@ -30,5 +30,5 @@ information:
 
 ## Contributing
 
-If you find and issue or bug or would otherwise like to help out with the
+If you find an issue or bug or would otherwise like to help out with the
 development of the Siren project, please submit issues and PRs to the [Siren](https://github.com/sigp/siren) repository.

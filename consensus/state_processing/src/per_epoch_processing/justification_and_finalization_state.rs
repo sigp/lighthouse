@@ -6,7 +6,7 @@ use types::{BeaconState, BeaconStateError, BitVector, Checkpoint, Epoch, EthSpec
 /// A `JustificationAndFinalizationState` can be created from a `BeaconState` to compute
 /// justification/finality changes and then applied to a `BeaconState` to enshrine those changes.
 #[must_use = "this value must be applied to a state or explicitly dropped"]
-pub struct JustificationAndFinalizationState<T: EthSpec> {
+pub struct JustificationAndFinalizationState<E: EthSpec> {
     /*
      * Immutable fields.
      */
@@ -20,11 +20,11 @@ pub struct JustificationAndFinalizationState<T: EthSpec> {
     previous_justified_checkpoint: Checkpoint,
     current_justified_checkpoint: Checkpoint,
     finalized_checkpoint: Checkpoint,
-    justification_bits: BitVector<T::JustificationBitsLength>,
+    justification_bits: BitVector<E::JustificationBitsLength>,
 }
 
-impl<T: EthSpec> JustificationAndFinalizationState<T> {
-    pub fn new(state: &BeaconState<T>) -> Self {
+impl<E: EthSpec> JustificationAndFinalizationState<E> {
+    pub fn new(state: &BeaconState<E>) -> Self {
         let previous_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
         Self {
@@ -39,7 +39,7 @@ impl<T: EthSpec> JustificationAndFinalizationState<T> {
         }
     }
 
-    pub fn apply_changes_to_state(self, state: &mut BeaconState<T>) {
+    pub fn apply_changes_to_state(self, state: &mut BeaconState<E>) {
         let Self {
             /*
              * Immutable fields do not need to be used.
@@ -105,11 +105,11 @@ impl<T: EthSpec> JustificationAndFinalizationState<T> {
         &mut self.finalized_checkpoint
     }
 
-    pub fn justification_bits(&self) -> &BitVector<T::JustificationBitsLength> {
+    pub fn justification_bits(&self) -> &BitVector<E::JustificationBitsLength> {
         &self.justification_bits
     }
 
-    pub fn justification_bits_mut(&mut self) -> &mut BitVector<T::JustificationBitsLength> {
+    pub fn justification_bits_mut(&mut self) -> &mut BitVector<E::JustificationBitsLength> {
         &mut self.justification_bits
     }
 }

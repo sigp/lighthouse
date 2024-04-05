@@ -12,6 +12,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
+use types::blob_sidecar::BlobIdentifier;
 
 /// How many attempts we try to find a parent of a block before we give up trying.
 pub(crate) const PARENT_FAIL_TOLERANCE: u8 = 5;
@@ -36,7 +37,9 @@ pub enum ParentVerifyError {
     NoBlockReturned,
     NotEnoughBlobsReturned,
     ExtraBlocksReturned,
-    UnrequestedBlobId,
+    UnrequestedBlobId(BlobIdentifier),
+    InvalidInclusionProof,
+    UnrequestedHeader,
     ExtraBlobsReturned,
     InvalidIndex(u64),
     PreviousFailure { parent_root: Hash256 },
@@ -242,7 +245,9 @@ impl From<LookupVerifyError> for ParentVerifyError {
             E::RootMismatch => ParentVerifyError::RootMismatch,
             E::NoBlockReturned => ParentVerifyError::NoBlockReturned,
             E::ExtraBlocksReturned => ParentVerifyError::ExtraBlocksReturned,
-            E::UnrequestedBlobId => ParentVerifyError::UnrequestedBlobId,
+            E::UnrequestedBlobId(blob_id) => ParentVerifyError::UnrequestedBlobId(blob_id),
+            E::InvalidInclusionProof => ParentVerifyError::InvalidInclusionProof,
+            E::UnrequestedHeader => ParentVerifyError::UnrequestedHeader,
             E::ExtraBlobsReturned => ParentVerifyError::ExtraBlobsReturned,
             E::InvalidIndex(index) => ParentVerifyError::InvalidIndex(index),
             E::NotEnoughBlobsReturned => ParentVerifyError::NotEnoughBlobsReturned,

@@ -1,4 +1,7 @@
-use crate::common::{base::get_base_reward, decrease_balance, increase_balance};
+use crate::common::{
+    base::{get_base_reward, SqrtTotalActiveBalance},
+    decrease_balance, increase_balance,
+};
 use crate::per_epoch_processing::{
     base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
     Delta, Error,
@@ -43,12 +46,12 @@ impl AttestationDelta {
 }
 
 /// Apply attester and proposer rewards.
-pub fn process_rewards_and_penalties<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_rewards_and_penalties<E: EthSpec>(
+    state: &mut BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch() == T::genesis_epoch() {
+    if state.current_epoch() == E::genesis_epoch() {
         return Ok(());
     }
 
@@ -73,8 +76,8 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 }
 
 /// Apply rewards for participation in attestations during the previous epoch.
-pub fn get_attestation_deltas_all<T: EthSpec>(
-    state: &BeaconState<T>,
+pub fn get_attestation_deltas_all<E: EthSpec>(
+    state: &BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
@@ -83,8 +86,8 @@ pub fn get_attestation_deltas_all<T: EthSpec>(
 
 /// Apply rewards for participation in attestations during the previous epoch, and only compute
 /// rewards for a subset of validators.
-pub fn get_attestation_deltas_subset<T: EthSpec>(
-    state: &BeaconState<T>,
+pub fn get_attestation_deltas_subset<E: EthSpec>(
+    state: &BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
     validators_subset: &Vec<usize>,
     spec: &ChainSpec,
@@ -103,13 +106,12 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
 /// returned, otherwise deltas for all validators are returned.
 ///
 /// Returns a vec of validator indices to `AttestationDelta`.
-fn get_attestation_deltas<T: EthSpec>(
-    state: &BeaconState<T>,
+fn get_attestation_deltas<E: EthSpec>(
+    state: &BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
     maybe_validators_subset: Option<&Vec<usize>>,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
-    let previous_epoch = state.previous_epoch();
     let finality_delay = state
         .previous_epoch()
         .safe_sub(state.finalized_checkpoint().epoch)?
@@ -118,6 +120,7 @@ fn get_attestation_deltas<T: EthSpec>(
     let mut deltas = vec![AttestationDelta::default(); state.validators().len()];
 
     let total_balances = &validator_statuses.total_balances;
+    let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_balances.current_epoch());
 
     // Ignore validator if a subset is specified and validator is not in the subset
     let include_validator_delta = |idx| match maybe_validators_subset.as_ref() {
@@ -131,11 +134,15 @@ fn get_attestation_deltas<T: EthSpec>(
         // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in
         // the unslashed indices of the matching source attestations is active, and therefore
         // eligible.
-        if !state.is_eligible_validator(previous_epoch, index)? {
+        if !validator.is_eligible {
             continue;
         }
 
-        let base_reward = get_base_reward(state, index, total_balances.current_epoch(), spec)?;
+        let base_reward = get_base_reward(
+            validator.current_epoch_effective_balance,
+            sqrt_total_active_balance,
+            spec,
+        )?;
 
         let (inclusion_delay_delta, proposer_delta) =
             get_inclusion_delay_delta(validator, base_reward, spec)?;

@@ -412,7 +412,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash();
     let withdrawals = match state {
-        &BeaconState::Capella(_) | &BeaconState::Deneb(_) => {
+        &BeaconState::Capella(_) | &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
             Some(get_expected_withdrawals(state, spec)?.into())
         }
         &BeaconState::Merge(_) => None,
@@ -420,7 +420,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
     };
     let parent_beacon_block_root = match state {
-        BeaconState::Deneb(_) => Some(parent_block_root),
+        BeaconState::Deneb(_) | BeaconState::Electra(_) => Some(parent_block_root),
         BeaconState::Merge(_) | BeaconState::Capella(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         BeaconState::Base(_) | BeaconState::Altair(_) => None,
@@ -560,9 +560,6 @@ where
         parent_beacon_block_root,
     );
 
-    // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
-    //
-    // This future is not executed here, it's up to the caller to await it.
     let block_contents = execution_layer
         .get_payload(
             parent_hash,

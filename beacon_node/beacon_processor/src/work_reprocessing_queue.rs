@@ -159,10 +159,10 @@ pub struct IgnoredRpcBlock {
 /// A backfill batch work that has been queued for processing later.
 pub struct QueuedBackfillBatch(pub AsyncFn);
 
-impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch {
-    type Error = WorkEvent<T>;
+impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
+    type Error = WorkEvent<E>;
 
-    fn try_from(event: WorkEvent<T>) -> Result<Self, WorkEvent<T>> {
+    fn try_from(event: WorkEvent<E>) -> Result<Self, WorkEvent<E>> {
         match event {
             WorkEvent {
                 work: Work::ChainSegmentBackfill(process_fn),
@@ -173,8 +173,8 @@ impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch {
     }
 }
 
-impl<T: EthSpec> From<QueuedBackfillBatch> for WorkEvent<T> {
-    fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent<T> {
+impl<E: EthSpec> From<QueuedBackfillBatch> for WorkEvent<E> {
+    fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent<E> {
         WorkEvent {
             drop_during_sync: false,
             work: Work::ChainSegmentBackfill(queued_backfill_batch.0),
@@ -964,7 +964,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
 mod tests {
     use super::*;
     use slot_clock::TestingSlotClock;
-    use types::Slot;
 
     #[test]
     fn backfill_processing_schedule_calculation() {

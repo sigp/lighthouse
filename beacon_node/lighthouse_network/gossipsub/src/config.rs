@@ -36,7 +36,7 @@ pub enum ValidationMode {
     /// be present as well as the sequence number. All messages must have valid signatures.
     ///
     /// NOTE: This setting will reject messages from nodes using
-    /// [`crate::gossipsub::behaviour::MessageAuthenticity::Anonymous`] and all messages that do not have
+    /// [`crate::behaviour::MessageAuthenticity::Anonymous`] and all messages that do not have
     /// signatures.
     Strict,
     /// This setting permits messages that have no author, sequence number or signature. If any of
@@ -195,7 +195,7 @@ impl Config {
 
     /// When set to `true`, prevents automatic forwarding of all received messages. This setting
     /// allows a user to validate the messages before propagating them to their peers. If set to
-    /// true, the user must manually call [`crate::gossipsub::Behaviour::report_message_validation_result()`]
+    /// true, the user must manually call [`crate::Behaviour::report_message_validation_result()`]
     /// on the behaviour to forward message once validated (default is `false`).
     /// The default is `false`.
     pub fn validate_messages(&self) -> bool {
@@ -611,7 +611,7 @@ impl ConfigBuilder {
 
     /// When set, prevents automatic forwarding of all received messages. This setting
     /// allows a user to validate the messages before propagating them to their peers. If set,
-    /// the user must manually call [`crate::gossipsub::Behaviour::report_message_validation_result()`] on the
+    /// the user must manually call [`crate::Behaviour::report_message_validation_result()`] on the
     /// behaviour to forward a message once validated.
     pub fn validate_messages(&mut self) -> &mut Self {
         self.config.validate_messages = true;
@@ -902,11 +902,10 @@ impl std::fmt::Debug for Config {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::gossipsub::topic::IdentityHash;
-    use crate::gossipsub::types::PeerKind;
-    use crate::gossipsub::Topic;
+    use crate::topic::IdentityHash;
+    use crate::types::PeerKind;
+    use crate::Topic;
     use libp2p::core::UpgradeInfo;
-    use libp2p::swarm::StreamProtocol;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
