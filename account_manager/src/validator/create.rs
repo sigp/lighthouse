@@ -122,6 +122,7 @@ pub fn cli_app() -> Command {
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty.")
                 .display_order(0)
+                .action(ArgAction::SetTrue)
         )
 }
 

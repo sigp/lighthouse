@@ -62,6 +62,8 @@ pub fn cli_app() -> Command {
             Arg::new(NO_WAIT)
                 .long(NO_WAIT)
                 .help("Exits after publishing the voluntary exit without waiting for confirmation that the exit was included in the beacon chain")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .arg(
@@ -69,6 +71,8 @@ pub fn cli_app() -> Command {
                 .long(NO_CONFIRMATION)
                 .help("Exits without prompting for confirmation that you understand the implications of a voluntary exit. This should be used with caution")
                 .display_order(0)
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
         )
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
