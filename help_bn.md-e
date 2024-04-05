@@ -333,4 +333,4 @@ Flags:
                                            ENR's IP/PORT to those specified on boot.
   -z, --zero-ports                         Sets all listening TCP/UDP ports to 0, allowing the OS to choose some arbitrary free ports.
       --disable-packet-filter              Disables the discovery packet filter. Useful for testing in smaller networks
-```<style> .content main {max-width:88%;} </style>
+```

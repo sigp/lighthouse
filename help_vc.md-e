@@ -147,4 +147,4 @@ Flags:
       --unencrypted-http-transport              This is a safety flag to ensure that the user is aware that the http transport is unencrypted and using a custom HTTP address is unsafe.
       --use-long-timeouts                       If present, the validator client will use longer timeouts for requests made to the beacon node. This flag is generally not recommended, longer timeouts can cause
                                                 missed duties when fallbacks are used.
-```<style> .content main {max-width:88%;} </style>
+```
