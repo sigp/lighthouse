@@ -16,7 +16,6 @@ use types::graffiti::GraffitiString;
 pub struct ValidatorClientHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
-    authorization_header: AuthorizationHeader,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -73,7 +72,6 @@ impl ValidatorClientHttpClient {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
-            authorization_header: AuthorizationHeader::Bearer,
         })
     }
 
@@ -84,7 +82,6 @@ impl ValidatorClientHttpClient {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
-            authorization_header: AuthorizationHeader::Omit,
         })
     }
 
@@ -92,20 +89,7 @@ impl ValidatorClientHttpClient {
         Ok(Self {
             client,
             server,
-            authorization_header: AuthorizationHeader::Bearer,
         })
-    }
-
-    /// Set to `false` to disable sending the `Authorization` header on requests.
-    ///
-    /// Failing to send the `Authorization` header will cause the VC to reject requests with a 403.
-    /// This function is intended only for testing purposes.
-    pub fn send_authorization_header(&mut self, should_send: bool) {
-        if should_send {
-            self.authorization_header = AuthorizationHeader::Bearer;
-        } else {
-            self.authorization_header = AuthorizationHeader::Omit;
-        }
     }
 
     /// Perform a HTTP GET request, returning the `Response` for further processing.
