@@ -1,7 +1,7 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 
 use crate::service::RequestId;
-use crate::sync::manager::{RequestId as SyncId, SingleLookupReqId};
+use crate::sync::manager::{RequestId as SyncRequestId, SingleLookupReqId};
 use crate::NetworkMessage;
 use std::sync::Arc;
 
@@ -102,7 +102,7 @@ impl TestRig {
                 Ok(NetworkMessage::SendRequest {
                     peer_id: _,
                     request: Request::BlocksByRoot(_request),
-                    request_id: RequestId::Sync(SyncId::SingleBlock { id }),
+                    request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
                 }) => id,
                 other => {
                     panic!("Expected block request, found {:?}", other);
@@ -112,7 +112,7 @@ impl TestRig {
                 Ok(NetworkMessage::SendRequest {
                     peer_id: _,
                     request: Request::BlobsByRoot(_request),
-                    request_id: RequestId::Sync(SyncId::SingleBlob { id }),
+                    request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
                 }) => id,
                 other => {
                     panic!("Expected blob request, found {:?}", other);
@@ -128,7 +128,7 @@ impl TestRig {
                 Ok(NetworkMessage::SendRequest {
                     peer_id: _,
                     request: Request::BlocksByRoot(_request),
-                    request_id: RequestId::Sync(SyncId::ParentLookup { id }),
+                    request_id: RequestId::Sync(SyncRequestId::ParentLookup { id }),
                 }) => id,
                 other => panic!("Expected parent request, found {:?}", other),
             },
@@ -136,7 +136,7 @@ impl TestRig {
                 Ok(NetworkMessage::SendRequest {
                     peer_id: _,
                     request: Request::BlobsByRoot(_request),
-                    request_id: RequestId::Sync(SyncId::ParentLookupBlob { id }),
+                    request_id: RequestId::Sync(SyncRequestId::ParentLookupBlob { id }),
                 }) => id,
                 other => panic!("Expected parent blobs request, found {:?}", other),
             },
@@ -1165,11 +1165,7 @@ mod deneb_only {
     use crate::sync::testing::{SyncTestType, SyncTester};
     use crate::sync::SyncMessage;
     use beacon_chain::data_availability_checker::AvailabilityCheckError;
-    use lighthouse_network::discovery::CombinedKey;
-    use lighthouse_network::discv5::enr::Enr;
-    use lighthouse_network::peer_manager::peerdb::NewConnectionState;
     use lighthouse_network::types::SyncState;
-    use lighthouse_network::{ConnectionDirection, Multiaddr};
     use ssz_types::VariableList;
     use std::ops::IndexMut;
     use std::str::FromStr;
@@ -2141,64 +2137,67 @@ mod deneb_only {
             .expect_no_block_request();
     }
 
-    // GIVEN parent lookup of a block is triggered via `UnknownParentBlock`
-    // AND peer returned parent block and parent blob 1
-    // AND parent blob 2 is received via gossip
-    // WHEN Peer returned parent blob 2
-    // THEN assert parent block is imported
-    // AND peer isn't penalised
-    #[test]
-    fn no_peer_penalty_when_rpc_response_already_known_from_gossip() {
-        // Generate test data
-        // NOTE: maybe we could embed some of this logic into the `SyncTester` for better UX.
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let (block, blobs) =
-            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng);
-        let block = Arc::new(block);
+    #[tokio::test]
+    async fn no_peer_penalty_when_rpc_response_already_known_from_gossip() {
+        let mut sync_tester = SyncTester::new(SyncTestType::BlockLookups);
+
+        let (block_chain, blobs_chain) = sync_tester.create_block_chain(2);
+        let block = block_chain.get(0).unwrap();
         let block_root = block.canonical_root();
         let rpc_block = RpcBlock::new_without_blobs(Some(block_root), block.clone());
         let peer_id = PeerId::random();
 
-        let sync_tester = SyncTester::new(SyncTestType::BlockLookups)
+        sync_tester
             .set_node_sync_state(SyncState::Synced)
-            .set_peer_connected(&peer_id, connected_connection_state())
+            .add_connected_peer(&peer_id)
+            // GIVEN a current lookup of a block is triggered via `UnknownParentBlock`
             .send_sync_messages(vec![SyncMessage::UnknownParentBlock(
                 peer_id, rpc_block, block_root,
             )])
-            .expect_rpc_request(|msg| {
-                matches!(
-                    msg,
-                    NetworkMessage::SendRequest {
-                        peer_id: _,
-                        request: Request::BlocksByRoot(_request),
-                        request_id: RequestId::Sync(SyncId::ParentLookup { .. }),
-                    }
-                )
-            });
-        // .send_sync_messages(vec![
-        //     SyncMessage::RpcBlock {
-        //         request_id,
-        //         peer_id,
-        //         beacon_block: Some(block.clone()),
-        //         seen_timestamp: Default::default(),
-        //     },
-        //     SyncMessage::RpcBlob {
-        //         request_id,
-        //         peer_id,
-        //         blob_sidecar: Some(Arc::from(blobs.get(0).cloned().unwrap())),
-        //         seen_timestamp: Default::default(),
-        //     },
-        // ]);
-    }
+            .expect_rpc_request("current_lookup_req_id", |msg| {
+                if let NetworkMessage::SendRequest {
+                    request: Request::BlobsByRoot(request),
+                    ..
+                } = msg
+                {
+                    request
+                        .blob_ids
+                        .as_slice()
+                        .iter()
+                        .any(|blob_id| blob_id.block_root == block_root)
+                } else {
+                    false
+                }
+            })
+            .await;
 
-    // TODO: move this to the `testing` module
-    fn connected_connection_state() -> NewConnectionState {
-        let enr_key = CombinedKey::generate_secp256k1();
-        let enr = Enr::builder().build(&enr_key).unwrap();
-        NewConnectionState::Connected {
-            enr: Some(enr),
-            seen_address: Multiaddr::empty(),
-            direction: ConnectionDirection::Outgoing,
-        }
+        let current_lookup_req_id = sync_tester
+            .get_from_context::<SyncRequestId>("current_lookup_req_id")
+            .unwrap()
+            .clone();
+
+        // A peer responds with blob 0
+        sync_tester
+            .send_rpc_response(vec![SyncMessage::RpcBlob {
+                request_id: current_lookup_req_id,
+                peer_id,
+                blob_sidecar: Some(blobs_chain.get(0).unwrap().get(0).unwrap().clone()),
+                seen_timestamp: Default::default(),
+            }])
+            // Blob 1 is received via gossip, triggers `UnknownParentBlob`
+            .send_sync_messages(vec![SyncMessage::UnknownParentBlob(
+                peer_id,
+                blobs_chain.get(0).unwrap().get(1).unwrap().clone(),
+            )])
+            // A peer responds with blob 1 (same as gossip blob above)
+            .send_rpc_response(vec![SyncMessage::RpcBlob {
+                request_id: current_lookup_req_id,
+                peer_id,
+                blob_sidecar: Some(blobs_chain.get(0).unwrap().get(1).unwrap().clone()),
+                seen_timestamp: Default::default(),
+            }])
+            // Assert peer isn't penalised
+            .expect_no_penalty()
+            .await;
     }
 }

@@ -1127,6 +1127,7 @@ pub mod testing {
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::{BeaconChain, BeaconChainTypes};
     use beacon_processor::WorkEvent;
+    use execution_layer::EngineState;
     use lighthouse_network::rpc::RPCError;
     use lighthouse_network::{NetworkGlobals, PeerId, SyncInfo};
     use slog::Logger;
@@ -1152,15 +1153,17 @@ pub mod testing {
         UnboundedReceiver<NetworkMessage<E>>,
         Receiver<WorkEvent<E>>,
     ) {
+        // FIXME: we're creating another instance of `harness` in this function.
         let (network_beacon_processor, beacon_processor_rx) =
             NetworkBeaconProcessor::null_for_testing(network_globals.clone());
         let (network_tx, network_rx) = mpsc::unbounded_channel();
-        let network = SyncNetworkContext::new(
+        let mut network = SyncNetworkContext::new(
             network_tx,
             Arc::new(network_beacon_processor),
             beacon_chain.clone(),
             log.new(slog::o!("component" => "network_context")),
         );
+        network.update_execution_engine_state(EngineState::Online);
 
         let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<E>>();
 
