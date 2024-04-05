@@ -4,7 +4,7 @@ use crate::case_result::{check_state_diff, compare_beacon_state_results_without_
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use state_processing::per_slot_processing;
-use types::{BeaconState, EthSpec, ForkName};
+use types::BeaconState;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {

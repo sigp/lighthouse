@@ -8,17 +8,17 @@ use crate::*;
 /// - Will not return slots prior to the genesis_slot.
 /// - Each call to next will result in a slot one less than the prior one (or `None`).
 /// - Skipped slots will contain the block root from the prior non-skipped slot.
-pub struct BlockRootsIter<'a, T: EthSpec> {
-    state: &'a BeaconState<T>,
+pub struct BlockRootsIter<'a, E: EthSpec> {
+    state: &'a BeaconState<E>,
     genesis_slot: Slot,
     prev: Slot,
 }
 
-impl<'a, T: EthSpec> BlockRootsIter<'a, T> {
+impl<'a, E: EthSpec> BlockRootsIter<'a, E> {
     /// Instantiates a new iterator, returning roots for slots earlier that `state.slot`.
     ///
     /// See the struct-level documentation for more details.
-    pub fn new(state: &'a BeaconState<T>, genesis_slot: Slot) -> Self {
+    pub fn new(state: &'a BeaconState<E>, genesis_slot: Slot) -> Self {
         Self {
             state,
             genesis_slot,
@@ -27,7 +27,7 @@ impl<'a, T: EthSpec> BlockRootsIter<'a, T> {
     }
 }
 
-impl<'a, T: EthSpec> Iterator for BlockRootsIter<'a, T> {
+impl<'a, E: EthSpec> Iterator for BlockRootsIter<'a, E> {
     type Item = Result<(Slot, Hash256), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {

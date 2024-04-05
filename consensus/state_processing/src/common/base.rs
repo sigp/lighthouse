@@ -3,7 +3,7 @@ use safe_arith::{ArithError, SafeArith};
 use types::*;
 
 /// This type exists to avoid confusing `total_active_balance` with `sqrt_total_active_balance`,
-/// since they are used in close proximity and the same type (`u64`).
+/// since they are used in close proximity and have the same type (`u64`).
 #[derive(Copy, Clone)]
 pub struct SqrtTotalActiveBalance(u64);
 
@@ -27,16 +27,4 @@ pub fn get_base_reward(
         .safe_mul(spec.base_reward_factor)?
         .safe_div(sqrt_total_active_balance.as_u64())?
         .safe_div(spec.base_rewards_per_epoch)
-}
-
-pub fn get_base_reward_from_effective_balance<T: EthSpec>(
-    effective_balance: u64,
-    total_active_balance: u64,
-    spec: &ChainSpec,
-) -> Result<u64, BeaconStateError> {
-    effective_balance
-        .safe_mul(spec.base_reward_factor)?
-        .safe_div(total_active_balance.integer_sqrt())?
-        .safe_div(spec.base_rewards_per_epoch)
-        .map_err(Into::into)
 }

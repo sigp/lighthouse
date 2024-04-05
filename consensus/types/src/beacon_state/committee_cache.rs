@@ -1,6 +1,5 @@
 #![allow(clippy::arithmetic_side_effects)]
 
-use super::BeaconState;
 use crate::*;
 use core::num::NonZeroUsize;
 use derivative::Derivative;
@@ -37,7 +36,7 @@ pub struct CommitteeCache {
 ///
 /// It can happen that states from different epochs computing the same cache have different
 /// numbers of validators in `state.validators()` due to recent deposits. These new validators
-/// cannot be active however and will always be ommitted from the shuffling. This function checks
+/// cannot be active however and will always be omitted from the shuffling. This function checks
 /// that two lists of shuffling positions are equivalent by ensuring that they are identical on all
 /// common entries, and that new entries at the end are all `None`.
 ///
@@ -63,8 +62,8 @@ impl CommitteeCache {
     /// Return a new, fully initialized cache.
     ///
     /// Spec v0.12.1
-    pub fn initialized<T: EthSpec>(
-        state: &BeaconState<T>,
+    pub fn initialized<E: EthSpec>(
+        state: &BeaconState<E>,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Arc<CommitteeCache>, Error> {
@@ -82,7 +81,7 @@ impl CommitteeCache {
         }
 
         // May cause divide-by-zero errors.
-        if T::slots_per_epoch() == 0 {
+        if E::slots_per_epoch() == 0 {
             return Err(Error::ZeroSlotsPerEpoch);
         }
 
@@ -98,7 +97,7 @@ impl CommitteeCache {
         }
 
         let committees_per_slot =
-            T::get_committee_count_per_slot(active_validator_indices.len(), spec)? as u64;
+            E::get_committee_count_per_slot(active_validator_indices.len(), spec)? as u64;
 
         let seed = state.get_seed(epoch, Domain::BeaconAttester, spec)?;
 
@@ -122,7 +121,7 @@ impl CommitteeCache {
             shuffling,
             shuffling_positions,
             committees_per_slot,
-            slots_per_epoch: T::slots_per_epoch(),
+            slots_per_epoch: E::slots_per_epoch(),
         }))
     }
 

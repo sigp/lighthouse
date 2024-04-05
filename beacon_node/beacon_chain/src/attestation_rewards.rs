@@ -1,27 +1,14 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
 use eth2::lighthouse::StandardAttestationRewards;
+use eth2::types::ValidatorId;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
 use slog::debug;
+use state_processing::common::base::{self, SqrtTotalActiveBalance};
 use state_processing::per_epoch_processing::altair::{
     process_inactivity_updates_slow, process_justification_and_finalization,
 };
-use state_processing::{
-    common::altair::BaseRewardPerIncrement,
-    per_epoch_processing::altair::rewards_and_penalties::get_flag_weight,
-};
-use std::collections::HashMap;
-use store::consts::altair::{
-    PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
-    TIMELY_TARGET_FLAG_INDEX,
-};
-use types::consts::altair::WEIGHT_DENOMINATOR;
-
-use types::{BeaconState, Epoch, EthSpec};
-
-use eth2::types::ValidatorId;
-use state_processing::common::base::get_base_reward_from_effective_balance;
 use state_processing::per_epoch_processing::base::rewards_and_penalties::{
     get_attestation_component_delta, get_attestation_deltas_all, get_attestation_deltas_subset,
     get_inactivity_penalty_delta, get_inclusion_delay_delta,
@@ -31,6 +18,19 @@ use state_processing::per_epoch_processing::base::{
     process_justification_and_finalization as process_justification_and_finalization_base,
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
+use state_processing::{
+    common::altair::BaseRewardPerIncrement,
+    common::update_progressive_balances_cache::initialize_progressive_balances_cache,
+    epoch_cache::initialize_epoch_cache,
+    per_epoch_processing::altair::rewards_and_penalties::get_flag_weight,
+};
+use std::collections::HashMap;
+use store::consts::altair::{
+    PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
+    TIMELY_TARGET_FLAG_INDEX,
+};
+use types::consts::altair::WEIGHT_DENOMINATOR;
+use types::{BeaconState, Epoch, EthSpec, RelativeEpoch};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_attestation_rewards(
@@ -56,7 +56,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => self.compute_attestation_rewards_altair(state, validators),
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => self.compute_attestation_rewards_altair(state, validators),
         }
     }
 
@@ -132,6 +133,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<StandardAttestationRewards, BeaconChainError> {
         let spec = &self.spec;
 
+        // Build required caches.
+        initialize_epoch_cache(&mut state, spec)?;
+        initialize_progressive_balances_cache(&mut state, spec)?;
+        state.build_exit_cache(spec)?;
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
+
         // Calculate ideal_rewards
         process_justification_and_finalization(&state)?.apply_changes_to_state(&mut state);
         process_inactivity_updates_slow(&mut state, spec)?;
@@ -193,8 +201,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         for &validator_index in &validators {
-            // Return 0s for unknown/inactive validator indices. This is a bit different from stable
-            // where we error for unknown pubkeys.
+            // Return 0s for unknown/inactive validator indices.
             let Ok(validator) = state.get_validator(validator_index) else {
                 debug!(
                     self.log,
@@ -370,15 +377,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let mut ideal_attestation_rewards_list = Vec::new();
-
+        let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_balances.current_epoch());
         for effective_balance_step in 1..=self.max_effective_balance_increment_steps()? {
             let effective_balance =
                 effective_balance_step.safe_mul(spec.effective_balance_increment)?;
-            let base_reward = get_base_reward_from_effective_balance::<T::EthSpec>(
-                effective_balance,
-                total_balances.current_epoch(),
-                spec,
-            )?;
+            let base_reward =
+                base::get_base_reward(effective_balance, sqrt_total_active_balance, spec)?;
 
             // compute ideal head rewards
             let head = get_attestation_component_delta(

@@ -61,12 +61,12 @@ use types::{BeaconState, EthSpec, Hash256};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub fn run<T: EthSpec>(
-    env: Environment<T>,
+pub fn run<E: EthSpec>(
+    env: Environment<E>,
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches,
 ) -> Result<(), String> {
-    let spec = &network_config.chain_spec::<T>()?;
+    let spec = &network_config.chain_spec::<E>()?;
     let executor = env.core_context().executor;
 
     let output_path: Option<PathBuf> = parse_optional(matches, "output-path")?;
@@ -77,7 +77,7 @@ pub fn run<T: EthSpec>(
     let cli_state_root: Option<Hash256> = parse_optional(matches, "state-root")?;
     let partial: bool = matches.is_present("partial-state-advance");
 
-    info!("Using {} spec", T::spec_name());
+    info!("Using {} spec", E::spec_name());
     info!("Advancing {} slots", slots);
     info!("Doing {} runs", runs);
 
@@ -95,7 +95,7 @@ pub fn run<T: EthSpec>(
                 .ok_or("shutdown in progress")?
                 .block_on(async move {
                     client
-                        .get_debug_beacon_states::<T>(state_id)
+                        .get_debug_beacon_states::<E>(state_id)
                         .await
                         .map_err(|e| format!("Failed to download state: {:?}", e))
                 })

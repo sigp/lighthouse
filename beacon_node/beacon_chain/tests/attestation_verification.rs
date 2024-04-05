@@ -342,7 +342,7 @@ impl GossipTester {
                 E::slots_per_epoch() + 1
             }
             // EIP-7045
-            ForkName::Deneb => {
+            ForkName::Deneb | ForkName::Electra => {
                 let epoch_slot_offset = (self.slot() % E::slots_per_epoch()).as_u64();
                 if epoch_slot_offset != 0 {
                     E::slots_per_epoch() + epoch_slot_offset
@@ -1235,7 +1235,7 @@ async fn attestation_to_finalized_block() {
         .chain
         .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
     assert!(
-        matches!(res, Err(AttnError:: HeadBlockFinalized { beacon_block_root })
+        matches!(res, Err(AttnError::HeadBlockFinalized { beacon_block_root })
                       if beacon_block_root == earlier_block_root
         )
     );

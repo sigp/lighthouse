@@ -6,8 +6,8 @@ use types::{BeaconState, ChainSpec, EthSpec, Validator};
 /// Performs a validator registry update, if required.
 ///
 /// NOTE: unchanged in Altair
-pub fn process_registry_updates<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_registry_updates<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Process activation eligibility and ejections.
@@ -43,7 +43,7 @@ pub fn process_registry_updates<T: EthSpec>(
     // Dequeue validators for activation up to churn limit
     let churn_limit = state.get_activation_churn_limit(spec)? as usize;
 
-    let epoch_cache = state.epoch_cache().clone();
+    let epoch_cache = state.epoch_cache();
     let activation_queue = epoch_cache
         .activation_queue()?
         .get_validators_eligible_for_activation(state.finalized_checkpoint().epoch, churn_limit);

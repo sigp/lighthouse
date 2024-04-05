@@ -9,11 +9,11 @@ use safe_arith::SafeArith;
 use std::sync::Arc;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
-pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
-    state: &mut BeaconState<T>,
-    block_body: BeaconBlockBodyRef<T, Payload>,
+pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    state: &mut BeaconState<E>,
+    block_body: BeaconBlockBodyRef<E, Payload>,
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<T>,
+    ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     process_proposer_slashings(
@@ -48,15 +48,19 @@ pub mod base {
     ///
     /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
     /// an `Err` describing the invalid object or cause of failure.
-    pub fn process_attestations<T: EthSpec>(
-        state: &mut BeaconState<T>,
-        attestations: &[Attestation<T>],
+    pub fn process_attestations<E: EthSpec>(
+        state: &mut BeaconState<E>,
+        attestations: &[Attestation<E>],
         verify_signatures: VerifySignatures,
-        ctxt: &mut ConsensusContext<T>,
+        ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        // Ensure the previous epoch cache exists.
+        // Ensure required caches are all built. These should be no-ops during regular operation.
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        initialize_epoch_cache(state, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
+        state.build_slashings_cache()?;
 
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
 
@@ -99,11 +103,11 @@ pub mod altair_deneb {
     use super::*;
     use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
 
-    pub fn process_attestations<T: EthSpec>(
-        state: &mut BeaconState<T>,
-        attestations: &[Attestation<T>],
+    pub fn process_attestations<E: EthSpec>(
+        state: &mut BeaconState<E>,
+        attestations: &[Attestation<E>],
         verify_signatures: VerifySignatures,
-        ctxt: &mut ConsensusContext<T>,
+        ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         attestations
@@ -114,19 +118,17 @@ pub mod altair_deneb {
             })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn process_attestation<T: EthSpec>(
-        state: &mut BeaconState<T>,
-        attestation: &Attestation<T>,
+    pub fn process_attestation<E: EthSpec>(
+        state: &mut BeaconState<E>,
+        attestation: &Attestation<E>,
         att_index: usize,
-        ctxt: &mut ConsensusContext<T>,
+        ctxt: &mut ConsensusContext<E>,
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-        state.build_committee_cache(RelativeEpoch::Current, spec)?;
-
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
+        let previous_epoch = ctxt.previous_epoch;
+        let current_epoch = ctxt.current_epoch;
 
         let attesting_indices = verify_attestation_for_block_inclusion(
             state,
@@ -156,8 +158,8 @@ pub mod altair_deneb {
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                 let epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
-                    ctxt.previous_epoch,
-                    ctxt.current_epoch,
+                    previous_epoch,
+                    current_epoch,
                 )?;
 
                 if participation_flag_indices.contains(&flag_index) {
@@ -196,11 +198,11 @@ pub mod altair_deneb {
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_proposer_slashings<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_proposer_slashings<E: EthSpec>(
+    state: &mut BeaconState<E>,
     proposer_slashings: &[ProposerSlashing],
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<T>,
+    ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     state.build_slashings_cache()?;
@@ -231,21 +233,19 @@ pub fn process_proposer_slashings<T: EthSpec>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_attester_slashings<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    attester_slashings: &[AttesterSlashing<T>],
+pub fn process_attester_slashings<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    attester_slashings: &[AttesterSlashing<E>],
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<T>,
+    ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     state.build_slashings_cache()?;
 
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
-        verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
-            .map_err(|e| e.into_with_index(i))?;
-
         let slashable_indices =
-            get_slashable_indices(state, attester_slashing).map_err(|e| e.into_with_index(i))?;
+            verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
+                .map_err(|e| e.into_with_index(i))?;
 
         for i in slashable_indices {
             slash_validator(state, i as usize, None, ctxt, spec)?;
@@ -257,11 +257,11 @@ pub fn process_attester_slashings<T: EthSpec>(
 
 /// Wrapper function to handle calling the correct version of `process_attestations` based on
 /// the fork.
-pub fn process_attestations<T: EthSpec, Payload: AbstractExecPayload<T>>(
-    state: &mut BeaconState<T>,
-    block_body: BeaconBlockBodyRef<T, Payload>,
+pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    state: &mut BeaconState<E>,
+    block_body: BeaconBlockBodyRef<E, Payload>,
     verify_signatures: VerifySignatures,
-    ctxt: &mut ConsensusContext<T>,
+    ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     match block_body {
@@ -277,7 +277,8 @@ pub fn process_attestations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         BeaconBlockBodyRef::Altair(_)
         | BeaconBlockBodyRef::Merge(_)
         | BeaconBlockBodyRef::Capella(_)
-        | BeaconBlockBodyRef::Deneb(_) => {
+        | BeaconBlockBodyRef::Deneb(_)
+        | BeaconBlockBodyRef::Electra(_) => {
             altair_deneb::process_attestations(
                 state,
                 block_body.attestations(),
@@ -294,8 +295,8 @@ pub fn process_attestations<T: EthSpec, Payload: AbstractExecPayload<T>>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_exits<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_exits<E: EthSpec>(
+    state: &mut BeaconState<E>,
     voluntary_exits: &[SignedVoluntaryExit],
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
@@ -315,8 +316,8 @@ pub fn process_exits<T: EthSpec>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully. Otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_bls_to_execution_changes<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_bls_to_execution_changes<E: EthSpec>(
+    state: &mut BeaconState<E>,
     bls_to_execution_changes: &[SignedBlsToExecutionChange],
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
@@ -340,13 +341,13 @@ pub fn process_bls_to_execution_changes<T: EthSpec>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_deposits<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_deposits<E: EthSpec>(
+    state: &mut BeaconState<E>,
     deposits: &[Deposit],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let expected_deposit_len = std::cmp::min(
-        T::MaxDeposits::to_u64(),
+        E::MaxDeposits::to_u64(),
         state.get_outstanding_deposit_len()?,
     );
     block_verify!(
@@ -380,8 +381,8 @@ pub fn process_deposits<T: EthSpec>(
 }
 
 /// Process a single deposit, optionally verifying its merkle proof.
-pub fn process_deposit<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_deposit<E: EthSpec>(
+    state: &mut BeaconState<E>,
     deposit: &Deposit,
     spec: &ChainSpec,
     verify_merkle_proof: bool,

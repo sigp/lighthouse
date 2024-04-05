@@ -840,7 +840,7 @@ async fn invalid_signature_exit() {
     }
 }
 
-fn unwrap_err<T, E>(result: Result<T, E>) -> E {
+fn unwrap_err<T, U>(result: Result<T, U>) -> U {
     match result {
         Ok(_) => panic!("called unwrap_err on Ok"),
         Err(e) => e,
@@ -1087,7 +1087,7 @@ async fn block_gossip_verification() {
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
-            BlockError::BlockIsAlreadyKnown,
+            BlockError::BlockIsAlreadyKnown(_),
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
     );
@@ -1115,7 +1115,7 @@ async fn block_gossip_verification() {
                 .verify_block_for_gossip(block.clone())
                 .await
                 .expect_err("should error when processing known block"),
-            BlockError::BlockIsAlreadyKnown
+            BlockError::BlockIsAlreadyKnown(_)
         ),
         "the second proposal by this validator should be rejected"
     );

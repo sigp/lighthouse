@@ -73,9 +73,9 @@ pub struct StorageContainer<T: EthSpec> {
     state: CompactBeaconState<T>,
 }
 
-impl<T: EthSpec> StorageContainer<T> {
+impl<E: EthSpec> StorageContainer<E> {
     /// Create a new instance for storing a `BeaconState`.
-    pub fn new(state: &BeaconState<T>) -> Self {
+    pub fn new(state: &BeaconState<E>) -> Self {
         Self {
             state: state.clone().into_compact_state(),
         }
@@ -96,7 +96,7 @@ impl<T: EthSpec> StorageContainer<T> {
         Ok(Self { state })
     }
 
-    fn into_beacon_state<F>(self, immutable_validators: F) -> Result<BeaconState<T>, Error>
+    fn into_beacon_state<F>(self, immutable_validators: F) -> Result<BeaconState<E>, Error>
     where
         F: Fn(usize) -> Option<Arc<PublicKeyBytes>>,
     {

@@ -85,8 +85,8 @@ fn update_flag_total_balances(
 }
 
 /// Updates the `ProgressiveBalancesCache` when a new target attestation has been processed.
-pub fn update_progressive_balances_on_attestation<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn update_progressive_balances_on_attestation<E: EthSpec>(
+    state: &mut BeaconState<E>,
     epoch: Epoch,
     flag_index: usize,
     validator_effective_balance: u64,
@@ -104,8 +104,8 @@ pub fn update_progressive_balances_on_attestation<T: EthSpec>(
 }
 
 /// Updates the `ProgressiveBalancesCache` when a target attester has been slashed.
-pub fn update_progressive_balances_on_slashing<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn update_progressive_balances_on_slashing<E: EthSpec>(
+    state: &mut BeaconState<E>,
     validator_index: usize,
     validator_effective_balance: u64,
 ) -> Result<(), BlockProcessingError> {
@@ -131,8 +131,8 @@ pub fn update_progressive_balances_on_slashing<T: EthSpec>(
 }
 
 /// Updates the `ProgressiveBalancesCache` on epoch transition.
-pub fn update_progressive_balances_on_epoch_transition<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn update_progressive_balances_on_epoch_transition<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
     if is_progressive_balances_enabled(state) {

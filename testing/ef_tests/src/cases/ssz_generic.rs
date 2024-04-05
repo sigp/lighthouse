@@ -6,7 +6,6 @@ use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::{log_file_access, snappy_decode_file, yaml_decode_file};
 use serde::{de::Error as SerdeError, Deserialize, Deserializer};
 use ssz_derive::{Decode, Encode};
-use std::path::{Path, PathBuf};
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
 use types::{BitList, BitVector, ForkName, VariableList, Vector};

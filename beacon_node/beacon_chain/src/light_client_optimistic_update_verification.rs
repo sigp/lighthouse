@@ -52,7 +52,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         // verify that enough time has passed for the block to have been propagated
         let start_time = chain
             .slot_clock
-            .start_of(rcv_optimistic_update.signature_slot)
+            .start_of(*rcv_optimistic_update.signature_slot())
             .ok_or(Error::SigSlotStartIsNone)?;
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
@@ -65,10 +65,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         let head_block = &head.snapshot.beacon_block;
         // check if we can process the optimistic update immediately
         // otherwise queue
-        let canonical_root = rcv_optimistic_update
-            .attested_header
-            .beacon
-            .canonical_root();
+        let canonical_root = rcv_optimistic_update.get_canonical_root();
 
         if canonical_root != head_block.message().parent_root() {
             return Err(Error::UnknownBlockParentRoot(canonical_root));
@@ -84,7 +81,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             return Err(Error::InvalidLightClientOptimisticUpdate);
         }
 
-        let parent_root = rcv_optimistic_update.attested_header.beacon.parent_root;
+        let parent_root = rcv_optimistic_update.get_parent_root();
         Ok(Self {
             light_client_optimistic_update: rcv_optimistic_update,
             parent_root,

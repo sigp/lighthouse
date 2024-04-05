@@ -165,22 +165,6 @@ impl Validator {
         self.activation_eligibility_epoch() <= state.finalized_checkpoint().epoch
     }
 
-    /// Returns `true` if the validator *could* be eligible for activation at `epoch`.
-    ///
-    /// Eligibility depends on finalization, so we assume best-possible finalization. This function
-    /// returning true is a necessary but *not sufficient* condition for a validator to activate in
-    /// the epoch transition at the end of `epoch`.
-    pub fn could_be_eligible_for_activation_at(&self, epoch: Epoch, spec: &ChainSpec) -> bool {
-        // Has not yet been activated
-        self.activation_epoch() == spec.far_future_epoch
-        // Placement in queue could be finalized.
-        //
-        // NOTE: the epoch distance is 1 rather than 2 because we consider the activations that
-        // occur at the *end* of `epoch`, after `process_justification_and_finalization` has already
-        // updated the state's checkpoint.
-        && self.activation_eligibility_epoch() < epoch
-    }
-
     fn tree_hash_root_internal(&self) -> Result<Hash256, tree_hash::Error> {
         let mut hasher = tree_hash::MerkleHasher::with_leaves(NUM_FIELDS);
 
@@ -198,6 +182,22 @@ impl Validator {
         hasher.write(self.withdrawable_epoch().tree_hash_root().as_bytes())?;
 
         hasher.finish()
+    }
+
+    /// Returns `true` if the validator *could* be eligible for activation at `epoch`.
+    ///
+    /// Eligibility depends on finalization, so we assume best-possible finalization. This function
+    /// returning true is a necessary but *not sufficient* condition for a validator to activate in
+    /// the epoch transition at the end of `epoch`.
+    pub fn could_be_eligible_for_activation_at(&self, epoch: Epoch, spec: &ChainSpec) -> bool {
+        // Has not yet been activated
+        self.activation_epoch() == spec.far_future_epoch
+        // Placement in queue could be finalized.
+        //
+        // NOTE: the epoch distance is 1 rather than 2 because we consider the activations that
+        // occur at the *end* of `epoch`, after `process_justification_and_finalization` has already
+        // updated the state's checkpoint.
+        && self.activation_eligibility_epoch() < epoch
     }
 
     /// Returns `true` if the validator has eth1 withdrawal credential.

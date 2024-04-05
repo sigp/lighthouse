@@ -8,8 +8,8 @@ use types::{BeaconState, ChainSpec, EthSpec};
 /// Apply attester and proposer rewards.
 ///
 /// This function should only be used for testing.
-pub fn process_rewards_and_penalties_slow<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_rewards_and_penalties_slow<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     process_epoch_single_pass(

@@ -14,7 +14,7 @@ use types::{
     },
     milhouse::Cow,
     ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExitCache, ForkName,
-    ParticipationFlags, ProgressiveBalancesCache, Unsigned, Validator,
+    ParticipationFlags, ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator,
 };
 
 pub struct SinglePassConfig {
@@ -113,6 +113,8 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     initialize_epoch_cache(state, spec)?;
     initialize_progressive_balances_cache(state, spec)?;
     state.build_exit_cache(spec)?;
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
     let previous_epoch = state.previous_epoch();
     let current_epoch = state.current_epoch();
@@ -278,7 +280,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     }
 
     if conf.effective_balance_updates {
-        state.set_total_active_balance(next_epoch, next_epoch_total_active_balance);
+        state.set_total_active_balance(next_epoch, next_epoch_total_active_balance, spec);
         *state.epoch_cache_mut() = next_epoch_cache.into_epoch_cache(
             next_epoch_total_active_balance,
             next_epoch_activation_queue,

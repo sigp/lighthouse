@@ -12,11 +12,11 @@ use types::{
 };
 
 /// Slash the validator with index `slashed_index`.
-pub fn slash_validator<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn slash_validator<E: EthSpec>(
+    state: &mut BeaconState<E>,
     slashed_index: usize,
     opt_whistleblower_index: Option<usize>,
-    ctxt: &mut ConsensusContext<T>,
+    ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let epoch = state.current_epoch();
@@ -28,7 +28,7 @@ pub fn slash_validator<T: EthSpec>(
     validator.mutable.slashed = true;
     validator.mutable.withdrawable_epoch = cmp::max(
         validator.withdrawable_epoch(),
-        epoch.safe_add(T::EpochsPerSlashingsVector::to_u64())?,
+        epoch.safe_add(E::EpochsPerSlashingsVector::to_u64())?,
     );
     let validator_effective_balance = validator.effective_balance();
     state.set_slashings(
@@ -60,7 +60,8 @@ pub fn slash_validator<T: EthSpec>(
         BeaconState::Altair(_)
         | BeaconState::Merge(_)
         | BeaconState::Capella(_)
-        | BeaconState::Deneb(_) => whistleblower_reward
+        | BeaconState::Deneb(_)
+        | BeaconState::Electra(_) => whistleblower_reward
             .safe_mul(PROPOSER_WEIGHT)?
             .safe_div(WEIGHT_DENOMINATOR)?,
     };

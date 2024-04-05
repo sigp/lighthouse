@@ -1,7 +1,7 @@
 use crate::{
     BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateCapella, BeaconStateDeneb,
-    BeaconStateError as Error, BeaconStateMerge, EthSpec, List, PublicKeyBytes, Validator,
-    ValidatorMutable,
+    BeaconStateElectra, BeaconStateError as Error, BeaconStateMerge, EthSpec, List, PublicKeyBytes,
+    Validator, ValidatorMutable,
 };
 use itertools::process_results;
 use std::sync::Arc;
@@ -198,6 +198,23 @@ impl<E: EthSpec> BeaconState<E> {
                     next_withdrawal_validator_index
                 ]
             ),
+            BeaconState::Electra(s) => full_to_compact!(
+                s,
+                self,
+                Electra,
+                BeaconStateElectra,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header,
+                    historical_summaries,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index
+                ]
+            ),
         }
     }
 }
@@ -263,6 +280,23 @@ impl<E: EthSpec> CompactBeaconState<E> {
                 inner,
                 Deneb,
                 BeaconStateDeneb,
+                immutable_validators,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header,
+                    historical_summaries,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index
+                ]
+            ),
+            BeaconState::Electra(inner) => compact_to_full!(
+                inner,
+                Electra,
+                BeaconStateElectra,
                 immutable_validators,
                 [
                     previous_epoch_participation,

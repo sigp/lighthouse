@@ -3,15 +3,17 @@ use std::cmp::max;
 use types::{BeaconStateError as Error, *};
 
 /// Initiate the exit of the validator of the given `index`.
-pub fn initiate_validator_exit<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn initiate_validator_exit<E: EthSpec>(
+    state: &mut BeaconState<E>,
     index: usize,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // We do things in a slightly different order to the spec here. Instead of immediately checking
     // whether the validator has already exited, we instead prepare the exit cache and compute the
     // cheap-to-calculate values from that. *Then* we look up the validator a single time in the
-    // validator tree (expensive), make the check and mutate as appropriate.
+    // validator tree (expensive), make the check and mutate as appropriate. Compared to the spec
+    // ordering, this saves us from looking up the validator in the validator registry multiple
+    // times.
 
     // Ensure the exit cache is built.
     state.build_exit_cache(spec)?;

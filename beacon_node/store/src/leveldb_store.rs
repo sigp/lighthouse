@@ -1,6 +1,5 @@
 use super::*;
 use crate::hot_cold_store::HotColdDBError;
-use crate::metrics;
 use leveldb::compaction::Compaction;
 use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
@@ -8,7 +7,7 @@ use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
 use leveldb::iterator::{Iterable, KeyIterator, LevelDBIterator};
 use leveldb::options::{Options, ReadOptions, WriteOptions};
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::Mutex;
 use std::marker::PhantomData;
 use std::path::Path;
 

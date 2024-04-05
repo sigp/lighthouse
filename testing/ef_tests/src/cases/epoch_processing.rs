@@ -3,7 +3,6 @@ use crate::bls_setting::BlsSetting;
 use crate::case_result::{check_state_diff, compare_beacon_state_results_without_caches};
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
-use crate::type_name::TypeName;
 use serde::Deserialize;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
@@ -20,8 +19,7 @@ use state_processing::per_epoch_processing::{
 };
 use state_processing::EpochProcessingError;
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
-use types::{BeaconState, ChainSpec, EthSpec, ForkName};
+use types::BeaconState;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {
@@ -109,7 +107,8 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => {
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => {
                 initialize_progressive_balances_cache(state, spec)?;
                 let justification_and_finalization_state =
                     altair::process_justification_and_finalization(state)?;
@@ -131,7 +130,8 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => altair::process_rewards_and_penalties_slow(state, spec),
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => altair::process_rewards_and_penalties_slow(state, spec),
         }
     }
 }
@@ -163,7 +163,8 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => {
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => {
                 process_slashings_slow(state, spec)?;
             }
         };
@@ -213,7 +214,7 @@ impl<E: EthSpec> EpochTransition<E> for HistoricalRootsUpdate {
 impl<E: EthSpec> EpochTransition<E> for HistoricalSummariesUpdate {
     fn run(state: &mut BeaconState<E>, _spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
-            BeaconState::Capella(_) | BeaconState::Deneb(_) => {
+            BeaconState::Capella(_) | BeaconState::Deneb(_) | BeaconState::Electra(_) => {
                 process_historical_summaries_update(state)
             }
             _ => Ok(()),
@@ -238,7 +239,8 @@ impl<E: EthSpec> EpochTransition<E> for SyncCommitteeUpdates {
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => altair::process_sync_committee_updates(state, spec),
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => altair::process_sync_committee_updates(state, spec),
         }
     }
 }
@@ -250,7 +252,8 @@ impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => altair::process_inactivity_updates_slow(state, spec),
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => altair::process_inactivity_updates_slow(state, spec),
         }
     }
 }
@@ -262,7 +265,8 @@ impl<E: EthSpec> EpochTransition<E> for ParticipationFlagUpdates {
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => altair::process_participation_flag_updates(state),
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => altair::process_participation_flag_updates(state),
         }
     }
 }
@@ -313,7 +317,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                 T::name() != "participation_record_updates"
                     && T::name() != "historical_summaries_update"
             }
-            ForkName::Capella | ForkName::Deneb => {
+            ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                 T::name() != "participation_record_updates"
                     && T::name() != "historical_roots_update"
             }

@@ -48,7 +48,7 @@ impl<E: EthSpec> AllCaches for BeaconState<E> {
             && self.slashings_cache_is_initialized()
             && self
                 .epoch_cache()
-                .check_validity::<E>(current_epoch, epoch_cache_decision_block_root)
+                .check_validity(current_epoch, epoch_cache_decision_block_root)
                 .is_ok()
     }
 }

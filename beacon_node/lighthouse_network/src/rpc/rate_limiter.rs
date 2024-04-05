@@ -3,7 +3,6 @@ use crate::rpc::Protocol;
 use fnv::FnvHashMap;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use std::convert::TryInto;
 use std::future::Future;
 use std::hash::Hash;
 use std::pin::Pin;
@@ -212,7 +211,7 @@ pub trait RateLimiterItem {
     fn expected_responses(&self) -> u64;
 }
 
-impl<T: EthSpec> RateLimiterItem for super::InboundRequest<T> {
+impl<E: EthSpec> RateLimiterItem for super::InboundRequest<E> {
     fn protocol(&self) -> Protocol {
         self.versioned_protocol().protocol()
     }
@@ -222,7 +221,7 @@ impl<T: EthSpec> RateLimiterItem for super::InboundRequest<T> {
     }
 }
 
-impl<T: EthSpec> RateLimiterItem for super::OutboundRequest<T> {
+impl<E: EthSpec> RateLimiterItem for super::OutboundRequest<E> {
     fn protocol(&self) -> Protocol {
         self.versioned_protocol().protocol()
     }

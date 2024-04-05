@@ -248,6 +248,7 @@ easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
+easy_from_to!(LightClientError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
