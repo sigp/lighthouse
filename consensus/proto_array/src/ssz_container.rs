@@ -7,7 +7,6 @@ use crate::{
 use ssz::{four_byte_option_impl, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use superstruct::superstruct;
 use types::{Checkpoint, Hash256};
 

@@ -11,16 +11,17 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use types::*;
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
+pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<(), String> {
     let jwt_path: PathBuf = parse_required(matches, "jwt-output-path")?;
     let listen_addr: Ipv4Addr = parse_required(matches, "listen-address")?;
     let listen_port: u16 = parse_required(matches, "listen-port")?;
     let all_payloads_valid: bool = parse_required(matches, "all-payloads-valid")?;
     let shanghai_time = parse_required(matches, "shanghai-time")?;
     let cancun_time = parse_optional(matches, "cancun-time")?;
+    let prague_time = parse_optional(matches, "prague-time")?;
 
     let handle = env.core_context().executor.handle().unwrap();
-    let spec = &T::default_spec();
+    let spec = &E::default_spec();
     let jwt_key = JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap();
     std::fs::write(jwt_path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
 
@@ -35,9 +36,10 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         terminal_block_hash: spec.terminal_block_hash,
         shanghai_time: Some(shanghai_time),
         cancun_time,
+        prague_time,
     };
     let kzg = None;
-    let server: MockServer<T> = MockServer::new_with_config(&handle, config, kzg);
+    let server: MockServer<E> = MockServer::new_with_config(&handle, config, kzg);
 
     if all_payloads_valid {
         eprintln!(

@@ -39,12 +39,12 @@ four_byte_option_impl!(four_byte_option_hash256, Hash256);
 /// Information returned by `peers` and `connected_peers`.
 // TODO: this should be deserializable..
 #[derive(Debug, Clone, Serialize)]
-#[serde(bound = "T: EthSpec")]
-pub struct Peer<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+pub struct Peer<E: EthSpec> {
     /// The Peer's ID
     pub peer_id: String,
     /// The PeerInfo associated with the peer.
-    pub peer_info: PeerInfo<T>,
+    pub peer_info: PeerInfo<E>,
 }
 
 /// The results of validators voting during an epoch.
@@ -54,8 +54,6 @@ pub struct Peer<T: EthSpec> {
 pub struct GlobalValidatorInclusionData {
     /// The total effective balance of all active validators during the _current_ epoch.
     pub current_epoch_active_gwei: u64,
-    /// The total effective balance of all active validators during the _previous_ epoch.
-    pub previous_epoch_active_gwei: u64,
     /// The total effective balance of all validators who attested during the _current_ epoch and
     /// agreed with the state about the beacon block at the first slot of the _current_ epoch.
     pub current_epoch_target_attesting_gwei: u64,

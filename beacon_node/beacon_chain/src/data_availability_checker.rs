@@ -12,6 +12,7 @@ use kzg::Kzg;
 use slasher::test_utils::E;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
+use ssz_types::FixedVector;
 use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
@@ -56,12 +57,12 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
 /// Indicates if the block is fully `Available` or if we need blobs or blocks
 ///  to "complete" the requirements for an `AvailableBlock`.
 #[derive(PartialEq)]
-pub enum Availability<T: EthSpec> {
+pub enum Availability<E: EthSpec> {
     MissingComponents(Hash256),
-    Available(Box<AvailableExecutedBlock<T>>),
+    Available(Box<AvailableExecutedBlock<E>>),
 }
 
-impl<T: EthSpec> Debug for Availability<T> {
+impl<E: EthSpec> Debug for Availability<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::MissingComponents(block_root) => {
@@ -98,19 +99,28 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     pub fn get_missing_blob_ids_with(&self, block_root: Hash256) -> MissingBlobs {
         self.availability_cache
-            .with_pending_components(&block_root, |pending_components| {
-                self.get_missing_blob_ids(block_root, pending_components)
+            .with_pending_components(&block_root, |pending_components| match pending_components {
+                Some(pending_components) => self.get_missing_blob_ids(
+                    block_root,
+                    pending_components
+                        .get_cached_block()
+                        .as_ref()
+                        .map(|b| b.as_block()),
+                    &pending_components.verified_blobs,
+                ),
+                None => MissingBlobs::PossibleMissing(
+                    BlobIdentifier::get_all_blob_ids::<T::EthSpec>(block_root),
+                ),
             })
     }
 
-    /// A `None` indicates blobs are not required.
-    ///
     /// If there's no block, all possible ids will be returned that don't exist in the given blobs.
     /// If there no blobs, all possible ids will be returned.
-    pub fn get_missing_blob_ids<V: AvailabilityView<T::EthSpec>>(
+    pub fn get_missing_blob_ids<V>(
         &self,
         block_root: Hash256,
-        availability_view: Option<&V>,
+        block: Option<&SignedBeaconBlock<T::EthSpec>>,
+        blobs: &FixedVector<Option<V>, <T::EthSpec as EthSpec>::MaxBlobsPerBlock>,
     ) -> MissingBlobs {
         let Some(current_slot) = self.slot_clock.now_or_genesis() else {
             error!(
@@ -123,55 +133,25 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
         if self.da_check_required_for_epoch(current_epoch) {
-            let Some(availability_view) = availability_view else {
-                return MissingBlobs::PossibleMissing(BlobIdentifier::get_all_blob_ids::<E>(
-                    block_root,
-                ));
-            };
-
-            match availability_view.get_cached_block() {
+            match block {
                 Some(cached_block) => {
-                    let block_commitments = cached_block.get_commitments();
-                    let blob_commitments = availability_view.get_cached_blobs();
-
-                    let num_blobs_expected = block_commitments.len();
-                    let mut blob_ids = Vec::with_capacity(num_blobs_expected);
-
-                    // Zip here will always limit the number of iterations to the size of
-                    // `block_commitment` because `blob_commitments` will always be populated
-                    // with `Option` values up to `MAX_BLOBS_PER_BLOCK`.
-                    for (index, (block_commitment, blob_commitment_opt)) in block_commitments
-                        .into_iter()
-                        .zip(blob_commitments.iter())
+                    let block_commitments_len = cached_block
+                        .message()
+                        .body()
+                        .blob_kzg_commitments()
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    let blob_ids = blobs
+                        .iter()
+                        .take(block_commitments_len)
                         .enumerate()
-                    {
-                        // Always add a missing blob.
-                        let Some(blob_commitment) = blob_commitment_opt else {
-                            blob_ids.push(BlobIdentifier {
+                        .filter_map(|(index, blob_commitment_opt)| {
+                            blob_commitment_opt.is_none().then_some(BlobIdentifier {
                                 block_root,
                                 index: index as u64,
-                            });
-                            continue;
-                        };
-
-                        let blob_commitment = *blob_commitment.get_commitment();
-
-                        // Check for consistency, but this shouldn't happen, an availability view
-                        // should guaruntee consistency.
-                        if blob_commitment != block_commitment {
-                            error!(self.log,
-                                "Inconsistent availability view";
-                                "block_root" => ?block_root,
-                                "block_commitment" => ?block_commitment,
-                                "blob_commitment" => ?blob_commitment,
-                                "index" => index
-                            );
-                            blob_ids.push(BlobIdentifier {
-                                block_root,
-                                index: index as u64,
-                            });
-                        }
-                    }
+                            })
+                        })
+                        .collect();
                     MissingBlobs::KnownMissing(blob_ids)
                 }
                 None => {

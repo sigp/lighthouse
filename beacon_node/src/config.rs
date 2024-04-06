@@ -1,6 +1,7 @@
 use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+    DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_PARENT_THRESHOLD,
 };
 use beacon_chain::TrustedSetup;
 use clap::ArgMatches;
@@ -345,7 +346,9 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
-        el_config.default_datadir = client_config.data_dir().clone();
+        el_config
+            .default_datadir
+            .clone_from(client_config.data_dir());
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
@@ -747,18 +750,25 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.is_present("disable-proposer-reorgs") {
-        client_config.chain.re_org_threshold = None;
+        client_config.chain.re_org_head_threshold = None;
+        client_config.chain.re_org_parent_threshold = None;
     } else {
-        client_config.chain.re_org_threshold = Some(
+        client_config.chain.re_org_head_threshold = Some(
             clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
                 .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_THRESHOLD),
+                .unwrap_or(DEFAULT_RE_ORG_HEAD_THRESHOLD),
         );
         client_config.chain.re_org_max_epochs_since_finalization =
             clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
                 .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
         client_config.chain.re_org_cutoff_millis =
             clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
+
+        client_config.chain.re_org_parent_threshold = Some(
+            clap_utils::parse_optional(cli_args, "proposer-reorg-parent-threshold")?
+                .map(ReOrgThreshold)
+                .unwrap_or(DEFAULT_RE_ORG_PARENT_THRESHOLD),
+        );
 
         if let Some(disallowed_offsets_str) =
             clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
@@ -839,10 +849,12 @@ pub fn get_config<E: EthSpec>(
         client_config.network.invalid_block_storage = Some(path);
     }
 
-    if let Some(progressive_balances_mode) =
-        clap_utils::parse_optional(cli_args, "progressive-balances")?
-    {
-        client_config.chain.progressive_balances_mode = progressive_balances_mode;
+    if cli_args.is_present("progressive-balances") {
+        warn!(
+            log,
+            "Progressive balances mode is deprecated";
+            "info" => "please remove --progressive-balances"
+        );
     }
 
     if let Some(max_workers) = clap_utils::parse_optional(cli_args, "beacon-processor-max-workers")?
@@ -1474,15 +1486,15 @@ pub fn get_slots_per_restore_point<E: EthSpec>(
 /// Parses the `cli_value` as a comma-separated string of values to be parsed with `parser`.
 ///
 /// If there is more than one value, log a warning. If there are no values, return an error.
-pub fn parse_only_one_value<F, T, E>(
+pub fn parse_only_one_value<F, T, U>(
     cli_value: &str,
     parser: F,
     flag_name: &str,
     log: &Logger,
 ) -> Result<T, String>
 where
-    F: Fn(&str) -> Result<T, E>,
-    E: Debug,
+    F: Fn(&str) -> Result<T, U>,
+    U: Debug,
 {
     let values = cli_value
         .split(',')

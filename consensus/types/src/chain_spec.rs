@@ -2,8 +2,8 @@ use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
-use serde::Deserialize;
-use serde::{Deserializer, Serialize, Serializer};
+use safe_arith::{ArithError, SafeArith};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
 use std::fs::File;
@@ -114,6 +114,8 @@ pub struct ChainSpec {
      */
     pub safe_slots_to_update_justified: u64,
     pub proposer_score_boost: Option<u64>,
+    pub reorg_head_weight_threshold: Option<u64>,
+    pub reorg_parent_weight_threshold: Option<u64>,
 
     /*
      * Eth1
@@ -170,6 +172,13 @@ pub struct ChainSpec {
     pub deneb_fork_epoch: Option<Epoch>,
 
     /*
+     * Electra hard fork params
+     */
+    pub electra_fork_version: [u8; 4],
+    /// The Electra fork epoch is optional, with `None` representing "Electra never happens".
+    pub electra_fork_epoch: Option<Epoch>,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -222,22 +231,22 @@ pub struct ChainSpec {
 
 impl ChainSpec {
     /// Construct a `ChainSpec` from a standard config.
-    pub fn from_config<T: EthSpec>(config: &Config) -> Option<Self> {
-        let spec = T::default_spec();
-        config.apply_to_chain_spec::<T>(&spec)
+    pub fn from_config<E: EthSpec>(config: &Config) -> Option<Self> {
+        let spec = E::default_spec();
+        config.apply_to_chain_spec::<E>(&spec)
     }
 
     /// Returns an `EnrForkId` for the given `slot`.
-    pub fn enr_fork_id<T: EthSpec>(
+    pub fn enr_fork_id<E: EthSpec>(
         &self,
         slot: Slot,
         genesis_validators_root: Hash256,
     ) -> EnrForkId {
         EnrForkId {
-            fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
-            next_fork_version: self.next_fork_version::<T>(slot),
+            fork_digest: self.fork_digest::<E>(slot, genesis_validators_root),
+            next_fork_version: self.next_fork_version::<E>(slot),
             next_fork_epoch: self
-                .next_fork_epoch::<T>(slot)
+                .next_fork_epoch::<E>(slot)
                 .map(|(_, e)| e)
                 .unwrap_or(self.far_future_epoch),
         }
@@ -247,8 +256,8 @@ impl ChainSpec {
     ///
     /// If `self.altair_fork_epoch == None`, then this function returns the genesis fork digest
     /// otherwise, returns the fork digest based on the slot.
-    pub fn fork_digest<T: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
-        let fork_name = self.fork_name_at_slot::<T>(slot);
+    pub fn fork_digest<E: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
+        let fork_name = self.fork_name_at_slot::<E>(slot);
         Self::compute_fork_digest(
             self.fork_version_for_name(fork_name),
             genesis_validators_root,
@@ -268,8 +277,8 @@ impl ChainSpec {
     /// Returns the epoch of the next scheduled fork along with its corresponding `ForkName`.
     ///
     /// If no future forks are scheduled, this function returns `None`.
-    pub fn next_fork_epoch<T: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
-        let current_fork_name = self.fork_name_at_slot::<T>(slot);
+    pub fn next_fork_epoch<E: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
+        let current_fork_name = self.fork_name_at_slot::<E>(slot);
         let next_fork_name = current_fork_name.next_fork()?;
         let fork_epoch = self.fork_epoch(next_fork_name)?;
         Some((next_fork_name, fork_epoch))
@@ -282,15 +291,18 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.deneb_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-            _ => match self.capella_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                _ => match self.bellatrix_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-                    _ => match self.altair_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                        _ => ForkName::Base,
+        match self.electra_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
+            _ => match self.deneb_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
+                _ => match self.capella_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+                    _ => match self.bellatrix_fork_epoch {
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                        _ => match self.altair_fork_epoch {
+                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                            _ => ForkName::Base,
+                        },
                     },
                 },
             },
@@ -305,6 +317,7 @@ impl ChainSpec {
             ForkName::Merge => self.bellatrix_fork_version,
             ForkName::Capella => self.capella_fork_version,
             ForkName::Deneb => self.deneb_fork_version,
+            ForkName::Electra => self.electra_fork_version,
         }
     }
 
@@ -316,24 +329,24 @@ impl ChainSpec {
             ForkName::Merge => self.bellatrix_fork_epoch,
             ForkName::Capella => self.capella_fork_epoch,
             ForkName::Deneb => self.deneb_fork_epoch,
+            ForkName::Electra => self.electra_fork_epoch,
         }
     }
 
-    /// For a given `BeaconState`, return the inactivity penalty quotient associated with its variant.
-    pub fn inactivity_penalty_quotient_for_state<T: EthSpec>(&self, state: &BeaconState<T>) -> u64 {
-        match state {
-            BeaconState::Base(_) => self.inactivity_penalty_quotient,
-            BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Deneb(_) => self.inactivity_penalty_quotient_bellatrix,
+    pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
+        match fork_name {
+            ForkName::Base => self.inactivity_penalty_quotient,
+            ForkName::Altair => self.inactivity_penalty_quotient_altair,
+            ForkName::Merge => self.inactivity_penalty_quotient_bellatrix,
+            ForkName::Capella => self.inactivity_penalty_quotient_bellatrix,
+            ForkName::Deneb | ForkName::Electra => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
     /// For a given `BeaconState`, return the proportional slashing multiplier associated with its variant.
-    pub fn proportional_slashing_multiplier_for_state<T: EthSpec>(
+    pub fn proportional_slashing_multiplier_for_state<E: EthSpec>(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
     ) -> u64 {
         match state {
             BeaconState::Base(_) => self.proportional_slashing_multiplier,
@@ -341,13 +354,14 @@ impl ChainSpec {
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
             BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
             BeaconState::Deneb(_) => self.proportional_slashing_multiplier_bellatrix,
+            BeaconState::Electra(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
     /// For a given `BeaconState`, return the minimum slashing penalty quotient associated with its variant.
-    pub fn min_slashing_penalty_quotient_for_state<T: EthSpec>(
+    pub fn min_slashing_penalty_quotient_for_state<E: EthSpec>(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
     ) -> u64 {
         match state {
             BeaconState::Base(_) => self.min_slashing_penalty_quotient,
@@ -355,6 +369,7 @@ impl ChainSpec {
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
             BeaconState::Deneb(_) => self.min_slashing_penalty_quotient_bellatrix,
+            BeaconState::Electra(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -496,6 +511,13 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
+    /// Compute the epoch used for activations prior to Deneb, and for exits under all forks.
+    ///
+    /// Spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#compute_activation_exit_epoch
+    pub fn compute_activation_exit_epoch(&self, epoch: Epoch) -> Result<Epoch, ArithError> {
+        epoch.safe_add(1)?.safe_add(self.max_seed_lookahead)
+    }
+
     pub fn maximum_gossip_clock_disparity(&self) -> Duration {
         Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
     }
@@ -513,7 +535,7 @@ impl ChainSpec {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                 self.max_blocks_by_root_request
             }
-            ForkName::Deneb => self.max_blocks_by_root_request_deneb,
+            ForkName::Deneb | ForkName::Electra => self.max_blocks_by_root_request_deneb,
         }
     }
 
@@ -522,7 +544,7 @@ impl ChainSpec {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                 self.max_request_blocks
             }
-            ForkName::Deneb => self.max_request_blocks_deneb,
+            ForkName::Deneb | ForkName::Electra => self.max_request_blocks_deneb,
         };
         max_request_blocks as usize
     }
@@ -622,6 +644,8 @@ impl ChainSpec {
              */
             safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
+            reorg_head_weight_threshold: Some(20),
+            reorg_parent_weight_threshold: Some(160),
 
             /*
              * Eth1
@@ -682,6 +706,12 @@ impl ChainSpec {
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x00],
             deneb_fork_epoch: Some(Epoch::new(269568)),
+
+            /*
+             * Electra hard fork params
+             */
+            electra_fork_version: [0x05, 00, 00, 00],
+            electra_fork_epoch: None,
 
             /*
              * Network specific
@@ -779,6 +809,9 @@ impl ChainSpec {
             // Deneb
             deneb_fork_version: [0x04, 0x00, 0x00, 0x01],
             deneb_fork_epoch: None,
+            // Electra
+            electra_fork_version: [0x05, 0x00, 0x00, 0x01],
+            electra_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -883,6 +916,8 @@ impl ChainSpec {
              */
             safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
+            reorg_head_weight_threshold: Some(20),
+            reorg_parent_weight_threshold: Some(160),
 
             /*
              * Eth1
@@ -945,6 +980,12 @@ impl ChainSpec {
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x64],
             deneb_fork_epoch: Some(Epoch::new(889856)),
+
+            /*
+             * Electra hard fork params
+             */
+            electra_fork_version: [0x05, 0x00, 0x00, 0x64],
+            electra_fork_epoch: None,
 
             /*
              * Network specific
@@ -1069,6 +1110,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub deneb_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_electra_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    electra_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub electra_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1173,6 +1222,11 @@ fn default_capella_fork_version() -> [u8; 4] {
 }
 
 fn default_deneb_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_electra_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -1367,10 +1421,10 @@ impl Config {
         }
     }
 
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             config_name: spec.config_name.clone(),
-            preset_base: T::spec_name().to_string(),
+            preset_base: E::spec_name().to_string(),
 
             terminal_total_difficulty: spec.terminal_total_difficulty,
             terminal_block_hash: spec.terminal_block_hash,
@@ -1386,17 +1440,25 @@ impl Config {
             altair_fork_epoch: spec
                 .altair_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+
             bellatrix_fork_version: spec.bellatrix_fork_version,
             bellatrix_fork_epoch: spec
                 .bellatrix_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+
             capella_fork_version: spec.capella_fork_version,
             capella_fork_epoch: spec
                 .capella_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+
             deneb_fork_version: spec.deneb_fork_version,
             deneb_fork_epoch: spec
                 .deneb_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
+            electra_fork_version: spec.electra_fork_version,
+            electra_fork_epoch: spec
+                .electra_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
@@ -1447,7 +1509,7 @@ impl Config {
             .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))
     }
 
-    pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
+    pub fn apply_to_chain_spec<E: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
         // Pattern match here to avoid missing any fields.
         let &Config {
             ref config_name,
@@ -1468,6 +1530,8 @@ impl Config {
             capella_fork_version,
             deneb_fork_epoch,
             deneb_fork_version,
+            electra_fork_epoch,
+            electra_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1504,7 +1568,7 @@ impl Config {
             blob_sidecar_subnet_count,
         } = self;
 
-        if preset_base != T::spec_name().to_string().as_str() {
+        if preset_base != E::spec_name().to_string().as_str() {
             return None;
         }
 
@@ -1522,6 +1586,8 @@ impl Config {
             capella_fork_version,
             deneb_fork_epoch: deneb_fork_epoch.map(|q| q.value),
             deneb_fork_version,
+            electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
+            electra_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
