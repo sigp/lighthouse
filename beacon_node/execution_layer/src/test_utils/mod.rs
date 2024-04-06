@@ -707,8 +707,6 @@ pub fn serve<T: EthSpec>(
             )
         });
 
-    // TODO add upcheck
-
     let routes = warp::post()
         .and(auth_header_filter(ctx.jwt_key.clone()))
         .and(root.or(echo))

@@ -70,21 +70,17 @@ pub struct SyncTester {
     /// Stores all `NetworkMessage`s received from `network_recv`. (e.g. outgoing RPC requests)
     received_network_messages: Vec<NetworkMessage<E>>,
     /// Receiver for `BeaconProcessor` events (e.g. block processing results).
+    #[allow(dead_code)]
     beacon_processor_recv: Receiver<WorkEvent<E>>,
     /// Stores all `WorkEvent`s received from `beacon_processor_recv`.
+    #[allow(dead_code)]
     received_beacon_processor_events: Vec<WorkEvent<E>>,
     /// `rng` for generating test blocks and blobs.
     rng: XorShiftRng,
 }
 
-pub enum SyncTestType {
-    RangeSync,
-    BackFillSync,
-    BlockLookups,
-}
-
 impl SyncTester {
-    pub fn new(test_type: SyncTestType) -> Self {
+    pub fn new() -> Self {
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<T>::builder(E)
             .spec(ForkName::Deneb.make_genesis_spec(E::default_spec()))
@@ -100,13 +96,12 @@ impl SyncTester {
         let runtime = &harness.runtime;
         let log = &runtime.log;
         let chain = harness.chain.clone();
-        let network_globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let network_globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), log));
 
         let (sync_send, network_recv, beacon_processor_recv) =
             sync::manager::testing::spawn_for_testing(
                 chain,
                 network_globals.clone(),
-                test_type,
                 runtime.task_executor.clone(),
                 log.clone(),
             );
@@ -127,6 +122,7 @@ impl SyncTester {
     }
 
     /// Create a chain of block and blobs and store in `self.test_context`.
+    #[allow(clippy::type_complexity)]
     pub fn create_block_chain(
         &mut self,
         num_blocks: usize,
@@ -221,7 +217,7 @@ impl SyncTester {
                 Some(NetworkMessage::SendRequest {
                     request_id: RequestId::Sync(request_id),
                     ..
-                }) => Ok(request_id.clone()),
+                }) => Ok(*request_id),
                 _ => Err("No matching rpc request found"),
             }
         })
@@ -239,19 +235,17 @@ impl SyncTester {
 
     /// Checks the `beacon_processor_recv` for a matching `WorkEvent`. Useful for making assertions
     /// on events sent to the `NetworkBeaconProcessor`, e.g. a chain segment sent for processing.
+    #[allow(dead_code)]
     pub async fn expect_beacon_processor_send<F>(&mut self, match_fn: F) -> &mut Self
     where
-        F: Fn(&WorkEvent<E>) -> bool,
+        F: Fn(&WorkEvent<E>) -> bool + Copy,
     {
         let result = with_retry(5, Duration::from_millis(10), || {
             while let Ok(work_event) = self.beacon_processor_recv.try_recv() {
                 self.received_beacon_processor_events.push(work_event);
             }
 
-            let match_found = self
-                .received_beacon_processor_events
-                .iter()
-                .any(|work_event| match_fn(work_event));
+            let match_found = self.received_beacon_processor_events.iter().any(match_fn);
 
             if !match_found {
                 return Err("No matching work event found");
@@ -285,7 +279,7 @@ impl SyncTester {
                 .iter()
                 .any(|msg| matches!(msg, NetworkMessage::ReportPeer { .. }));
 
-            assert_eq!(peer_penalty_found, false);
+            assert!(!peer_penalty_found);
 
             if try_count >= max_retries {
                 break;

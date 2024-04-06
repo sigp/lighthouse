@@ -1162,7 +1162,7 @@ fn test_same_chain_race_condition() {
 
 mod deneb_only {
     use super::*;
-    use crate::sync::testing::{SyncTestType, SyncTester};
+    use crate::sync::testing::SyncTester;
     use crate::sync::SyncMessage;
     use beacon_chain::data_availability_checker::AvailabilityCheckError;
     use lighthouse_network::types::SyncState;
@@ -2139,10 +2139,10 @@ mod deneb_only {
 
     #[tokio::test]
     async fn no_peer_penalty_when_rpc_response_already_known_from_gossip() {
-        let mut sync_tester = SyncTester::new(SyncTestType::BlockLookups);
+        let mut sync_tester = SyncTester::new();
 
         let (block_chain, blobs_chain) = sync_tester.create_block_chain(2);
-        let block = block_chain.get(0).unwrap();
+        let block = block_chain.front().unwrap();
         let block_root = block.canonical_root();
         let rpc_block = RpcBlock::new_without_blobs(Some(block_root), block.clone());
         let peer_id = PeerId::random();
@@ -2171,29 +2171,28 @@ mod deneb_only {
             })
             .await;
 
-        let current_lookup_req_id = sync_tester
+        let current_lookup_req_id = *sync_tester
             .get_from_context::<SyncRequestId>("current_lookup_req_id")
-            .unwrap()
-            .clone();
+            .unwrap();
 
         // A peer responds with blob 0
         sync_tester
             .send_rpc_response(vec![SyncMessage::RpcBlob {
                 request_id: current_lookup_req_id,
                 peer_id,
-                blob_sidecar: Some(blobs_chain.get(0).unwrap().get(0).unwrap().clone()),
+                blob_sidecar: Some(blobs_chain.front().unwrap().first().unwrap().clone()),
                 seen_timestamp: Default::default(),
             }])
             // Blob 1 is received via gossip, triggers `UnknownParentBlob`
             .send_sync_messages(vec![SyncMessage::UnknownParentBlob(
                 peer_id,
-                blobs_chain.get(0).unwrap().get(1).unwrap().clone(),
+                blobs_chain.front().unwrap().get(1).unwrap().clone(),
             )])
             // A peer responds with blob 1 (same as gossip blob above)
             .send_rpc_response(vec![SyncMessage::RpcBlob {
                 request_id: current_lookup_req_id,
                 peer_id,
-                blob_sidecar: Some(blobs_chain.get(0).unwrap().get(1).unwrap().clone()),
+                blob_sidecar: Some(blobs_chain.front().unwrap().get(1).unwrap().clone()),
                 seen_timestamp: Default::default(),
             }])
             // Assert peer isn't penalised

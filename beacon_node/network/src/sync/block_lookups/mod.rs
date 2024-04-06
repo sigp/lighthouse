@@ -78,6 +78,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Lookup requests */
 
+    /// Creates a lookup for the block with the given `block_root` and immediately triggers it.
+    pub fn search_block(
+        &mut self,
+        block_root: Hash256,
+        peer_source: &[PeerId],
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        self.new_current_lookup(block_root, None, peer_source, cx)
+    }
+
+    /// Creates a lookup for the block with the given `block_root`, while caching other block
+    /// components we've already received. The block components are cached here because we haven't
+    /// imported its parent and therefore can't fully validate it and store it in the data
+    /// availability cache.
+    ///
+    /// The request is immediately triggered.
+    pub fn search_child_block(
+        &mut self,
+        block_root: Hash256,
+        child_components: ChildComponents<T::EthSpec>,
+        peer_source: &[PeerId],
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        self.new_current_lookup(block_root, Some(child_components), peer_source, cx)
+    }
+
     /// Attempts to trigger the request matching the given `block_root`.
     pub fn trigger_single_lookup(
         &mut self,
@@ -173,6 +199,59 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.trigger_single_lookup(lookup, cx);
     }
 
+    /// If a block is attempted to be processed but we do not know its parent, this function is
+    /// called in order to find the block's parent.
+    pub fn search_parent(
+        &mut self,
+        slot: Slot,
+        block_root: Hash256,
+        parent_root: Hash256,
+        peer_id: PeerId,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        // If this block or it's parent is part of a known failed chain, ignore it.
+        if self.failed_chains.contains(&parent_root) || self.failed_chains.contains(&block_root) {
+            debug!(self.log, "Block is from a past failed chain. Dropping";
+                "block_root" => ?block_root, "block_slot" => slot);
+            return;
+        }
+
+        // Make sure this block is not already downloaded, and that neither it or its parent is
+        // being searched for.
+        if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
+            parent_req.contains_block(&parent_root) || parent_req.is_for_block(parent_root)
+        }) {
+            parent_lookup.add_peer(peer_id);
+            // we are already searching for this block, ignore it
+            debug!(self.log, "Already searching for parent block";
+                "block_root" => ?block_root, "parent_root" => ?parent_root);
+            return;
+        }
+
+        if self
+            .processing_parent_lookups
+            .iter()
+            .any(|(chain_hash, (hashes, _peers))| {
+                chain_hash == &block_root
+                    || hashes.contains(&block_root)
+                    || hashes.contains(&parent_root)
+            })
+        {
+            // we are already processing this block, ignore it.
+            debug!(self.log, "Already processing parent block";
+                "block_root" => ?block_root, "parent_root" => ?parent_root);
+            return;
+        }
+        let parent_lookup = ParentLookup::new(
+            block_root,
+            parent_root,
+            peer_id,
+            self.da_checker.clone(),
+            cx,
+        );
+        self.request_parent(parent_lookup, cx);
+    }
+
     /* Lookup responses */
 
     /// Get a single block lookup by its ID. This method additionally ensures the `req_counter`
@@ -201,6 +280,62 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.parent_lookups
             .iter()
             .any(|parent_lookup| parent_lookup.chain_hash() == block_root)
+    }
+
+    /// Process a block or blob response received from a single lookup request.
+    pub fn single_lookup_response<R: RequestState<Current, T>>(
+        &mut self,
+        lookup_id: SingleLookupReqId,
+        peer_id: PeerId,
+        response: Option<R::ResponseType>,
+        seen_timestamp: Duration,
+        cx: &SyncNetworkContext<T>,
+    ) {
+        let id = lookup_id.id;
+        let response_type = R::response_type();
+
+        let Some(lookup) = self.get_single_lookup::<R>(lookup_id) else {
+            if response.is_some() {
+                // We don't have the ability to cancel in-flight RPC requests. So this can happen
+                // if we started this RPC request, and later saw the block/blobs via gossip.
+                debug!(
+                    self.log,
+                    "Block returned for single block lookup not present";
+                        "response_type" => ?response_type,
+                );
+            }
+            return;
+        };
+
+        let expected_block_root = lookup.block_root();
+        if response.is_some() {
+            debug!(self.log,
+                "Peer returned response for single lookup";
+                "peer_id" => %peer_id ,
+                "id" => ?id,
+                "block_root" => ?expected_block_root,
+                "response_type" => ?response_type,
+            );
+        }
+
+        match self.single_lookup_response_inner::<R>(peer_id, response, seen_timestamp, cx, lookup)
+        {
+            Ok(lookup) => {
+                self.single_block_lookups.insert(id, lookup);
+            }
+            Err(e) => {
+                debug!(self.log,
+                    "Single lookup request failed";
+                    "error" => ?e,
+                    "block_root" => ?expected_block_root,
+                );
+            }
+        }
+
+        metrics::set_gauge(
+            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+            self.single_block_lookups.len() as i64,
+        );
     }
 
     /// Consolidates error handling for `single_lookup_response`. An `Err` here should always mean
@@ -346,6 +481,53 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         Some(parent_lookup)
     }
 
+    /// Process a response received from a parent lookup request.
+    pub fn parent_lookup_response<R: RequestState<Parent, T>>(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        response: Option<R::ResponseType>,
+        seen_timestamp: Duration,
+        cx: &SyncNetworkContext<T>,
+    ) {
+        let Some(mut parent_lookup) = self.get_parent_lookup::<R>(id) else {
+            if response.is_some() {
+                debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
+            }
+            return;
+        };
+
+        if response.is_some() {
+            debug!(self.log,
+                "Peer returned response for parent lookup";
+                "peer_id" => %peer_id ,
+                "id" => ?id,
+                "block_root" => ?parent_lookup.current_parent_request.block_request_state.requested_block_root,
+                "response_type" => ?R::response_type(),
+            );
+        }
+
+        match self.parent_lookup_response_inner::<R>(
+            peer_id,
+            response,
+            seen_timestamp,
+            cx,
+            &mut parent_lookup,
+        ) {
+            Ok(()) => {
+                self.parent_lookups.push(parent_lookup);
+            }
+            Err(e) => {
+                self.handle_parent_request_error(&mut parent_lookup, cx, e);
+            }
+        }
+
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_lookups.len() as i64,
+        );
+    }
+
     /// Consolidates error handling for `parent_lookup_response`. An `Err` here should always mean
     /// the lookup is dropped.
     fn parent_lookup_response_inner<R: RequestState<Parent, T>>(
@@ -461,7 +643,166 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Error responses */
 
+    pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T>) {
+        /* Check disconnection for single lookups */
+        self.single_block_lookups.retain(|_, req| {
+            let should_drop_lookup =
+                req.should_drop_lookup_on_disconnected_peer(peer_id, cx, &self.log);
+
+            !should_drop_lookup
+        });
+
+        /* Check disconnection for parent lookups */
+        while let Some(pos) = self
+            .parent_lookups
+            .iter_mut()
+            .position(|req| req.check_peer_disconnected(peer_id).is_err())
+        {
+            let parent_lookup = self.parent_lookups.remove(pos);
+            trace!(self.log, "Parent lookup's peer disconnected"; &parent_lookup);
+            self.request_parent(parent_lookup, cx);
+        }
+    }
+
+    /// An RPC error has occurred during a parent lookup. This function handles this case.
+    pub fn parent_lookup_failed<R: RequestState<Parent, T>>(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        cx: &SyncNetworkContext<T>,
+        error: RPCError,
+    ) {
+        let msg = error.as_static_str();
+        let Some(mut parent_lookup) = self.get_parent_lookup::<R>(id) else {
+            debug!(self.log,
+                "RPC failure for a block parent lookup request that was not found";
+                "peer_id" => %peer_id,
+                "error" => msg
+            );
+            return;
+        };
+        R::request_state_mut(&mut parent_lookup.current_parent_request)
+            .register_failure_downloading();
+        trace!(self.log, "Parent lookup block request failed"; &parent_lookup, "error" => msg);
+
+        self.request_parent(parent_lookup, cx);
+
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_lookups.len() as i64,
+        );
+    }
+
+    /// An RPC error has occurred during a single lookup. This function handles this case.\
+    pub fn single_block_lookup_failed<R: RequestState<Current, T>>(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: &PeerId,
+        cx: &SyncNetworkContext<T>,
+        error: RPCError,
+    ) {
+        let msg = error.as_static_str();
+        let log = self.log.clone();
+        let Some(mut lookup) = self.get_single_lookup::<R>(id) else {
+            debug!(log, "Error response to dropped lookup"; "error" => ?error);
+            return;
+        };
+        let block_root = lookup.block_root();
+        let request_state = R::request_state_mut(&mut lookup);
+        let response_type = R::response_type();
+        trace!(log,
+            "Single lookup failed";
+            "block_root" => ?block_root,
+            "error" => msg,
+            "peer_id" => %peer_id,
+            "response_type" => ?response_type
+        );
+        let id = id.id;
+        request_state.register_failure_downloading();
+        if let Err(e) = lookup.request_block_and_blobs(cx) {
+            debug!(self.log,
+                "Single lookup retry failed";
+                "error" => ?e,
+                "block_root" => ?block_root,
+            );
+            self.single_block_lookups.remove(&id);
+        }
+
+        metrics::set_gauge(
+            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+            self.single_block_lookups.len() as i64,
+        );
+    }
+
     /* Processing responses */
+
+    pub fn single_block_component_processed<R: RequestState<Current, T>>(
+        &mut self,
+        target_id: Id,
+        result: BlockProcessingResult<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        let Some(mut lookup) = self.single_block_lookups.remove(&target_id) else {
+            return;
+        };
+
+        let root = lookup.block_root();
+        let request_state = R::request_state_mut(&mut lookup);
+
+        let Ok(peer_id) = request_state.get_state().processing_peer() else {
+            return;
+        };
+        debug!(
+            self.log,
+            "Block component processed for lookup";
+            "response_type" => ?R::response_type(),
+            "block_root" => ?root,
+            "result" => ?result,
+            "id" => target_id,
+        );
+
+        match result {
+            BlockProcessingResult::Ok(status) => match status {
+                AvailabilityProcessingStatus::Imported(root) => {
+                    trace!(self.log, "Single block processing succeeded"; "block" => %root);
+                }
+                AvailabilityProcessingStatus::MissingComponents(_, _block_root) => {
+                    match self.handle_missing_components::<R>(cx, &mut lookup) {
+                        Ok(()) => {
+                            self.single_block_lookups.insert(target_id, lookup);
+                        }
+                        Err(e) => {
+                            // Drop with an additional error.
+                            warn!(self.log, "Single block lookup failed"; "block" => %root, "error" => ?e);
+                        }
+                    }
+                }
+            },
+            BlockProcessingResult::Ignored => {
+                // Beacon processor signalled to ignore the block processing result.
+                // This implies that the cpu is overloaded. Drop the request.
+                warn!(
+                    self.log,
+                    "Single block processing was ignored, cpu might be overloaded";
+                    "action" => "dropping single block request"
+                );
+            }
+            BlockProcessingResult::Err(e) => {
+                match self.handle_single_lookup_block_error(cx, lookup, peer_id, e) {
+                    Ok(Some(lookup)) => {
+                        self.single_block_lookups.insert(target_id, lookup);
+                    }
+                    Ok(None) => {
+                        // Drop without an additional error.
+                    }
+                    Err(e) => {
+                        // Drop with an additional error.
+                        warn!(self.log, "Single block lookup failed"; "block" => %root, "error" => ?e);
+                    }
+                }
+            }
+        };
+    }
 
     /// Handles a `MissingComponents` block processing error. Handles peer scoring and retries.
     ///
@@ -568,563 +909,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         Ok(Some(lookup))
     }
 
-    /// Find the child block that spawned the parent lookup request and add it to the chain
-    /// to send for processing.
-    fn add_child_block_to_chain(
-        &mut self,
-        chain_hash: Hash256,
-        mut blocks: VecDeque<RpcBlock<T::EthSpec>>,
-        cx: &SyncNetworkContext<T>,
-    ) -> VecDeque<RpcBlock<T::EthSpec>> {
-        // Find the child block that spawned the parent lookup request and add it to the chain
-        // to send for processing.
-        if let Some(child_lookup_id) = self
-            .single_block_lookups
-            .iter()
-            .find_map(|(id, lookup)| (lookup.block_root() == chain_hash).then_some(*id))
-        {
-            let Some(child_lookup) = self.single_block_lookups.get_mut(&child_lookup_id) else {
-                debug!(self.log, "Missing child for parent lookup request"; "child_root" => ?chain_hash);
-                return blocks;
-            };
-            match child_lookup.get_cached_child_block() {
-                CachedChild::Ok(rpc_block) => {
-                    // Insert this block at the front. This order is important because we later check
-                    // for linear roots in `filter_chain_segment`
-                    blocks.push_front(rpc_block);
-                }
-                CachedChild::DownloadIncomplete => {
-                    trace!(self.log, "Parent lookup chain complete, awaiting child response"; "chain_hash" => ?chain_hash);
-                }
-                CachedChild::NotRequired => {
-                    warn!(self.log, "Child not cached for parent lookup"; "chain_hash" => %chain_hash);
-                }
-                CachedChild::Err(e) => {
-                    warn!(
-                        self.log,
-                        "Consistency error in child block triggering chain or parent lookups";
-                        "error" => ?e,
-                        "chain_hash" => ?chain_hash
-                    );
-                    child_lookup.handle_consistency_failure(cx);
-                    if let Err(e) = child_lookup.request_block_and_blobs(cx) {
-                        debug!(self.log,
-                            "Failed to request block and blobs, dropping lookup";
-                            "error" => ?e
-                        );
-                        self.single_block_lookups.remove(&child_lookup_id);
-                    }
-                }
-            }
-        } else {
-            debug!(self.log, "Missing child for parent lookup request"; "child_root" => ?chain_hash);
-        };
-        blocks
-    }
-
-    /// Handle the peer scoring, retries, and logging related to a `BlockError` returned from
-    /// processing a block + blobs for a parent lookup.
-    fn handle_parent_block_error(
-        &mut self,
-        outcome: BlockError<<T as BeaconChainTypes>::EthSpec>,
-        cx: &SyncNetworkContext<T>,
-        mut parent_lookup: ParentLookup<T>,
-    ) {
-        // We should always have a block peer.
-        let Ok(block_peer_id) = parent_lookup.block_processing_peer() else {
-            return;
-        };
-
-        // We may not have a blob peer, if there were no blobs required for this block.
-        let blob_peer_id = parent_lookup.blob_processing_peer().ok();
-
-        // all else we consider the chain a failure and downvote the peer that sent
-        // us the last block
-        warn!(
-            self.log, "Invalid parent chain";
-            "score_adjustment" => %PeerAction::MidToleranceError,
-            "outcome" => ?outcome,
-            "block_peer_id" => %block_peer_id,
-        );
-        // This currently can be a host of errors. We permit this due to the partial
-        // ambiguity.
-        cx.report_peer(
-            block_peer_id,
-            PeerAction::MidToleranceError,
-            "parent_request_err",
-        );
-        // Don't downscore the same peer twice
-        if let Some(blob_peer_id) = blob_peer_id {
-            if block_peer_id != blob_peer_id {
-                debug!(
-                    self.log, "Additionally down-scoring blob peer";
-                    "score_adjustment" => %PeerAction::MidToleranceError,
-                    "outcome" => ?outcome,
-                    "blob_peer_id" => %blob_peer_id,
-                );
-                cx.report_peer(
-                    blob_peer_id,
-                    PeerAction::MidToleranceError,
-                    "parent_request_err",
-                );
-            }
-        }
-
-        // Try again if possible
-        parent_lookup.processing_failed();
-        self.request_parent(parent_lookup, cx);
-    }
-
-    /* Helper functions */
-
-    fn send_block_for_processing(
-        &self,
-        block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
-        duration: Duration,
-        process_type: BlockProcessType,
-        cx: &SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
-        match cx.beacon_processor_if_enabled() {
-            Some(beacon_processor) => {
-                debug!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
-                if let Err(e) = beacon_processor.send_rpc_beacon_block(
-                    block_root,
-                    block,
-                    duration,
-                    process_type,
-                ) {
-                    error!(
-                        self.log,
-                        "Failed to send sync block to processor";
-                        "error" => ?e
-                    );
-                    Err(LookupRequestError::SendFailed(
-                        "beacon processor send failure",
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            None => {
-                trace!(self.log, "Dropping block ready for processing. Beacon processor not available"; "block" => %block_root);
-                Err(LookupRequestError::SendFailed(
-                    "beacon processor unavailable",
-                ))
-            }
-        }
-    }
-
-    fn send_blobs_for_processing(
-        &self,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        duration: Duration,
-        process_type: BlockProcessType,
-        cx: &SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
-        match cx.beacon_processor_if_enabled() {
-            Some(beacon_processor) => {
-                trace!(self.log, "Sending blobs for processing"; "block" => ?block_root, "process_type" => ?process_type);
-                if let Err(e) =
-                    beacon_processor.send_rpc_blobs(block_root, blobs, duration, process_type)
-                {
-                    error!(
-                        self.log,
-                        "Failed to send sync blobs to processor";
-                        "error" => ?e
-                    );
-                    Err(LookupRequestError::SendFailed(
-                        "beacon processor send failure",
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            None => {
-                trace!(self.log, "Dropping blobs ready for processing. Beacon processor not available"; "block_root" => %block_root);
-                Err(LookupRequestError::SendFailed(
-                    "beacon processor unavailable",
-                ))
-            }
-        }
-    }
-
-    /// Attempts to request the next unknown parent. This method handles peer scoring and dropping
-    /// the lookup in the event of failure.
-    fn request_parent(&mut self, mut parent_lookup: ParentLookup<T>, cx: &SyncNetworkContext<T>) {
-        let response = parent_lookup.request_parent(cx);
-
-        match response {
-            Err(e) => {
-                self.handle_parent_request_error(&mut parent_lookup, cx, e);
-            }
-            Ok(_) => self.parent_lookups.push(parent_lookup),
-        }
-
-        // We remove and add back again requests so we want this updated regardless of outcome.
-        metrics::set_gauge(
-            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
-            self.parent_lookups.len() as i64,
-        );
-    }
-}
-
-impl<T: BeaconChainTypes> BlockLookupCapable<T> for BlockLookups<T> {
-    /// Creates a lookup for the block with the given `block_root` and immediately triggers it.
-    fn search_block(
-        &mut self,
-        block_root: Hash256,
-        peer_source: &[PeerId],
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        self.new_current_lookup(block_root, None, peer_source, cx)
-    }
-
-    /// Creates a lookup for the block with the given `block_root`, while caching other block
-    /// components we've already received. The block components are cached here because we haven't
-    /// imported its parent and therefore can't fully validate it and store it in the data
-    /// availability cache.
-    ///
-    /// The request is immediately triggered.
-    fn search_child_block(
-        &mut self,
-        block_root: Hash256,
-        child_components: ChildComponents<T::EthSpec>,
-        peer_source: &[PeerId],
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        self.new_current_lookup(block_root, Some(child_components), peer_source, cx)
-    }
-
-    /// If a block is attempted to be processed but we do not know its parent, this function is
-    /// called in order to find the block's parent.
-    fn search_parent(
-        &mut self,
-        slot: Slot,
-        block_root: Hash256,
-        parent_root: Hash256,
-        peer_id: PeerId,
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        // If this block or it's parent is part of a known failed chain, ignore it.
-        if self.failed_chains.contains(&parent_root) || self.failed_chains.contains(&block_root) {
-            debug!(self.log, "Block is from a past failed chain. Dropping";
-                "block_root" => ?block_root, "block_slot" => slot);
-            return;
-        }
-
-        // Make sure this block is not already downloaded, and that neither it or its parent is
-        // being searched for.
-        if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
-            parent_req.contains_block(&parent_root) || parent_req.is_for_block(parent_root)
-        }) {
-            parent_lookup.add_peer(peer_id);
-            // we are already searching for this block, ignore it
-            debug!(self.log, "Already searching for parent block";
-                "block_root" => ?block_root, "parent_root" => ?parent_root);
-            return;
-        }
-
-        if self
-            .processing_parent_lookups
-            .iter()
-            .any(|(chain_hash, (hashes, _peers))| {
-                chain_hash == &block_root
-                    || hashes.contains(&block_root)
-                    || hashes.contains(&parent_root)
-            })
-        {
-            // we are already processing this block, ignore it.
-            debug!(self.log, "Already processing parent block";
-                "block_root" => ?block_root, "parent_root" => ?parent_root);
-            return;
-        }
-        let parent_lookup = ParentLookup::new(
-            block_root,
-            parent_root,
-            peer_id,
-            self.da_checker.clone(),
-            cx,
-        );
-        self.request_parent(parent_lookup, cx);
-    }
-
-    fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T>) {
-        /* Check disconnection for single lookups */
-        self.single_block_lookups.retain(|_, req| {
-            let should_drop_lookup =
-                req.should_drop_lookup_on_disconnected_peer(peer_id, cx, &self.log);
-
-            !should_drop_lookup
-        });
-
-        /* Check disconnection for parent lookups */
-        while let Some(pos) = self
-            .parent_lookups
-            .iter_mut()
-            .position(|req| req.check_peer_disconnected(peer_id).is_err())
-        {
-            let parent_lookup = self.parent_lookups.remove(pos);
-            trace!(self.log, "Parent lookup's peer disconnected"; &parent_lookup);
-            self.request_parent(parent_lookup, cx);
-        }
-    }
-
-    /// An RPC error has occurred during a parent lookup. This function handles this case.
-    fn parent_lookup_failed<R: RequestState<Parent, T>>(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: PeerId,
-        cx: &SyncNetworkContext<T>,
-        error: RPCError,
-    ) {
-        let msg = error.as_static_str();
-        let Some(mut parent_lookup) = self.get_parent_lookup::<R>(id) else {
-            debug!(self.log,
-                "RPC failure for a block parent lookup request that was not found";
-                "peer_id" => %peer_id,
-                "error" => msg
-            );
-            return;
-        };
-        R::request_state_mut(&mut parent_lookup.current_parent_request)
-            .register_failure_downloading();
-        trace!(self.log, "Parent lookup block request failed"; &parent_lookup, "error" => msg);
-
-        self.request_parent(parent_lookup, cx);
-
-        metrics::set_gauge(
-            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
-            self.parent_lookups.len() as i64,
-        );
-    }
-
-    /// An RPC error has occurred during a single lookup. This function handles this case.\
-    fn single_block_lookup_failed<R: RequestState<Current, T>>(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: &PeerId,
-        cx: &SyncNetworkContext<T>,
-        error: RPCError,
-    ) {
-        let msg = error.as_static_str();
-        let log = self.log.clone();
-        let Some(mut lookup) = self.get_single_lookup::<R>(id) else {
-            debug!(log, "Error response to dropped lookup"; "error" => ?error);
-            return;
-        };
-        let block_root = lookup.block_root();
-        let request_state = R::request_state_mut(&mut lookup);
-        let response_type = R::response_type();
-        trace!(log,
-            "Single lookup failed";
-            "block_root" => ?block_root,
-            "error" => msg,
-            "peer_id" => %peer_id,
-            "response_type" => ?response_type
-        );
-        let id = id.id;
-        request_state.register_failure_downloading();
-        if let Err(e) = lookup.request_block_and_blobs(cx) {
-            debug!(self.log,
-                "Single lookup retry failed";
-                "error" => ?e,
-                "block_root" => ?block_root,
-            );
-            self.single_block_lookups.remove(&id);
-        }
-
-        metrics::set_gauge(
-            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
-            self.single_block_lookups.len() as i64,
-        );
-    }
-
-    /// Drops all the single block requests and returns how many requests were dropped.
-    fn drop_single_block_requests(&mut self) -> usize {
-        let requests_to_drop = self.single_block_lookups.len();
-        self.single_block_lookups.clear();
-        requests_to_drop
-    }
-
-    /// Drops all the parent chain requests and returns how many requests were dropped.
-    fn drop_parent_chain_requests(&mut self) -> usize {
-        self.parent_lookups.drain(..).len()
-    }
-
-    /// Process a block or blob response received from a single lookup request.
-    fn single_lookup_response<R: RequestState<Current, T>>(
-        &mut self,
-        lookup_id: SingleLookupReqId,
-        peer_id: PeerId,
-        response: Option<R::ResponseType>,
-        seen_timestamp: Duration,
-        cx: &SyncNetworkContext<T>,
-    ) {
-        let id = lookup_id.id;
-        let response_type = R::response_type();
-
-        let Some(lookup) = self.get_single_lookup::<R>(lookup_id) else {
-            if response.is_some() {
-                // We don't have the ability to cancel in-flight RPC requests. So this can happen
-                // if we started this RPC request, and later saw the block/blobs via gossip.
-                debug!(
-                    self.log,
-                    "Block returned for single block lookup not present";
-                        "response_type" => ?response_type,
-                );
-            }
-            return;
-        };
-
-        let expected_block_root = lookup.block_root();
-        if response.is_some() {
-            debug!(self.log,
-                "Peer returned response for single lookup";
-                "peer_id" => %peer_id ,
-                "id" => ?id,
-                "block_root" => ?expected_block_root,
-                "response_type" => ?response_type,
-            );
-        }
-
-        match self.single_lookup_response_inner::<R>(peer_id, response, seen_timestamp, cx, lookup)
-        {
-            Ok(lookup) => {
-                self.single_block_lookups.insert(id, lookup);
-            }
-            Err(e) => {
-                debug!(self.log,
-                    "Single lookup request failed";
-                    "error" => ?e,
-                    "block_root" => ?expected_block_root,
-                );
-            }
-        }
-
-        metrics::set_gauge(
-            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
-            self.single_block_lookups.len() as i64,
-        );
-    }
-
-    /// Process a response received from a parent lookup request.
-    fn parent_lookup_response<R: RequestState<Parent, T>>(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: PeerId,
-        response: Option<R::ResponseType>,
-        seen_timestamp: Duration,
-        cx: &SyncNetworkContext<T>,
-    ) {
-        let Some(mut parent_lookup) = self.get_parent_lookup::<R>(id) else {
-            if response.is_some() {
-                debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
-            }
-            return;
-        };
-
-        if response.is_some() {
-            debug!(self.log,
-                "Peer returned response for parent lookup";
-                "peer_id" => %peer_id ,
-                "id" => ?id,
-                "block_root" => ?parent_lookup.current_parent_request.block_request_state.requested_block_root,
-                "response_type" => ?R::response_type(),
-            );
-        }
-
-        match self.parent_lookup_response_inner::<R>(
-            peer_id,
-            response,
-            seen_timestamp,
-            cx,
-            &mut parent_lookup,
-        ) {
-            Ok(()) => {
-                self.parent_lookups.push(parent_lookup);
-            }
-            Err(e) => {
-                self.handle_parent_request_error(&mut parent_lookup, cx, e);
-            }
-        }
-
-        metrics::set_gauge(
-            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
-            self.parent_lookups.len() as i64,
-        );
-    }
-
-    fn single_block_component_processed<R: RequestState<Current, T>>(
-        &mut self,
-        target_id: Id,
-        result: BlockProcessingResult<T::EthSpec>,
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        let Some(mut lookup) = self.single_block_lookups.remove(&target_id) else {
-            return;
-        };
-
-        let root = lookup.block_root();
-        let request_state = R::request_state_mut(&mut lookup);
-
-        let Ok(peer_id) = request_state.get_state().processing_peer() else {
-            return;
-        };
-        debug!(
-            self.log,
-            "Block component processed for lookup";
-            "response_type" => ?R::response_type(),
-            "block_root" => ?root,
-            "result" => ?result,
-            "id" => target_id,
-        );
-
-        match result {
-            BlockProcessingResult::Ok(status) => match status {
-                AvailabilityProcessingStatus::Imported(root) => {
-                    trace!(self.log, "Single block processing succeeded"; "block" => %root);
-                }
-                AvailabilityProcessingStatus::MissingComponents(_, _block_root) => {
-                    match self.handle_missing_components::<R>(cx, &mut lookup) {
-                        Ok(()) => {
-                            self.single_block_lookups.insert(target_id, lookup);
-                        }
-                        Err(e) => {
-                            // Drop with an additional error.
-                            warn!(self.log, "Single block lookup failed"; "block" => %root, "error" => ?e);
-                        }
-                    }
-                }
-            },
-            BlockProcessingResult::Ignored => {
-                // Beacon processor signalled to ignore the block processing result.
-                // This implies that the cpu is overloaded. Drop the request.
-                warn!(
-                    self.log,
-                    "Single block processing was ignored, cpu might be overloaded";
-                    "action" => "dropping single block request"
-                );
-            }
-            BlockProcessingResult::Err(e) => {
-                match self.handle_single_lookup_block_error(cx, lookup, peer_id, e) {
-                    Ok(Some(lookup)) => {
-                        self.single_block_lookups.insert(target_id, lookup);
-                    }
-                    Ok(None) => {
-                        // Drop without an additional error.
-                    }
-                    Err(e) => {
-                        // Drop with an additional error.
-                        warn!(self.log, "Single block lookup failed"; "block" => %root, "error" => ?e);
-                    }
-                }
-            }
-        };
-    }
-
-    fn parent_block_processed(
+    pub fn parent_block_processed(
         &mut self,
         chain_hash: Hash256,
         result: BlockProcessingResult<T::EthSpec>,
@@ -1262,7 +1047,114 @@ impl<T: BeaconChainTypes> BlockLookupCapable<T> for BlockLookups<T> {
         );
     }
 
-    fn parent_chain_processed(
+    /// Find the child block that spawned the parent lookup request and add it to the chain
+    /// to send for processing.
+    fn add_child_block_to_chain(
+        &mut self,
+        chain_hash: Hash256,
+        mut blocks: VecDeque<RpcBlock<T::EthSpec>>,
+        cx: &SyncNetworkContext<T>,
+    ) -> VecDeque<RpcBlock<T::EthSpec>> {
+        // Find the child block that spawned the parent lookup request and add it to the chain
+        // to send for processing.
+        if let Some(child_lookup_id) = self
+            .single_block_lookups
+            .iter()
+            .find_map(|(id, lookup)| (lookup.block_root() == chain_hash).then_some(*id))
+        {
+            let Some(child_lookup) = self.single_block_lookups.get_mut(&child_lookup_id) else {
+                debug!(self.log, "Missing child for parent lookup request"; "child_root" => ?chain_hash);
+                return blocks;
+            };
+            match child_lookup.get_cached_child_block() {
+                CachedChild::Ok(rpc_block) => {
+                    // Insert this block at the front. This order is important because we later check
+                    // for linear roots in `filter_chain_segment`
+                    blocks.push_front(rpc_block);
+                }
+                CachedChild::DownloadIncomplete => {
+                    trace!(self.log, "Parent lookup chain complete, awaiting child response"; "chain_hash" => ?chain_hash);
+                }
+                CachedChild::NotRequired => {
+                    warn!(self.log, "Child not cached for parent lookup"; "chain_hash" => %chain_hash);
+                }
+                CachedChild::Err(e) => {
+                    warn!(
+                        self.log,
+                        "Consistency error in child block triggering chain or parent lookups";
+                        "error" => ?e,
+                        "chain_hash" => ?chain_hash
+                    );
+                    child_lookup.handle_consistency_failure(cx);
+                    if let Err(e) = child_lookup.request_block_and_blobs(cx) {
+                        debug!(self.log,
+                            "Failed to request block and blobs, dropping lookup";
+                            "error" => ?e
+                        );
+                        self.single_block_lookups.remove(&child_lookup_id);
+                    }
+                }
+            }
+        } else {
+            debug!(self.log, "Missing child for parent lookup request"; "child_root" => ?chain_hash);
+        };
+        blocks
+    }
+
+    /// Handle the peer scoring, retries, and logging related to a `BlockError` returned from
+    /// processing a block + blobs for a parent lookup.
+    fn handle_parent_block_error(
+        &mut self,
+        outcome: BlockError<<T as BeaconChainTypes>::EthSpec>,
+        cx: &SyncNetworkContext<T>,
+        mut parent_lookup: ParentLookup<T>,
+    ) {
+        // We should always have a block peer.
+        let Ok(block_peer_id) = parent_lookup.block_processing_peer() else {
+            return;
+        };
+
+        // We may not have a blob peer, if there were no blobs required for this block.
+        let blob_peer_id = parent_lookup.blob_processing_peer().ok();
+
+        // all else we consider the chain a failure and downvote the peer that sent
+        // us the last block
+        warn!(
+            self.log, "Invalid parent chain";
+            "score_adjustment" => %PeerAction::MidToleranceError,
+            "outcome" => ?outcome,
+            "block_peer_id" => %block_peer_id,
+        );
+        // This currently can be a host of errors. We permit this due to the partial
+        // ambiguity.
+        cx.report_peer(
+            block_peer_id,
+            PeerAction::MidToleranceError,
+            "parent_request_err",
+        );
+        // Don't downscore the same peer twice
+        if let Some(blob_peer_id) = blob_peer_id {
+            if block_peer_id != blob_peer_id {
+                debug!(
+                    self.log, "Additionally down-scoring blob peer";
+                    "score_adjustment" => %PeerAction::MidToleranceError,
+                    "outcome" => ?outcome,
+                    "blob_peer_id" => %blob_peer_id,
+                );
+                cx.report_peer(
+                    blob_peer_id,
+                    PeerAction::MidToleranceError,
+                    "parent_request_err",
+                );
+            }
+        }
+
+        // Try again if possible
+        parent_lookup.processing_failed();
+        self.request_parent(parent_lookup, cx);
+    }
+
+    pub fn parent_chain_processed(
         &mut self,
         chain_hash: Hash256,
         result: BatchProcessResult,
@@ -1349,106 +1241,110 @@ impl<T: BeaconChainTypes> BlockLookupCapable<T> for BlockLookups<T> {
             self.parent_lookups.len() as i64,
         );
     }
-}
 
-pub trait BlockLookupCapable<T: BeaconChainTypes> {
-    /// Creates a lookup for the block with the given `block_root` and immediately triggers it.
-    fn search_block(
-        &mut self,
+    /* Helper functions */
+
+    fn send_block_for_processing(
+        &self,
         block_root: Hash256,
-        peer_source: &[PeerId],
-        cx: &mut SyncNetworkContext<T>,
-    );
-
-    /// Creates a lookup for the block with the given `block_root`, while caching other block
-    /// components we've already received. The block components are cached here because we haven't
-    /// imported its parent and therefore can't fully validate it and store it in the data
-    /// availability cache.
-    ///
-    /// The request is immediately triggered.
-    fn search_child_block(
-        &mut self,
-        block_root: Hash256,
-        child_components: ChildComponents<T::EthSpec>,
-        peer_source: &[PeerId],
-        cx: &mut SyncNetworkContext<T>,
-    );
-
-    /// If a block is attempted to be processed but we do not know its parent, this function is
-    /// called in order to find the block's parent.
-    fn search_parent(
-        &mut self,
-        slot: Slot,
-        block_root: Hash256,
-        parent_root: Hash256,
-        peer_id: PeerId,
-        cx: &mut SyncNetworkContext<T>,
-    );
-
-    fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T>);
-
-    /// An RPC error has occurred during a parent lookup. This function handles this case.
-    fn parent_lookup_failed<R: RequestState<Parent, T>>(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: PeerId,
+        block: RpcBlock<T::EthSpec>,
+        duration: Duration,
+        process_type: BlockProcessType,
         cx: &SyncNetworkContext<T>,
-        error: RPCError,
-    );
+    ) -> Result<(), LookupRequestError> {
+        match cx.beacon_processor_if_enabled() {
+            Some(beacon_processor) => {
+                debug!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
+                if let Err(e) = beacon_processor.send_rpc_beacon_block(
+                    block_root,
+                    block,
+                    duration,
+                    process_type,
+                ) {
+                    error!(
+                        self.log,
+                        "Failed to send sync block to processor";
+                        "error" => ?e
+                    );
+                    Err(LookupRequestError::SendFailed(
+                        "beacon processor send failure",
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            None => {
+                trace!(self.log, "Dropping block ready for processing. Beacon processor not available"; "block" => %block_root);
+                Err(LookupRequestError::SendFailed(
+                    "beacon processor unavailable",
+                ))
+            }
+        }
+    }
 
-    /// An RPC error has occurred during a single lookup. This function handles this case.\
-    fn single_block_lookup_failed<R: RequestState<Current, T>>(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: &PeerId,
+    fn send_blobs_for_processing(
+        &self,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+        duration: Duration,
+        process_type: BlockProcessType,
         cx: &SyncNetworkContext<T>,
-        error: RPCError,
-    );
+    ) -> Result<(), LookupRequestError> {
+        match cx.beacon_processor_if_enabled() {
+            Some(beacon_processor) => {
+                trace!(self.log, "Sending blobs for processing"; "block" => ?block_root, "process_type" => ?process_type);
+                if let Err(e) =
+                    beacon_processor.send_rpc_blobs(block_root, blobs, duration, process_type)
+                {
+                    error!(
+                        self.log,
+                        "Failed to send sync blobs to processor";
+                        "error" => ?e
+                    );
+                    Err(LookupRequestError::SendFailed(
+                        "beacon processor send failure",
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            None => {
+                trace!(self.log, "Dropping blobs ready for processing. Beacon processor not available"; "block_root" => %block_root);
+                Err(LookupRequestError::SendFailed(
+                    "beacon processor unavailable",
+                ))
+            }
+        }
+    }
+
+    /// Attempts to request the next unknown parent. This method handles peer scoring and dropping
+    /// the lookup in the event of failure.
+    fn request_parent(&mut self, mut parent_lookup: ParentLookup<T>, cx: &SyncNetworkContext<T>) {
+        let response = parent_lookup.request_parent(cx);
+
+        match response {
+            Err(e) => {
+                self.handle_parent_request_error(&mut parent_lookup, cx, e);
+            }
+            Ok(_) => self.parent_lookups.push(parent_lookup),
+        }
+
+        // We remove and add back again requests so we want this updated regardless of outcome.
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_lookups.len() as i64,
+        );
+    }
 
     /// Drops all the single block requests and returns how many requests were dropped.
-    fn drop_single_block_requests(&mut self) -> usize;
+    pub fn drop_single_block_requests(&mut self) -> usize {
+        let requests_to_drop = self.single_block_lookups.len();
+        self.single_block_lookups.clear();
+        requests_to_drop
+    }
 
     /// Drops all the parent chain requests and returns how many requests were dropped.
-    fn drop_parent_chain_requests(&mut self) -> usize;
-
-    /// Process a block or blob response received from a single lookup request.
-    fn single_lookup_response<R: RequestState<Current, T>>(
-        &mut self,
-        lookup_id: SingleLookupReqId,
-        peer_id: PeerId,
-        response: Option<R::ResponseType>,
-        seen_timestamp: Duration,
-        cx: &SyncNetworkContext<T>,
-    );
-
-    /// Process a response received from a parent lookup request.
-    fn parent_lookup_response<R: RequestState<Parent, T>>(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: PeerId,
-        response: Option<R::ResponseType>,
-        seen_timestamp: Duration,
-        cx: &SyncNetworkContext<T>,
-    );
-
-    fn single_block_component_processed<R: RequestState<Current, T>>(
-        &mut self,
-        target_id: Id,
-        result: BlockProcessingResult<T::EthSpec>,
-        cx: &mut SyncNetworkContext<T>,
-    );
-
-    fn parent_block_processed(
-        &mut self,
-        chain_hash: Hash256,
-        result: BlockProcessingResult<T::EthSpec>,
-        cx: &mut SyncNetworkContext<T>,
-    );
-
-    fn parent_chain_processed(
-        &mut self,
-        chain_hash: Hash256,
-        result: BatchProcessResult,
-        cx: &SyncNetworkContext<T>,
-    );
+    pub fn drop_parent_chain_requests(&mut self) -> usize {
+        self.parent_lookups.drain(..).len()
+    }
 }

@@ -33,11 +33,11 @@
 //! needs to be searched for (i.e if an attestation references an unknown block) this manager can
 //! search for the block and subsequently search for parents if needed.
 
-use super::backfill_sync::{BackFillSync, BackFillSyncable, ProcessResult, SyncStart};
-use super::block_lookups::{BlockLookupCapable, BlockLookups};
+use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
+use super::block_lookups::BlockLookups;
 use super::network_context::{BlockOrBlob, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
-use super::range_sync::{RangeSync, RangeSyncType, RangeSyncable, EPOCHS_PER_BATCH};
+use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
@@ -194,13 +194,7 @@ pub enum BatchProcessResult {
 /// current state of the syncing process, the number of useful peers, downloaded blocks and
 /// controls the logic behind both the long-range (batch) sync and the on-going potential parent
 /// look-up of blocks.
-pub struct SyncManager<T, RangeSync, BackFillSync, BlockLookups>
-where
-    T: BeaconChainTypes,
-    RangeSync: RangeSyncable<T>,
-    BackFillSync: BackFillSyncable<T>,
-    BlockLookups: BlockLookupCapable<T>,
-{
+pub struct SyncManager<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
 
@@ -211,12 +205,12 @@ where
     network: SyncNetworkContext<T>,
 
     /// The object handling long-range batch load-balanced syncing.
-    range_sync: RangeSync,
+    range_sync: RangeSync<T>,
 
     /// Backfill syncing.
-    backfill_sync: BackFillSync,
+    backfill_sync: BackFillSync<T>,
 
-    block_lookups: BlockLookups,
+    block_lookups: BlockLookups<T>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -263,13 +257,7 @@ pub fn spawn<T: BeaconChainTypes>(
     executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
 }
 
-impl<T, RS, BFS, BL> SyncManager<T, RS, BFS, BL>
-where
-    T: BeaconChainTypes,
-    RS: RangeSyncable<T>,
-    BFS: BackFillSyncable<T>,
-    BL: BlockLookupCapable<T>,
-{
+impl<T: BeaconChainTypes> SyncManager<T> {
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
         self.network.network_globals()
     }
@@ -1108,44 +1096,38 @@ impl<T: EthSpec> From<BlockError<T>> for BlockProcessingResult<T> {
 
 #[cfg(test)]
 pub mod testing {
-    use crate::network_beacon_processor::NetworkBeaconProcessor;
-    use crate::sync::backfill_sync::{
-        BackFillError, BackFillSync, BackFillSyncable, ProcessResult, SyncStart,
-    };
-    use crate::sync::block_lookups::{
-        BlockLookupCapable, BlockLookups, Current, Parent, RequestState,
-    };
-    use crate::sync::manager::{BlockProcessingResult, Id, SingleLookupReqId, SyncManager};
-    use crate::sync::network_context::SyncNetworkContext;
-    use crate::sync::range_sync::{BatchId, RangeSync, RangeSyncType, RangeSyncable};
-    use crate::sync::testing::SyncTestType;
-    use crate::sync::{BatchProcessResult, ChainId, SyncMessage};
-    use crate::NetworkMessage;
-    use beacon_chain::block_verification_types::RpcBlock;
-    use beacon_chain::builder::Witness;
-    use beacon_chain::data_availability_checker::ChildComponents;
-    use beacon_chain::eth1_chain::CachingEth1Backend;
-    use beacon_chain::{BeaconChain, BeaconChainTypes};
-    use beacon_processor::WorkEvent;
-    use execution_layer::EngineState;
-    use lighthouse_network::rpc::RPCError;
-    use lighthouse_network::{NetworkGlobals, PeerId, SyncInfo};
-    use slog::Logger;
-    use slot_clock::ManualSlotClock;
     use std::sync::Arc;
-    use std::time::Duration;
-    use store::MemoryStore;
-    use task_executor::TaskExecutor;
+
+    use slog::Logger;
     use tokio::sync::mpsc;
     use tokio::sync::mpsc::{Receiver, UnboundedReceiver, UnboundedSender};
-    use types::{Epoch, Hash256, MinimalEthSpec as E, Slot};
+
+    use beacon_chain::builder::Witness;
+    use beacon_chain::eth1_chain::CachingEth1Backend;
+    use beacon_chain::BeaconChain;
+    use beacon_processor::WorkEvent;
+    use execution_layer::EngineState;
+    use lighthouse_network::NetworkGlobals;
+    use slot_clock::ManualSlotClock;
+    use store::MemoryStore;
+    use task_executor::TaskExecutor;
+    use types::MinimalEthSpec as E;
+
+    use crate::network_beacon_processor::NetworkBeaconProcessor;
+    use crate::sync::backfill_sync::BackFillSync;
+    use crate::sync::block_lookups::BlockLookups;
+    use crate::sync::manager::SyncManager;
+    use crate::sync::network_context::SyncNetworkContext;
+    use crate::sync::range_sync::RangeSync;
+    use crate::sync::SyncMessage;
+    use crate::NetworkMessage;
 
     type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
+    #[allow(clippy::type_complexity)]
     pub fn spawn_for_testing(
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<E>>,
-        sync_test_type: SyncTestType,
         executor: TaskExecutor,
         log: Logger,
     ) -> (
@@ -1167,280 +1149,24 @@ pub mod testing {
 
         let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<E>>();
 
-        match sync_test_type {
-            SyncTestType::RangeSync => {
-                let mut sync_manager = SyncManager {
-                    chain: beacon_chain.clone(),
-                    input_channel: sync_recv,
-                    network,
-                    range_sync: RangeSync::new(beacon_chain, log.clone()),
-                    backfill_sync: NoOpBackFillSync {},
-                    block_lookups: NoOpBlockLookups {},
-                    log: log.new(slog::o!("component" => "sync_manager")),
-                };
-                executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
-            }
-            SyncTestType::BackFillSync => {
-                let mut sync_manager = SyncManager {
-                    chain: beacon_chain.clone(),
-                    input_channel: sync_recv,
-                    network,
-                    range_sync: NoOpRangeSync {},
-                    backfill_sync: BackFillSync::new(
-                        beacon_chain,
-                        network_globals.clone(),
-                        log.clone(),
-                    ),
-                    block_lookups: NoOpBlockLookups {},
-                    log: log.new(slog::o!("component" => "sync_manager")),
-                };
-                executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
-            }
-            SyncTestType::BlockLookups => {
-                let mut sync_manager = SyncManager {
-                    chain: beacon_chain.clone(),
-                    input_channel: sync_recv,
-                    network,
-                    range_sync: NoOpRangeSync {},
-                    backfill_sync: NoOpBackFillSync {},
-                    block_lookups: BlockLookups::new(
-                        beacon_chain.data_availability_checker.clone(),
-                        log.clone(),
-                    ),
-                    log: log.new(slog::o!("component" => "sync_manager")),
-                };
-                executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
-            }
+        let mut sync_manager = SyncManager {
+            chain: beacon_chain.clone(),
+            input_channel: sync_recv,
+            network,
+            range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
+            backfill_sync: BackFillSync::new(
+                beacon_chain.clone(),
+                network_globals.clone(),
+                log.clone(),
+            ),
+            block_lookups: BlockLookups::new(
+                beacon_chain.data_availability_checker.clone(),
+                log.clone(),
+            ),
+            log: log.new(slog::o!("component" => "sync_manager")),
         };
+        executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
 
         (sync_send, network_rx, beacon_processor_rx)
-    }
-
-    struct NoOpRangeSync {}
-    impl<T: BeaconChainTypes> RangeSyncable<T> for NoOpRangeSync {
-        fn state(&self) -> Result<Option<(RangeSyncType, Slot, Slot)>, &'static str> {
-            unimplemented!()
-        }
-
-        fn add_peer(
-            &mut self,
-            _network: &mut SyncNetworkContext<T>,
-            _local_info: SyncInfo,
-            _peer_id: PeerId,
-            _remote_info: SyncInfo,
-        ) {
-            unimplemented!()
-        }
-
-        fn blocks_by_range_response(
-            &mut self,
-            _network: &mut SyncNetworkContext<T>,
-            _peer_id: PeerId,
-            _chain_id: ChainId,
-            _batch_id: BatchId,
-            _request_id: Id,
-            _beacon_block: Option<RpcBlock<T::EthSpec>>,
-        ) {
-            unimplemented!()
-        }
-
-        fn handle_block_process_result(
-            &mut self,
-            _network: &mut SyncNetworkContext<T>,
-            _chain_id: ChainId,
-            _batch_id: Epoch,
-            _result: BatchProcessResult,
-        ) {
-            unimplemented!()
-        }
-
-        fn peer_disconnect(&mut self, _network: &mut SyncNetworkContext<T>, _peer_id: &PeerId) {
-            unimplemented!()
-        }
-
-        fn inject_error(
-            &mut self,
-            _network: &mut SyncNetworkContext<T>,
-            _peer_id: PeerId,
-            _batch_id: BatchId,
-            _chain_id: ChainId,
-            _request_id: Id,
-        ) {
-            unimplemented!()
-        }
-
-        fn resume(&mut self, _network: &mut SyncNetworkContext<T>) {
-            unimplemented!()
-        }
-    }
-
-    struct NoOpBackFillSync {}
-    impl<T: BeaconChainTypes> BackFillSyncable<T> for NoOpBackFillSync {
-        fn pause(&mut self) {
-            unimplemented!()
-        }
-
-        fn start(
-            &mut self,
-            _network: &mut SyncNetworkContext<T>,
-        ) -> Result<SyncStart, BackFillError> {
-            unimplemented!()
-        }
-
-        fn fully_synced_peer_joined(&mut self) {
-            unimplemented!()
-        }
-
-        fn peer_disconnected(
-            &mut self,
-            _peer_id: &PeerId,
-            _network: &mut SyncNetworkContext<T>,
-        ) -> Result<(), BackFillError> {
-            unimplemented!()
-        }
-
-        fn inject_error(
-            &mut self,
-            _network: &mut SyncNetworkContext<T>,
-            _batch_id: BatchId,
-            _peer_id: &PeerId,
-            _request_id: Id,
-        ) -> Result<(), BackFillError> {
-            unimplemented!()
-        }
-
-        fn on_block_response(
-            &mut self,
-            _network: &mut SyncNetworkContext<T>,
-            _batch_id: BatchId,
-            _peer_id: &PeerId,
-            _request_id: Id,
-            _beacon_block: Option<RpcBlock<T::EthSpec>>,
-        ) -> Result<ProcessResult, BackFillError> {
-            unimplemented!()
-        }
-
-        fn on_batch_process_result(
-            &mut self,
-            _network: &mut SyncNetworkContext<T>,
-            _batch_id: BatchId,
-            _result: &BatchProcessResult,
-        ) -> Result<ProcessResult, BackFillError> {
-            unimplemented!()
-        }
-    }
-
-    struct NoOpBlockLookups {}
-    impl<T: BeaconChainTypes> BlockLookupCapable<T> for NoOpBlockLookups {
-        fn search_block(
-            &mut self,
-            _block_root: Hash256,
-            _peer_source: &[PeerId],
-            _cx: &mut SyncNetworkContext<T>,
-        ) {
-            unimplemented!()
-        }
-
-        fn search_child_block(
-            &mut self,
-            _block_root: Hash256,
-            _child_components: ChildComponents<T::EthSpec>,
-            _peer_source: &[PeerId],
-            _cx: &mut SyncNetworkContext<T>,
-        ) {
-            unimplemented!()
-        }
-
-        fn search_parent(
-            &mut self,
-            _slot: Slot,
-            _block_root: Hash256,
-            _parent_root: Hash256,
-            _peer_id: PeerId,
-            _cx: &mut SyncNetworkContext<T>,
-        ) {
-            unimplemented!()
-        }
-
-        fn peer_disconnected(&mut self, _peer_id: &PeerId, _cx: &mut SyncNetworkContext<T>) {
-            unimplemented!()
-        }
-
-        fn parent_lookup_failed<R: RequestState<Parent, T>>(
-            &mut self,
-            _id: SingleLookupReqId,
-            _peer_id: PeerId,
-            _cx: &SyncNetworkContext<T>,
-            _error: RPCError,
-        ) {
-            unimplemented!()
-        }
-
-        fn single_block_lookup_failed<R: RequestState<Current, T>>(
-            &mut self,
-            _id: SingleLookupReqId,
-            _peer_id: &PeerId,
-            _cx: &SyncNetworkContext<T>,
-            _error: RPCError,
-        ) {
-            unimplemented!()
-        }
-
-        fn drop_single_block_requests(&mut self) -> usize {
-            unimplemented!()
-        }
-
-        fn drop_parent_chain_requests(&mut self) -> usize {
-            unimplemented!()
-        }
-
-        fn single_lookup_response<R: RequestState<Current, T>>(
-            &mut self,
-            _lookup_id: SingleLookupReqId,
-            _peer_id: PeerId,
-            _response: Option<R::ResponseType>,
-            _seen_timestamp: Duration,
-            _cx: &SyncNetworkContext<T>,
-        ) {
-            unimplemented!()
-        }
-
-        fn parent_lookup_response<R: RequestState<Parent, T>>(
-            &mut self,
-            _id: SingleLookupReqId,
-            _peer_id: PeerId,
-            _response: Option<R::ResponseType>,
-            _seen_timestamp: Duration,
-            _cx: &SyncNetworkContext<T>,
-        ) {
-            unimplemented!()
-        }
-
-        fn single_block_component_processed<R: RequestState<Current, T>>(
-            &mut self,
-            _target_id: Id,
-            _result: BlockProcessingResult<T::EthSpec>,
-            _cx: &mut SyncNetworkContext<T>,
-        ) {
-            unimplemented!()
-        }
-
-        fn parent_block_processed(
-            &mut self,
-            _chain_hash: Hash256,
-            _result: BlockProcessingResult<T::EthSpec>,
-            _cx: &mut SyncNetworkContext<T>,
-        ) {
-            unimplemented!()
-        }
-
-        fn parent_chain_processed(
-            &mut self,
-            _chain_hash: Hash256,
-            _result: BatchProcessResult,
-            _cx: &SyncNetworkContext<T>,
-        ) {
-            unimplemented!()
-        }
     }
 }
