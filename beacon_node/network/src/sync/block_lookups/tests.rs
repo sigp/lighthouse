@@ -2,6 +2,7 @@ use crate::network_beacon_processor::NetworkBeaconProcessor;
 
 use crate::service::RequestId;
 use crate::sync::manager::{RequestId as SyncRequestId, SingleLookupReqId};
+use crate::sync::SyncMessage;
 use crate::NetworkMessage;
 use std::sync::Arc;
 
@@ -98,6 +99,14 @@ impl TestRig {
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
         let rng = &mut self.rng;
         generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
+    }
+
+    fn send_sync_message(&mut self, sync_message: SyncMessage<E>) {
+        todo!();
+    }
+
+    fn active_lookup_count(&self) -> usize {
+        todo!();
     }
 
     #[track_caller]
@@ -228,7 +237,7 @@ impl TestRig {
 #[test]
 fn test_single_block_lookup_happy_path() {
     let response_type = ResponseType::Block;
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
+    let (_, _, mut rig) = TestRig::test_setup(false);
     let fork_name = rig
         .harness
         .spec
@@ -238,7 +247,9 @@ fn test_single_block_lookup_happy_path() {
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
     // Trigger the request
-    bl.search_block(block_root, &[peer_id], &mut cx);
+    rig.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+        peer_id, block_root,
+    ));
     let id = rig.expect_lookup_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -248,29 +259,32 @@ fn test_single_block_lookup_happy_path() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_lookup_response::<BlockRequestState<Current>>(
-        id,
+    rig.send_sync_message(SyncMessage::RpcBlock {
+        request_id: SyncRequestId::SingleBlock { id },
         peer_id,
-        Some(block.into()),
-        D,
-        &cx,
-    );
+        beacon_block: Some(block.into()),
+        seen_timestamp: D,
+    });
     rig.expect_empty_network();
     rig.expect_block_process(response_type);
 
     // The request should still be active.
-    assert_eq!(bl.single_block_lookups.len(), 1);
+    assert_eq!(rig.active_lookup_count(), 1);
 
     // Send the stream termination. Peer should have not been penalized, and the request removed
     // after processing.
-    bl.single_lookup_response::<BlockRequestState<Current>>(id, peer_id, None, D, &cx);
-    bl.single_block_component_processed::<BlockRequestState<Current>>(
-        id.id,
-        BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-        &mut cx,
-    );
+    rig.send_sync_message(SyncMessage::RpcBlock {
+        request_id: SyncRequestId::SingleBlock { id },
+        peer_id,
+        beacon_block: None,
+        seen_timestamp: D,
+    });
+    rig.send_sync_message(SyncMessage::BlockComponentProcessed {
+        process_type: BlockProcessType::SingleBlock { id: id.id },
+        result: BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
+    });
     rig.expect_empty_network();
-    assert_eq!(bl.single_block_lookups.len(), 0);
+    assert_eq!(rig.active_lookup_count(), 0);
 }
 
 #[test]
