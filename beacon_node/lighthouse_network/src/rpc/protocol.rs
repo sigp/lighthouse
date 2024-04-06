@@ -158,10 +158,6 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
             *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
         ),
-        ForkName::Eip6110 => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
-            *SIGNED_BEACON_BLOCK_EIP6110_MAX, // EIP 6110 block is larger than all prior fork blocks
-        ),
     }
 }
 

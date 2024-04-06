@@ -110,6 +110,7 @@ pub trait EthSpec:
     type MaxBlobCommitmentsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type KzgCommitmentInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -286,10 +287,6 @@ pub trait EthSpec:
     /// Returns the `KZG_COMMITMENT_INCLUSION_PROOF_DEPTH` preset for this specification.
     fn kzg_proof_inclusion_proof_depth() -> usize {
         Self::KzgCommitmentInclusionProofDepth::to_usize()
-    }
-
-    fn electra_placeholder() -> usize {
-        Self::ElectraPlaceholder::to_usize()
     }
 }
 

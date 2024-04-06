@@ -1,14 +1,5 @@
-pub use self::verify_attester_slashing::{
-    get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
-};
-pub use self::verify_proposer_slashing::verify_proposer_slashing;
 use crate::consensus_context::ConsensusContext;
-pub use altair::sync_committee::process_sync_aggregate;
-pub use block_signature_verifier::{BlockSignatureVerifier, ParallelSignatureSets};
-pub use deneb::deneb::process_blob_kzg_commitments;
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
-pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
-pub use process_operations::process_operations;
 use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
@@ -467,7 +458,7 @@ pub fn process_deposit_receipt<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     match state {
-        BeaconState::Eip6110(_) => {
+        BeaconState::Electra(_) => {
             let start_index = state
                 .deposit_receipts_start_index()
                 .map_err(|_| BlockProcessingError::DepositReceiptError)?;

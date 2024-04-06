@@ -93,7 +93,7 @@ pub struct ExecutionPayload<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
     #[superstruct(only(Electra))]
-    pub deposit_receipts: DepositReceipts<T>,
+    pub deposit_receipts: DepositReceipts<E>,
 }
 
 impl<'a, E: EthSpec> ExecutionPayloadRef<'a, E> {
@@ -167,19 +167,6 @@ impl<E: EthSpec> ExecutionPayload<E> {
             + (E::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
             // Max size of variable length `withdrawals` field
             + (E::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
-    }
-
-    #[allow(clippy::integer_arithmetic)]
-    /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_eip6110_size() -> usize {
-        // Fixed part
-        ExecutionPayloadEip6110::<T>::default().as_ssz_bytes().len()
-            // Max size of variable length `extra_data` field
-            + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
-            // Max size of variable length `transactions` field
-            + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
-            // Max size of variable length `deposit_receipts` field
-            + (T::max_deposit_receipts_per_payload() * <DepositReceipt as Encode>::ssz_fixed_len())
     }
 }
 

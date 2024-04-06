@@ -27,7 +27,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
             .ok_or(BlockProcessingError::DepositReceiptError)?;
 
         std::cmp::min(
-            <T as EthSpec>::MaxDeposits::to_u64() as usize,
+            <E as EthSpec>::MaxDeposits::to_u64() as usize,
             diff as usize,
         ) as u64
     } else {

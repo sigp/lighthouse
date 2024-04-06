@@ -89,7 +89,7 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     pub excess_blob_gas: u64,
     #[superstruct(only(Electra))]
     #[superstruct(getter(copy))]
-    pub deposit_receipts: DepositReceipts<T>,
+    pub deposit_receipts_root: Hash256,
 }
 
 impl<E: EthSpec> ExecutionPayloadHeader<E> {
@@ -189,7 +189,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
             withdrawals_root: self.withdrawals_root,
             blob_gas_used: self.blob_gas_used,
             excess_blob_gas: self.excess_blob_gas,
-            deposit_receipts: DepositReceipts::<T>::default(),
+            deposit_receipts_root: Hash256::zero(),
         }
     }
 }
@@ -281,30 +281,7 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
             withdrawals_root: payload.withdrawals.tree_hash_root(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-        }
-    }
-}
-
-impl<'a, T: EthSpec> From<&'a ExecutionPayloadEip6110<T>> for ExecutionPayloadHeaderEip6110<T> {
-    fn from(payload: &'a ExecutionPayloadEip6110<T>) -> Self {
-        Self {
-            parent_hash: payload.parent_hash,
-            fee_recipient: payload.fee_recipient,
-            state_root: payload.state_root,
-            receipts_root: payload.receipts_root,
-            logs_bloom: payload.logs_bloom.clone(),
-            prev_randao: payload.prev_randao,
-            block_number: payload.block_number,
-            gas_limit: payload.gas_limit,
-            gas_used: payload.gas_used,
-            timestamp: payload.timestamp,
-            extra_data: payload.extra_data.clone(),
-            base_fee_per_gas: payload.base_fee_per_gas,
-            block_hash: payload.block_hash,
-            transactions_root: payload.transactions.tree_hash_root(),
-            withdrawals_root: payload.withdrawals.tree_hash_root(),
-            excess_data_gas: payload.excess_data_gas,
-            deposit_receipts: payload.deposit_receipts.clone(),
+            deposit_receipts_root: payload.deposit_receipts.tree_hash_root(),
         }
     }
 }

@@ -714,12 +714,6 @@ impl ChainSpec {
             electra_fork_epoch: None,
 
             /*
-             * Eip6110 hard fork params
-             */
-            eip6110_fork_version: [0x05, 0x00, 0x00, 0x00],
-            eip6110_fork_epoch: None,
-
-            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -992,12 +986,6 @@ impl ChainSpec {
              */
             electra_fork_version: [0x05, 0x00, 0x00, 0x64],
             electra_fork_epoch: None,
-
-            /*
-             * Eip6110 hard fork params
-             */
-            eip6110_fork_version: [0x05, 0x00, 0x00, 0x64],
-            eip6110_fork_epoch: None,
 
             /*
              * Network specific
@@ -1466,10 +1454,6 @@ impl Config {
             deneb_fork_version: spec.deneb_fork_version,
             deneb_fork_epoch: spec
                 .deneb_fork_epoch
-                .map(|epoch| MaybeQuoted { value: epoch }),
-            eip6110_fork_version: spec.eip6110_fork_version,
-            eip6110_fork_epoch: spec
-                .eip6110_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             electra_fork_version: spec.electra_fork_version,

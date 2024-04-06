@@ -42,15 +42,8 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
     process_activations(&mut state, spec)?;
 
-    // Now that we have our validators, initialize the caches (including the committees)
-    state.build_all_caches(spec)?;
-
     // Set genesis validators root for domain separation and chain versioning
     *state.genesis_validators_root_mut() = state.update_validators_tree_hash_cache()?;
-
-    // Set fork version to EIP6110
-    state.fork_mut().previous_version = spec.eip6110_fork_version;
-    state.fork_mut().current_version = spec.eip6110_fork_version;
 
     // Add deposit_receipts_start_index field with the value UNSET_DEPOSIT_RECEIPTS_START_INDEX
     *state.deposit_receipts_start_index_mut()? = UNSET_DEPOSIT_RECEIPTS_START_INDEX;
