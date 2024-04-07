@@ -1,17 +1,15 @@
-use std::collections::HashSet;
-
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, Hash256, Slot};
 use derivative::Derivative;
+use rand::RngCore;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
+use ssz::Decode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{Bitfield, FixedVector};
+use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-use ssz::Decode;
-use rand::RngCore;
 
 use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
@@ -46,7 +44,15 @@ pub enum Error {
     )
 )]
 #[derive(
-    Debug, Clone, Serialize, TreeHash, Encode, Deserialize, arbitrary::Arbitrary, PartialEq,
+    Debug,
+    Clone,
+    Serialize,
+    TreeHash,
+    Encode,
+    Derivative,
+    Deserialize,
+    arbitrary::Arbitrary,
+    PartialEq,
 )]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
@@ -69,20 +75,27 @@ impl<E: EthSpec> Decode for Attestation<E> {
         todo!()
     }
 
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+    fn from_ssz_bytes(_bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
         todo!()
     }
 }
 
 impl<E: EthSpec> TestRandom for Attestation<E> {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
+    fn random_for_test(_rng: &mut impl RngCore) -> Self {
         todo!()
     }
 }
 
-impl<E: EthSpec> AttestationElectra<E> {
-  
+impl<E: EthSpec> Hash for Attestation<E> {
+    fn hash<H>(&self, _: &mut H)
+    where
+        H: Hasher,
+    {
+        todo!()
+    }
 }
+
+impl<E: EthSpec> AttestationElectra<E> {}
 
 impl<E: EthSpec> AttestationBase<E> {
     /// Are the aggregation bitfields of these attestations disjoint?

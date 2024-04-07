@@ -350,7 +350,9 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
             PubsubMessage::Attestation(data) => write!(
                 f,
                 "Attestation: subnet_id: {}, attestation_slot: {}, attestation_index: {}",
-                *data.0, data.1.data().slot, data.1.data().index,
+                *data.0,
+                data.1.data().slot,
+                data.1.data().index,
             ),
             PubsubMessage::VoluntaryExit(_data) => write!(f, "Voluntary Exit"),
             PubsubMessage::ProposerSlashing(_data) => write!(f, "Proposer Slashing"),

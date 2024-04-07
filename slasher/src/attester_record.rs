@@ -88,11 +88,13 @@ struct IndexedAttestationHeader<E: EthSpec> {
 
 impl<E: EthSpec> From<IndexedAttestation<E>> for AttesterRecord {
     fn from(indexed_attestation: IndexedAttestation<E>) -> AttesterRecord {
-        let attestation_data_hash = indexed_attestation.data.tree_hash_root();
+        let attestation_data_hash = indexed_attestation.data().tree_hash_root();
         let header = IndexedAttestationHeader::<E> {
-            attesting_indices: indexed_attestation.attesting_indices,
+            // TODO(eip7549) attesting indices is too short for electra, we might need
+            // to convert IndexedAttestationHeader to superstruct?
+            attesting_indices: indexed_attestation.attesting_indices().into(),
             data_root: attestation_data_hash,
-            signature: indexed_attestation.signature,
+            signature: indexed_attestation.signature().clone(),
         };
         let indexed_attestation_hash = header.tree_hash_root();
         AttesterRecord {

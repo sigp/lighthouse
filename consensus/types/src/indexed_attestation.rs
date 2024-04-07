@@ -1,9 +1,12 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
 use derivative::Derivative;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use ssz::Decode;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::hash::{Hash, Hasher};
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -12,25 +15,51 @@ use tree_hash_derive::TreeHash;
 /// To be included in an `AttesterSlashing`.
 ///
 /// Spec v0.12.1
+
+#[superstruct(
+    variants(Base, Electra),
+    variant_attributes(
+        derive(
+            Debug,
+            Clone,
+            Serialize,
+            Deserialize,
+            Decode,
+            Encode,
+            TestRandom,
+            arbitrary::Arbitrary,
+            TreeHash,
+            PartialEq,
+        ),
+        serde(bound = "E: EthSpec", deny_unknown_fields),
+        arbitrary(bound = "E: EthSpec"),
+    )
+)]
 #[derive(
-    Derivative,
     Debug,
     Clone,
     Serialize,
+    Derivative,
     Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
     arbitrary::Arbitrary,
+    PartialEq,
+    Encode,
+    TreeHash,
 )]
-#[derivative(PartialEq, Eq)] // to satisfy Clippy's lint about `Hash`
-#[serde(bound = "E: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
+#[tree_hash(enum_behaviour = "transparent")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[arbitrary(bound = "E: EthSpec")]
 pub struct IndexedAttestation<E: EthSpec> {
     /// Lists validator registry indices, not committee indices.
+    #[superstruct(only(Base), partial_getter(rename = "attesting_indices_base"))]
     #[serde(with = "quoted_variable_list_u64")]
     pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommittee>,
+
+    #[superstruct(only(Electra), partial_getter(rename = "attesting_indices_electra"))]
+    #[serde(with = "quoted_variable_list_u64")]
+    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommitteePerSlot>,
+
     pub data: AttestationData,
     pub signature: AggregateSignature,
 }
@@ -40,15 +69,26 @@ impl<E: EthSpec> IndexedAttestation<E> {
     ///
     /// Spec v0.12.1
     pub fn is_double_vote(&self, other: &Self) -> bool {
-        self.data.target.epoch == other.data.target.epoch && self.data != other.data
+        self.data().target.epoch == other.data().target.epoch && self.data() != other.data()
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
     ///
     /// Spec v0.12.1
     pub fn is_surround_vote(&self, other: &Self) -> bool {
-        self.data.source.epoch < other.data.source.epoch
-            && other.data.target.epoch < self.data.target.epoch
+        self.data().source.epoch < other.data().source.epoch
+            && other.data().target.epoch < self.data().target.epoch
+    }
+
+    pub fn attesting_indices(&self) -> Vec<u64> {
+        match self {
+            IndexedAttestation::Base(indexed_attestation) => {
+                indexed_attestation.attesting_indices.to_vec()
+            }
+            IndexedAttestation::Electra(indexed_attestation) => {
+                indexed_attestation.attesting_indices.to_vec()
+            }
+        }
     }
 }
 
@@ -59,9 +99,42 @@ impl<E: EthSpec> IndexedAttestation<E> {
 /// Used in the operation pool.
 impl<E: EthSpec> Hash for IndexedAttestation<E> {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            IndexedAttestation::Base(indexed_attestation) => indexed_attestation.hash(state),
+            IndexedAttestation::Electra(indexed_attestation) => indexed_attestation.hash(state),
+        }
+    }
+}
+
+impl<E: EthSpec> Hash for IndexedAttestationBase<E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.attesting_indices.hash(state);
         self.data.hash(state);
         self.signature.as_ssz_bytes().hash(state);
+    }
+}
+
+impl<E: EthSpec> Hash for IndexedAttestationElectra<E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.attesting_indices.hash(state);
+        self.data.hash(state);
+        self.signature.as_ssz_bytes().hash(state);
+    }
+}
+
+impl<E: EthSpec> Decode for IndexedAttestation<E> {
+    fn is_ssz_fixed_len() -> bool {
+        todo!()
+    }
+
+    fn from_ssz_bytes(_bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        todo!()
+    }
+}
+
+impl<E: EthSpec> TestRandom for IndexedAttestation<E> {
+    fn random_for_test(_rng: &mut impl RngCore) -> Self {
+        todo!()
     }
 }
 

@@ -159,8 +159,8 @@ impl<E: EthSpec> VerifyOperation<E> for AttesterSlashing<E> {
     #[allow(clippy::arithmetic_side_effects)]
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         smallvec![
-            self.attestation_1.data.target.epoch,
-            self.attestation_2.data.target.epoch
+            self.attestation_1.data().target.epoch,
+            self.attestation_2.data().target.epoch
         ]
     }
 }

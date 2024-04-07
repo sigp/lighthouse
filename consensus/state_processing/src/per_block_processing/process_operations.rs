@@ -41,7 +41,6 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
 }
 
 pub mod base {
-    use types::attestation::AttestationBase;
 
     use super::*;
 
@@ -51,7 +50,7 @@ pub mod base {
     /// an `Err` describing the invalid object or cause of failure.
     pub fn process_attestations<E: EthSpec>(
         state: &mut BeaconState<E>,
-        attestations: &[AttestationBase<E>],
+        attestations: &[Attestation<E>],
         verify_signatures: VerifySignatures,
         ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
@@ -65,7 +64,7 @@ pub mod base {
         for (i, attestation) in attestations.iter().enumerate() {
             verify_attestation_for_block_inclusion(
                 state,
-                &Attestation::Base(attestation.clone()),
+                attestation,
                 ctxt,
                 verify_signatures,
                 spec,
@@ -73,13 +72,13 @@ pub mod base {
             .map_err(|e| e.into_with_index(i))?;
 
             let pending_attestation = PendingAttestation {
-                aggregation_bits: attestation.aggregation_bits,
-                data: attestation.data.clone(),
-                inclusion_delay: state.slot().safe_sub(attestation.data.slot)?.as_u64(),
+                aggregation_bits: attestation.aggregation_bits_base().unwrap().clone(),
+                data: attestation.data().clone(),
+                inclusion_delay: state.slot().safe_sub(attestation.data().slot)?.as_u64(),
                 proposer_index,
             };
 
-            if attestation.data.target.epoch == state.current_epoch() {
+            if attestation.data().target.epoch == state.current_epoch() {
                 state
                     .as_base_mut()?
                     .current_epoch_attestations
@@ -103,7 +102,7 @@ pub mod altair_deneb {
 
     pub fn process_attestations<E: EthSpec>(
         state: &mut BeaconState<E>,
-        attestations: &[AttestationBase<E>],
+        attestations: &[Attestation<E>],
         verify_signatures: VerifySignatures,
         ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
@@ -111,8 +110,13 @@ pub mod altair_deneb {
         attestations
             .iter()
             .enumerate()
-            .try_for_each(|(i, attestation)| {
-                process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
+            .try_for_each(|(i, attestation)| match attestation {
+                Attestation::Base(att) => {
+                    altair_deneb::process_attestation(state, att, i, ctxt, verify_signatures, spec)
+                }
+                Attestation::Electra(att) => {
+                    electra::process_attestation(state, att, i, ctxt, verify_signatures, spec)
+                }
             })
     }
 
@@ -137,7 +141,7 @@ pub mod altair_deneb {
             spec,
         )
         .map_err(|e| e.into_with_index(att_index))?
-        .attesting_indices;
+        .attesting_indices();
 
         // Matching roots, participation flag indices
         let data = &attestation.data;
@@ -195,7 +199,7 @@ pub mod electra {
 
     pub fn process_attestations<E: EthSpec>(
         state: &mut BeaconState<E>,
-        attestations: &[AttestationElectra<E>],
+        attestations: &[Attestation<E>],
         verify_signatures: VerifySignatures,
         ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
@@ -203,8 +207,13 @@ pub mod electra {
         attestations
             .iter()
             .enumerate()
-            .try_for_each(|(i, attestation)| {
-                process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
+            .try_for_each(|(i, attestation)| match attestation {
+                Attestation::Base(att) => {
+                    altair_deneb::process_attestation(state, att, i, ctxt, verify_signatures, spec)
+                }
+                Attestation::Electra(att) => {
+                    electra::process_attestation(state, att, i, ctxt, verify_signatures, spec)
+                }
             })
     }
 
@@ -229,7 +238,7 @@ pub mod electra {
             spec,
         )
         .map_err(|e| e.into_with_index(att_index))?
-        .attesting_indices;
+        .attesting_indices();
 
         // Matching roots, participation flag indices
         let data = &attestation.data;
@@ -350,8 +359,7 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         BeaconBlockBodyRef::Base(_) => {
             base::process_attestations(
                 state,
-                // TODO(eip7549) unwrap
-                block_body.attestations_base().unwrap(),
+                block_body.attestations(),
                 verify_signatures,
                 ctxt,
                 spec,
@@ -363,17 +371,16 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         | BeaconBlockBodyRef::Deneb(_) => {
             altair_deneb::process_attestations(
                 state,
-                // TODO(eip7549) unwrap
-                block_body.attestations_base().unwrap(),
+                block_body.attestations(),
                 verify_signatures,
                 ctxt,
                 spec,
             )?;
-        }BeaconBlockBodyRef::Electra(_) => {
+        }
+        BeaconBlockBodyRef::Electra(_) => {
             electra::process_attestations(
                 state,
-                 // TODO(eip7549) unwrap
-                block_body.attestations_electra().unwrap(),
+                block_body.attestations(),
                 verify_signatures,
                 ctxt,
                 spec,

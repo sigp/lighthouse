@@ -1,4 +1,4 @@
-use crate::common::{indexed_attestation_base, indexed_attestation_electra};
+use crate::common::indexed_attestation_base;
 use safe_arith::SafeArith;
 use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, PendingAttestation};
 
@@ -243,20 +243,24 @@ impl ValidatorStatuses {
             .chain(base_state.current_epoch_attestations.iter())
         {
             let committee = state.get_beacon_committee(a.data.slot, a.data.index)?;
-            
-            let attesting_indices = match state.fork_name(&E::default_spec()).map_err(|_| BeaconStateError::EpochOutOfBounds)? {
+
+            let attesting_indices = match state
+                .fork_name(&E::default_spec())
+                .map_err(|_| BeaconStateError::EpochOutOfBounds)?
+            {
                 types::ForkName::Base
                 | types::ForkName::Altair
                 | types::ForkName::Merge
                 | types::ForkName::Capella
-                | types::ForkName::Deneb => {
-                    indexed_attestation_base::get_attesting_indices::<E>(committee.committee, &a.aggregation_bits)?
-                },
+                | types::ForkName::Deneb => indexed_attestation_base::get_attesting_indices::<E>(
+                    committee.committee,
+                    &a.aggregation_bits,
+                )?,
                 types::ForkName::Electra => {
                     // TODO(eip7549) the pending attestation needs to be an electra attestation
                     // indexed_attestation_electra::get_attesting_indices(state, a)?
                     todo!()
-                },
+                }
             };
 
             let mut status = ValidatorStatus::default();

@@ -47,7 +47,7 @@ impl<E: EthSpec> AttestationBatch<E> {
         self.attestations.push(Arc::downgrade(&indexed_record));
 
         let attestation_data_hash = indexed_record.record.attestation_data_hash;
-        for &validator_index in &indexed_record.indexed.attesting_indices {
+        for &validator_index in &indexed_record.indexed.attesting_indices() {
             self.attesters
                 .entry((validator_index, attestation_data_hash))
                 .and_modify(|existing_entry| {
@@ -56,8 +56,8 @@ impl<E: EthSpec> AttestationBatch<E> {
                     // smaller indexed attestation. Single-bit attestations will usually be removed
                     // completely by this process, and aggregates will only be retained if they
                     // are not redundant with respect to a larger aggregate seen in the same batch.
-                    if existing_entry.indexed.attesting_indices.len()
-                        < indexed_record.indexed.attesting_indices.len()
+                    if existing_entry.indexed.attesting_indices().len()
+                        < indexed_record.indexed.attesting_indices().len()
                     {
                         *existing_entry = indexed_record.clone();
                     }

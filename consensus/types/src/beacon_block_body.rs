@@ -9,7 +9,6 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::{TreeHash, BYTES_PER_CHUNK};
 use tree_hash_derive::TreeHash;
-use crate::attestation::{AttestationBase, AttestationElectra};
 
 pub type KzgCommitments<E> =
     VariableList<KzgCommitment, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
@@ -65,10 +64,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub graffiti: Graffiti,
     pub proposer_slashings: VariableList<ProposerSlashing, E::MaxProposerSlashings>,
     pub attester_slashings: VariableList<AttesterSlashing<E>, E::MaxAttesterSlashings>,
-    #[superstruct(only(Base, Altair, Merge, Capella, Deneb), partial_getter(rename = "attestations_base"))]
-    pub attestations: VariableList<AttestationBase<E>, E::MaxAttestations>,
-    #[superstruct(only(Electra), partial_getter(rename = "attestations_electra"))]
-    pub attestations: VariableList<AttestationElectra<E>, E::MaxAttestations>,
+    pub attestations: VariableList<Attestation<E>, E::MaxAttestations>,
     pub deposits: VariableList<Deposit, E::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
@@ -750,26 +746,13 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
 
 impl<E: EthSpec> BeaconBlockBody<E> {
     pub fn block_body_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
-
         let attestations_tree_hash_root = match self {
-            BeaconBlockBody::Base(b) => {
-                b.attestations.tree_hash_root()
-            },
-            BeaconBlockBody::Merge(b) => {
-                b.attestations.tree_hash_root()
-            },
-            BeaconBlockBody::Altair(b) => {
-                b.attestations.tree_hash_root()
-            },
-            BeaconBlockBody::Capella(b) => {
-                b.attestations.tree_hash_root()
-            },
-            BeaconBlockBody::Deneb(b) => {
-                b.attestations.tree_hash_root()
-            },
-            BeaconBlockBody::Electra(b) => {
-                b.attestations.tree_hash_root()
-            }
+            BeaconBlockBody::Base(b) => b.attestations.tree_hash_root(),
+            BeaconBlockBody::Merge(b) => b.attestations.tree_hash_root(),
+            BeaconBlockBody::Altair(b) => b.attestations.tree_hash_root(),
+            BeaconBlockBody::Capella(b) => b.attestations.tree_hash_root(),
+            BeaconBlockBody::Deneb(b) => b.attestations.tree_hash_root(),
+            BeaconBlockBody::Electra(b) => b.attestations.tree_hash_root(),
         };
 
         let field_index = match generalized_index {

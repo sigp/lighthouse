@@ -44,7 +44,7 @@ use proto_array::Block as ProtoBlock;
 use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
-    common::get_indexed_attestation,
+    common::{indexed_attestation_base, indexed_attestation_electra},
     per_block_processing::errors::AttestationValidationError,
     signature_sets::{
         indexed_attestation_signature_set_from_pubkeys,
@@ -559,8 +559,20 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                     return Err(Error::AggregatorNotInCommittee { aggregator_index });
                 }
 
-                get_indexed_attestation(committee.committee, attestation)
-                    .map_err(|e| BeaconChainError::from(e).into())
+                match attestation {
+                    Attestation::Base(att) => indexed_attestation_base::get_indexed_attestation(
+                        committee.committee,
+                        attestation,
+                    )
+                    .map_err(|e| BeaconChainError::from(e).into()),
+                    Attestation::Electra(att) => {
+                        indexed_attestation_electra::get_indexed_attestation(
+                            committee.committee,
+                            attestation,
+                        )
+                        .map_err(|e| BeaconChainError::from(e).into())
+                    }
+                }
             };
 
         let indexed_attestation = match map_attestation_committee(
@@ -1242,9 +1254,20 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     attestation: &Attestation<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
     map_attestation_committee(chain, attestation, |(committee, committees_per_slot)| {
-        get_indexed_attestation(committee.committee, attestation)
-            .map(|attestation| (attestation, committees_per_slot))
-            .map_err(Error::Invalid)
+        match attestation {
+            Attestation::Base(att) => {
+                indexed_attestation_base::get_indexed_attestation(committee.committee, attestation)
+                    .map(|attestation| (attestation, committees_per_slot))
+                    .map_err(Error::Invalid)
+            }
+            Attestation::Electra(att) => {
+                // eip 7549 we need access to the beacon state
+                todo!()
+                // indexed_attestation_electra::get_indexed_attestation(, attestation)
+                //     .map(|attestation| (attestation, committees_per_slot))
+                //     .map_err(Error::Invalid)
+            }
+        }
     })
 }
 

@@ -2,7 +2,7 @@ use crate::attestation_storage::AttestationRef;
 use crate::max_cover::MaxCover;
 use crate::reward_cache::RewardCache;
 use state_processing::common::{
-    altair, base, get_attestation_participation_flag_indices, get_attesting_indices,
+    altair, base, get_attestation_participation_flag_indices, indexed_attestation_base,
 };
 use std::collections::HashMap;
 use types::{
@@ -46,7 +46,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         let committee = state
             .get_beacon_committee(att.data.slot, att.data.index)
             .ok()?;
-        let indices = get_attesting_indices::<E>(committee.committee, &fresh_validators).ok()?;
+        let indices = indexed_attestation_base::get_attesting_indices::<E>(committee.committee, &fresh_validators).ok()?;
         let fresh_validators_rewards: HashMap<u64, u64> = indices
             .iter()
             .copied()
