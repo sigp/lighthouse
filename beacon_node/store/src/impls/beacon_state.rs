@@ -2,8 +2,6 @@ use crate::*;
 use ssz::Encode;
 use ssz_derive::Encode;
 use std::io::{Read, Write};
-use std::sync::Arc;
-use types::{CompactBeaconState, PublicKeyBytes};
 use zstd::{Decoder, Encoder};
 
 pub fn store_full_state<E: EthSpec>(

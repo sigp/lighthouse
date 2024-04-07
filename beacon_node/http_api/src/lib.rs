@@ -881,9 +881,7 @@ pub fn serve<T: BeaconChainTypes>(
                                                     relative_epoch,
                                                 ) =>
                                             {
-                                                state
-                                                    .committee_cache(relative_epoch)
-                                                    .map(Arc::clone)
+                                                state.committee_cache(relative_epoch).cloned()
                                             }
                                             _ => CommitteeCache::initialized(
                                                 state,
