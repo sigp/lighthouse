@@ -80,6 +80,7 @@ impl<E: EthSpec> IndexedAttesterRecord<E> {
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
 struct IndexedAttestationHeader<E: EthSpec> {
+    // TODO(eip7549 length should be MAX_VALIDATORS_PER_COMMITTEE * MAX_COMMITTEES_PER_SLOT)
     pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommittee>,
     pub data_root: Hash256,
     pub signature: AggregateSignature,

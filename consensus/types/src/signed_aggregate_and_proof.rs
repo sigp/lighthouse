@@ -57,7 +57,7 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
             spec,
         );
 
-        let target_epoch = message.aggregate.data.slot.epoch(E::slots_per_epoch());
+        let target_epoch = message.aggregate.data().slot.epoch(E::slots_per_epoch());
         let domain = spec.get_domain(
             target_epoch,
             Domain::AggregateAndProof,

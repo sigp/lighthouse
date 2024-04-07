@@ -9,6 +9,7 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use crate::attestation::AttestationBase;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
@@ -350,13 +351,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             attestation_2: indexed_attestation,
         };
 
-        let attestation: Attestation<E> = Attestation {
+        let attestation = Attestation::Base(AttestationBase{
             aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerCommittee::to_usize())
                 .unwrap(),
-            index: <_>::default(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
-        };
+        });
+
 
         let deposit = Deposit {
             proof: FixedVector::from_elem(Hash256::zero()),
@@ -400,7 +401,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
         }
 
         for _ in 0..E::MaxAttestations::to_usize() {
-            block.body.attestations.push(attestation.clone()).unwrap();
+            // TODO(eip7549) unwrap
+            block.body.attestations.push(attestation.as_base().unwrap().clone()).unwrap();
         }
         block
     }
@@ -628,7 +630,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
             body: BeaconBlockBodyElectra {
                 proposer_slashings: base_block.body.proposer_slashings,
                 attester_slashings: base_block.body.attester_slashings,
-                attestations: base_block.body.attestations,
+                // TODO(eip7549) is setting to default ok here?
+                attestations: <_>::default(),
                 deposits: base_block.body.deposits,
                 voluntary_exits: base_block.body.voluntary_exits,
                 bls_to_execution_changes,

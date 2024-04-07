@@ -1,6 +1,6 @@
-use crate::common::get_indexed_attestation;
-use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
+use crate::{common::indexed_attestation_electra, per_block_processing::errors::{AttestationInvalid, BlockOperationError}};
 use ssz_derive::{Decode, Encode};
+use crate::common::indexed_attestation_base;
 use std::collections::{hash_map::Entry, HashMap};
 use tree_hash::TreeHash;
 use types::{
@@ -138,19 +138,41 @@ impl<E: EthSpec> ConsensusContext<E> {
         state: &BeaconState<E>,
         attestation: &Attestation<E>,
     ) -> Result<&IndexedAttestation<E>, BlockOperationError<AttestationInvalid>> {
+        // TODO(eip7549) make fork aware? also unwrap
         let key = (
-            attestation.data.clone(),
-            attestation.aggregation_bits.clone(),
+            attestation.data().clone(),
+            attestation.aggregation_bits_base().unwrap().clone(),
         );
+
+       
 
         match self.indexed_attestations.entry(key) {
             Entry::Occupied(occupied) => Ok(occupied.into_mut()),
             Entry::Vacant(vacant) => {
-                let committee =
-                    state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
-                let indexed_attestation =
-                    get_indexed_attestation(committee.committee, attestation)?;
-                Ok(vacant.insert(indexed_attestation))
+                 // TODO(eip7549) unwrap
+                match state.fork_name(&E::default_spec()).unwrap() {
+                    types::ForkName::Base
+                    | types::ForkName::Altair
+                    | types::ForkName::Merge
+                    | types::ForkName::Capella
+                    | types::ForkName::Deneb => {
+                        let committee =
+                        state.get_beacon_committee(attestation.data().slot, attestation.data().index)?;
+                        // TODO(eip7549) unwrap
+                        let indexed_attestation =
+                            indexed_attestation_base::get_indexed_attestation(committee.committee, attestation.as_base().unwrap())?;
+                        Ok(vacant.insert(indexed_attestation))
+                    },
+                    types::ForkName::Electra => {
+                        let committee =
+                            state.get_beacon_committee(attestation.data().slot, attestation.data().index)?;
+                        // TODO(eip7549) unwrap
+                        let indexed_attestation =
+                            indexed_attestation_electra::get_indexed_attestation(state, attestation.as_electra().unwrap())?;
+                        Ok(vacant.insert(indexed_attestation))
+                    },
+                    
+                }
             }
         }
     }

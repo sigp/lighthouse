@@ -1,12 +1,17 @@
+use std::collections::HashSet;
+
+use crate::slot_data::SlotData;
+use crate::{test_utils::TestRandom, Hash256, Slot};
 use derivative::Derivative;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::{Bitfield, FixedVector};
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-
-use crate::slot_data::SlotData;
-use crate::{test_utils::TestRandom, Hash256, Slot};
+use ssz::Decode;
+use rand::RngCore;
 
 use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
@@ -20,33 +25,66 @@ pub enum Error {
     SubnetCountIsZero(ArithError),
 }
 
-/// Details an attestation that can be slashable.
-///
-/// Spec v0.12.1
-#[derive(
-    arbitrary::Arbitrary,
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    Derivative,
+#[superstruct(
+    variants(Base, Electra),
+    variant_attributes(
+        derive(
+            Debug,
+            Clone,
+            Serialize,
+            Deserialize,
+            Decode,
+            Encode,
+            TestRandom,
+            Derivative,
+            arbitrary::Arbitrary,
+            TreeHash,
+        ),
+        derivative(PartialEq, Hash(bound = "E: EthSpec")),
+        serde(bound = "E: EthSpec", deny_unknown_fields),
+        arbitrary(bound = "E: EthSpec"),
+    )
 )]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
-#[serde(bound = "E: EthSpec")]
+#[derive(
+    Debug, Clone, Serialize, TreeHash, Encode, Deserialize, arbitrary::Arbitrary, PartialEq,
+)]
+#[serde(untagged)]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[arbitrary(bound = "E: EthSpec")]
 pub struct Attestation<E: EthSpec> {
+    #[superstruct(only(Base), partial_getter(rename = "aggregation_bits_base"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
+    #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
+    pub aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub index: u64,
+    #[superstruct(only(Electra))]
+    pub committee_bits: BitList<E::MaxCommitteesPerSlot>,
 }
 
-impl<E: EthSpec> Attestation<E> {
+impl<E: EthSpec> Decode for Attestation<E> {
+    fn is_ssz_fixed_len() -> bool {
+        todo!()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        todo!()
+    }
+}
+
+impl<E: EthSpec> TestRandom for Attestation<E> {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        todo!()
+    }
+}
+
+impl<E: EthSpec> AttestationElectra<E> {
+  
+}
+
+impl<E: EthSpec> AttestationBase<E> {
     /// Are the aggregation bitfields of these attestations disjoint?
     pub fn signers_disjoint_from(&self, other: &Self) -> bool {
         self.aggregation_bits
@@ -115,7 +153,7 @@ impl<E: EthSpec> Attestation<E> {
 
 impl<E: EthSpec> SlotData for Attestation<E> {
     fn get_slot(&self) -> Slot {
-        self.data.slot
+        self.data().slot
     }
 }
 

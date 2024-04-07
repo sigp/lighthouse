@@ -53,7 +53,7 @@ impl<E: EthSpec> AggregateAndProof<E> {
         let selection_proof = selection_proof
             .unwrap_or_else(|| {
                 SelectionProof::new::<E>(
-                    aggregate.data.slot,
+                    aggregate.data().slot,
                     secret_key,
                     fork,
                     genesis_validators_root,
@@ -77,14 +77,14 @@ impl<E: EthSpec> AggregateAndProof<E> {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> bool {
-        let target_epoch = self.aggregate.data.slot.epoch(E::slots_per_epoch());
+        let target_epoch = self.aggregate.data().slot.epoch(E::slots_per_epoch());
         let domain = spec.get_domain(
             target_epoch,
             Domain::SelectionProof,
             fork,
             genesis_validators_root,
         );
-        let message = self.aggregate.data.slot.signing_root(domain);
+        let message = self.aggregate.data().slot.signing_root(domain);
         self.selection_proof.verify(validator_pubkey, message)
     }
 }

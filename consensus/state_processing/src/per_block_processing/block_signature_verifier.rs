@@ -5,10 +5,10 @@ use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationErro
 use crate::{ConsensusContext, ContextError};
 use bls::{verify_signature_sets, PublicKey, PublicKeyBytes, SignatureSet};
 use rayon::prelude::*;
+use types::attestation::AttestationBase;
 use std::borrow::Cow;
 use types::{
-    AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256,
-    SignedBeaconBlock,
+    AbstractExecPayload, Attestation, BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256, SignedBeaconBlock
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -275,17 +275,20 @@ where
         block: &'a SignedBeaconBlock<E, Payload>,
         ctxt: &mut ConsensusContext<E>,
     ) -> Result<()> {
+        // TODO(eip7549) make fork aware? unwrap
         self.sets
             .sets
-            .reserve(block.message().body().attestations().len());
+            .reserve(block.message().body().attestations_base().unwrap().len());
 
         block
             .message()
             .body()
-            .attestations()
+            .attestations_base()
+            .unwrap()
             .iter()
             .try_for_each(|attestation| {
-                let indexed_attestation = ctxt.get_indexed_attestation(self.state, attestation)?;
+                // TODO(eip7549) make fork aware probably
+                let indexed_attestation = ctxt.get_indexed_attestation(self.state, &Attestation::Base(attestation.clone()))?;
 
                 self.sets.push(indexed_attestation_signature_set(
                     self.state,
