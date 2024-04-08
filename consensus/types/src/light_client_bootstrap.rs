@@ -1,8 +1,8 @@
-use super::{BeaconState, EthSpec, FixedVector, Hash256, SyncCommittee};
+use super::{BeaconState, EthSpec, Hash256, SyncCommittee};
 use crate::{
-    light_client_update::*, test_utils::TestRandom, ChainSpec, ForkName, ForkVersionDeserialize,
-    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
-    Slot,
+    light_client_update::*, test_utils::TestRandom, ChainSpec, FixedVector, ForkName,
+    ForkVersionDeserialize, LightClientHeaderAltair, LightClientHeaderCapella,
+    LightClientHeaderDeneb, SignedBeaconBlock, Slot,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};

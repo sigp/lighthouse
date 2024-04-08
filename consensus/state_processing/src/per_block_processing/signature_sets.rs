@@ -64,7 +64,7 @@ where
         .validators()
         .get(validator_index)
         .and_then(|v| {
-            let pk: Option<PublicKey> = v.pubkey.decompress().ok();
+            let pk: Option<PublicKey> = v.pubkey().decompress().ok();
             pk
         })
         .map(Cow::Owned)

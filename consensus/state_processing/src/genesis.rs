@@ -28,7 +28,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     let mut state = BeaconState::new(genesis_time, eth1_data, spec);
 
     // Seed RANDAO with Eth1 entropy
-    state.fill_randao_mixes_with(eth1_block_hash);
+    state.fill_randao_mixes_with(eth1_block_hash)?;
 
     let mut deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
 
@@ -152,18 +152,20 @@ pub fn process_activations<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
-    for (index, validator) in validators.iter_mut().enumerate() {
+    let mut validators_iter = validators.iter_cow();
+    while let Some((index, validator)) = validators_iter.next_cow() {
+        let validator = validator.into_mut()?;
         let balance = balances
             .get(index)
             .copied()
             .ok_or(Error::BalancesOutOfBounds(index))?;
-        validator.effective_balance = std::cmp::min(
+        validator.mutable.effective_balance = std::cmp::min(
             balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
             spec.max_effective_balance,
         );
-        if validator.effective_balance == spec.max_effective_balance {
-            validator.activation_eligibility_epoch = E::genesis_epoch();
-            validator.activation_epoch = E::genesis_epoch();
+        if validator.effective_balance() == spec.max_effective_balance {
+            validator.mutable.activation_eligibility_epoch = E::genesis_epoch();
+            validator.mutable.activation_epoch = E::genesis_epoch();
         }
     }
     Ok(())
