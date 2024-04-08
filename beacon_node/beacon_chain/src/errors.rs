@@ -31,6 +31,7 @@ use state_processing::{
 use std::time::Duration;
 use task_executor::ShutdownReason;
 use tokio::task::JoinError;
+use types::milhouse::Error as MilhouseError;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -223,6 +224,7 @@ pub enum BeaconChainError {
     AvailabilityCheckError(AvailabilityCheckError),
     LightClientError(LightClientError),
     UnsupportedFork,
+    MilhouseError(MilhouseError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -252,6 +254,7 @@ easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
 easy_from_to!(LightClientError, BeaconChainError);
+easy_from_to!(MilhouseError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {

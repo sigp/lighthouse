@@ -651,7 +651,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let mut new_snapshot = {
                 let beacon_block = self
                     .store
-                    .get_full_block(&new_view.head_block_root, None)?
+                    .get_full_block(&new_view.head_block_root)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
                 let (_, beacon_state) = self

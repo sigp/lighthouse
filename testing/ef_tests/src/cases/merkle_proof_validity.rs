@@ -77,9 +77,6 @@ impl<E: EthSpec> Case for MerkleProofValidity<E> {
             }
         }
 
-        // Tree hash cache should still be initialized (not dropped).
-        assert!(state.tree_hash_cache().is_initialized());
-
         Ok(())
     }
 }

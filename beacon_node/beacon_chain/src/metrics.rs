@@ -1182,15 +1182,10 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
 
     let attestation_stats = beacon_chain.op_pool.attestation_stats();
 
-    if let Some(snapshot_cache) = beacon_chain
-        .snapshot_cache
-        .try_write_for(SNAPSHOT_CACHE_TIMEOUT)
-    {
-        set_gauge(
-            &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
-            snapshot_cache.len() as i64,
-        )
-    }
+    set_gauge_by_usize(
+        &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
+        beacon_chain.store.state_cache_len(),
+    );
 
     let da_checker_metrics = beacon_chain.data_availability_checker.metrics();
     set_gauge_by_usize(
@@ -1320,7 +1315,7 @@ fn scrape_head_state<E: EthSpec>(state: &BeaconState<E>, state_root: Hash256) {
             num_active += 1;
         }
 
-        if v.slashed {
+        if v.slashed() {
             num_slashed += 1;
         }
 

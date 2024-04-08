@@ -14,6 +14,7 @@ use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
+use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
@@ -38,8 +39,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Epoch, EthSpec, Graffiti, Hash256,
-    Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti,
+    Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -91,6 +92,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     shutdown_sender: Option<Sender<ShutdownReason>>,
     light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
     head_tracker: Option<HeadTracker>,
+    validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
     chain_config: ChainConfig,
     log: Option<Logger>,
@@ -133,6 +135,7 @@ where
             shutdown_sender: None,
             light_client_server_tx: None,
             head_tracker: None,
+            validator_pubkey_cache: None,
             spec: E::default_spec(),
             chain_config: ChainConfig::default(),
             log: None,
@@ -289,7 +292,7 @@ where
             .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
-            .get_blinded_block(&chain.genesis_block_root, Some(Slot::new(0)))
+            .get_blinded_block(&chain.genesis_block_root)
             .map_err(|e| descriptive_db_error("genesis block", &e))?
             .ok_or("Genesis block not found in store")?;
         let genesis_state = store
@@ -574,6 +577,13 @@ where
                 .init_blob_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
         );
+
+        // Store pruning checkpoint to prevent attempting to prune before the anchor state.
+        self.pending_io_batch
+            .push(store.pruning_checkpoint_store_op(Checkpoint {
+                root: weak_subj_block_root,
+                epoch: weak_subj_state.slot().epoch(E::slots_per_epoch()),
+            }));
 
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
@@ -955,7 +965,7 @@ where
                 Default::default(),
                 log.clone(),
             ))),
-            validator_pubkey_cache,
+            validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             light_client_server_cache: LightClientServerCache::new(),

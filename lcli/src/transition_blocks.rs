@@ -201,10 +201,7 @@ pub fn run<E: EthSpec>(
     let store = Arc::new(store);
 
     debug!("Building pubkey cache (might take some time)");
-    let validator_pubkey_cache = store.immutable_validators.clone();
-    validator_pubkey_cache
-        .write()
-        .import_new_pubkeys(&pre_state)
+    let validator_pubkey_cache = ValidatorPubkeyCache::new(&pre_state, store)
         .map_err(|e| format!("Failed to create pubkey cache: {:?}", e))?;
 
     /*
@@ -248,7 +245,7 @@ pub fn run<E: EthSpec>(
             block,
             state_root_opt,
             &config,
-            &*validator_pubkey_cache.read(),
+            &validator_pubkey_cache,
             &mut saved_ctxt,
             spec,
         )?;

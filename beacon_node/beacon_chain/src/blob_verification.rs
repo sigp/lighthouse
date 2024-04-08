@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::block_verification::{
-    cheap_state_advance_to_obtain_committees, process_block_slash_info, BlockSlashInfo,
+    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
+    BlockSlashInfo,
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::{metrics, BeaconChainError};
@@ -516,7 +517,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 
     // Signature verify the signed block header.
     let signature_is_valid = {
-        let pubkey_cache = chain.validator_pubkey_cache.read();
+        let pubkey_cache =
+            get_validator_pubkey_cache(chain).map_err(|_| GossipBlobError::PubkeyCacheTimeout)?;
 
         let pubkey = pubkey_cache
             .get(proposer_index)
