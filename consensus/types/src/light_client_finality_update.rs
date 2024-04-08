@@ -173,7 +173,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         match fork_name {
             ForkName::Base => 0,
             ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
-                <Self as Encode>::ssz_fixed_len()
+                <LightClientFinalityUpdateAltair<E> as Encode>::ssz_fixed_len()
                     + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
         }
