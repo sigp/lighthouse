@@ -836,6 +836,8 @@ async fn block_replayer_hooks() {
     assert_eq!(post_block_slots, block_slots);
 
     // States match.
+    end_state.apply_pending_mutations().unwrap();
+    replay_state.apply_pending_mutations().unwrap();
     end_state.drop_all_caches().unwrap();
     replay_state.drop_all_caches().unwrap();
     assert_eq!(end_state, replay_state);
@@ -1221,9 +1223,17 @@ fn check_shuffling_compatible(
                 |committee_cache, _| {
                     let state_cache = head_state.committee_cache(RelativeEpoch::Current).unwrap();
                     if current_epoch_shuffling_is_compatible {
-                        assert_eq!(committee_cache, state_cache, "block at slot {slot}");
+                        assert_eq!(
+                            committee_cache,
+                            state_cache.as_ref(),
+                            "block at slot {slot}"
+                        );
                     } else {
-                        assert_ne!(committee_cache, state_cache, "block at slot {slot}");
+                        assert_ne!(
+                            committee_cache,
+                            state_cache.as_ref(),
+                            "block at slot {slot}"
+                        );
                     }
                     Ok(())
                 },
@@ -1253,9 +1263,9 @@ fn check_shuffling_compatible(
                 |committee_cache, _| {
                     let state_cache = head_state.committee_cache(RelativeEpoch::Previous).unwrap();
                     if previous_epoch_shuffling_is_compatible {
-                        assert_eq!(committee_cache, state_cache);
+                        assert_eq!(committee_cache, state_cache.as_ref());
                     } else {
-                        assert_ne!(committee_cache, state_cache);
+                        assert_ne!(committee_cache, state_cache.as_ref());
                     }
                     Ok(())
                 },
@@ -3609,16 +3619,16 @@ fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, L
 
 /// Check that all the states in a chain dump have the correct tree hash.
 fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
-    let chain_dump = harness.chain.chain_dump().unwrap();
+    let mut chain_dump = harness.chain.chain_dump().unwrap();
     let split_slot = harness.chain.store.get_split_slot();
 
     assert_eq!(chain_dump.len() as u64, expected_len);
 
-    for checkpoint in &chain_dump {
+    for checkpoint in &mut chain_dump {
         // Check that the tree hash of the stored state is as expected
         assert_eq!(
             checkpoint.beacon_state_root(),
-            checkpoint.beacon_state.tree_hash_root(),
+            checkpoint.beacon_state.update_tree_hash_cache().unwrap(),
             "tree hash of stored state is incorrect"
         );
 

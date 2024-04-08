@@ -4,11 +4,7 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
-use std::time::Duration;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
-
-/// The maximum time to wait for the snapshot cache lock during a metrics scrape.
-const SNAPSHOT_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
 
 // Attestation simulator metrics
 pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL: &str =

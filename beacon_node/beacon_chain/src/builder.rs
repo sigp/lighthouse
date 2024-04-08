@@ -12,10 +12,8 @@ use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
@@ -28,19 +26,20 @@ use futures::channel::mpsc::Sender;
 use kzg::{Kzg, TrustedSetup};
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
+use promise_cache::PromiseCache;
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, debug, error, info, o, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::per_slot_processing;
+use state_processing::{per_slot_processing, AllCaches};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti,
-    Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Epoch, EthSpec, Graffiti, Hash256,
+    Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -92,7 +91,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     shutdown_sender: Option<Sender<ShutdownReason>>,
     light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
     head_tracker: Option<HeadTracker>,
-    validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
     chain_config: ChainConfig,
     log: Option<Logger>,
@@ -135,7 +133,6 @@ where
             shutdown_sender: None,
             light_client_server_tx: None,
             head_tracker: None,
-            validator_pubkey_cache: None,
             spec: E::default_spec(),
             chain_config: ChainConfig::default(),
             log: None,
@@ -292,7 +289,7 @@ where
             .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
-            .get_blinded_block(&chain.genesis_block_root)
+            .get_blinded_block(&chain.genesis_block_root, Some(Slot::new(0)))
             .map_err(|e| descriptive_db_error("genesis block", &e))?
             .ok_or("Genesis block not found in store")?;
         let genesis_state = store
@@ -462,7 +459,7 @@ where
         // Prime all caches before storing the state in the database and computing the tree hash
         // root.
         weak_subj_state
-            .build_caches(&self.spec)
+            .build_all_caches(&self.spec)
             .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
         let weak_subj_state_root = weak_subj_state
             .update_tree_hash_cache()
@@ -520,6 +517,12 @@ where
         let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
         self = updated_builder;
 
+        // Build the committee caches before storing. The database assumes that states have
+        // committee caches built before storing.
+        weak_subj_state
+            .build_all_committee_caches(&self.spec)
+            .map_err(|e| format!("Error building caches on checkpoint state: {:?}", e))?;
+
         // Fill in the linear block roots between the checkpoint block's slot and the aligned
         // state's slot. All slots less than the block's slot will be handled by block backfill,
         // while states greater or equal to the checkpoint state will be handled by `migrate_db`.
@@ -537,6 +540,13 @@ where
 
         // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
+        store
+            .update_finalized_state(
+                weak_subj_state_root,
+                weak_subj_block_root,
+                weak_subj_state.clone(),
+            )
+            .map_err(|e| format!("Failed to set checkpoint state as finalized state: {:?}", e))?;
         store
             .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {e:?}"))?;
@@ -564,13 +574,6 @@ where
                 .init_blob_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
         );
-
-        // Store pruning checkpoint to prevent attempting to prune before the anchor state.
-        self.pending_io_batch
-            .push(store.pruning_checkpoint_store_op(Checkpoint {
-                root: weak_subj_block_root,
-                epoch: weak_subj_state.slot().epoch(E::slots_per_epoch()),
-            }));
 
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
@@ -860,10 +863,9 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let head_for_snapshot_cache = head_snapshot.clone();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
-        let snapshot_cache_size = self.chain_config.snapshot_cache_size;
+        let parallel_state_cache_size = self.chain_config.parallel_state_cache_size;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -939,10 +941,6 @@ where
             fork_choice_signal_rx,
             event_handler: self.event_handler,
             head_tracker,
-            snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
-                snapshot_cache_size,
-                head_for_snapshot_cache,
-            )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
@@ -952,7 +950,12 @@ where
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
-            validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            parallel_state_cache: Arc::new(RwLock::new(PromiseCache::new(
+                parallel_state_cache_size,
+                Default::default(),
+                log.clone(),
+            ))),
+            validator_pubkey_cache,
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             light_client_server_cache: LightClientServerCache::new(),
@@ -970,7 +973,6 @@ where
                     .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
             ),
             kzg,
-            block_production_state: Arc::new(Mutex::new(None)),
         };
 
         let head = beacon_chain.head_snapshot();
@@ -1270,14 +1272,15 @@ mod test {
         }
 
         for v in state.validators() {
-            let creds = v.withdrawal_credentials.as_bytes();
+            let creds = v.withdrawal_credentials();
+            let creds = creds.as_bytes();
             assert_eq!(
                 creds[0], spec.bls_withdrawal_prefix_byte,
                 "first byte of withdrawal creds should be bls prefix"
             );
             assert_eq!(
                 &creds[1..],
-                &hash(&v.pubkey.as_ssz_bytes())[1..],
+                &hash(&v.pubkey().as_ssz_bytes())[1..],
                 "rest of withdrawal creds should be pubkey hash"
             )
         }
