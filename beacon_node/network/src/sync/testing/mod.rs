@@ -69,9 +69,11 @@ pub struct SyncTester {
     /// Stores all `NetworkMessage`s received from `network_recv`. (e.g. outgoing RPC requests)
     received_network_messages: Vec<NetworkMessage<E>>,
     /// Receiver for `BeaconProcessor` events (e.g. block processing results).
+    /// TODO: remove the dead_code exemption below once we add more tests
     #[allow(dead_code)]
     beacon_processor_recv: Receiver<WorkEvent<E>>,
     /// Stores all `WorkEvent`s received from `beacon_processor_recv`.
+    /// TODO: remove the dead_code exemption below once we add more tests
     #[allow(dead_code)]
     received_beacon_processor_events: Vec<WorkEvent<E>>,
     /// `rng` for generating test blocks and blobs.
@@ -259,6 +261,7 @@ impl SyncTester {
 
     /// Checks the `beacon_processor_recv` for a matching `WorkEvent`. Useful for making assertions
     /// on events sent to the `NetworkBeaconProcessor`, e.g. a chain segment sent for processing.
+    /// TODO: remove the dead_code exemption below once we add more tests
     #[allow(dead_code)]
     pub async fn expect_beacon_processor_send<F>(&mut self, match_fn: F) -> &mut Self
     where
@@ -364,6 +367,8 @@ where
     }
 }
 
+// TODO: remove the dead_code exemption below once we add more tests
+#[allow(dead_code)]
 pub enum RpcResponse {
     Block(PeerId, Option<Arc<SignedBeaconBlock<E>>>),
     Blob(PeerId, Option<Arc<BlobSidecar<E>>>),
