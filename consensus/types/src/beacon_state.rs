@@ -356,8 +356,6 @@ where
     #[metastruct(exclude_from(tree_lists))]
     pub eth1_data: Eth1Data,
     #[test_random(default)]
-    // FIXME(sproul): excluded due to `rebase_on` issue
-    #[metastruct(exclude_from(tree_lists))]
     pub eth1_data_votes: List<Eth1Data, E::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
@@ -382,14 +380,11 @@ where
     pub slashings: Vector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
-    // FIXME(sproul): excluded from tree lists due to ResetListDiff
     #[superstruct(only(Base))]
     #[test_random(default)]
-    #[metastruct(exclude_from(tree_lists))]
     pub previous_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
     #[superstruct(only(Base))]
     #[test_random(default)]
-    #[metastruct(exclude_from(tree_lists))]
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
@@ -2028,13 +2023,11 @@ impl<E: EthSpec> BeaconState<E> {
         self.epoch_cache().get_base_reward(validator_index)
     }
 
-    // FIXME(sproul): missing eth1 data votes, they would need a ResetListDiff
     #[allow(clippy::arithmetic_side_effects)]
     pub fn rebase_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
         // Required for macros (which use type-hints internally).
         type GenericValidator = Validator;
 
-        // FIXME(sproul): fix deneb rebasing
         match (&mut *self, base) {
             (Self::Base(self_inner), Self::Base(base_inner)) => {
                 bimap_beacon_state_base_tree_list_fields!(
@@ -2043,6 +2036,7 @@ impl<E: EthSpec> BeaconState<E> {
                     |_, self_field, base_field| { self_field.rebase_on(base_field) }
                 );
             }
+            (Self::Base(_), _) => (),
             (Self::Altair(self_inner), Self::Altair(base_inner)) => {
                 bimap_beacon_state_altair_tree_list_fields!(
                     self_inner,
@@ -2050,6 +2044,7 @@ impl<E: EthSpec> BeaconState<E> {
                     |_, self_field, base_field| { self_field.rebase_on(base_field) }
                 );
             }
+            (Self::Altair(_), _) => (),
             (Self::Merge(self_inner), Self::Merge(base_inner)) => {
                 bimap_beacon_state_merge_tree_list_fields!(
                     self_inner,
@@ -2057,6 +2052,7 @@ impl<E: EthSpec> BeaconState<E> {
                     |_, self_field, base_field| { self_field.rebase_on(base_field) }
                 );
             }
+            (Self::Merge(_), _) => (),
             (Self::Capella(self_inner), Self::Capella(base_inner)) => {
                 bimap_beacon_state_capella_tree_list_fields!(
                     self_inner,
@@ -2064,8 +2060,23 @@ impl<E: EthSpec> BeaconState<E> {
                     |_, self_field, base_field| { self_field.rebase_on(base_field) }
                 );
             }
-            // Do not rebase across forks, this should be OK for most situations.
-            _ => {}
+            (Self::Capella(_), _) => (),
+            (Self::Deneb(self_inner), Self::Deneb(base_inner)) => {
+                bimap_beacon_state_deneb_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Deneb(_), _) => (),
+            (Self::Electra(self_inner), Self::Electra(base_inner)) => {
+                bimap_beacon_state_electra_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Electra(_), _) => (),
         }
 
         // Use sync committees from `base` if they are equal.
