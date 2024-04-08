@@ -57,7 +57,12 @@ impl TestRig {
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
         let (network_beacon_processor, beacon_processor_rx) =
-            NetworkBeaconProcessor::null_for_testing(globals);
+            NetworkBeaconProcessor::null_for_testing(
+                globals,
+                chain.clone(),
+                harness.runtime.task_executor.clone(),
+                log.clone(),
+            );
         let rng = XorShiftRng::from_seed([42; 16]);
         let rig = TestRig {
             beacon_processor_rx,
@@ -2139,9 +2144,10 @@ mod deneb_only {
 
     #[tokio::test]
     async fn no_peer_penalty_when_rpc_response_already_known_from_gossip() {
-        let mut sync_tester = SyncTester::new();
+        let fork_name = ForkName::Deneb;
+        let mut sync_tester = SyncTester::new(&fork_name);
 
-        let (block_chain, blobs_chain) = sync_tester.create_block_chain(2);
+        let (block_chain, blobs_chain) = sync_tester.create_block_chain(&fork_name, 2);
         let block = block_chain.front().unwrap();
         let block_root = block.canonical_root();
         let rpc_block = RpcBlock::new_without_blobs(Some(block_root), block.clone());

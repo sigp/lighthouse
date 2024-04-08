@@ -1,3 +1,4 @@
+use crate::discovery::CombinedKey;
 use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, Gossipsub, PeerId};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
@@ -671,13 +672,27 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         );
     }
 
+    /// Updates the connection state. MUST ONLY BE USED IN TESTS.
+    pub fn __add_connected_peer_testing_only(&mut self, peer_id: &PeerId) -> Option<BanOperation> {
+        let enr_key = CombinedKey::generate_secp256k1();
+        let enr = Enr::builder().build(&enr_key).unwrap();
+        self.update_connection_state(
+            peer_id,
+            NewConnectionState::Connected {
+                enr: Some(enr),
+                seen_address: Multiaddr::empty(),
+                direction: ConnectionDirection::Outgoing,
+            },
+        )
+    }
+
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
     /// variables are in sync with libp2p.
     /// Updating the state can lead to a `BanOperation` which needs to be processed via the peer
     /// manager and should be handled in the peer manager.
     // NOTE: This function is vital in keeping the connection state, and thus the peerdb size in
     // check and up to date with libp2p.
-    pub fn update_connection_state(
+    fn update_connection_state(
         &mut self,
         peer_id: &PeerId,
         new_state: NewConnectionState,
@@ -1101,7 +1116,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
 /// Internal enum for managing connection state transitions.
 #[derive(Debug)]
-pub enum NewConnectionState {
+enum NewConnectionState {
     /// A peer has connected to us.
     Connected {
         /// An optional known ENR if the peer was dialed.

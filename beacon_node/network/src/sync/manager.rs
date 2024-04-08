@@ -1135,9 +1135,13 @@ pub mod testing {
         UnboundedReceiver<NetworkMessage<E>>,
         Receiver<WorkEvent<E>>,
     ) {
-        // FIXME: we're creating another instance of `harness` in this function.
         let (network_beacon_processor, beacon_processor_rx) =
-            NetworkBeaconProcessor::null_for_testing(network_globals.clone());
+            NetworkBeaconProcessor::null_for_testing(
+                network_globals.clone(),
+                beacon_chain.clone(),
+                executor.clone(),
+                log.clone(),
+            );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let mut network = SyncNetworkContext::new(
             network_tx,

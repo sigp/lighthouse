@@ -13,11 +13,8 @@ use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_chain::test_utils::{generate_rand_block_and_blobs, BeaconChainHarness, NumBlobs};
 use beacon_processor::WorkEvent;
-use lighthouse_network::discovery::CombinedKey;
-use lighthouse_network::discv5::enr::Enr;
-use lighthouse_network::peer_manager::peerdb::NewConnectionState;
 use lighthouse_network::types::SyncState;
-use lighthouse_network::{ConnectionDirection, Multiaddr, NetworkGlobals, PeerId};
+use lighthouse_network::{NetworkGlobals, PeerId};
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use types::test_utils::XorShiftRng;
@@ -80,10 +77,10 @@ pub struct SyncTester {
 }
 
 impl SyncTester {
-    pub fn new() -> Self {
+    pub fn new(fork_name: &ForkName) -> Self {
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<T>::builder(E)
-            .spec(ForkName::Deneb.make_genesis_spec(E::default_spec()))
+            .spec(fork_name.make_genesis_spec(E::default_spec()))
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
             .testing_slot_clock(TestingSlotClock::new(
@@ -125,14 +122,13 @@ impl SyncTester {
     #[allow(clippy::type_complexity)]
     pub fn create_block_chain(
         &mut self,
+        fork_name: &ForkName,
         num_blocks: usize,
     ) -> (
         VecDeque<Arc<SignedBeaconBlock<E, FullPayload<E>>>>,
         VecDeque<Vec<Arc<BlobSidecar<E>>>>,
     ) {
-        // TODO get fork name from env var?
-        let fork_name = ForkName::Deneb;
-        let (block, blobs) = self.rand_block_and_blobs(fork_name, NumBlobs::Random);
+        let (block, blobs) = self.rand_block_and_blobs(*fork_name, NumBlobs::Random);
         let mut block = Arc::new(block);
         let mut blobs = blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
         let mut block_chain = VecDeque::with_capacity(num_blocks);
@@ -148,7 +144,7 @@ impl SyncTester {
 
             // Create the next block.
             let (child_block, child_blobs) =
-                self.block_with_parent_and_blobs(parent_root, fork_name, NumBlobs::Number(2));
+                self.block_with_parent_and_blobs(parent_root, *fork_name, NumBlobs::Number(2));
             let mut child_block = Arc::new(child_block);
             let mut child_blobs = child_blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
 
@@ -173,7 +169,7 @@ impl SyncTester {
         self.network_globals
             .peers
             .write()
-            .update_connection_state(peer_id, connected_connection_state());
+            .__add_connected_peer_testing_only(peer_id);
         self
     }
 
@@ -337,15 +333,5 @@ where
         }
         retry_count += 1;
         sleep(interval).await
-    }
-}
-
-fn connected_connection_state() -> NewConnectionState {
-    let enr_key = CombinedKey::generate_secp256k1();
-    let enr = Enr::builder().build(&enr_key).unwrap();
-    NewConnectionState::Connected {
-        enr: Some(enr),
-        seen_address: Multiaddr::empty(),
-        direction: ConnectionDirection::Outgoing,
     }
 }
