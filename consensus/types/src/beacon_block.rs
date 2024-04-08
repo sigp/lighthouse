@@ -358,7 +358,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
         };
 
         let deposit = Deposit {
-            proof: ssz_types::FixedVector::from_elem(Hash256::zero()),
+            proof: FixedVector::from_elem(Hash256::zero()),
             data: deposit_data,
         };
 

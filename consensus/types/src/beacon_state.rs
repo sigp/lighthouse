@@ -1099,7 +1099,7 @@ impl<E: EthSpec> BeaconState<E> {
         let aggregate_pubkey = AggregatePublicKey::aggregate(&decompressed_pubkeys)?;
 
         Ok(SyncCommittee {
-            pubkeys: ssz_types::FixedVector::new(pubkeys)?,
+            pubkeys: FixedVector::new(pubkeys)?,
             aggregate_pubkey: aggregate_pubkey.to_public_key().compress(),
         })
     }
