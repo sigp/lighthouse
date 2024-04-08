@@ -11,7 +11,7 @@ use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerAction;
 use slog::{trace, Logger};
 use std::collections::HashSet;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Hash256;
@@ -286,7 +286,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         }
     }
 
-    /// Penalizes a blob peer if it should have blobs but didn't return them to us.     
+    /// Penalizes a blob peer if it should have blobs but didn't return them to us.
     pub fn penalize_blob_peer(&mut self, cx: &SyncNetworkContext<T>) {
         if let Ok(blob_peer) = self.blob_request_state.state.processing_peer() {
             cx.report_peer(
@@ -457,11 +457,10 @@ impl SingleLookupRequestState {
 
     /// Returns the id peer we downloaded from if we have downloaded a verified block, otherwise
     /// returns an error.
-    pub fn processing_peer(&self) -> Result<PeerId, ()> {
-        if let State::Processing { peer_id } = &self.state {
-            Ok(*peer_id)
-        } else {
-            Err(())
+    pub fn processing_peer(&self) -> Result<PeerId, String> {
+        match &self.state {
+            State::Processing { peer_id } => Ok(*peer_id),
+            other => Err(format!("not in processing state: {}", other).to_string()),
         }
     }
 }
@@ -514,6 +513,16 @@ impl slog::Value for SingleLookupRequestState {
         serializer.emit_u8("failed_downloads", self.failed_downloading)?;
         serializer.emit_u8("failed_processing", self.failed_processing)?;
         slog::Result::Ok(())
+    }
+}
+
+impl Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            State::AwaitingDownload => write!(f, "AwaitingDownload"),
+            State::Downloading { .. } => write!(f, "Downloading"),
+            State::Processing { .. } => write!(f, "Processing"),
+        }
     }
 }
 

@@ -233,24 +233,13 @@ pub fn spawn<T: BeaconChainTypes>(
     );
 
     // create an instance of the SyncManager
-    let network_globals = beacon_processor.network_globals.clone();
-    let mut sync_manager = SyncManager {
-        chain: beacon_chain.clone(),
-        input_channel: sync_recv,
-        network: SyncNetworkContext::new(
-            network_send,
-            beacon_processor.clone(),
-            beacon_chain.clone(),
-            log.clone(),
-        ),
-        range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
-        backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
-        block_lookups: BlockLookups::new(
-            beacon_chain.data_availability_checker.clone(),
-            log.clone(),
-        ),
-        log: log.clone(),
-    };
+    let mut sync_manager = SyncManager::new(
+        beacon_chain,
+        network_send,
+        beacon_processor,
+        sync_recv,
+        log.clone(),
+    );
 
     // spawn the sync manager thread
     debug!(log, "Sync Manager started");
@@ -258,6 +247,45 @@ pub fn spawn<T: BeaconChainTypes>(
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {
+    pub(crate) fn new(
+        beacon_chain: Arc<BeaconChain<T>>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        beacon_processor: Arc<NetworkBeaconProcessor<T>>,
+        sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
+        log: slog::Logger,
+    ) -> Self {
+        let network_globals = beacon_processor.network_globals.clone();
+        Self {
+            chain: beacon_chain.clone(),
+            input_channel: sync_recv,
+            network: SyncNetworkContext::new(
+                network_send,
+                beacon_processor.clone(),
+                beacon_chain.clone(),
+                log.clone(),
+            ),
+            range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
+            backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
+            block_lookups: BlockLookups::new(
+                beacon_chain.data_availability_checker.clone(),
+                log.clone(),
+            ),
+            log: log.clone(),
+        }
+    }
+
+    pub(crate) fn active_single_lookups(&self) -> Vec<Id> {
+        self.block_lookups.active_single_lookups()
+    }
+
+    pub(crate) fn active_parent_lookups(&self) -> Vec<Hash256> {
+        self.block_lookups.active_parent_lookups()
+    }
+
+    pub(crate) fn failed_chains_contains(&mut self, chain_hash: &Hash256) -> bool {
+        self.block_lookups.failed_chains_contains(chain_hash)
+    }
+
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
         self.network.network_globals()
     }
@@ -597,7 +625,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn handle_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
+    pub(crate) fn handle_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
         match sync_message {
             SyncMessage::AddPeer(peer_id, info) => {
                 self.add_peer(peer_id, info);
@@ -615,10 +643,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 peer_id,
                 blob_sidecar,
                 seen_timestamp,
-            } => self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp),
+            } => {
+                debug!(self.log, "received sync_message"; "message" => "RpcBlob", "request_id" => ?request_id, "peer_id" => %peer_id, "stream_terminator" => blob_sidecar.is_none());
+
+                self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp)
+            }
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
+                debug!(self.log, "received sync_message"; "message" => "UnknownParentBlock", "block_root" => %block_root, "parent_root" => %parent_root);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
@@ -638,6 +671,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 let mut blobs = FixedBlobSidecarList::default();
                 *blobs.index_mut(blob_index as usize) = Some(blob);
+                debug!(self.log, "received sync_message"; "message" => "UnknownParentBlob", "block_root" => %block_root, "parent_root" => %parent_root);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
@@ -646,11 +680,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     ChildComponents::new(block_root, None, Some(blobs)),
                 );
             }
-            SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
+            SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
+                    debug!(self.log, "received sync_message"; "message" => "UnknownBlockHashFromAttestation", "block_root" => %block_root);
                     self.block_lookups
-                        .search_block(block_hash, &[peer_id], &mut self.network);
+                        .search_block(block_root, &[peer_id], &mut self.network);
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
@@ -723,24 +758,33 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         slot: Slot,
         child_components: ChildComponents<T::EthSpec>,
     ) {
-        if self.should_search_for_block(slot, &peer_id) {
-            self.block_lookups.search_parent(
-                slot,
-                block_root,
-                parent_root,
-                peer_id,
-                &mut self.network,
-            );
-            self.block_lookups.search_child_block(
-                block_root,
-                child_components,
-                &[peer_id],
-                &mut self.network,
-            );
+        match self.should_search_for_block(slot, &peer_id) {
+            Ok(_) => {
+                self.block_lookups.search_parent(
+                    slot,
+                    block_root,
+                    parent_root,
+                    peer_id,
+                    &mut self.network,
+                );
+                self.block_lookups.search_child_block(
+                    block_root,
+                    child_components,
+                    &[peer_id],
+                    &mut self.network,
+                );
+            }
+            Err(reason) => {
+                debug!(self.log, "Ignoring unknown parent request"; "reason" => reason);
+            }
         }
     }
 
-    fn should_search_for_block(&mut self, block_slot: Slot, peer_id: &PeerId) -> bool {
+    fn should_search_for_block(
+        &mut self,
+        block_slot: Slot,
+        peer_id: &PeerId,
+    ) -> Result<(), &'static str> {
         if !self.network_globals().sync_state.read().is_synced() {
             let head_slot = self.chain.canonical_head.cached_head().head_slot();
 
@@ -751,12 +795,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 || (head_slot < block_slot
                     && block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
             {
-                return false;
+                return Err("not synced");
             }
         }
 
-        self.network_globals().peers.read().is_connected(peer_id)
-            && self.network.is_execution_engine_online()
+        if !self.network_globals().peers.read().is_connected(peer_id) {
+            return Err("peer not connected");
+        }
+        if !self.network.is_execution_engine_online() {
+            return Err("execution engine offline");
+        }
+        Ok(())
     }
 
     fn synced(&mut self) -> bool {
