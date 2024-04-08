@@ -85,7 +85,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::HotColdDB;
-use types::{BeaconState, ChainSpec, CloneConfig, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -201,7 +201,10 @@ pub fn run<E: EthSpec>(
     let store = Arc::new(store);
 
     debug!("Building pubkey cache (might take some time)");
-    let validator_pubkey_cache = ValidatorPubkeyCache::new(&pre_state, store)
+    let validator_pubkey_cache = store.immutable_validators.clone();
+    validator_pubkey_cache
+        .write()
+        .import_new_pubkeys(&pre_state)
         .map_err(|e| format!("Failed to create pubkey cache: {:?}", e))?;
 
     /*
@@ -234,7 +237,7 @@ pub fn run<E: EthSpec>(
     let mut output_post_state = None;
     let mut saved_ctxt = None;
     for i in 0..runs {
-        let pre_state = pre_state.clone_with(CloneConfig::all());
+        let pre_state = pre_state.clone();
         let block = block.clone();
 
         let start = Instant::now();
@@ -245,7 +248,7 @@ pub fn run<E: EthSpec>(
             block,
             state_root_opt,
             &config,
-            &validator_pubkey_cache,
+            &*validator_pubkey_cache.read(),
             &mut saved_ctxt,
             spec,
         )?;
