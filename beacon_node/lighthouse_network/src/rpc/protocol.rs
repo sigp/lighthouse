@@ -170,24 +170,6 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
     }
 }
 
-#[test]
-fn test_limits() {
-    for fork in ForkName::list_all() {
-        println!(
-            "rpc_light_client_finality_update_limits_by_fork: {:?}",
-            rpc_light_client_finality_update_limits_by_fork(fork)
-        );
-        println!(
-            "rpc_light_client_optimistic_update_limits_by_fork: {:?}",
-            rpc_light_client_optimistic_update_limits_by_fork(fork)
-        );
-        println!(
-            "rpc_light_client_bootstrap_limits_by_fork: {:?}",
-            rpc_light_client_bootstrap_limits_by_fork(fork)
-        );
-    }
-}
-
 fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> RpcLimits {
     let altair_fixed_len = LightClientFinalityUpdateAltair::<MainnetEthSpec>::ssz_fixed_len();
 
