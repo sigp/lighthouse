@@ -1,16 +1,15 @@
-use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
+use crate::hdiff;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{BeaconStateError, Hash256, InconsistentFork, Slot};
+use types::{milhouse, BeaconStateError, Epoch, EpochCacheError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
     SszDecodeError(DecodeError),
-    VectorChunkError(ChunkError),
     BeaconStateError(BeaconStateError),
     PartialBeaconStateError,
     HotColdDBError(HotColdDBError),
@@ -42,13 +41,40 @@ pub enum Error {
         expected: Hash256,
         computed: Hash256,
     },
+    MissingStateRoot(Slot),
+    MissingState(Hash256),
+    MissingSnapshot(Slot),
+    MissingDiff(Epoch),
+    NoBaseStateFound(Hash256),
     BlockReplayError(BlockReplayError),
+    MilhouseError(milhouse::Error),
+    Compression(std::io::Error),
+    MissingPersistedBeaconChain,
+    SlotIsBeforeSplit {
+        slot: Slot,
+    },
+    FinalizedStateDecreasingSlot,
+    FinalizedStateUnaligned,
+    StateForCacheHasPendingUpdates {
+        state_root: Hash256,
+        slot: Slot,
+    },
     AddPayloadLogicError,
     SlotClockUnavailableForMigration,
+    MissingImmutableValidator(usize),
+    MissingValidator(usize),
+    V9MigrationFailure(Hash256),
+    ValidatorPubkeyCacheError(String),
+    DuplicateValidatorPublicKey,
+    InvalidValidatorPubkeyBytes(bls::Error),
+    ValidatorPubkeyCacheUninitialized,
     InvalidKey,
     InvalidBytes,
     UnableToDowngrade,
+    Hdiff(hdiff::Error),
     InconsistentFork(InconsistentFork),
+    ZeroCacheSize,
+    CacheBuildError(EpochCacheError),
 }
 
 pub trait HandleUnavailable<T> {
@@ -68,12 +94,6 @@ impl<T> HandleUnavailable<T> for Result<T> {
 impl From<DecodeError> for Error {
     fn from(e: DecodeError) -> Error {
         Error::SszDecodeError(e)
-    }
-}
-
-impl From<ChunkError> for Error {
-    fn from(e: ChunkError) -> Error {
-        Error::VectorChunkError(e)
     }
 }
 
@@ -101,6 +121,18 @@ impl From<StoreConfigError> for Error {
     }
 }
 
+impl From<milhouse::Error> for Error {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
+    }
+}
+
+impl From<hdiff::Error> for Error {
+    fn from(e: hdiff::Error) -> Self {
+        Self::Hdiff(e)
+    }
+}
+
 impl From<BlockReplayError> for Error {
     fn from(e: BlockReplayError) -> Error {
         Error::BlockReplayError(e)
@@ -110,6 +142,12 @@ impl From<BlockReplayError> for Error {
 impl From<InconsistentFork> for Error {
     fn from(e: InconsistentFork) -> Error {
         Error::InconsistentFork(e)
+    }
+}
+
+impl From<EpochCacheError> for Error {
+    fn from(e: EpochCacheError) -> Error {
+        Error::CacheBuildError(e)
     }
 }
 

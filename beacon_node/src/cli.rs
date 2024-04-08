@@ -592,9 +592,22 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
-                .help("Specifies how often a freezer DB restore point should be stored. \
-                       Cannot be changed after initialization. \
-                       [default: 8192 (mainnet) or 64 (minimal)]")
+                .help("Deprecated.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("hierarchy-exponents")
+                .long("hierarchy-exponents")
+                .value_name("EXPONENTS")
+                .help("Specifies the frequency for storing full state snapshots and hierarchical \
+                        diffs in the freezer DB. Accepts a comma-separated list of ascending \
+                        exponents. Each exponent defines an interval for storing diffs to the layer \
+                        above. The last exponent defines the interval for full snapshots. \
+                        For example, a config of '4,8,12' would store a full snapshot every \
+                        4096 (2^12) slots, first-level diffs every 256 (2^8) slots, and second-level \
+                        diffs every 16 (2^4) slots. \
+                        Cannot be changed after initialization. \
+                        [default: 5,9,11,13,16,18,21]")
                 .takes_value(true)
         )
         .arg(
@@ -722,7 +735,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         /*
-         * Database purging and compaction.
+         * Database.
          */
         .arg(
             Arg::with_name("purge-db")
@@ -743,6 +756,29 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("true")
         )
         .arg(
+            Arg::with_name("state-cache-size")
+                .long("state-cache-size")
+                .value_name("SIZE")
+                .help("Specifies how many states the database should cache in memory [default: 128]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("diff-buffer-cache-size")
+                .long("diff-buffer-cache-size")
+                .value_name("SIZE")
+                .help("The maximum number of diff buffers to hold in memory. This cache is used \
+                       when fetching historic states [default: 16]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("compression-level")
+                .long("compression-level")
+                .value_name("LEVEL")
+                .help("Compression level (-99 to 22) for zstd compression applied to states on disk \
+                       [default: 1]. You may change the compression level freely without re-syncing.")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("prune-payloads")
                 .long("prune-payloads")
                 .help("Prune execution payloads from Lighthouse's database. This saves space but \
@@ -750,6 +786,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        reconstructed and sent to syncing peers.")
                 .takes_value(true)
                 .default_value("true")
+        )
+        .arg(
+            Arg::with_name("epochs-per-state-diff")
+                .long("epochs-per-state-diff")
+                .value_name("EPOCHS")
+                .help("Number of epochs between state diffs stored in the database. Lower values \
+                       result in more writes and more data stored, while higher values result in \
+                       more block replaying and longer load times in case of cache miss.")
+                .default_value("16")
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("prune-blobs")
@@ -778,6 +824,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        up until data_availability_boundary - blob_prune_margin_epochs.")
                 .takes_value(true)
                 .default_value("0")
+        )
+        .arg(
+            Arg::with_name("parallel-state-cache-size")
+                .long("parallel-state-cache-size")
+                .value_name("N")
+                .help("Set the size of the cache used to de-duplicate requests for the same \
+                       state. This cache is additional to other state caches within Lighthouse \
+                       and should be kept small unless a large number of parallel requests for \
+                       different states are anticipated.")
+                .takes_value(true)
+                .default_value("2")
         )
 
         /*
@@ -1234,6 +1291,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Deprecated. This optimisation is now the default and cannot be disabled.")
                 .takes_value(true)
                 .possible_values(&["fast", "disabled", "checked", "strict"])
+        )
+        .arg(
+            Arg::with_name("unsafe-and-dangerous-mode")
+            .long("unsafe-and-dangerous-mode")
+            .help("Don't use this flag unless you know what you're doing. Go back and download a \
+                   stable Lighthouse release")
         )
         .arg(
             Arg::with_name("beacon-processor-max-workers")

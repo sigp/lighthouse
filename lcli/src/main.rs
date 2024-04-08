@@ -16,6 +16,7 @@ mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
 mod skip_slots;
+mod state_diff;
 mod state_root;
 mod transition_blocks;
 
@@ -867,6 +868,22 @@ fn main() {
                 )
         )
         .subcommand(
+            SubCommand::with_name("state-diff")
+                .about("Compute a state diff for a pair of states")
+                .arg(
+                    Arg::with_name("state1")
+                        .value_name("STATE1")
+                        .takes_value(true)
+                        .help("Path to first SSZ state"),
+                )
+                .arg(
+                    Arg::with_name("state2")
+                        .value_name("STATE2")
+                        .takes_value(true)
+                        .help("Path to second SSZ state"),
+                )
+        )
+        .subcommand(
             SubCommand::with_name("state-root")
                 .about("Computes the state root of some state.")
                 .arg(
@@ -1095,6 +1112,8 @@ fn run<E: EthSpec>(
             .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
         ("indexed-attestations", Some(matches)) => indexed_attestations::run::<E>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
+        ("state-diff", Some(matches)) => state_diff::run::<E>(env, matches)
+            .map_err(|e| format!("Failed to run state-diff command: {}", e)),
         ("block-root", Some(matches)) => {
             let network_config = get_network_config()?;
             block_root::run::<E>(env, network_config, matches)

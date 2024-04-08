@@ -14,7 +14,7 @@ pub fn process_historical_roots_update<E: EthSpec>(
         .safe_rem(E::SlotsPerHistoricalRoot::to_u64().safe_div(E::slots_per_epoch())?)?
         == 0
     {
-        let historical_batch = state.historical_batch();
+        let historical_batch = state.historical_batch()?;
         state
             .historical_roots_mut()
             .push(historical_batch.tree_hash_root())?;

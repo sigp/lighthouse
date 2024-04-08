@@ -49,7 +49,7 @@ macro_rules! impl_store_item {
                 self.as_ssz_bytes()
             }
 
-            fn from_store_bytes(bytes: &[u8]) -> std::result::Result<Self, Error> {
+            fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
                 Self::from_ssz_bytes(bytes).map_err(Into::into)
             }
         }

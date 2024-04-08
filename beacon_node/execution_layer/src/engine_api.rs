@@ -17,12 +17,13 @@ pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use ssz_types::FixedVector;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
     Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
-    Withdrawal, Withdrawals,
+    ExecutionPayloadRef, ForkName, Hash256, Transactions, Uint256, VariableList, Withdrawal,
+    Withdrawals,
 };
 
 use types::{

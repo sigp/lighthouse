@@ -170,7 +170,7 @@ vectors_and_tests!(
     invalid_exit_already_initiated,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut().get_mut(0).unwrap().exit_epoch = STATE_EPOCH + 1;
+            *state.validators_mut().get_mut(0).unwrap().exit_epoch_mut() = STATE_EPOCH + 1;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -189,8 +189,11 @@ vectors_and_tests!(
     invalid_not_active_before_activation_epoch,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut().get_mut(0).unwrap().activation_epoch =
-                E::default_spec().far_future_epoch;
+            *state
+                .validators_mut()
+                .get_mut(0)
+                .unwrap()
+                .activation_epoch_mut() = E::default_spec().far_future_epoch;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -209,7 +212,7 @@ vectors_and_tests!(
     invalid_not_active_after_exit_epoch,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut().get_mut(0).unwrap().exit_epoch = STATE_EPOCH;
+            *state.validators_mut().get_mut(0).unwrap().exit_epoch_mut() = STATE_EPOCH;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -332,17 +335,17 @@ mod custom_tests {
     fn assert_exited(state: &BeaconState<E>, validator_index: usize) {
         let spec = E::default_spec();
 
-        let validator = &state.validators()[validator_index];
+        let validator = &state.validators().get(validator_index).unwrap();
         assert_eq!(
-            validator.exit_epoch,
+            validator.exit_epoch(),
             // This is correct until we exceed the churn limit. If that happens, we
             // need to introduce more complex logic.
             state.current_epoch() + 1 + spec.max_seed_lookahead,
             "exit epoch"
         );
         assert_eq!(
-            validator.withdrawable_epoch,
-            validator.exit_epoch + E::default_spec().min_validator_withdrawability_delay,
+            validator.withdrawable_epoch(),
+            validator.exit_epoch() + E::default_spec().min_validator_withdrawability_delay,
             "withdrawable epoch"
         );
     }

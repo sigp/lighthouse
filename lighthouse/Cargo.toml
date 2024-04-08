@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "5.1.3"
+version = "5.1.222-exp"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
@@ -51,6 +51,7 @@ task_executor = { workspace = true }
 malloc_utils = { workspace = true }
 directory = { workspace = true }
 unused_port = { workspace = true }
+store = { workspace = true }
 database_manager = { path = "../database_manager" }
 slasher = { workspace = true }
 validator_manager = { path = "../validator_manager" }

@@ -52,6 +52,8 @@ serde_json = { workspace = true }
 smallvec = { workspace = true }
 maplit = { workspace = true }
 strum = { workspace = true }
+milhouse = { workspace = true }
+rpds = "0.11.0"
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -57,7 +57,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use types::{BeaconState, CloneConfig, EthSpec, Hash256};
+use types::{BeaconState, EthSpec, Hash256};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -128,7 +128,7 @@ pub fn run<E: EthSpec>(
     };
 
     for i in 0..runs {
-        let mut state = state.clone_with(CloneConfig::all());
+        let mut state = state.clone();
 
         let start = Instant::now();
 

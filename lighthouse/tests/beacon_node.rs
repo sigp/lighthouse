@@ -17,6 +17,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
+use store::hdiff::HierarchyConfig;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
@@ -62,6 +63,7 @@ impl CommandLineTest {
 
     fn run_with_zero_port_and_no_genesis_sync(&mut self) -> CompletedTest<Config> {
         self.cmd.arg("-z");
+        self.cmd.arg("--unsafe-and-dangerous-mode");
         self.run()
     }
 }
@@ -170,26 +172,6 @@ fn shuffling_cache_set() {
         .flag("shuffling-cache-size", Some("500"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.shuffling_cache_size, 500));
-}
-
-#[test]
-fn snapshot_cache_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.snapshot_cache_size,
-                beacon_node::beacon_chain::snapshot_cache::DEFAULT_SNAPSHOT_CACHE_SIZE
-            )
-        });
-}
-
-#[test]
-fn snapshot_cache_set() {
-    CommandLineTest::new()
-        .flag("state-cache-size", Some("500"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.snapshot_cache_size, 500));
 }
 
 #[test]
@@ -408,6 +390,35 @@ fn eth1_cache_follow_distance_manual() {
             assert_eq!(config.eth1.cache_follow_distance, Some(128));
             assert_eq!(config.eth1.cache_follow_distance(), 128);
         });
+}
+#[test]
+fn hierarchy_exponents_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.hierarchy_config, HierarchyConfig::default());
+        });
+}
+#[test]
+fn hierarchy_exponents_valid() {
+    CommandLineTest::new()
+        .flag("hierarchy-exponents", Some("3,6,9,12"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.hierarchy_config,
+                HierarchyConfig {
+                    exponents: vec![3, 6, 9, 12]
+                }
+            );
+        });
+}
+#[test]
+#[should_panic]
+fn hierarchy_exponents_invalid_order() {
+    CommandLineTest::new()
+        .flag("hierarchy-exponents", Some("7,6,9,12"))
+        .run_with_zero_port();
 }
 
 // Tests for Bellatrix flags.
@@ -877,6 +888,7 @@ fn network_port_flag_over_ipv4() {
     let port = 0;
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
@@ -894,6 +906,7 @@ fn network_port_flag_over_ipv4() {
     let port = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
@@ -914,6 +927,7 @@ fn network_port_flag_over_ipv6() {
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
@@ -932,6 +946,7 @@ fn network_port_flag_over_ipv6() {
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
@@ -955,6 +970,7 @@ fn network_port_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
         .flag("port6", Some(port6.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
@@ -986,6 +1002,7 @@ fn network_port_flag_over_ipv4_and_ipv6() {
         .flag("port", Some(port.to_string().as_str()))
         .flag("port6", Some(port6.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1016,6 +1033,7 @@ fn network_port_and_discovery_port_flags_over_ipv4() {
         .flag("port", Some(tcp4_port.to_string().as_str()))
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1037,6 +1055,7 @@ fn network_port_and_discovery_port_flags_over_ipv6() {
         .flag("port", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port", Some(disc6_port.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1063,6 +1082,7 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1103,6 +1123,7 @@ fn network_port_discovery_quic_port_flags_over_ipv4_and_ipv6() {
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
         .flag("quic-port6", Some(quic6_port.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1329,6 +1350,7 @@ fn enr_match_flag_over_ipv4() {
         .flag("discovery-port", Some(udp4_port.to_string().as_str()))
         .flag("port", Some(tcp4_port.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1360,6 +1382,7 @@ fn enr_match_flag_over_ipv6() {
         .flag("discovery-port", Some(udp6_port.to_string().as_str()))
         .flag("port", Some(tcp6_port.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1399,6 +1422,7 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
         .flag("discovery-port6", Some(udp6_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1526,6 +1550,7 @@ fn http_port_flag() {
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
@@ -1684,6 +1709,7 @@ fn metrics_port_flag() {
         .flag("metrics-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
         .flag("allow-insecure-genesis-sync", None)
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, port1));
 }
@@ -1775,48 +1801,6 @@ fn validator_monitor_metrics_threshold_custom() {
         });
 }
 
-// Tests for Store flags.
-#[test]
-fn slots_per_restore_point_flag() {
-    CommandLineTest::new()
-        .flag("slots-per-restore-point", Some("64"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.slots_per_restore_point, 64));
-}
-#[test]
-fn slots_per_restore_point_update_prev_default() {
-    use beacon_node::beacon_chain::store::config::{
-        DEFAULT_SLOTS_PER_RESTORE_POINT, PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
-    };
-
-    CommandLineTest::new()
-        .flag("slots-per-restore-point", Some("2048"))
-        .run_with_zero_port()
-        .with_config_and_dir(|config, dir| {
-            // Check that 2048 is the previous default.
-            assert_eq!(
-                config.store.slots_per_restore_point,
-                PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
-            );
-
-            // Restart the BN with the same datadir and the new default SPRP. It should
-            // allow this.
-            CommandLineTest::new()
-                .flag("datadir", Some(&dir.path().display().to_string()))
-                .flag("zero-ports", None)
-                .run_with_no_datadir()
-                .with_config(|config| {
-                    // The dumped config will have the new default 8192 value, but the fact that
-                    // the BN started and ran (with the same datadir) means that the override
-                    // was successful.
-                    assert_eq!(
-                        config.store.slots_per_restore_point,
-                        DEFAULT_SLOTS_PER_RESTORE_POINT
-                    );
-                });
-        })
-}
-
 #[test]
 fn block_cache_size_flag() {
     CommandLineTest::new()
@@ -1845,6 +1829,25 @@ fn historic_state_cache_size_default() {
             assert_eq!(
                 config.store.historic_state_cache_size,
                 DEFAULT_HISTORIC_STATE_CACHE_SIZE
+            );
+        });
+}
+#[test]
+fn parallel_state_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("parallel-state-cache-size", Some("4"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.parallel_state_cache_size, 4_usize));
+}
+#[test]
+fn parallel_state_cache_size_default() {
+    use beacon_node::beacon_chain::chain_config::DEFAULT_PARALLEL_STATE_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.parallel_state_cache_size,
+                DEFAULT_PARALLEL_STATE_CACHE_SIZE
             );
         });
 }
@@ -1945,6 +1948,20 @@ fn epochs_per_migration_override() {
         .flag("epochs-per-migration", Some("128"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.epochs_per_migration, 128));
+}
+
+#[test]
+fn epochs_per_state_diff_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.epochs_per_state_diff, 16));
+}
+#[test]
+fn epochs_per_state_diff_override() {
+    CommandLineTest::new()
+        .flag("epochs-per-state-diff", Some("1"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.epochs_per_state_diff, 1));
 }
 
 // Tests for Slasher flags.

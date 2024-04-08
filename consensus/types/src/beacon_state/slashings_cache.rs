@@ -1,13 +1,13 @@
 use crate::{BeaconStateError, Slot, Validator};
 use arbitrary::Arbitrary;
-use std::collections::HashSet;
+use rpds::HashTrieSetSync as HashTrieSet;
 
 /// Persistent (cheap to clone) cache of all slashed validator indices.
 #[derive(Debug, Default, Clone, PartialEq, Arbitrary)]
 pub struct SlashingsCache {
     latest_block_slot: Option<Slot>,
     #[arbitrary(default)]
-    slashed_validators: HashSet<usize>,
+    slashed_validators: HashTrieSet<usize>,
 }
 
 impl SlashingsCache {
@@ -20,7 +20,7 @@ impl SlashingsCache {
         let slashed_validators = validators
             .into_iter()
             .enumerate()
-            .filter_map(|(i, validator)| validator.slashed.then_some(i))
+            .filter_map(|(i, validator)| validator.slashed().then_some(i))
             .collect();
         Self {
             latest_block_slot: Some(latest_block_slot),
@@ -49,7 +49,7 @@ impl SlashingsCache {
         validator_index: usize,
     ) -> Result<(), BeaconStateError> {
         self.check_initialized(block_slot)?;
-        self.slashed_validators.insert(validator_index);
+        self.slashed_validators.insert_mut(validator_index);
         Ok(())
     }
 

@@ -2,6 +2,7 @@ use super::*;
 use compare_fields::{CompareFields, Comparison, FieldComparison};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
+use store::hdiff::{HDiff, HDiffBuffer};
 use types::BeaconState;
 
 pub const MAX_VALUE_STRING_LEN: usize = 500;
@@ -39,6 +40,9 @@ pub fn compare_beacon_state_results_without_caches<E: EthSpec, T: Debug>(
     if let (Ok(ref mut result), Some(ref mut expected)) = (result.as_mut(), expected.as_mut()) {
         result.drop_all_caches().unwrap();
         expected.drop_all_caches().unwrap();
+
+        result.apply_pending_mutations().unwrap();
+        expected.apply_pending_mutations().unwrap();
     }
 
     compare_result_detailed(result, expected)
@@ -112,6 +116,36 @@ where
                 )))
             }
         }
+    }
+}
+
+pub fn check_state_diff<T: EthSpec>(
+    pre_state: &BeaconState<T>,
+    opt_post_state: &Option<BeaconState<T>>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    if let Some(post_state) = opt_post_state {
+        // Produce a diff between the pre- and post-states.
+        let pre_state_buf = HDiffBuffer::from_state(pre_state.clone());
+        let post_state_buf = HDiffBuffer::from_state(post_state.clone());
+        let diff = HDiff::compute(&pre_state_buf, &post_state_buf).expect("HDiff should compute");
+
+        // Apply the diff to the pre-state, ensuring the same post-state is
+        // regenerated.
+        let mut reconstructed_buf = HDiffBuffer::from_state(pre_state.clone());
+        diff.apply(&mut reconstructed_buf)
+            .expect("HDiff should apply");
+        let diffed_state = reconstructed_buf
+            .into_state(spec)
+            .expect("HDiffDiffer should convert to state");
+
+        // Drop the caches on the post-state to assist with equality checking.
+        let mut post_state_without_caches = post_state.clone();
+        post_state_without_caches.drop_all_caches().unwrap();
+
+        compare_result_detailed::<_, ()>(&Ok(diffed_state), &Some(post_state_without_caches))
+    } else {
+        Ok(())
     }
 }
 

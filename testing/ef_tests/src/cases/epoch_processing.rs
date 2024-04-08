@@ -1,6 +1,6 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
-use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::case_result::{check_state_diff, compare_beacon_state_results_without_caches};
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use serde::Deserialize;
@@ -342,6 +342,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
 
         let mut result = T::run(&mut state, spec).map(|_| state);
 
+        check_state_diff(&pre_state, &expected, spec)?;
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }
 }

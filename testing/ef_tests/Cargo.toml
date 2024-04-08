@@ -38,5 +38,5 @@ fs2 = { workspace = true }
 beacon_chain = { workspace = true }
 store = { workspace = true }
 fork_choice = { workspace = true }
-execution_layer = { workspace = true }
 logging = { workspace = true }
+execution_layer = { workspace = true }

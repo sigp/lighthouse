@@ -1,10 +1,11 @@
 use super::*;
 use serde::{Deserialize, Serialize};
+use ssz_types::FixedVector;
 use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
-use types::{FixedVector, Unsigned};
+use types::Unsigned;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
