@@ -594,7 +594,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             | ParentVerifyError::ExtraBlobsReturned
             | ParentVerifyError::InvalidIndex(_) => {
                 let e = e.into();
-                warn!(self.log, "Peer sent invalid response to parent request.";
+                warn!(self.log, "Peer sent invalid response to parent request";
                         "peer_id" => %peer_id, "reason" => %e);
 
                 // We do not tolerate these kinds of errors. We will accept a few but these are signs

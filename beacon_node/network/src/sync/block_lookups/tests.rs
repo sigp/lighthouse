@@ -165,6 +165,17 @@ impl TestRig {
         generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
     }
 
+    pub fn rand_block_and_parent(
+        &mut self,
+    ) -> (SignedBeaconBlock<E>, SignedBeaconBlock<E>, Hash256, Hash256) {
+        let parent = self.rand_block();
+        let parent_root = parent.canonical_root();
+        let mut block = self.rand_block();
+        *block.message_mut().parent_root_mut() = parent_root;
+        let block_root = block.canonical_root();
+        (parent, block, parent_root, block_root)
+    }
+
     fn current_fork(&self) -> ForkName {
         self.harness
             .spec
@@ -222,11 +233,27 @@ impl TestRig {
         })
     }
 
+    fn parent_chain_processed_success(&mut self, chain_hash: Hash256) {
+        self.parent_chain_processed(
+            chain_hash,
+            BatchProcessResult::Success {
+                was_non_empty: true,
+            },
+        )
+    }
+
     fn parent_block_processed(&mut self, chain_hash: Hash256, result: BlockProcessingResult<E>) {
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type: BlockProcessType::ParentLookup { chain_hash },
             result,
         });
+    }
+
+    fn parent_block_processed_imported(&mut self, chain_hash: Hash256) {
+        self.parent_block_processed(
+            chain_hash,
+            BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(chain_hash)),
+        );
     }
 
     fn single_block_component_processed(
@@ -238,6 +265,17 @@ impl TestRig {
             process_type: BlockProcessType::SingleBlock { id: id.id },
             result,
         })
+    }
+
+    fn single_block_component_processed_imported(
+        &mut self,
+        id: SingleLookupReqId,
+        block_root: Hash256,
+    ) {
+        self.single_block_component_processed(
+            id,
+            BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
+        )
     }
 
     fn single_blob_component_processed(
@@ -315,6 +353,17 @@ impl TestRig {
         })
     }
 
+    fn parent_lookup_failed_unavailable(&mut self, id: SingleLookupReqId, peer_id: PeerId) {
+        self.parent_lookup_failed(
+            id,
+            peer_id,
+            RPCError::ErrorResponse(
+                RPCResponseErrorCode::ResourceUnavailable,
+                "older than deneb".into(),
+            ),
+        );
+    }
+
     fn single_lookup_failed(&mut self, id: SingleLookupReqId, peer_id: PeerId, error: RPCError) {
         self.send_sync_message(SyncMessage::RpcError {
             peer_id,
@@ -388,7 +437,7 @@ impl TestRig {
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
-        .expect("Expected block request")
+        .expect(&format!("Expected block request for {for_block:?}"))
     }
 
     #[track_caller]
@@ -408,7 +457,40 @@ impl TestRig {
             }
             _ => None,
         })
-        .expect("Expected blob request")
+        .expect(&format!("Expected blob request for {for_block:?}"))
+    }
+
+    #[track_caller]
+    fn expect_block_parent_request(&mut self, for_block: Hash256) -> SingleLookupReqId {
+        self.pop_received_network_event(|ev| match ev {
+            NetworkMessage::SendRequest {
+                peer_id: _,
+                request: Request::BlocksByRoot(request),
+                request_id: RequestId::Sync(SyncRequestId::ParentLookup { id }),
+            } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
+            _ => None,
+        })
+        .expect(&format!("Expected block parent request for {for_block:?}"))
+    }
+
+    #[track_caller]
+    fn expect_blob_parent_request(&mut self, for_block: Hash256) -> SingleLookupReqId {
+        self.pop_received_network_event(|ev| match ev {
+            NetworkMessage::SendRequest {
+                peer_id: _,
+                request: Request::BlobsByRoot(request),
+                request_id: RequestId::Sync(SyncRequestId::ParentLookupBlob { id }),
+            } if request
+                .blob_ids
+                .to_vec()
+                .iter()
+                .all(|r| r.block_root == for_block) =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .expect(&format!("Expected blob parent request for {for_block:?}"))
     }
 
     #[track_caller]
@@ -435,6 +517,26 @@ impl TestRig {
                 })
                 .expect("Expected blob parent request"),
         }
+    }
+
+    fn expect_lookup_request_block_and_blobs(&mut self, block_root: Hash256) -> SingleLookupReqId {
+        let id = self.expect_block_lookup_request(block_root);
+        // If we're in deneb, a blob request should have been triggered as well,
+        // we don't require a response because we're generateing 0-blob blocks in this test.
+        if self.after_deneb() {
+            let _ = self.expect_blob_lookup_request(block_root);
+        }
+        id
+    }
+
+    fn expect_parent_request_block_and_blobs(&mut self, block_root: Hash256) -> SingleLookupReqId {
+        let id = self.expect_block_parent_request(block_root);
+        // If we're in deneb, a blob request should have been triggered as well,
+        // we don't require a response because we're generateing 0-blob blocks in this test.
+        if self.after_deneb() {
+            let _ = self.expect_blob_parent_request(block_root);
+        }
+        id
     }
 
     #[track_caller]
@@ -499,18 +601,15 @@ impl TestRig {
     }
 
     #[track_caller]
-    pub fn expect_penalty(&mut self) {
+    pub fn expect_penalty(&mut self, peer_id: PeerId) {
         self.pop_received_network_event(|ev| match ev {
-            NetworkMessage::ReportPeer { .. } => Some(()),
+            NetworkMessage::ReportPeer { peer_id: p_id, .. } if p_id == &peer_id => Some(()),
             _ => None,
         })
-        .expect("Expected peer penalty")
-    }
-
-    pub fn block_with_parent(&mut self, parent_root: Hash256) -> SignedBeaconBlock<E> {
-        let mut block = self.rand_block();
-        *block.message_mut().parent_root_mut() = parent_root;
-        block
+        .expect(&format!(
+            "Expected peer penalty for {peer_id}: {:#?}",
+            self.network_rx_queue
+        ))
     }
 
     pub fn block_with_parent_and_blobs(
@@ -525,6 +624,20 @@ impl TestRig {
         });
         (block, blobs)
     }
+
+    pub fn rand_blockchain(&mut self, depth: usize) -> Vec<Arc<SignedBeaconBlock<E>>> {
+        let mut blocks = Vec::<Arc<SignedBeaconBlock<E>>>::with_capacity(depth);
+        while blocks.len() < depth {
+            let parent = blocks
+                .last()
+                .map(|b| b.canonical_root())
+                .unwrap_or_else(Hash256::random);
+            let mut block = self.rand_block();
+            *block.message_mut().parent_root_mut() = parent;
+            blocks.push(block.into());
+        }
+        blocks
+    }
 }
 
 #[test]
@@ -534,15 +647,8 @@ fn test_single_block_lookup_happy_path() {
     let peer_id = rig.new_connected_peer();
     let block_root = block.canonical_root();
     // Trigger the request
-    rig.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
-        peer_id, block_root,
-    ));
-    let id = rig.expect_lookup_request(ResponseType::Block);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_lookup_request(ResponseType::Blob);
-    }
+    rig.trigger_unknown_block_from_attestation(block_root, peer_id);
+    let id = rig.expect_lookup_request_block_and_blobs(block_root);
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
@@ -556,10 +662,7 @@ fn test_single_block_lookup_happy_path() {
     // Send the stream termination. Peer should have not been penalized, and the request removed
     // after processing.
     rig.single_lookup_block_response(id, peer_id, None);
-    rig.single_block_component_processed(
-        id,
-        BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-    );
+    rig.single_block_component_processed_imported(id, block_root);
     rig.expect_empty_network();
     assert_eq!(rig.active_single_lookups_count(), 0);
 }
@@ -573,16 +676,11 @@ fn test_single_block_lookup_empty_response() {
 
     // Trigger the request
     rig.trigger_unknown_block_from_attestation(block_hash, peer_id);
-    let id = rig.expect_block_lookup_request(block_hash);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_blob_lookup_request(block_hash);
-    }
+    let id = rig.expect_lookup_request_block_and_blobs(block_hash);
 
     // The peer does not have the block. It should be penalized.
     rig.single_lookup_block_response(id, peer_id, None);
-    rig.expect_penalty();
+    rig.expect_penalty(peer_id);
 
     rig.expect_block_lookup_request(block_hash); // it should be retried
 }
@@ -596,18 +694,13 @@ fn test_single_block_lookup_wrong_response() {
 
     // Trigger the request
     rig.trigger_unknown_block_from_attestation(block_hash, peer_id);
-    let id = rig.expect_lookup_request(ResponseType::Block);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_lookup_request(ResponseType::Blob);
-    }
+    let id = rig.expect_lookup_request_block_and_blobs(block_hash);
 
     // Peer sends something else. It should be penalized.
     let bad_block = rig.rand_block();
     rig.single_lookup_block_response(id, peer_id, Some(bad_block.into()));
-    rig.expect_penalty();
-    rig.expect_lookup_request(ResponseType::Block); // should be retried
+    rig.expect_penalty(peer_id);
+    rig.expect_block_lookup_request(block_hash); // should be retried
 
     // Send the stream termination. This should not produce an additional penalty.
     rig.single_lookup_block_response(id, peer_id, None);
@@ -623,16 +716,11 @@ fn test_single_block_lookup_failure() {
 
     // Trigger the request
     rig.trigger_unknown_block_from_attestation(block_hash, peer_id);
-    let id = rig.expect_lookup_request(ResponseType::Block);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_lookup_request(ResponseType::Blob);
-    }
+    let id = rig.expect_lookup_request_block_and_blobs(block_hash);
 
     // The request fails. RPC failures are handled elsewhere so we should not penalize the peer.
     rig.single_lookup_failed(id, peer_id, RPCError::UnsupportedProtocol);
-    rig.expect_lookup_request(ResponseType::Block);
+    rig.expect_block_lookup_request(block_hash);
     rig.expect_empty_network();
 }
 
@@ -641,16 +729,13 @@ fn test_single_block_lookup_becomes_parent_request() {
     let mut rig = TestRig::test_setup();
 
     let block = Arc::new(rig.rand_block());
+    let block_root = block.canonical_root();
+    let parent_root = block.parent_root();
     let peer_id = rig.new_connected_peer();
 
     // Trigger the request
     rig.trigger_unknown_block_from_attestation(block.canonical_root(), peer_id);
-    let id = rig.expect_lookup_request(ResponseType::Block);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_lookup_request(ResponseType::Blob);
-    }
+    let id = rig.expect_lookup_request_block_and_blobs(block_root);
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
@@ -668,12 +753,7 @@ fn test_single_block_lookup_becomes_parent_request() {
         BlockError::ParentUnknown(RpcBlock::new_without_blobs(None, block)).into(),
     );
     assert_eq!(rig.active_single_lookups_count(), 1);
-    rig.expect_parent_request(ResponseType::Block);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_parent_request(ResponseType::Blob);
-    }
+    rig.expect_parent_request_block_and_blobs(parent_root);
     rig.expect_empty_network();
     assert_eq!(rig.active_parent_lookups_count(), 1);
 }
@@ -682,20 +762,12 @@ fn test_single_block_lookup_becomes_parent_request() {
 fn test_parent_lookup_happy_path() {
     let mut rig = TestRig::test_setup();
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
-    let chain_hash = block.canonical_root();
-    let block_root = chain_hash;
+    let (parent, block, parent_root, block_root) = rig.rand_block_and_parent();
     let peer_id = rig.new_connected_peer();
 
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
-    let id = rig.expect_parent_request(ResponseType::Block);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_parent_request(ResponseType::Blob);
-    }
+    let id = rig.expect_parent_request_block_and_blobs(parent_root);
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
     rig.parent_lookup_block_response(id, peer_id, Some(parent.into()));
@@ -704,14 +776,11 @@ fn test_parent_lookup_happy_path() {
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
     rig.parent_block_processed(
-        chain_hash,
+        block_root,
         BlockError::BlockIsAlreadyKnown(block_root).into(),
     );
     rig.expect_parent_chain_process();
-    let process_result = BatchProcessResult::Success {
-        was_non_empty: true,
-    };
-    rig.parent_chain_processed(chain_hash, process_result);
+    rig.parent_chain_processed_success(block_root);
     assert_eq!(rig.active_parent_lookups_count(), 0);
 }
 
@@ -719,26 +788,18 @@ fn test_parent_lookup_happy_path() {
 fn test_parent_lookup_wrong_response() {
     let mut rig = TestRig::test_setup();
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
-    let chain_hash = block.canonical_root();
+    let (parent, block, parent_root, block_root) = rig.rand_block_and_parent();
     let peer_id = rig.new_connected_peer();
-    let block_root = block.canonical_root();
 
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
-    let id1 = rig.expect_parent_request(ResponseType::Block);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_parent_request(ResponseType::Blob);
-    }
+    let id1 = rig.expect_parent_request_block_and_blobs(parent_root);
 
     // Peer sends the wrong block, peer should be penalized and the block re-requested.
     let bad_block = rig.rand_block();
     rig.parent_lookup_block_response(id1, peer_id, Some(bad_block.into()));
-    rig.expect_penalty();
-    let id2 = rig.expect_parent_request(ResponseType::Block);
+    rig.expect_penalty(peer_id);
+    let id2 = rig.expect_block_parent_request(parent_root);
 
     // Send the stream termination for the first request. This should not produce extra penalties.
     rig.parent_lookup_block_response(id1, peer_id, None);
@@ -749,15 +810,9 @@ fn test_parent_lookup_wrong_response() {
     rig.expect_block_process(ResponseType::Block);
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    rig.parent_block_processed(
-        chain_hash,
-        BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-    );
+    rig.parent_block_processed_imported(block_root);
     rig.expect_parent_chain_process();
-    let process_result = BatchProcessResult::Success {
-        was_non_empty: true,
-    };
-    rig.parent_chain_processed(chain_hash, process_result);
+    rig.parent_chain_processed_success(block_root);
     assert_eq!(rig.active_parent_lookups_count(), 0);
 }
 
@@ -765,40 +820,26 @@ fn test_parent_lookup_wrong_response() {
 fn test_parent_lookup_empty_response() {
     let mut rig = TestRig::test_setup();
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
-    let chain_hash = block.canonical_root();
+    let (parent, block, parent_root, block_root) = rig.rand_block_and_parent();
     let peer_id = rig.new_connected_peer();
-    let block_root = block.canonical_root();
 
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
-    let id1 = rig.expect_parent_request(ResponseType::Block);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_parent_request(ResponseType::Blob);
-    }
+    let id1 = rig.expect_parent_request_block_and_blobs(parent_root);
 
     // Peer sends an empty response, peer should be penalized and the block re-requested.
     rig.parent_lookup_block_response(id1, peer_id, None);
-    rig.expect_penalty();
-    let id2 = rig.expect_parent_request(ResponseType::Block);
+    rig.expect_penalty(peer_id);
+    let id2 = rig.expect_block_parent_request(parent_root);
 
     // Send the right block this time.
     rig.parent_lookup_block_response(id2, peer_id, Some(parent.into()));
     rig.expect_block_process(ResponseType::Block);
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    rig.parent_block_processed(
-        chain_hash,
-        BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-    );
+    rig.parent_block_processed_imported(block_root);
     rig.expect_parent_chain_process();
-    let process_result = BatchProcessResult::Success {
-        was_non_empty: true,
-    };
-    rig.parent_chain_processed(chain_hash, process_result);
+    rig.parent_chain_processed_success(block_root);
     assert_eq!(rig.active_parent_lookups_count(), 0);
 }
 
@@ -806,46 +847,25 @@ fn test_parent_lookup_empty_response() {
 fn test_parent_lookup_rpc_failure() {
     let mut rig = TestRig::test_setup();
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
-    let chain_hash = block.canonical_root();
+    let (parent, block, parent_root, block_root) = rig.rand_block_and_parent();
     let peer_id = rig.new_connected_peer();
-    let block_root = block.canonical_root();
 
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
-    let id1 = rig.expect_parent_request(ResponseType::Block);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_parent_request(ResponseType::Blob);
-    }
+    let id1 = rig.expect_parent_request_block_and_blobs(parent_root);
 
     // The request fails. It should be tried again.
-    rig.parent_lookup_failed(
-        id1,
-        peer_id,
-        RPCError::ErrorResponse(
-            RPCResponseErrorCode::ResourceUnavailable,
-            "older than deneb".into(),
-        ),
-    );
-    let id2 = rig.expect_parent_request(ResponseType::Block);
+    rig.parent_lookup_failed_unavailable(id1, peer_id);
+    let id2 = rig.expect_block_parent_request(parent_root);
 
     // Send the right block this time.
     rig.parent_lookup_block_response(id2, peer_id, Some(parent.into()));
     rig.expect_block_process(ResponseType::Block);
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    rig.parent_block_processed(
-        chain_hash,
-        BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-    );
+    rig.parent_block_processed_imported(block_root);
     rig.expect_parent_chain_process();
-    let process_result = BatchProcessResult::Success {
-        was_non_empty: true,
-    };
-    rig.parent_chain_processed(chain_hash, process_result);
+    rig.parent_chain_processed_success(block_root);
     assert_eq!(rig.active_parent_lookups_count(), 0);
 }
 
@@ -853,48 +873,38 @@ fn test_parent_lookup_rpc_failure() {
 fn test_parent_lookup_too_many_attempts() {
     let mut rig = TestRig::test_setup();
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
+    let block = rig.rand_block();
+    let parent_root = block.parent_root();
     let peer_id = rig.new_connected_peer();
 
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
     for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
-        let id = rig.expect_parent_request(ResponseType::Block);
-        // If we're in deneb, a blob request should have been triggered as well,
-        // we don't require a response because we're generateing 0-blob blocks in this test.
+        let id = rig.expect_block_parent_request(parent_root);
+        // Blobs are only requested in the first iteration as this test only retries blocks
         if rig.after_deneb() && i == 1 {
-            let _ = rig.expect_parent_request(ResponseType::Blob);
+            let _ = rig.expect_blob_parent_request(parent_root);
         }
-        match i % 2 {
-            // make sure every error is accounted for
-            0 => {
-                // The request fails. It should be tried again.
-                rig.parent_lookup_failed(
-                    id,
-                    peer_id,
-                    RPCError::ErrorResponse(
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        "older than deneb".into(),
-                    ),
-                );
-            }
-            _ => {
-                // Send a bad block this time. It should be tried again.
-                let bad_block = rig.rand_block();
-                rig.parent_lookup_block_response(id, peer_id, Some(bad_block.into()));
-                // Send the stream termination
 
-                // Note, previously we would send the same lookup id with a stream terminator,
-                // we'd ignore it because we'd intrepret it as an unrequested response, since
-                // we already got one response for the block. I'm not sure what the intent is
-                // for having this stream terminator line in this test at all. Receiving an invalid
-                // block and a stream terminator with the same Id now results in two failed attempts,
-                // I'm unsure if this is how it should behave?
-                //
-                rig.parent_lookup_block_response(id, peer_id, None);
-                rig.expect_penalty();
-            }
+        if i % 2 == 0 {
+            // make sure every error is accounted for
+            // The request fails. It should be tried again.
+            rig.parent_lookup_failed_unavailable(id, peer_id);
+        } else {
+            // Send a bad block this time. It should be tried again.
+            let bad_block = rig.rand_block();
+            rig.parent_lookup_block_response(id, peer_id, Some(bad_block.into()));
+            // Send the stream termination
+
+            // Note, previously we would send the same lookup id with a stream terminator,
+            // we'd ignore it because we'd intrepret it as an unrequested response, since
+            // we already got one response for the block. I'm not sure what the intent is
+            // for having this stream terminator line in this test at all. Receiving an invalid
+            // block and a stream terminator with the same Id now results in two failed attempts,
+            // I'm unsure if this is how it should behave?
+            //
+            rig.parent_lookup_block_response(id, peer_id, None);
+            rig.expect_penalty(peer_id);
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
             // assert_eq!(
@@ -915,36 +925,26 @@ fn test_parent_lookup_too_many_attempts() {
 fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
     let mut rig = TestRig::test_setup();
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
-    let block_hash = block.canonical_root();
+    let (parent, block, parent_root, block_root) = rig.rand_block_and_parent();
     let peer_id = rig.new_connected_peer();
 
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
     for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
-        assert!(!rig.failed_chains_contains(&block_hash));
-        let id = rig.expect_parent_request(ResponseType::Block);
-        // If we're in deneb, a blob request should have been triggered as well,
-        // we don't require a response because we're generateing 0-blob blocks in this test.
+        assert!(!rig.failed_chains_contains(&block_root));
+        let id = rig.expect_block_parent_request(parent_root);
+        // Blobs are only requested in the first iteration as this test only retries blocks
         if rig.after_deneb() && i == 1 {
-            let _ = rig.expect_parent_request(ResponseType::Blob);
+            let _ = rig.expect_blob_parent_request(parent_root);
         }
         if i % 2 != 0 {
             // The request fails. It should be tried again.
-            rig.parent_lookup_failed(
-                id,
-                peer_id,
-                RPCError::ErrorResponse(
-                    RPCResponseErrorCode::ResourceUnavailable,
-                    "older than deneb".into(),
-                ),
-            );
+            rig.parent_lookup_failed_unavailable(id, peer_id);
         } else {
             // Send a bad block this time. It should be tried again.
             let bad_block = rig.rand_block();
             rig.parent_lookup_block_response(id, peer_id, Some(bad_block.into()));
-            rig.expect_penalty();
+            rig.expect_penalty(peer_id);
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
             // assert_eq!(
@@ -959,7 +959,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
     }
 
     assert_eq!(rig.active_parent_lookups_count(), 0);
-    assert!(!rig.failed_chains_contains(&block_hash));
+    assert!(!rig.failed_chains_contains(&block_root));
     assert!(!rig.failed_chains_contains(&parent.canonical_root()));
 }
 
@@ -967,47 +967,36 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
 fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     const PROCESSING_FAILURES: u8 = parent_lookup::PARENT_FAIL_TOLERANCE / 2 + 1;
     let mut rig = TestRig::test_setup();
-    let parent = Arc::new(rig.rand_block());
-    let block = rig.block_with_parent(parent.canonical_root());
+    let (parent, block, parent_root, block_root) = rig.rand_block_and_parent();
     let peer_id = rig.new_connected_peer();
-    let block_root = block.canonical_root();
 
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
 
     // Fail downloading the block
     for i in 0..(parent_lookup::PARENT_FAIL_TOLERANCE - PROCESSING_FAILURES) {
-        let id = rig.expect_parent_request(ResponseType::Block);
-        // If we're in deneb, a blob request should have been triggered as well,
-        // we don't require a response because we're generateing 0-blob blocks in this test.
+        let id = rig.expect_block_parent_request(parent_root);
+        // Blobs are only requested in the first iteration as this test only retries blocks
         if rig.after_deneb() && i == 0 {
-            let _ = rig.expect_parent_request(ResponseType::Blob);
+            let _ = rig.expect_blob_parent_request(parent_root);
         }
         // The request fails. It should be tried again.
-        rig.parent_lookup_failed(
-            id,
-            peer_id,
-            RPCError::ErrorResponse(
-                RPCResponseErrorCode::ResourceUnavailable,
-                "older than deneb".into(),
-            ),
-        );
+        rig.parent_lookup_failed_unavailable(id, peer_id);
     }
 
     // Now fail processing a block in the parent request
     for i in 0..PROCESSING_FAILURES {
-        let id = dbg!(rig.expect_parent_request(ResponseType::Block));
+        let id = rig.expect_parent_request(ResponseType::Block);
+        // Blobs are only requested in the first iteration as this test only retries blocks
         if rig.after_deneb() && i != 0 {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
-        // If we're in deneb, a blob request should have been triggered as well,
-        // we don't require a response because we're generateing 0-blob blocks in this test.
         assert!(!rig.failed_chains_contains(&block_root));
         // send the right parent but fail processing
-        rig.parent_lookup_block_response(id, peer_id, Some(parent.clone()));
+        rig.parent_lookup_block_response(id, peer_id, Some(parent.clone().into()));
         rig.parent_block_processed(block_root, BlockError::InvalidSignature.into());
         rig.parent_lookup_block_response(id, peer_id, None);
-        rig.expect_penalty();
+        rig.expect_penalty(peer_id);
     }
 
     assert!(rig.failed_chains_contains(&block_root));
@@ -1017,16 +1006,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 #[test]
 fn test_parent_lookup_too_deep() {
     let mut rig = TestRig::test_setup();
-    let mut blocks =
-        Vec::<Arc<SignedBeaconBlock<E>>>::with_capacity(parent_lookup::PARENT_DEPTH_TOLERANCE);
-    while blocks.len() < parent_lookup::PARENT_DEPTH_TOLERANCE {
-        let parent = blocks
-            .last()
-            .map(|b| b.canonical_root())
-            .unwrap_or_else(Hash256::random);
-        let block = Arc::new(rig.block_with_parent(parent));
-        blocks.push(block);
-    }
+    let mut blocks = rig.rand_blockchain(parent_lookup::PARENT_DEPTH_TOLERANCE);
 
     let peer_id = rig.new_connected_peer();
     let trigger_block = blocks.pop().unwrap();
@@ -1034,12 +1014,7 @@ fn test_parent_lookup_too_deep() {
     rig.trigger_unknown_parent_block(peer_id, trigger_block);
 
     for block in blocks.into_iter().rev() {
-        let id = rig.expect_parent_request(ResponseType::Block);
-        // If we're in deneb, a blob request should have been triggered as well,
-        // we don't require a response because we're generateing 0-blob blocks in this test.
-        if rig.after_deneb() {
-            let _ = rig.expect_parent_request(ResponseType::Blob);
-        }
+        let id = rig.expect_parent_request_block_and_blobs(block.canonical_root());
         // the block
         rig.parent_lookup_block_response(id, peer_id, Some(block.clone()));
         // the stream termination
@@ -1053,7 +1028,7 @@ fn test_parent_lookup_too_deep() {
         )
     }
 
-    rig.expect_penalty();
+    rig.expect_penalty(peer_id);
     assert!(rig.failed_chains_contains(&chain_hash));
 }
 
@@ -1077,12 +1052,7 @@ fn test_single_block_lookup_ignored_response() {
 
     // Trigger the request
     rig.trigger_unknown_block_from_attestation(block.canonical_root(), peer_id);
-    let id = rig.expect_lookup_request(ResponseType::Block);
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_lookup_request(ResponseType::Blob);
-    }
+    let id = rig.expect_lookup_request_block_and_blobs(block.canonical_root());
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
@@ -1106,20 +1076,12 @@ fn test_single_block_lookup_ignored_response() {
 fn test_parent_lookup_ignored_response() {
     let mut rig = TestRig::test_setup();
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
-    let chain_hash = block.canonical_root();
+    let (parent, block, parent_root, block_root) = rig.rand_block_and_parent();
     let peer_id = rig.new_connected_peer();
 
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
-    let id = rig.expect_parent_request(ResponseType::Block);
-
-    // If we're in deneb, a blob request should have been triggered as well,
-    // we don't require a response because we're generateing 0-blob blocks in this test.
-    if rig.after_deneb() {
-        let _ = rig.expect_parent_request(ResponseType::Blob);
-    }
+    let id = rig.expect_parent_request_block_and_blobs(parent_root);
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
     rig.parent_lookup_block_response(id, peer_id, Some(parent.into()));
@@ -1127,7 +1089,7 @@ fn test_parent_lookup_ignored_response() {
     rig.expect_empty_network();
 
     // Return an Ignored result. The request should be dropped
-    rig.parent_block_processed(chain_hash, BlockProcessingResult::Ignored);
+    rig.parent_block_processed(block_root, BlockProcessingResult::Ignored);
     rig.expect_empty_network();
     assert_eq!(rig.active_parent_lookups_count(), 0);
 }
@@ -1140,28 +1102,14 @@ fn test_same_chain_race_condition() {
     // if we use one or two blocks it will match on the hash or the parent hash, so make a longer
     // chain.
     let depth = 4;
-    let mut blocks = Vec::<Arc<SignedBeaconBlock<E>>>::with_capacity(depth);
-    while blocks.len() < depth {
-        let parent = blocks
-            .last()
-            .map(|b| b.canonical_root())
-            .unwrap_or_else(Hash256::random);
-        let block = Arc::new(rig.block_with_parent(parent));
-        blocks.push(block);
-    }
-
+    let mut blocks = rig.rand_blockchain(depth);
     let peer_id = rig.new_connected_peer();
     let trigger_block = blocks.pop().unwrap();
     let chain_hash = trigger_block.canonical_root();
     rig.trigger_unknown_parent_block(peer_id, trigger_block.clone());
 
     for (i, block) in blocks.into_iter().rev().enumerate() {
-        let id = rig.expect_parent_request(ResponseType::Block);
-        // If we're in deneb, a blob request should have been triggered as well,
-        // we don't require a response because we're generateing 0-blob blocks in this test.
-        if rig.after_deneb() {
-            let _ = rig.expect_parent_request(ResponseType::Blob);
-        }
+        let id = rig.expect_parent_request_block_and_blobs(block.canonical_root());
         // the block
         rig.parent_lookup_block_response(id, peer_id, Some(block.clone()));
         // the stream termination
@@ -1192,10 +1140,7 @@ fn test_same_chain_race_condition() {
     rig.trigger_unknown_parent_block(peer_id, trigger_block);
     rig.assert_parent_lookups_consistency();
 
-    let process_result = BatchProcessResult::Success {
-        was_non_empty: true,
-    };
-    rig.parent_chain_processed(chain_hash, process_result);
+    rig.parent_chain_processed_success(chain_hash);
     assert_eq!(rig.active_parent_lookups_count(), 0);
 }
 
@@ -1286,8 +1231,8 @@ mod deneb_only {
                         rig.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
                             peer_id, block_root,
                         ));
-                        let block_req_id = rig.expect_lookup_request(ResponseType::Block);
-                        let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
+                        let block_req_id = rig.expect_block_lookup_request(block_root);
+                        let blob_req_id = rig.expect_blob_lookup_request(block_root);
                         (Some(block_req_id), Some(blob_req_id), None, None)
                     }
                     RequestTrigger::GossipUnknownParentBlock { .. } => {
@@ -1297,9 +1242,10 @@ mod deneb_only {
                             block_root,
                         ));
 
-                        let blob_req_id = rig.expect_lookup_request(ResponseType::Blob);
-                        let parent_block_req_id = rig.expect_parent_request(ResponseType::Block);
-                        let parent_blob_req_id = rig.expect_parent_request(ResponseType::Blob);
+                        let parent_root = block.parent_root();
+                        let blob_req_id = rig.expect_blob_lookup_request(block_root);
+                        let parent_block_req_id = rig.expect_block_parent_request(parent_root);
+                        let parent_blob_req_id = rig.expect_blob_parent_request(parent_root);
                         rig.expect_empty_network(); // expect no more requests
                         (
                             None,
@@ -1310,12 +1256,13 @@ mod deneb_only {
                     }
                     RequestTrigger::GossipUnknownParentBlob { .. } => {
                         let single_blob = blobs.first().cloned().unwrap();
+                        let parent_root = single_blob.block_parent_root();
                         rig.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, single_blob));
 
-                        let block_req_id = rig.expect_lookup_request(ResponseType::Block);
-                        let blobs_req_id = rig.expect_lookup_request(ResponseType::Blob);
-                        let parent_block_req_id = rig.expect_parent_request(ResponseType::Block);
-                        let parent_blob_req_id = rig.expect_parent_request(ResponseType::Blob);
+                        let block_req_id = rig.expect_block_lookup_request(block_root);
+                        let blobs_req_id = rig.expect_blob_lookup_request(block_root);
+                        let parent_block_req_id = rig.expect_block_parent_request(parent_root);
+                        let parent_blob_req_id = rig.expect_blob_parent_request(parent_root);
                         rig.expect_empty_network(); // expect no more requests
                         (
                             Some(block_req_id),
@@ -1492,6 +1439,8 @@ mod deneb_only {
 
         fn parent_block_unknown_parent(mut self) -> Self {
             let block = self.unknown_parent_block.take().unwrap();
+            // Now this block is the one we expect requests from
+            self.block = block.clone();
             let block = RpcBlock::new(
                 Some(block.canonical_root()),
                 block,
@@ -1560,7 +1509,7 @@ mod deneb_only {
         }
 
         fn expect_penalty(mut self) -> Self {
-            self.rig.expect_penalty();
+            self.rig.expect_penalty(self.peer_id);
             self
         }
         fn expect_no_penalty(mut self) -> Self {
@@ -1582,12 +1531,16 @@ mod deneb_only {
             self
         }
         fn expect_parent_block_request(mut self) -> Self {
-            let id = self.rig.expect_parent_request(ResponseType::Block);
+            let id = self
+                .rig
+                .expect_block_parent_request(self.block.parent_root());
             self.parent_block_req_id = Some(id);
             self
         }
         fn expect_parent_blobs_request(mut self) -> Self {
-            let id = self.rig.expect_parent_request(ResponseType::Blob);
+            let id = self
+                .rig
+                .expect_blob_parent_request(self.block.parent_root());
             self.parent_blob_req_id = Some(id);
             self
         }
@@ -2106,21 +2059,22 @@ mod deneb_only {
             return;
         };
         let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(2));
+        let parent_root = block.parent_root();
         let blob_0 = blobs[0].clone();
         let blob_1 = blobs[1].clone();
-        let peer_id = r.new_connected_peer();
-        // Add peer
+        let peer_a = r.new_connected_peer();
+        let peer_b = r.new_connected_peer();
         // Send unknown parent block lookup
-        r.trigger_unknown_parent_block(peer_id, block.into());
+        r.trigger_unknown_parent_block(peer_a, block.into());
         // Expect network request for blobs
-        let id = r.expect_parent_request(ResponseType::Blob);
+        let id = r.expect_blob_parent_request(parent_root);
         // Peer responses with blob 0
-        r.single_lookup_blob_response(id, peer_id, Some(blob_0.into()));
+        r.single_lookup_blob_response(id, peer_a, Some(blob_0.into()));
         // Blob 1 is received via gossip unknown parent blob from a different peer
-        r.trigger_unknown_parent_blob(peer_id, blob_1.clone());
+        r.trigger_unknown_parent_blob(peer_b, blob_1.clone());
         // Original peer sends blob 1 via RPC
-        r.single_lookup_blob_response(id, peer_id, Some(blob_1.into()));
+        r.single_lookup_blob_response(id, peer_a, Some(blob_1.into()));
         // Assert no downscore event for original peer
-        r.expect_no_penalty_for(peer_id);
+        r.expect_no_penalty_for(peer_a);
     }
 }

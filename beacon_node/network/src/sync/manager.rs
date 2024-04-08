@@ -646,11 +646,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 peer_id,
                 blob_sidecar,
                 seen_timestamp,
-            } => {
-                debug!(self.log, "received sync_message"; "message" => "RpcBlob", "request_id" => ?request_id, "peer_id" => %peer_id, "stream_terminator" => blob_sidecar.is_none());
-
-                self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp)
-            }
+            } => self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp),
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
