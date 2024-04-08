@@ -173,26 +173,6 @@ fn shuffling_cache_set() {
 }
 
 #[test]
-fn snapshot_cache_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.snapshot_cache_size,
-                beacon_node::beacon_chain::snapshot_cache::DEFAULT_SNAPSHOT_CACHE_SIZE
-            )
-        });
-}
-
-#[test]
-fn snapshot_cache_set() {
-    CommandLineTest::new()
-        .flag("state-cache-size", Some("500"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.snapshot_cache_size, 500));
-}
-
-#[test]
 fn fork_choice_before_proposal_timeout_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -1845,6 +1825,25 @@ fn historic_state_cache_size_default() {
             assert_eq!(
                 config.store.historic_state_cache_size,
                 DEFAULT_HISTORIC_STATE_CACHE_SIZE
+            );
+        });
+}
+#[test]
+fn parallel_state_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("parallel-state-cache-size", Some("4"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.parallel_state_cache_size, 4_usize));
+}
+#[test]
+fn parallel_state_cache_size_default() {
+    use beacon_node::beacon_chain::chain_config::DEFAULT_PARALLEL_STATE_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.parallel_state_cache_size,
+                DEFAULT_PARALLEL_STATE_CACHE_SIZE
             );
         });
 }
