@@ -13,6 +13,7 @@ use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_chain::test_utils::{generate_rand_block_and_blobs, BeaconChainHarness, NumBlobs};
 use beacon_processor::WorkEvent;
+use lighthouse_network::rpc::RPCError;
 use lighthouse_network::types::SyncState;
 use lighthouse_network::{NetworkGlobals, PeerId};
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
@@ -24,6 +25,7 @@ use types::{
 };
 
 use crate::service::RequestId;
+use crate::sync::manager::RequestId as SyncRequestId;
 use crate::sync::SyncMessage;
 use crate::{sync, NetworkMessage};
 
@@ -184,9 +186,35 @@ impl SyncTester {
         self
     }
 
-    /// Alias of `self.send_sync_messages`. Sends an RPC response to `SyncManager`.
-    pub fn send_rpc_response(&mut self, messages: Vec<SyncMessage<E>>) -> &mut Self {
-        self.send_sync_messages(messages)
+    /// Sends an RPC response to `SyncManager`.
+    pub fn send_rpc_response(
+        &mut self,
+        request_id_key: &str,
+        rpc_response: RpcResponse,
+    ) -> &mut Self {
+        let request_id = *self
+            .get_from_context::<SyncRequestId>(request_id_key)
+            .unwrap_or_else(|| panic!("request_id key {request_id_key} not found in test context"));
+        let message = match rpc_response {
+            RpcResponse::Block(peer_id, beacon_block) => SyncMessage::RpcBlock {
+                request_id,
+                peer_id,
+                beacon_block,
+                seen_timestamp: Default::default(),
+            },
+            RpcResponse::Blob(peer_id, blob_sidecar) => SyncMessage::RpcBlob {
+                request_id,
+                peer_id,
+                blob_sidecar,
+                seen_timestamp: Default::default(),
+            },
+            RpcResponse::Error(peer_id, error) => SyncMessage::RpcError {
+                peer_id,
+                request_id,
+                error,
+            },
+        };
+        self.send_sync_messages(vec![message])
     }
 
     /// Checks the `network_recv` for a matching `NetworkMessage`. Useful for making assertions
@@ -288,7 +316,7 @@ impl SyncTester {
     }
 
     /// Get a test variable of type `T` stored in `self.text_context` from previous steps.
-    pub fn get_from_context<T: 'static>(&self, key: &str) -> Option<&T> {
+    fn get_from_context<T: 'static>(&self, key: &str) -> Option<&T> {
         self.test_context
             .get(key)
             .and_then(|val| val.downcast_ref::<T>())
@@ -334,4 +362,10 @@ where
         retry_count += 1;
         sleep(interval).await
     }
+}
+
+pub enum RpcResponse {
+    Block(PeerId, Option<Arc<SignedBeaconBlock<E>>>),
+    Blob(PeerId, Option<Arc<BlobSidecar<E>>>),
+    Error(PeerId, RPCError),
 }
