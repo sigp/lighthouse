@@ -72,6 +72,7 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
+use bitvec::field::BitField;
 use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
@@ -93,8 +94,8 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use state_processing::common::{indexed_attestation_base, indexed_attestation_electra};
 use state_processing::{
-    common::get_attesting_indices_from_state,
     per_block_processing,
     per_block_processing::{
         errors::AttestationValidationError, get_expected_withdrawals,
@@ -120,6 +121,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
+use types::attestation::{AttestationBase, AttestationElectra};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::payload::BlockProductionVersion;
 use types::*;
@@ -1668,7 +1670,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
     ) -> Result<Attestation<T::EthSpec>, Error> {
-        let beacon_block_root = attestation.data.beacon_block_root;
+        let beacon_block_root = attestation.data().beacon_block_root;
         match self
             .canonical_head
             .fork_choice_read_lock()
@@ -1939,9 +1941,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             | ForkName::Altair
             | ForkName::Merge
             | ForkName::Capella
-            | ForkName::Deneb => Ok(Attestation {
+            | ForkName::Deneb => Ok(Attestation::Base(AttestationBase {
                 aggregation_bits: BitList::with_capacity(committee_len)?,
-                index: <_>::default(),
                 data: AttestationData {
                     slot: request_slot,
                     index: request_index,
@@ -1950,19 +1951,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     target,
                 },
                 signature: AggregateSignature::empty(),
-            }),
-            ForkName::Electra => Ok(Attestation {
+            })),
+            ForkName::Electra => Ok(Attestation::Electra(AttestationElectra {
+                // TODO(eip7594) need to make sure bitlists are of the correct length
                 aggregation_bits: BitList::with_capacity(committee_len)?,
-                index: request_index,
                 data: AttestationData {
                     slot: request_slot,
-                    index: <_>::default(),
+                    index: 0u64,
                     beacon_block_root,
                     source: justified_checkpoint,
                     target,
                 },
+                committee_bits: BitList::with_capacity(committee_len)?,
                 signature: AggregateSignature::empty(),
-            }),
+            })),
         }
     }
 
@@ -2175,8 +2177,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.log,
                 "Stored unaggregated attestation";
                 "outcome" => ?outcome,
-                "index" => attestation.data.index,
-                "slot" => attestation.data.slot.as_u64(),
+                "index" => attestation.data().index,
+                "slot" => attestation.data().slot.as_u64(),
             ),
             Err(NaiveAggregationError::SlotTooLow {
                 slot,
@@ -2194,8 +2196,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to store unaggregated attestation";
                         "error" => ?e,
-                        "index" => attestation.data.index,
-                        "slot" => attestation.data.slot.as_u64(),
+                        "index" => attestation.data().index,
+                        "slot" => attestation.data().slot.as_u64(),
                 );
                 return Err(Error::from(e).into());
             }
@@ -3747,7 +3749,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to get indexed attestation";
                         "purpose" => "validator monitor",
-                        "attestation_slot" => attestation.data.slot,
+                        "attestation_slot" => attestation.data().slot,
                         "error" => ?e,
                     );
                     continue;
@@ -3803,7 +3805,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to register observed attestation";
                         "error" => ?e,
-                        "epoch" => a.data.target.epoch
+                        "epoch" => a.data().target.epoch
                     );
                 }
             }
@@ -3815,7 +3817,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to get indexed attestation";
                         "purpose" => "observation",
-                        "attestation_slot" => a.data.slot,
+                        "attestation_slot" => a.data().slot,
                         "error" => ?e,
                     );
                     continue;
@@ -3824,15 +3826,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let mut observed_block_attesters = self.observed_block_attesters.write();
 
-            for &validator_index in &indexed_attestation.attesting_indices {
+            for &validator_index in &indexed_attestation.attesting_indices() {
                 if let Err(e) = observed_block_attesters
-                    .observe_validator(a.data.target.epoch, validator_index as usize)
+                    .observe_validator(a.data().target.epoch, validator_index as usize)
                 {
                     debug!(
                         self.log,
                         "Failed to register observed block attester";
                         "error" => ?e,
-                        "epoch" => a.data.target.epoch,
+                        "epoch" => a.data().target.epoch,
                         "validator_index" => validator_index,
                     )
                 }
@@ -3856,7 +3858,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             self.log,
                             "Failed to get indexed attestation";
                             "purpose" => "slasher",
-                            "attestation_slot" => attestation.data.slot,
+                            "attestation_slot" => attestation.data().slot,
                             "error" => ?e,
                         );
                         continue;
@@ -4976,7 +4978,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
         for attestation in self.naive_aggregation_pool.read().iter() {
             let import = |attestation: &Attestation<T::EthSpec>| {
-                let attesting_indices = get_attesting_indices_from_state(&state, attestation)?;
+                let attesting_indices = match attestation {
+                    Attestation::Base(att) => {
+                        indexed_attestation_base::get_attesting_indices_from_state(&state, att)?
+                    }
+                    Attestation::Electra(att) => {
+                        indexed_attestation_electra::get_attesting_indices(&state, att)?
+                    }
+                };
                 self.op_pool
                     .insert_attestation(attestation.clone(), attesting_indices)
             };

@@ -125,10 +125,11 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT);
 
         let set_bits = a
-            .aggregation_bits
+            .aggregation_bits()
             .iter()
             .enumerate()
-            .filter(|(_i, bit)| *bit)
+            // TODO(eip7594) double check this, it used to be a bit
+            .filter(|(_i, &bit)| bit == 1u8)
             .map(|(i, _bit)| i)
             .collect::<Vec<_>>();
 
@@ -141,12 +142,11 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
             return Err(Error::MoreThanOneAggregationBitSet(set_bits.len()));
         }
 
-        let attestation_data_root = a.data.tree_hash_root();
+        let attestation_data_root = a.data().tree_hash_root();
 
         if let Some(existing_attestation) = self.map.get_mut(&attestation_data_root) {
             if existing_attestation
-                .aggregation_bits
-                .get(committee_index)
+                .get_aggregation_bit(committee_index)
                 .map_err(|_| Error::InconsistentBitfieldLengths)?
             {
                 Ok(InsertOutcome::SignatureAlreadyKnown { committee_index })
@@ -476,8 +476,16 @@ mod tests {
 
     fn get_attestation(slot: Slot) -> Attestation<E> {
         let mut a: Attestation<E> = test_random_instance();
-        a.data.slot = slot;
-        a.aggregation_bits = BitList::with_capacity(4).expect("should create bitlist");
+        a.data().slot = slot;
+        match a {
+            Attestation::Base(att) => {
+                att.aggregation_bits = BitList::with_capacity(4).expect("should create bitlist");
+            }
+            Attestation::Electra(att) => {
+                att.aggregation_bits = BitList::with_capacity(4).expect("should create bitlist");
+            }
+        };
+
         a
     }
 
@@ -521,9 +529,18 @@ mod tests {
     }
 
     fn unset_attestation_bit(a: &mut Attestation<E>, i: usize) {
-        a.aggregation_bits
-            .set(i, false)
-            .expect("should unset aggregation bit")
+        match a {
+            Attestation::Base(att) => {
+                att.aggregation_bits
+                    .set(i, false)
+                    .expect("should unset aggregation bit");
+            }
+            Attestation::Electra(att) => {
+                att.aggregation_bits
+                    .set(i, false)
+                    .expect("should unset aggregation bit");
+            }
+        };
     }
 
     fn unset_sync_contribution_bit(a: &mut SyncCommitteeContribution<E>, i: usize) {
@@ -533,19 +550,19 @@ mod tests {
     }
 
     fn mutate_attestation_block_root(a: &mut Attestation<E>, block_root: Hash256) {
-        a.data.beacon_block_root = block_root
+        a.data().beacon_block_root = block_root
     }
 
     fn mutate_attestation_slot(a: &mut Attestation<E>, slot: Slot) {
-        a.data.slot = slot
+        a.data().slot = slot
     }
 
     fn attestation_block_root_comparator(a: &Attestation<E>, block_root: Hash256) -> bool {
-        a.data.beacon_block_root == block_root
+        a.data().beacon_block_root == block_root
     }
 
     fn key_from_attestation(a: &Attestation<E>) -> AttestationData {
-        a.data.clone()
+        a.data().clone()
     }
 
     fn mutate_sync_contribution_block_root(

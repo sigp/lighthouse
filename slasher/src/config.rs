@@ -165,13 +165,10 @@ impl Config {
         attestation: &'a IndexedAttestation<E>,
         validator_chunk_index: usize,
     ) -> impl Iterator<Item = u64> + 'a {
-        // TODO(eip7549) need to fix this compiler issue
-        // attestation
-        //     .attesting_indices()
-        //     .iter()
-        //     .filter(move |v| self.validator_chunk_index(**v) == validator_chunk_index)
-        //     .copied()
-        todo!()
+        attestation
+            .attesting_indices()
+            .into_iter()
+            .filter(move |&v| self.validator_chunk_index(v) == validator_chunk_index)
     }
 
     pub fn override_backend(&mut self) -> DatabaseBackendOverride {

@@ -2,7 +2,7 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
 use operation_pool::{AttMaxCover, MaxCover, RewardCache, SplitAttestation};
 use state_processing::{
-    common::get_attesting_indices_from_state,
+    common::{indexed_attestation_base, indexed_attestation_electra},
     per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards,
 };
 use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, EthSpec, Hash256};
@@ -28,9 +28,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .body()
             .attestations()
             .iter()
-            .map(|att| {
-                let attesting_indices = get_attesting_indices_from_state(state, att)?;
-                Ok(SplitAttestation::new(att.clone(), attesting_indices))
+            .map(|attestaton| {
+                let attesting_indices = match attestaton {
+                    types::Attestation::Base(att) => {
+                        indexed_attestation_base::get_attesting_indices_from_state(state, att)?
+                    }
+                    types::Attestation::Electra(att) => {
+                        indexed_attestation_electra::get_attesting_indices(state, att)?
+                    }
+                };
+                Ok(SplitAttestation::new(attestaton.clone(), attesting_indices))
             })
             .collect::<Result<Vec<_>, BeaconChainError>>()?;
 
@@ -87,7 +94,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .body()
                 .attestations()
                 .iter()
-                .map(|a| a.data.clone())
+                .map(|a| a.data().clone())
                 .collect()
         } else {
             vec![]

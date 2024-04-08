@@ -2,7 +2,8 @@ use crate::AttestationStats;
 use itertools::Itertools;
 use std::collections::HashMap;
 use types::{
-    attestation::AttestationBase, AggregateSignature, Attestation, AttestationData, BeaconState, BitList, Checkpoint, Epoch, EthSpec, Hash256, Slot
+    attestation::AttestationBase, AggregateSignature, Attestation, AttestationData, BeaconState,
+    BitList, Checkpoint, Epoch, EthSpec, Hash256, Slot,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -64,18 +65,16 @@ impl<E: EthSpec> SplitAttestation<E> {
             target_root: attestation.data().target.root,
         };
         let indexed = match attestation {
-            Attestation::Base(att) => {
-                CompactIndexedAttestation {
-                    attesting_indices,
-                    index: att.data.index,
-                    aggregation_bits: att.aggregation_bits,
-                    signature: att.signature,
-                }
+            Attestation::Base(att) => CompactIndexedAttestation {
+                attesting_indices,
+                index: att.data.index,
+                aggregation_bits: att.aggregation_bits,
+                signature: att.signature,
             },
-            // TODO(eip7549) handle compact indexed attestation 
+            // TODO(eip7549) handle compact indexed attestation
             Attestation::Electra(_) => todo!(),
         };
-        
+
         Self {
             checkpoint,
             data,

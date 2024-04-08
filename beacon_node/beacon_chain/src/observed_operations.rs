@@ -63,13 +63,13 @@ impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
         let attestation_1_indices = self
             .attestation_1
-            .attesting_indices
+            .attesting_indices()
             .iter()
             .copied()
             .collect::<HashSet<u64>>();
         let attestation_2_indices = self
             .attestation_2
-            .attesting_indices
+            .attesting_indices()
             .iter()
             .copied()
             .collect::<HashSet<u64>>();

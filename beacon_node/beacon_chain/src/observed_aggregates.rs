@@ -102,24 +102,32 @@ pub trait SubsetItem {
     fn root(&self) -> Hash256;
 }
 
+// TODO(eip7594) need to be able to handle different size bitlists
 impl<E: EthSpec> SubsetItem for Attestation<E> {
     type Item = BitList<E::MaxValidatorsPerCommittee>;
+
     fn is_subset(&self, other: &Self::Item) -> bool {
-        self.aggregation_bits.is_subset(other)
+        // TODO(eip7594)
+        todo!()
+        //self.aggregation_bits().is_subset(other)
     }
 
     fn is_superset(&self, other: &Self::Item) -> bool {
-        other.is_subset(&self.aggregation_bits)
+        // TODO(eip7594)
+        todo!()
+        // other.is_subset(&self.aggregation_bits)
     }
 
     /// Returns the sync contribution aggregation bits.
     fn get_item(&self) -> Self::Item {
-        self.aggregation_bits.clone()
+        // TODO(eip7594)
+        todo!()
+        //self.aggregation_bits.clone()
     }
 
     /// Returns the hash tree root of the attestation data.
     fn root(&self) -> Hash256 {
-        self.data.tree_hash_root()
+        self.data().tree_hash_root()
     }
 }
 

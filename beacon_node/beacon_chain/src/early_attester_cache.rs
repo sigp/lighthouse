@@ -6,6 +6,7 @@ use crate::{
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
+use types::attestation::{AttestationBase, AttestationElectra};
 use types::*;
 
 pub struct CacheItem<E: EthSpec> {
@@ -99,15 +100,6 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     ) -> Result<Option<Attestation<E>>, Error> {
         let lock = self.item.read();
 
-        let is_electra = match spec.fork_name_at_slot::<E>(request_slot) {
-            types::ForkName::Base
-            | types::ForkName::Altair
-            | types::ForkName::Merge
-            | types::ForkName::Capella
-            | types::ForkName::Deneb => false,
-            types::ForkName::Electra => true,
-        };
-
         let Some(item) = lock.as_ref() else {
             return Ok(None);
         };
@@ -132,25 +124,14 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.committee_lengths
                 .get_committee_length::<E>(request_slot, request_index, spec)?;
 
-        let attestation = if is_electra {
-            Attestation {
+        let attestation = match spec.fork_name_at_slot::<E>(request_slot) {
+            types::ForkName::Base
+            | types::ForkName::Altair
+            | types::ForkName::Merge
+            | types::ForkName::Capella
+            | types::ForkName::Deneb => Attestation::Base(AttestationBase {
                 aggregation_bits: BitList::with_capacity(committee_len)
                     .map_err(BeaconStateError::from)?,
-                index: request_index,
-                data: AttestationData {
-                    slot: request_slot,
-                    index: <_>::default(),
-                    beacon_block_root: item.beacon_block_root,
-                    source: item.source,
-                    target: item.target,
-                },
-                signature: AggregateSignature::empty(),
-            }
-        } else {
-            Attestation {
-                aggregation_bits: BitList::with_capacity(committee_len)
-                    .map_err(BeaconStateError::from)?,
-                index: <_>::default(),
                 data: AttestationData {
                     slot: request_slot,
                     index: request_index,
@@ -159,6 +140,23 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
                     target: item.target,
                 },
                 signature: AggregateSignature::empty(),
+            }),
+            types::ForkName::Electra => {
+                // TODO(eip7594) ensure bitlists are the correct size
+                Attestation::Electra(AttestationElectra {
+                    aggregation_bits: BitList::with_capacity(committee_len)
+                        .map_err(BeaconStateError::from)?,
+                    committee_bits: BitList::with_capacity(committee_len)
+                        .map_err(BeaconStateError::from)?,
+                    data: AttestationData {
+                        slot: request_slot,
+                        index: 0u64,
+                        beacon_block_root: item.beacon_block_root,
+                        source: item.source,
+                        target: item.target,
+                    },
+                    signature: AggregateSignature::empty(),
+                })
             }
         };
 

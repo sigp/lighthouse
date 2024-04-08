@@ -5,7 +5,8 @@ use safe_arith::SafeArith;
 use slog::error;
 use state_processing::{
     common::{
-        altair, get_attestation_participation_flag_indices, get_attesting_indices_from_state,
+        altair, get_attestation_participation_flag_indices, indexed_attestation_base,
+        indexed_attestation_electra,
     },
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
@@ -206,7 +207,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut previous_epoch_participation = state.previous_epoch_participation()?.clone();
 
         for attestation in block.body().attestations() {
-            let data = &attestation.data;
+            let data = &attestation.data();
             let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
             // [Modified in Deneb:EIP7045]
             let participation_flag_indices = get_attestation_participation_flag_indices(
@@ -216,7 +217,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &self.spec,
             )?;
 
-            let attesting_indices = get_attesting_indices_from_state(state, attestation)?;
+            let attesting_indices = match attestation {
+                types::Attestation::Base(att) => {
+                    indexed_attestation_base::get_attesting_indices_from_state(state, att)?
+                }
+                types::Attestation::Electra(att) => {
+                    indexed_attestation_electra::get_attesting_indices(state, att)?
+                }
+            };
+
             let mut proposer_reward_numerator = 0;
             for index in attesting_indices {
                 let index = index as usize;

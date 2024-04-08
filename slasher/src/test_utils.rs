@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use types::{
-    indexed_attestation::IndexedAttestationBase, AggregateSignature, AttestationData, AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch, Hash256, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot
+    indexed_attestation::IndexedAttestationBase, AggregateSignature, AttestationData,
+    AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch, Hash256, IndexedAttestation,
+    MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
