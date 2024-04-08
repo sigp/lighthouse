@@ -16,12 +16,10 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    BlobSidecar, EthSpec, ForkContext, ForkName, Hash256, RuntimeVariableList, SignedBeaconBlock,
+    BlobSidecar, ChainSpec, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockMerge,
-};
-use types::{
-    ChainSpec, LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -29,17 +27,17 @@ const CONTEXT_BYTES_LEN: usize = 4;
 
 /* Inbound Codec */
 
-pub struct SSZSnappyInboundCodec<TSpec: EthSpec> {
+pub struct SSZSnappyInboundCodec<E: EthSpec> {
     protocol: ProtocolId,
     inner: Uvi<usize>,
     len: Option<usize>,
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
     fork_context: Arc<ForkContext>,
-    phantom: PhantomData<TSpec>,
+    phantom: PhantomData<E>,
 }
 
-impl<T: EthSpec> SSZSnappyInboundCodec<T> {
+impl<E: EthSpec> SSZSnappyInboundCodec<E> {
     pub fn new(
         protocol: ProtocolId,
         max_packet_size: usize,
@@ -61,14 +59,10 @@ impl<T: EthSpec> SSZSnappyInboundCodec<T> {
 }
 
 // Encoder for inbound streams: Encodes RPC Responses sent to peers.
-impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<TSpec> {
+impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
     type Error = RPCError;
 
-    fn encode(
-        &mut self,
-        item: RPCCodedResponse<TSpec>,
-        dst: &mut BytesMut,
-    ) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RPCCodedResponse<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match &item {
             RPCCodedResponse::Success(resp) => match &resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
@@ -128,8 +122,8 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
 }
 
 // Decoder for inbound streams: Decodes RPC requests from peers
-impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
-    type Item = InboundRequest<TSpec>;
+impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
+    type Item = InboundRequest<E>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -178,7 +172,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
 }
 
 /* Outbound Codec: Codec for initiating RPC requests */
-pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
+pub struct SSZSnappyOutboundCodec<E: EthSpec> {
     inner: Uvi<usize>,
     len: Option<usize>,
     protocol: ProtocolId,
@@ -187,10 +181,10 @@ pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
     /// The fork name corresponding to the received context bytes.
     fork_name: Option<ForkName>,
     fork_context: Arc<ForkContext>,
-    phantom: PhantomData<TSpec>,
+    phantom: PhantomData<E>,
 }
 
-impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
+impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
     pub fn new(
         protocol: ProtocolId,
         max_packet_size: usize,
@@ -213,14 +207,10 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
+impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
     type Error = RPCError;
 
-    fn encode(
-        &mut self,
-        item: OutboundRequest<TSpec>,
-        dst: &mut BytesMut,
-    ) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: OutboundRequest<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             OutboundRequest::Status(req) => req.as_ssz_bytes(),
             OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
@@ -265,8 +255,8 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
 // The majority of the decoding has now been pushed upstream due to the changing specification.
 // We prefer to decode blocks and attestations with extra knowledge about the chain to perform
 // faster verification checks before decoding entire blocks/attestations.
-impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
-    type Item = RPCResponse<TSpec>;
+impl<E: EthSpec> Decoder for SSZSnappyOutboundCodec<E> {
+    type Item = RPCResponse<E>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -290,9 +280,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
-        let ssz_limits = self
-            .protocol
-            .rpc_response_limits::<TSpec>(&self.fork_context);
+        let ssz_limits = self.protocol.rpc_response_limits::<E>(&self.fork_context);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
                 "RPC response length is out of bounds, length {}, max {}, min {}",
@@ -323,7 +311,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> OutboundCodec<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
+impl<E: EthSpec> OutboundCodec<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
     type CodecErrorType = ErrorType;
 
     fn decode_error(
@@ -392,10 +380,10 @@ fn handle_error<T>(
 
 /// Returns `Some(context_bytes)` for encoding RPC responses that require context bytes.
 /// Returns `None` when context bytes are not required.
-fn context_bytes<T: EthSpec>(
+fn context_bytes<E: EthSpec>(
     protocol: &ProtocolId,
     fork_context: &ForkContext,
-    resp: &RPCCodedResponse<T>,
+    resp: &RPCCodedResponse<E>,
 ) -> Option<[u8; CONTEXT_BYTES_LEN]> {
     // Add the context bytes if required
     if protocol.has_context_bytes() {
@@ -406,6 +394,9 @@ fn context_bytes<T: EthSpec>(
                     return match **ref_box_block {
                         // NOTE: If you are adding another fork type here, be sure to modify the
                         //       `fork_context.to_context_bytes()` function to support it as well!
+                        SignedBeaconBlock::Electra { .. } => {
+                            fork_context.to_context_bytes(ForkName::Electra)
+                        }
                         SignedBeaconBlock::Deneb { .. } => {
                             fork_context.to_context_bytes(ForkName::Deneb)
                         }
@@ -476,11 +467,11 @@ fn handle_length(
 /// Decodes an `InboundRequest` from the byte stream.
 /// `decoded_buffer` should be an ssz-encoded bytestream with
 // length = length-prefix received in the beginning of the stream.
-fn handle_rpc_request<T: EthSpec>(
+fn handle_rpc_request<E: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
     spec: &ChainSpec,
-) -> Result<Option<InboundRequest<T>>, RPCError> {
+) -> Result<Option<InboundRequest<E>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(InboundRequest::Status(
             StatusMessage::from_ssz_bytes(decoded_buffer)?,
@@ -562,11 +553,11 @@ fn handle_rpc_request<T: EthSpec>(
 ///
 /// For BlocksByRange/BlocksByRoot reponses, decodes the appropriate response
 /// according to the received `ForkName`.
-fn handle_rpc_response<T: EthSpec>(
+fn handle_rpc_response<E: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
     fork_name: Option<ForkName>,
-) -> Result<Option<RPCResponse<T>>, RPCError> {
+) -> Result<Option<RPCResponse<E>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(RPCResponse::Status(
             StatusMessage::from_ssz_bytes(decoded_buffer)?,
@@ -678,6 +669,11 @@ fn handle_rpc_response<T: EthSpec>(
             Some(ForkName::Deneb) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                 SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
             )))),
+            Some(ForkName::Electra) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
+            )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 format!(
@@ -703,6 +699,11 @@ fn handle_rpc_response<T: EthSpec>(
             )))),
             Some(ForkName::Deneb) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                 SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Electra) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
             )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
@@ -753,11 +754,13 @@ mod tests {
         let merge_fork_epoch = Epoch::new(2);
         let capella_fork_epoch = Epoch::new(3);
         let deneb_fork_epoch = Epoch::new(4);
+        let electra_fork_epoch = Epoch::new(5);
 
         chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
         chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
         chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
         chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+        chain_spec.electra_fork_epoch = Some(electra_fork_epoch);
 
         let current_slot = match fork_name {
             ForkName::Base => Slot::new(0),
@@ -765,6 +768,7 @@ mod tests {
             ForkName::Merge => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Deneb => deneb_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Electra => electra_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }

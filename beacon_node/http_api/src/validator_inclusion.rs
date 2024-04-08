@@ -4,11 +4,8 @@ use eth2::{
     lighthouse::{GlobalValidatorInclusionData, ValidatorInclusionData},
     types::ValidatorId,
 };
-use state_processing::per_epoch_processing::{
-    altair::participation_cache::Error as ParticipationCacheError, process_epoch,
-    EpochProcessingSummary,
-};
-use types::{BeaconState, ChainSpec, Epoch, EthSpec};
+use state_processing::per_epoch_processing::{process_epoch, EpochProcessingSummary};
+use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec};
 
 /// Returns the state in the last slot of `epoch`.
 fn end_of_epoch_state<T: BeaconChainTypes>(
@@ -27,15 +24,15 @@ fn end_of_epoch_state<T: BeaconChainTypes>(
 /// ## Notes
 ///
 /// Will mutate `state`, transitioning it to the next epoch.
-fn get_epoch_processing_summary<T: EthSpec>(
-    state: &mut BeaconState<T>,
+fn get_epoch_processing_summary<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary<T>, warp::reject::Rejection> {
+) -> Result<EpochProcessingSummary<E>, warp::reject::Rejection> {
     process_epoch(state, spec)
         .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))
 }
 
-fn convert_cache_error(error: ParticipationCacheError) -> warp::reject::Rejection {
+fn convert_cache_error(error: BeaconStateError) -> warp::reject::Rejection {
     warp_utils::reject::custom_server_error(format!("{:?}", error))
 }
 
@@ -50,7 +47,6 @@ pub fn global_validator_inclusion_data<T: BeaconChainTypes>(
 
     Ok(GlobalValidatorInclusionData {
         current_epoch_active_gwei: summary.current_epoch_total_active_balance(),
-        previous_epoch_active_gwei: summary.previous_epoch_total_active_balance(),
         current_epoch_target_attesting_gwei: summary
             .current_epoch_target_attesting_balance()
             .map_err(convert_cache_error)?,

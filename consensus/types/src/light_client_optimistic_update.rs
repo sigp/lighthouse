@@ -70,36 +70,27 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             .fork_name(chain_spec)
             .map_err(|_| Error::InconsistentFork)?
         {
-            ForkName::Altair | ForkName::Merge => {
-                let optimistic_update = LightClientOptimisticUpdateAltair {
-                    attested_header: LightClientHeaderAltair::block_to_light_client_header(
-                        attested_block,
-                    )?,
-                    sync_aggregate,
-                    signature_slot,
-                };
-                Self::Altair(optimistic_update)
-            }
-            ForkName::Capella => {
-                let optimistic_update = LightClientOptimisticUpdateCapella {
-                    attested_header: LightClientHeaderCapella::block_to_light_client_header(
-                        attested_block,
-                    )?,
-                    sync_aggregate,
-                    signature_slot,
-                };
-                Self::Capella(optimistic_update)
-            }
-            ForkName::Deneb => {
-                let optimistic_update = LightClientOptimisticUpdateDeneb {
-                    attested_header: LightClientHeaderDeneb::block_to_light_client_header(
-                        attested_block,
-                    )?,
-                    sync_aggregate,
-                    signature_slot,
-                };
-                Self::Deneb(optimistic_update)
-            }
+            ForkName::Altair | ForkName::Merge => Self::Altair(LightClientOptimisticUpdateAltair {
+                attested_header: LightClientHeaderAltair::block_to_light_client_header(
+                    attested_block,
+                )?,
+                sync_aggregate,
+                signature_slot,
+            }),
+            ForkName::Capella => Self::Capella(LightClientOptimisticUpdateCapella {
+                attested_header: LightClientHeaderCapella::block_to_light_client_header(
+                    attested_block,
+                )?,
+                sync_aggregate,
+                signature_slot,
+            }),
+            ForkName::Deneb | ForkName::Electra => Self::Deneb(LightClientOptimisticUpdateDeneb {
+                attested_header: LightClientHeaderDeneb::block_to_light_client_header(
+                    attested_block,
+                )?,
+                sync_aggregate,
+                signature_slot,
+            }),
             ForkName::Base => return Err(Error::AltairForkNotActive),
         };
 
@@ -141,16 +132,13 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let optimistic_update = match fork_name {
             ForkName::Altair | ForkName::Merge => {
-                let optimistic_update = LightClientOptimisticUpdateAltair::from_ssz_bytes(bytes)?;
-                Self::Altair(optimistic_update)
+                Self::Altair(LightClientOptimisticUpdateAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => {
-                let optimistic_update = LightClientOptimisticUpdateCapella::from_ssz_bytes(bytes)?;
-                Self::Capella(optimistic_update)
+                Self::Capella(LightClientOptimisticUpdateCapella::from_ssz_bytes(bytes)?)
             }
-            ForkName::Deneb => {
-                let optimistic_update = LightClientOptimisticUpdateDeneb::from_ssz_bytes(bytes)?;
-                Self::Deneb(optimistic_update)
+            ForkName::Deneb | ForkName::Electra => {
+                Self::Deneb(LightClientOptimisticUpdateDeneb::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
@@ -170,24 +158,27 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 <LightClientOptimisticUpdateAltair<E> as Encode>::ssz_fixed_len()
                     + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
+            ForkName::Electra => {
+                unimplemented!("Electra not implemented")
+            }
         }
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => Ok(
-                serde_json::from_value::<LightClientOptimisticUpdate<T>>(value)
-                    .map_err(serde::de::Error::custom),
-            )?,
             ForkName::Base => Err(serde::de::Error::custom(format!(
                 "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
                 fork_name
             ))),
+            _ => Ok(
+                serde_json::from_value::<LightClientOptimisticUpdate<E>>(value)
+                    .map_err(serde::de::Error::custom),
+            )?,
         }
     }
 }

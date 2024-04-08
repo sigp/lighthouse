@@ -221,7 +221,9 @@ impl MessageCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::IdentTopic as Topic;
+    use crate::types::RawMessage;
+    use crate::{IdentTopic as Topic, TopicHash};
+    use libp2p::identity::PeerId;
 
     fn gen_testm(x: u64, topic: TopicHash) -> (MessageId, RawMessage) {
         let default_id = |message: &RawMessage| {

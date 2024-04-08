@@ -4,8 +4,8 @@ use types::eth_spec::EthSpec;
 use types::participation_flags::ParticipationFlags;
 use types::VariableList;
 
-pub fn process_participation_flag_updates<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_participation_flag_updates<E: EthSpec>(
+    state: &mut BeaconState<E>,
 ) -> Result<(), EpochProcessingError> {
     *state.previous_epoch_participation_mut()? =
         std::mem::take(state.current_epoch_participation_mut()?);

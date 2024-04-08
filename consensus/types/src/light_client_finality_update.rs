@@ -106,7 +106,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 };
                 Self::Capella(finality_update)
             }
-            ForkName::Deneb => {
+            ForkName::Deneb | ForkName::Electra => {
                 let finality_update = LightClientFinalityUpdateDeneb {
                     attested_header: LightClientHeaderDeneb::block_to_light_client_header(
                         attested_block,
@@ -147,16 +147,13 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let finality_update = match fork_name {
             ForkName::Altair | ForkName::Merge => {
-                let finality_update = LightClientFinalityUpdateAltair::from_ssz_bytes(bytes)?;
-                Self::Altair(finality_update)
+                Self::Altair(LightClientFinalityUpdateAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => {
-                let finality_update = LightClientFinalityUpdateCapella::from_ssz_bytes(bytes)?;
-                Self::Capella(finality_update)
+                Self::Capella(LightClientFinalityUpdateCapella::from_ssz_bytes(bytes)?)
             }
-            ForkName::Deneb => {
-                let finality_update = LightClientFinalityUpdateDeneb::from_ssz_bytes(bytes)?;
-                Self::Deneb(finality_update)
+            ForkName::Deneb | ForkName::Electra => {
+                Self::Deneb(LightClientFinalityUpdateDeneb::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
@@ -176,6 +173,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 <LightClientFinalityUpdateAltair<E> as Encode>::ssz_fixed_len()
                     + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
+            ForkName::Electra => {
+                unimplemented!("Electra not implemented")
+            }
         }
     }
 }
@@ -186,14 +186,14 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<E> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => Ok(
-                serde_json::from_value::<LightClientFinalityUpdate<E>>(value)
-                    .map_err(serde::de::Error::custom),
-            )?,
             ForkName::Base => Err(serde::de::Error::custom(format!(
                 "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
                 fork_name
             ))),
+            _ => Ok(
+                serde_json::from_value::<LightClientFinalityUpdate<E>>(value)
+                    .map_err(serde::de::Error::custom),
+            )?,
         }
     }
 }

@@ -67,9 +67,9 @@ pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 pub const PRIORITY_PEER_EXCESS: f32 = 0.2;
 
 /// The main struct that handles peer's reputation and connection status.
-pub struct PeerManager<TSpec: EthSpec> {
+pub struct PeerManager<E: EthSpec> {
     /// Storage of network globals to access the `PeerDB`.
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    network_globals: Arc<NetworkGlobals<E>>,
     /// A queue of events that the `PeerManager` is waiting to produce.
     events: SmallVec<[PeerManagerEvent; 16]>,
     /// A collection of inbound-connected peers awaiting to be Ping'd.
@@ -140,11 +140,11 @@ pub enum PeerManagerEvent {
     DiscoverSubnetPeers(Vec<SubnetDiscovery>),
 }
 
-impl<TSpec: EthSpec> PeerManager<TSpec> {
+impl<E: EthSpec> PeerManager<E> {
     // NOTE: Must be run inside a tokio executor.
     pub fn new(
         cfg: config::Config,
-        network_globals: Arc<NetworkGlobals<TSpec>>,
+        network_globals: Arc<NetworkGlobals<E>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let config::Config {
@@ -680,7 +680,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Received a metadata response from a peer.
-    pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
+    pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<E>) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data() {
                 if *known_meta_data.seq_number() < *meta_data.seq_number() {
@@ -810,9 +810,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // start a ping and status timer for the peer
         self.status_peers.insert(*peer_id);
-
-        // increment prometheus metrics
-        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
 
         true
     }
@@ -984,20 +981,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
 
         // 1. Look through peers that have the worst score (ignoring non-penalized scored peers).
-        prune_peers!(|info: &PeerInfo<TSpec>| { info.score().score() < 0.0 });
+        prune_peers!(|info: &PeerInfo<E>| { info.score().score() < 0.0 });
 
         // 2. Attempt to remove peers that are not subscribed to a subnet, if we still need to
         //    prune more.
         if peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
-            prune_peers!(|info: &PeerInfo<TSpec>| { !info.has_long_lived_subnet() });
+            prune_peers!(|info: &PeerInfo<E>| { !info.has_long_lived_subnet() });
         }
 
         // 3. and 4. Remove peers that are too grouped on any given subnet. If all subnets are
         //    uniformly distributed, remove random peers.
         if peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
             // Of our connected peers, build a map from subnet_id -> Vec<(PeerId, PeerInfo)>
-            let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<TSpec>)>> =
-                HashMap::new();
+            let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<E>)>> = HashMap::new();
             // These variables are used to track if a peer is in a long-lived sync-committee as we
             // may wish to retain this peer over others when pruning.
             let mut sync_committee_peer_count: HashMap<SyncSubnetId, u64> = HashMap::new();

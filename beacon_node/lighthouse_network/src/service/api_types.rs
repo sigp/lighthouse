@@ -51,8 +51,8 @@ pub enum Request {
     BlobsByRoot(BlobsByRootRequest),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
-    fn from(req: Request) -> OutboundRequest<TSpec> {
+impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
+    fn from(req: Request) -> OutboundRequest<E> {
         match req {
             Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
             Request::BlocksByRange(r) => match r {
@@ -90,27 +90,27 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
 //       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
 //       `RPCCodedResponse`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Response<TSpec: EthSpec> {
+pub enum Response<E: EthSpec> {
     /// A Status message.
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
-    BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    BlocksByRange(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
-    BlobsByRange(Option<Arc<BlobSidecar<TSpec>>>),
+    BlobsByRange(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
-    BlobsByRoot(Option<Arc<BlobSidecar<TSpec>>>),
+    BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a LightClientUpdate request.
-    LightClientBootstrap(Arc<LightClientBootstrap<TSpec>>),
+    LightClientBootstrap(Arc<LightClientBootstrap<E>>),
     /// A response to a LightClientOptimisticUpdate request.
-    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<TSpec>>),
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
     /// A response to a LightClientFinalityUpdate request.
-    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<TSpec>>),
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
-    fn from(resp: Response<TSpec>) -> RPCCodedResponse<TSpec> {
+impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
+    fn from(resp: Response<E>) -> RPCCodedResponse<E> {
         match resp {
             Response::BlocksByRoot(r) => match r {
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRoot(b)),

@@ -404,7 +404,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .epoch()
                 .map_or(self.chain.spec.max_request_blocks, |epoch| {
                     match self.chain.spec.fork_name_at_epoch(epoch) {
-                        ForkName::Deneb => self.chain.spec.max_request_blocks_deneb,
+                        ForkName::Deneb | ForkName::Electra => {
+                            self.chain.spec.max_request_blocks_deneb
+                        }
                         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                             self.chain.spec.max_request_blocks
                         }
