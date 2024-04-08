@@ -120,6 +120,15 @@ impl TestRig {
         }
     }
 
+    fn test_setup_after_deneb() -> Option<Self> {
+        let r = Self::test_setup();
+        if r.after_deneb() {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
     fn after_deneb(&self) -> bool {
         matches!(self.current_fork(), ForkName::Deneb | ForkName::Electra)
     }
@@ -2093,7 +2102,9 @@ mod deneb_only {
 
     #[test]
     fn no_peer_penalty_when_rpc_response_already_known_from_gossip() {
-        let mut r = TestRig::test_setup();
+        let Some(mut r) = TestRig::test_setup_after_deneb() else {
+            return;
+        };
         let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(2));
         let blob_0 = blobs[0].clone();
         let blob_1 = blobs[1].clone();
