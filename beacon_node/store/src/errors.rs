@@ -113,6 +113,12 @@ impl From<InconsistentFork> for Error {
     }
 }
 
+impl From<EpochCacheError> for Error {
+    fn from(e: EpochCacheError) -> Error {
+        Error::CacheBuildError(e)
+    }
+}
+
 #[derive(Debug)]
 pub struct DBError {
     pub message: String,
