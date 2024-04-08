@@ -9,6 +9,7 @@ use types::{EthSpec, MinimalEthSpec};
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
 pub const DEFAULT_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(5);
+pub const DEFAULT_STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 pub const DEFAULT_HISTORIC_STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(1);
 pub const DEFAULT_EPOCHS_PER_BLOB_PRUNE: u64 = 1;
 pub const DEFAULT_BLOB_PUNE_MARGIN_EPOCHS: u64 = 0;
@@ -22,6 +23,8 @@ pub struct StoreConfig {
     pub slots_per_restore_point_set_explicitly: bool,
     /// Maximum number of blocks to store in the in-memory block cache.
     pub block_cache_size: NonZeroUsize,
+    /// Maximum number of states to store in the in-memory state cache.
+    pub state_cache_size: NonZeroUsize,
     /// Maximum number of states from freezer database to store in the in-memory state cache.
     pub historic_state_cache_size: NonZeroUsize,
     /// Whether to compact the database on initialization.
@@ -57,6 +60,7 @@ impl Default for StoreConfig {
             slots_per_restore_point: MinimalEthSpec::slots_per_historical_root() as u64,
             slots_per_restore_point_set_explicitly: false,
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
+            state_cache_size: DEFAULT_STATE_CACHE_SIZE,
             historic_state_cache_size: DEFAULT_HISTORIC_STATE_CACHE_SIZE,
             compact_on_init: false,
             compact_on_prune: true,

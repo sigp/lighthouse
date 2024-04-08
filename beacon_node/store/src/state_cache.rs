@@ -46,6 +46,7 @@ pub enum PutStateOutcome {
     New,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl<E: EthSpec> StateCache<E> {
     pub fn new(capacity: NonZeroUsize) -> Self {
         StateCache {

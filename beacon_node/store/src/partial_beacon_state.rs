@@ -34,42 +34,42 @@ where
     pub latest_block_header: BeaconBlockHeader,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    pub block_roots: Option<FixedVector<Hash256, E::SlotsPerHistoricalRoot>>,
+    pub block_roots: Option<Vector<Hash256, E::SlotsPerHistoricalRoot>>,
     #[ssz(skip_serializing, skip_deserializing)]
-    pub state_roots: Option<FixedVector<Hash256, E::SlotsPerHistoricalRoot>>,
+    pub state_roots: Option<Vector<Hash256, E::SlotsPerHistoricalRoot>>,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    pub historical_roots: Option<VariableList<Hash256, E::HistoricalRootsLimit>>,
+    pub historical_roots: Option<List<Hash256, E::HistoricalRootsLimit>>,
 
     // Ethereum 1.0 chain data
     pub eth1_data: Eth1Data,
-    pub eth1_data_votes: VariableList<Eth1Data, E::SlotsPerEth1VotingPeriod>,
+    pub eth1_data_votes: List<Eth1Data, E::SlotsPerEth1VotingPeriod>,
     pub eth1_deposit_index: u64,
 
     // Registry
-    pub validators: VariableList<Validator, E::ValidatorRegistryLimit>,
-    pub balances: VariableList<u64, E::ValidatorRegistryLimit>,
+    pub validators: List<Validator, E::ValidatorRegistryLimit>,
+    pub balances: List<u64, E::ValidatorRegistryLimit>,
 
     // Shuffling
     /// Randao value from the current slot, for patching into the per-epoch randao vector.
     pub latest_randao_value: Hash256,
     #[ssz(skip_serializing, skip_deserializing)]
-    pub randao_mixes: Option<FixedVector<Hash256, E::EpochsPerHistoricalVector>>,
+    pub randao_mixes: Option<Vector<Hash256, E::EpochsPerHistoricalVector>>,
 
     // Slashings
-    slashings: FixedVector<u64, E::EpochsPerSlashingsVector>,
+    slashings: Vector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
     #[superstruct(only(Base))]
-    pub previous_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
+    pub previous_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
     #[superstruct(only(Base))]
-    pub current_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
+    pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
-    pub previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+    pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
-    pub current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+    pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
     pub justification_bits: BitVector<E::JustificationBitsLength>,
@@ -79,7 +79,7 @@ where
 
     // Inactivity
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
-    pub inactivity_scores: VariableList<u64, E::ValidatorRegistryLimit>,
+    pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
@@ -117,7 +117,7 @@ where
 
     #[ssz(skip_serializing, skip_deserializing)]
     #[superstruct(only(Capella, Deneb, Electra))]
-    pub historical_summaries: Option<VariableList<HistoricalSummary, E::HistoricalRootsLimit>>,
+    pub historical_summaries: Option<List<HistoricalSummary, E::HistoricalRootsLimit>>,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -369,7 +369,9 @@ impl<E: EthSpec> PartialBeaconState<E> {
             // Patch the value for the current slot into the index for the current epoch
             let current_epoch = self.slot().epoch(E::slots_per_epoch());
             let len = randao_mixes.len();
-            randao_mixes[current_epoch.as_usize() % len] = *self.latest_randao_value();
+            *randao_mixes
+                .get_mut(current_epoch.as_usize() % len)
+                .ok_or(Error::RandaoMixOutOfBounds)? = *self.latest_randao_value();
 
             *self.randao_mixes_mut() = Some(randao_mixes)
         }
@@ -422,7 +424,6 @@ macro_rules! impl_try_into_beacon_state {
             exit_cache: <_>::default(),
             slashings_cache: <_>::default(),
             epoch_cache: <_>::default(),
-            tree_hash_cache: <_>::default(),
 
             // Variant-specific fields
             $(
