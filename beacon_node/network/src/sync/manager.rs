@@ -274,14 +274,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn active_single_lookups(&self) -> Vec<Id> {
         self.block_lookups.active_single_lookups()
     }
 
+    #[cfg(test)]
     pub(crate) fn active_parent_lookups(&self) -> Vec<Hash256> {
         self.block_lookups.active_parent_lookups()
     }
 
+    #[cfg(test)]
     pub(crate) fn failed_chains_contains(&mut self, chain_hash: &Hash256) -> bool {
         self.block_lookups.failed_chains_contains(chain_hash)
     }
@@ -1140,86 +1143,5 @@ impl<T: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<T>>>
 impl<T: EthSpec> From<BlockError<T>> for BlockProcessingResult<T> {
     fn from(e: BlockError<T>) -> Self {
         BlockProcessingResult::Err(e)
-    }
-}
-
-#[cfg(test)]
-pub mod testing {
-    use std::sync::Arc;
-
-    use slog::Logger;
-    use tokio::sync::mpsc;
-    use tokio::sync::mpsc::{Receiver, UnboundedReceiver, UnboundedSender};
-
-    use beacon_chain::builder::Witness;
-    use beacon_chain::eth1_chain::CachingEth1Backend;
-    use beacon_chain::BeaconChain;
-    use beacon_processor::WorkEvent;
-    use execution_layer::EngineState;
-    use lighthouse_network::NetworkGlobals;
-    use slot_clock::ManualSlotClock;
-    use store::MemoryStore;
-    use task_executor::TaskExecutor;
-    use types::MinimalEthSpec as E;
-
-    use crate::network_beacon_processor::NetworkBeaconProcessor;
-    use crate::sync::backfill_sync::BackFillSync;
-    use crate::sync::block_lookups::BlockLookups;
-    use crate::sync::manager::SyncManager;
-    use crate::sync::network_context::SyncNetworkContext;
-    use crate::sync::range_sync::RangeSync;
-    use crate::sync::SyncMessage;
-    use crate::NetworkMessage;
-
-    type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
-
-    #[allow(clippy::type_complexity)]
-    pub fn spawn_for_testing(
-        beacon_chain: Arc<BeaconChain<T>>,
-        network_globals: Arc<NetworkGlobals<E>>,
-        executor: TaskExecutor,
-        log: Logger,
-    ) -> (
-        UnboundedSender<SyncMessage<E>>,
-        UnboundedReceiver<NetworkMessage<E>>,
-        Receiver<WorkEvent<E>>,
-    ) {
-        let (network_beacon_processor, beacon_processor_rx) =
-            NetworkBeaconProcessor::null_for_testing(
-                network_globals.clone(),
-                beacon_chain.clone(),
-                executor.clone(),
-                log.clone(),
-            );
-        let (network_tx, network_rx) = mpsc::unbounded_channel();
-        let mut network = SyncNetworkContext::new(
-            network_tx,
-            Arc::new(network_beacon_processor),
-            beacon_chain.clone(),
-            log.new(slog::o!("component" => "network_context")),
-        );
-        network.update_execution_engine_state(EngineState::Online);
-
-        let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<E>>();
-
-        let mut sync_manager = SyncManager {
-            chain: beacon_chain.clone(),
-            input_channel: sync_recv,
-            network,
-            range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
-            backfill_sync: BackFillSync::new(
-                beacon_chain.clone(),
-                network_globals.clone(),
-                log.clone(),
-            ),
-            block_lookups: BlockLookups::new(
-                beacon_chain.data_availability_checker.clone(),
-                log.clone(),
-            ),
-            log: log.new(slog::o!("component" => "sync_manager")),
-        };
-        executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
-
-        (sync_send, network_rx, beacon_processor_rx)
     }
 }

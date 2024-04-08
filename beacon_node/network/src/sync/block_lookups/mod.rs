@@ -76,10 +76,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn active_single_lookups(&self) -> Vec<Id> {
         self.single_block_lookups.keys().cloned().collect()
     }
 
+    #[cfg(test)]
     pub(crate) fn active_parent_lookups(&self) -> Vec<Hash256> {
         self.parent_lookups
             .iter()
@@ -87,6 +89,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .collect::<Vec<_>>()
     }
 
+    #[cfg(test)]
     pub(crate) fn failed_chains_contains(&mut self, chain_hash: &Hash256) -> bool {
         self.failed_chains.contains(chain_hash)
     }
