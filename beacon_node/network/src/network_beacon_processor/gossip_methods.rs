@@ -2295,7 +2295,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(self.log, "Attestation for finalized state"; "peer_id" => % peer_id);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            e @ AttnError::BeaconChainError(BeaconChainError::MaxCommitteePromises(_)) => {
+            AttnError::BeaconChainError(BeaconChainError::ShufflingCacheError(e)) => {
                 debug!(
                     self.log,
                     "Dropping attestation";
