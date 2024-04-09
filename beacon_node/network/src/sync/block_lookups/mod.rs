@@ -268,8 +268,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             cx,
         );
 
-        debug!(self.log, "Created new parent lookup"; "block_root" => ?block_root, "parent_root" => ?parent_root);
-
         self.request_parent(parent_lookup, cx);
     }
 
@@ -764,19 +762,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let Some(mut lookup) = self.single_block_lookups.remove(&target_id) else {
-            trace!(self.log, "Unknown single block lookup"; "target_id" => target_id);
             return;
         };
 
         let root = lookup.block_root();
         let request_state = R::request_state_mut(&mut lookup);
 
-        let peer_id = match request_state.get_state().processing_peer() {
-            Ok(peer_id) => peer_id,
-            Err(e) => {
-                trace!(self.log, "Attempting to process single block lookup in bad state"; "id" => target_id, "response_type" => ?R::response_type(), "error" => e);
-                return;
-            }
+        let Ok(peer_id) = request_state.get_state().processing_peer() else {
+            return;
         };
         debug!(
             self.log,

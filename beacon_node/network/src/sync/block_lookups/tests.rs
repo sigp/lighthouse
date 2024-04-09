@@ -49,22 +49,22 @@ const D: Duration = Duration::new(0, 0);
 ///
 /// The test utility covers testing the interactions from and to `SyncManager`. In diagram form:
 ///                      +-----------------+
-//                      | BeaconProcessor |
-//                      +---------+-------+
-//                             ^  |
-//                             |  |
-//                   WorkEvent |  | SyncMsg
-//                             |  | (Result)
-//                             |  v
-// +--------+            +-----+-----------+             +----------------+
-// | Router +----------->|  SyncManager    +------------>| NetworkService |
-// +--------+  SyncMsg   +-----------------+ NetworkMsg  +----------------+
-//           (RPC resp)  |  - RangeSync    |  (RPC req)
-//                       +-----------------+
-//                       |  - BackFillSync |
-//                       +-----------------+
-//                       |  - BlockLookups |
-//                       +-----------------+
+///                      | BeaconProcessor |
+///                      +---------+-------+
+///                             ^  |
+///                             |  |
+///                   WorkEvent |  | SyncMsg
+///                             |  | (Result)
+///                             |  v
+/// +--------+            +-----+-----------+             +----------------+
+/// | Router +----------->|  SyncManager    +------------>| NetworkService |
+/// +--------+  SyncMsg   +-----------------+ NetworkMsg  +----------------+
+///           (RPC resp)  |  - RangeSync    |  (RPC req)
+///                       +-----------------+
+///                       |  - BackFillSync |
+///                       +-----------------+
+///                       |  - BlockLookups |
+///                       +-----------------+
 impl TestRig {
     fn test_setup() -> Self {
         let enable_log = cfg!(feature = "test_logger");
@@ -402,31 +402,6 @@ impl TestRig {
         }
     }
 
-    fn expect_lookup_request(&mut self, response_type: ResponseType) -> SingleLookupReqId {
-        match response_type {
-            ResponseType::Block => self
-                .pop_received_network_event(|ev| match ev {
-                    NetworkMessage::SendRequest {
-                        peer_id: _,
-                        request: Request::BlocksByRoot(_request),
-                        request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
-                    } => Some(*id),
-                    _ => None,
-                })
-                .expect("Expected block request: {:?}"),
-            ResponseType::Blob => self
-                .pop_received_network_event(|ev| match ev {
-                    NetworkMessage::SendRequest {
-                        peer_id: _,
-                        request: Request::BlobsByRoot(_request),
-                        request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
-                    } => Some(*id),
-                    _ => None,
-                })
-                .expect("Expected block request"),
-        }
-    }
-
     #[track_caller]
     fn expect_block_lookup_request(&mut self, for_block: Hash256) -> SingleLookupReqId {
         self.pop_received_network_event(|ev| match ev {
@@ -437,7 +412,7 @@ impl TestRig {
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
-        .expect(&format!("Expected block request for {for_block:?}"))
+        .unwrap_or_else(|e| panic!("Expected block request for {for_block:?}: {e}"))
     }
 
     #[track_caller]
@@ -457,7 +432,7 @@ impl TestRig {
             }
             _ => None,
         })
-        .expect(&format!("Expected blob request for {for_block:?}"))
+        .unwrap_or_else(|e| panic!("Expected blob request for {for_block:?}: {e}"))
     }
 
     #[track_caller]
@@ -470,7 +445,7 @@ impl TestRig {
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
-        .expect(&format!("Expected block parent request for {for_block:?}"))
+        .unwrap_or_else(|e| panic!("Expected block parent request for {for_block:?}: {e}"))
     }
 
     #[track_caller]
@@ -490,33 +465,7 @@ impl TestRig {
             }
             _ => None,
         })
-        .expect(&format!("Expected blob parent request for {for_block:?}"))
-    }
-
-    #[track_caller]
-    fn expect_parent_request(&mut self, response_type: ResponseType) -> SingleLookupReqId {
-        match response_type {
-            ResponseType::Block => self
-                .pop_received_network_event(|ev| match ev {
-                    NetworkMessage::SendRequest {
-                        peer_id: _,
-                        request: Request::BlocksByRoot(_request),
-                        request_id: RequestId::Sync(SyncRequestId::ParentLookup { id }),
-                    } => Some(*id),
-                    _ => None,
-                })
-                .expect("Expected block parent request"),
-            ResponseType::Blob => self
-                .pop_received_network_event(|ev| match ev {
-                    NetworkMessage::SendRequest {
-                        peer_id: _,
-                        request: Request::BlobsByRoot(_request),
-                        request_id: RequestId::Sync(SyncRequestId::ParentLookupBlob { id }),
-                    } => Some(*id),
-                    _ => None,
-                })
-                .expect("Expected blob parent request"),
-        }
+        .unwrap_or_else(|e| panic!("Expected blob parent request for {for_block:?}: {e}"))
     }
 
     fn expect_lookup_request_block_and_blobs(&mut self, block_root: Hash256) -> SingleLookupReqId {
@@ -606,10 +555,12 @@ impl TestRig {
             NetworkMessage::ReportPeer { peer_id: p_id, .. } if p_id == &peer_id => Some(()),
             _ => None,
         })
-        .expect(&format!(
-            "Expected peer penalty for {peer_id}: {:#?}",
-            self.network_rx_queue
-        ))
+        .unwrap_or_else(|_| {
+            panic!(
+                "Expected peer penalty for {peer_id}: {:#?}",
+                self.network_rx_queue
+            )
+        })
     }
 
     pub fn block_with_parent_and_blobs(
@@ -986,10 +937,10 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 
     // Now fail processing a block in the parent request
     for i in 0..PROCESSING_FAILURES {
-        let id = rig.expect_parent_request(ResponseType::Block);
+        let id = rig.expect_block_parent_request(parent_root);
         // Blobs are only requested in the first iteration as this test only retries blocks
         if rig.after_deneb() && i != 0 {
-            let _ = rig.expect_parent_request(ResponseType::Blob);
+            let _ = rig.expect_blob_parent_request(parent_root);
         }
         assert!(!rig.failed_chains_contains(&block_root));
         // send the right parent but fail processing
@@ -1521,12 +1472,16 @@ mod deneb_only {
             self
         }
         fn expect_block_request(mut self) -> Self {
-            let id = self.rig.expect_lookup_request(ResponseType::Block);
+            let id = self
+                .rig
+                .expect_block_lookup_request(self.block.canonical_root());
             self.block_req_id = Some(id);
             self
         }
         fn expect_blobs_request(mut self) -> Self {
-            let id = self.rig.expect_lookup_request(ResponseType::Blob);
+            let id = self
+                .rig
+                .expect_blob_lookup_request(self.block.canonical_root());
             self.blob_req_id = Some(id);
             self
         }

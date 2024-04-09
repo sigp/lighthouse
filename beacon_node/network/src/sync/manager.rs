@@ -650,7 +650,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
-                debug!(self.log, "received sync_message"; "message" => "UnknownParentBlock", "block_root" => %block_root, "parent_root" => %parent_root);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
@@ -670,7 +669,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 let mut blobs = FixedBlobSidecarList::default();
                 *blobs.index_mut(blob_index as usize) = Some(blob);
-                debug!(self.log, "received sync_message"; "message" => "UnknownParentBlob", "block_root" => %block_root, "parent_root" => %parent_root);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
@@ -682,7 +680,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
-                    debug!(self.log, "received sync_message"; "message" => "UnknownBlockHashFromAttestation", "block_root" => %block_root);
+                    debug!(self.log, "Received sync_message"; "message" => "UnknownBlockHashFromAttestation", "block_root" => %block_root);
                     self.block_lookups
                         .search_block(block_root, &[peer_id], &mut self.network);
                 }
@@ -757,33 +755,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         slot: Slot,
         child_components: ChildComponents<T::EthSpec>,
     ) {
-        match self.should_search_for_block(slot, &peer_id) {
-            Ok(_) => {
-                self.block_lookups.search_parent(
-                    slot,
-                    block_root,
-                    parent_root,
-                    peer_id,
-                    &mut self.network,
-                );
-                self.block_lookups.search_child_block(
-                    block_root,
-                    child_components,
-                    &[peer_id],
-                    &mut self.network,
-                );
-            }
-            Err(reason) => {
-                debug!(self.log, "Ignoring unknown parent request"; "reason" => reason);
-            }
+        if self.should_search_for_block(slot, &peer_id) {
+            self.block_lookups.search_parent(
+                slot,
+                block_root,
+                parent_root,
+                peer_id,
+                &mut self.network,
+            );
+            self.block_lookups.search_child_block(
+                block_root,
+                child_components,
+                &[peer_id],
+                &mut self.network,
+            );
         }
     }
 
-    fn should_search_for_block(
-        &mut self,
-        block_slot: Slot,
-        peer_id: &PeerId,
-    ) -> Result<(), &'static str> {
+    fn should_search_for_block(&mut self, block_slot: Slot, peer_id: &PeerId) -> bool {
         if !self.network_globals().sync_state.read().is_synced() {
             let head_slot = self.chain.canonical_head.cached_head().head_slot();
 
@@ -794,17 +783,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 || (head_slot < block_slot
                     && block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
             {
-                return Err("not synced");
+                return false;
             }
         }
 
-        if !self.network_globals().peers.read().is_connected(peer_id) {
-            return Err("peer not connected");
-        }
-        if !self.network.is_execution_engine_online() {
-            return Err("execution engine offline");
-        }
-        Ok(())
+        self.network_globals().peers.read().is_connected(peer_id)
+            && self.network.is_execution_engine_online()
     }
 
     fn synced(&mut self) -> bool {
