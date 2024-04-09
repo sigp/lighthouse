@@ -274,4 +274,13 @@ mod test {
         }
         assert_eq!(ForkName::latest(), fork);
     }
+
+    #[test]
+    fn fork_ord_consistent() {
+        for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {
+            assert_eq!(prev_fork.next_fork(), Some(fork));
+            assert_eq!(fork.previous_fork(), Some(prev_fork));
+            assert!(prev_fork < fork);
+        }
+    }
 }
