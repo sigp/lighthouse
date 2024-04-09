@@ -68,6 +68,7 @@ pub fn cli_app() -> Command {
                 .help("Disables the discovery packet filter. Useful for testing in smaller networks")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("shutdown-after-sync")
@@ -286,7 +287,6 @@ pub fn cli_app() -> Command {
         )
         .arg(
             Arg::new("disable-enr-auto-update")
-                .short('x')
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .long("disable-enr-auto-update")
