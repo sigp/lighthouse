@@ -221,7 +221,7 @@ impl MessageCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{IdentTopic as Topic};
+    use crate::IdentTopic as Topic;
 
     fn gen_testm(x: u64, topic: TopicHash) -> (MessageId, RawMessage) {
         let default_id = |message: &RawMessage| {
