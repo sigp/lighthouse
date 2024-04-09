@@ -619,6 +619,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
+                debug!(self.log, "Received unknown parent block message"; "block_root" => %block_root, "parent_root" => %parent_root);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
@@ -638,6 +639,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 let mut blobs = FixedBlobSidecarList::default();
                 *blobs.index_mut(blob_index as usize) = Some(blob);
+                debug!(self.log, "Received unknown parent blob message"; "block_root" => %block_root, "parent_root" => %parent_root);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
@@ -723,24 +725,33 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         slot: Slot,
         child_components: ChildComponents<T::EthSpec>,
     ) {
-        if self.should_search_for_block(slot, &peer_id) {
-            self.block_lookups.search_parent(
-                slot,
-                block_root,
-                parent_root,
-                peer_id,
-                &mut self.network,
-            );
-            self.block_lookups.search_child_block(
-                block_root,
-                child_components,
-                &[peer_id],
-                &mut self.network,
-            );
+        match self.should_search_for_block(slot, &peer_id) {
+            Ok(_) => {
+                self.block_lookups.search_parent(
+                    slot,
+                    block_root,
+                    parent_root,
+                    peer_id,
+                    &mut self.network,
+                );
+                self.block_lookups.search_child_block(
+                    block_root,
+                    child_components,
+                    &[peer_id],
+                    &mut self.network,
+                );
+            }
+            Err(reason) => {
+                debug!(self.log, "Ignoring unknown parent request"; "block_root" => %block_root, "parent_root" => %parent_root, "reason" => reason);
+            }
         }
     }
 
-    fn should_search_for_block(&mut self, block_slot: Slot, peer_id: &PeerId) -> bool {
+    fn should_search_for_block(
+        &mut self,
+        block_slot: Slot,
+        peer_id: &PeerId,
+    ) -> Result<(), &'static str> {
         if !self.network_globals().sync_state.read().is_synced() {
             let head_slot = self.chain.canonical_head.cached_head().head_slot();
 
@@ -751,12 +762,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 || (head_slot < block_slot
                     && block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
             {
-                return false;
+                return Err("not synced");
             }
         }
 
-        self.network_globals().peers.read().is_connected(peer_id)
-            && self.network.is_execution_engine_online()
+        if !self.network_globals().peers.read().is_connected(peer_id) {
+            return Err("peer not connected");
+        }
+        if !self.network.is_execution_engine_online() {
+            return Err("execution engine offline");
+        }
+        Ok(())
     }
 
     fn synced(&mut self) -> bool {
