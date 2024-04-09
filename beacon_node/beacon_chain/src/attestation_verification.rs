@@ -39,13 +39,12 @@ use crate::{
     observed_aggregates::ObserveOutcome, observed_attesters::Error as ObservedAttestersError,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use bitvec::view::AsBits;
 use bls::verify_signature_sets;
 use proto_array::Block as ProtoBlock;
 use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
-    common::{indexed_attestation_base, indexed_attestation_electra},
+    common::indexed_attestation_base,
     per_block_processing::errors::AttestationValidationError,
     signature_sets::{
         indexed_attestation_signature_set_from_pubkeys,
@@ -330,7 +329,7 @@ pub trait VerifiedAttestation<T: BeaconChainTypes>: Sized {
     // Inefficient default implementation. This is overridden for gossip verified attestations.
     fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
         let attestation = self.attestation().clone();
-        let attesting_indices = self.indexed_attestation().attesting_indices();
+        let attesting_indices = self.indexed_attestation().attesting_indices.clone().into();
         (attestation, attesting_indices)
     }
 }
@@ -519,7 +518,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         verify_attestation_target_root::<T::EthSpec>(&head_block, attestation)?;
 
         // Ensure that the attestation has participants.
-        if attestation.is_empty_aggregation_bits() {
+        if attestation.aggregation_bits().is_zero() {
             Err(Error::EmptyAggregationBitfield)
         } else {
             Ok(attestation_data_root)
@@ -540,6 +539,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
         };
 
+        // TODO(eip7594) this fn should accept a list of committees for this slot
         let get_indexed_attestation_with_committee =
             |(committee, _): (BeaconCommittee, CommitteesPerSlot)| {
                 // Note: this clones the signature which is known to be a relatively slow operation.
@@ -744,7 +744,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
-        let num_aggregation_bits = attestation.aggregation_num_set_bits();
+        let num_aggregation_bits = attestation.aggregation_bits().num_set_bits();
         if num_aggregation_bits != 1 {
             return Err(Error::NotExactlyOneAggregationBitSet(num_aggregation_bits));
         }
@@ -771,7 +771,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<(u64, SubnetId), Error> {
         let expected_subnet_id = SubnetId::compute_subnet_for_attestation_data::<T::EthSpec>(
-            &indexed_attestation.data(),
+            &indexed_attestation.data,
             committees_per_slot,
             &chain.spec,
         )
@@ -788,7 +788,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         };
 
         let validator_index = *indexed_attestation
-            .attesting_indices()
+            .attesting_indices
             .first()
             .ok_or(Error::NotExactlyOneAggregationBitSet(0))?;
 
@@ -1109,11 +1109,11 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
 
     let fork = chain
         .spec
-        .fork_at_epoch(indexed_attestation.data().target.epoch);
+        .fork_at_epoch(indexed_attestation.data.target.epoch);
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
         |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-        &indexed_attestation.signature(),
+        &indexed_attestation.signature,
         indexed_attestation,
         &fork,
         chain.genesis_validators_root,
@@ -1213,7 +1213,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
 
     let fork = chain
         .spec
-        .fork_at_epoch(indexed_attestation.data().target.epoch);
+        .fork_at_epoch(indexed_attestation.data.target.epoch);
 
     let signature_sets = vec![
         signed_aggregate_selection_proof_signature_set(
@@ -1234,7 +1234,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .map_err(BeaconChainError::SignatureSetError)?,
         indexed_attestation_signature_set_from_pubkeys(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-            &indexed_attestation.signature(),
+            &indexed_attestation.signature,
             indexed_attestation,
             &fork,
             chain.genesis_validators_root,
@@ -1255,6 +1255,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
+    // TODO(eip7549) return a list of committees/committee cache
     map_attestation_committee(chain, attestation, |(committee, committees_per_slot)| {
         match attestation {
             Attestation::Base(att) => {

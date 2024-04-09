@@ -23,7 +23,7 @@ pub struct CompactAttestationData {
 #[derive(Debug, PartialEq)]
 pub struct CompactIndexedAttestation<E: EthSpec> {
     pub attesting_indices: Vec<u64>,
-    pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
+    pub aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot>,
     pub signature: AggregateSignature,
     pub index: u64,
 }

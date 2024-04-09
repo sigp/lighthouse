@@ -112,17 +112,17 @@ impl<E: EthSpec> PackingEfficiencyHandler<E> {
 
         let mut attestations_in_block = HashMap::new();
         for attestation in attestations.iter() {
-            for (position, voted) in attestation.aggregation_bits.iter().enumerate() {
+            for (position, voted) in attestation.aggregation_bits().iter().enumerate() {
                 if voted {
                     let unique_attestation = UniqueAttestation {
-                        slot: attestation.data.slot,
-                        committee_index: attestation.data.index,
+                        slot: attestation.data().slot,
+                        committee_index: attestation.data().index,
                         committee_position: position,
                     };
                     let inclusion_distance: u64 = block
                         .slot()
                         .as_u64()
-                        .checked_sub(attestation.data.slot.as_u64())
+                        .checked_sub(attestation.data().slot.as_u64())
                         .ok_or(PackingEfficiencyError::InvalidAttestationError)?;
 
                     self.available_attestations.remove(&unique_attestation);

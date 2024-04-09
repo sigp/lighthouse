@@ -9,6 +9,7 @@ use environment::RuntimeContext;
 use futures::future::join_all;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
+use types::attestation::{AttestationBase, AttestationElectra};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -404,21 +405,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
             // TODO(attestation_data) populate index here for electra
             let mut attestation = if is_electra {
-                Attestation {
+                Attestation::Base(AttestationBase {
                     aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
                         .unwrap(),
-                    index: committee_index,
                     data: attestation_data.clone(),
                     signature: AggregateSignature::infinity(),
-                }
+                })
             } else {
-                Attestation {
+                // TODO(eip7594) committee_bits should be init with correct length
+                Attestation::Electra(AttestationElectra {
                     aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
                         .unwrap(),
-                    index: <_>::default(),
+                    committee_bits: BitList::with_capacity(duty.committee_length as usize)
+                        .unwrap(),
                     data: attestation_data.clone(),
                     signature: AggregateSignature::infinity(),
-                }
+                })
             };
 
             match self
@@ -661,10 +663,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             log,
                             "Successfully published attestation";
                             "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
-                            "signatures" => attestation.aggregation_bits.num_set_bits(),
-                            "head_block" => format!("{:?}", attestation.data.beacon_block_root),
+                            "signatures" => attestation.aggregation_bits().num_set_bits(),
+                            "head_block" => format!("{:?}", attestation.data().beacon_block_root),
                             "committee_index" => committee_index,
-                            "slot" => attestation.data.slot.as_u64(),
+                            "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );
                     }
@@ -677,8 +679,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             "Failed to publish attestation";
                             "error" => %e,
                             "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
-                            "committee_index" => attestation.data.index,
-                            "slot" => attestation.data.slot.as_u64(),
+                            "committee_index" => attestation.data().index,
+                            "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );
                     }

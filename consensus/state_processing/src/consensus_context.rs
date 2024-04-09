@@ -22,13 +22,7 @@ pub struct ConsensusContext<E: EthSpec> {
     /// Cache of indexed attestations constructed during block processing.
     /// We can skip serializing / deserializing this as the cache will just be rebuilt
     #[ssz(skip_serializing, skip_deserializing)]
-    indexed_attestations:
-        HashMap<(AttestationData, BitList<E::MaxValidatorsPerCommittee>), IndexedAttestation<E>>,
-
-    /// Cache of indexed attestations constructed during block processing.
-    /// We can skip serializing / deserializing this as the cache will just be rebuilt
-    #[ssz(skip_serializing, skip_deserializing)]
-    indexed_attestations_electra: HashMap<
+    indexed_attestations: HashMap<
         (
             AttestationData,
             BitList<E::MaxValidatorsPerCommitteePerSlot>,
@@ -57,7 +51,6 @@ impl<E: EthSpec> ConsensusContext<E> {
             proposer_index: None,
             current_block_root: None,
             indexed_attestations: HashMap::new(),
-            indexed_attestations_electra: HashMap::new(),
         }
     }
 
@@ -180,7 +173,7 @@ impl<E: EthSpec> ConsensusContext<E> {
                     attestation.aggregation_bits.clone(),
                 );
 
-                match self.indexed_attestations_electra.entry(key) {
+                match self.indexed_attestations.entry(key) {
                     Entry::Occupied(occupied) => Ok(occupied.into_mut()),
                     Entry::Vacant(vacant) => {
                         let indexed_attestation =
@@ -197,9 +190,5 @@ impl<E: EthSpec> ConsensusContext<E> {
 
     pub fn num_cached_indexed_attestations(&self) -> usize {
         self.indexed_attestations.len()
-    }
-
-    pub fn num_cached_indexed_attestations_electra(&self) -> usize {
-        self.indexed_attestations_electra.len()
     }
 }

@@ -17,7 +17,7 @@ pub fn is_valid_indexed_attestation<E: EthSpec>(
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
-    let indices = indexed_attestation.attesting_indices();
+    let indices = indexed_attestation.attesting_indices.clone();
 
     // Verify that indices aren't empty
     verify!(!indices.is_empty(), Invalid::IndicesEmpty);
@@ -43,7 +43,7 @@ pub fn is_valid_indexed_attestation<E: EthSpec>(
             indexed_attestation_signature_set(
                 state,
                 |i| get_pubkey_from_state(state, i),
-                &indexed_attestation.signature(),
+                &indexed_attestation.signature,
                 indexed_attestation,
                 spec
             )?

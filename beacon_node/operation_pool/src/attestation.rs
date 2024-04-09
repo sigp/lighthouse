@@ -183,7 +183,7 @@ pub fn earliest_attestation_validators<E: EthSpec>(
     attestation: &AttestationRef<E>,
     state: &BeaconState<E>,
     base_state: &BeaconStateBase<E>,
-) -> BitList<E::MaxValidatorsPerCommittee> {
+) -> BitList<E::MaxValidatorsPerCommitteePerSlot> {
     // Bitfield of validators whose attestations are new/fresh.
     let mut new_validators = attestation.indexed.aggregation_bits.clone();
 

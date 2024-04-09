@@ -81,20 +81,18 @@ impl<E: EthSpec> IndexedAttesterRecord<E> {
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
 struct IndexedAttestationHeader<E: EthSpec> {
     // TODO(eip7549 length should be MAX_VALIDATORS_PER_COMMITTEE * MAX_COMMITTEES_PER_SLOT)
-    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommittee>,
+    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommitteePerSlot>,
     pub data_root: Hash256,
     pub signature: AggregateSignature,
 }
 
 impl<E: EthSpec> From<IndexedAttestation<E>> for AttesterRecord {
     fn from(indexed_attestation: IndexedAttestation<E>) -> AttesterRecord {
-        let attestation_data_hash = indexed_attestation.data().tree_hash_root();
+        let attestation_data_hash = indexed_attestation.data.tree_hash_root();
         let header = IndexedAttestationHeader::<E> {
-            // TODO(eip7549) attesting indices is too short for electra, we might need
-            // to convert IndexedAttestationHeader to superstruct?
-            attesting_indices: indexed_attestation.attesting_indices().into(),
+            attesting_indices: indexed_attestation.attesting_indices,
             data_root: attestation_data_hash,
-            signature: indexed_attestation.signature().clone(),
+            signature: indexed_attestation.signature.clone(),
         };
         let indexed_attestation_hash = header.tree_hash_root();
         AttesterRecord {

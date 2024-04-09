@@ -1,6 +1,6 @@
 pub mod indexed_attestation_base {
     use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
-    use types::{attestation::AttestationBase, indexed_attestation::IndexedAttestationBase, *};
+    use types::{attestation::AttestationBase, *};
     type IndexedAttestationResult<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 
     /// Convert `attestation` to (almost) indexed-verifiable form.
@@ -13,17 +13,17 @@ pub mod indexed_attestation_base {
         let attesting_indices =
             get_attesting_indices::<E>(committee, &attestation.aggregation_bits)?;
 
-        Ok(IndexedAttestation::Base(IndexedAttestationBase {
+        Ok(IndexedAttestation {
             attesting_indices: VariableList::new(attesting_indices)?,
             data: attestation.data.clone(),
             signature: attestation.signature.clone(),
-        }))
+        })
     }
 
     /// Returns validator indices which participated in the attestation, sorted by increasing index.
     pub fn get_attesting_indices<E: EthSpec>(
         committee: &[usize],
-        bitlist: &BitList<E::MaxValidatorsPerCommittee>,
+        bitlist: &BitList<E::MaxValidatorsPerCommitteePerSlot>,
     ) -> Result<Vec<u64>, BeaconStateError> {
         if bitlist.len() != committee.len() {
             return Err(BeaconStateError::InvalidBitfield);
@@ -58,9 +58,7 @@ pub mod indexed_attestation_electra {
 
     use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
     use itertools::Itertools;
-    use types::{
-        attestation::AttestationElectra, indexed_attestation::IndexedAttestationElectra, *,
-    };
+    use types::{attestation::AttestationElectra, *};
     type IndexedAttestationResult<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 
     pub fn get_indexed_attestation<E: EthSpec>(
@@ -69,11 +67,11 @@ pub mod indexed_attestation_electra {
     ) -> IndexedAttestationResult<IndexedAttestation<E>> {
         let attesting_indices = get_attesting_indices::<E>(beacon_state, attestation)?;
 
-        Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
+        Ok(IndexedAttestation {
             attesting_indices: VariableList::new(attesting_indices)?,
             data: attestation.data.clone(),
             signature: attestation.signature.clone(),
-        }))
+        })
     }
 
     /// Returns validator indices which participated in the attestation, sorted by increasing index.

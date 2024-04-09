@@ -16,6 +16,7 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
+use eth2::types::attestation::{AttestationBase, AttestationElectra};
 use eth2::types::SignedBlockContentsTuple;
 use eth2_network_config::TRUSTED_SETUP_BYTES;
 use execution_layer::test_utils::generate_genesis_header;
@@ -1045,12 +1046,13 @@ where
         };
 
         if is_electra {
-            Ok(Attestation {
+            Ok(Attestation::Electra(AttestationElectra {
+                // TODO(eip7594) fix size
                 aggregation_bits: BitList::with_capacity(committee_len)?,
-                index,
+                committee_bits: BitList::with_capacity(committee_len)?,
                 data: AttestationData {
                     slot,
-                    index: <_>::default(),
+                    index: 0u64,
                     beacon_block_root,
                     source: state.current_justified_checkpoint(),
                     target: Checkpoint {
@@ -1059,11 +1061,10 @@ where
                     },
                 },
                 signature: AggregateSignature::empty(),
-            })
+            }))
         } else {
-            Ok(Attestation {
+            Ok(Attestation::Base(AttestationBase {
                 aggregation_bits: BitList::with_capacity(committee_len)?,
-                index: <_>::default(),
                 data: AttestationData {
                     slot,
                     index,
@@ -1075,7 +1076,7 @@ where
                     },
                 },
                 signature: AggregateSignature::empty(),
-            })
+            }))
         }
     }
 
@@ -1151,17 +1152,26 @@ where
                             )
                             .unwrap();
 
-                        attestation.aggregation_bits.set(i, true).unwrap();
+                        attestation = match attestation {
+                            Attestation::Base(mut att) => {
+                                att.aggregation_bits.set(i, true).unwrap();
+                                Attestation::Base(att)
+                            }
+                            Attestation::Electra(mut att) => {
+                                att.aggregation_bits.set(i, true).unwrap();
+                                Attestation::Electra(att)
+                            }
+                        };
 
-                        attestation.signature = {
+                        let signature = {
                             let domain = self.spec.get_domain(
-                                attestation.data.target.epoch,
+                                attestation.data().target.epoch,
                                 Domain::BeaconAttester,
                                 &fork,
                                 state.genesis_validators_root(),
                             );
 
-                            let message = attestation.data.signing_root(domain);
+                            let message = attestation.data().signing_root(domain);
 
                             let mut agg_sig = AggregateSignature::infinity();
 
@@ -1172,8 +1182,19 @@ where
                             agg_sig
                         };
 
+                        attestation = match attestation {
+                            Attestation::Base(mut att) => {
+                                att.signature = signature;
+                                Attestation::Base(att)
+                            }
+                            Attestation::Electra(mut att) => {
+                                att.signature = signature;
+                                Attestation::Electra(att)
+                            }
+                        };
+
                         let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
-                            &attestation.data,
+                            &attestation.data(),
                             committee_count,
                             &self.chain.spec,
                         )
@@ -1347,7 +1368,7 @@ where
                     // If there are any attestations in this committee, create an aggregate.
                     if let Some((attestation, _)) = committee_attestations.first() {
                         let bc = state
-                            .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                            .get_beacon_committee(attestation.data().slot, attestation.data().index)
                             .unwrap();
 
                         // Find an aggregator if one exists. Return `None` if there are no
@@ -1378,7 +1399,7 @@ where
                         // aggregate locally.
                         let aggregate = self
                             .chain
-                            .get_aggregated_attestation(&attestation.data)
+                            .get_aggregated_attestation(&attestation.data())
                             .unwrap()
                             .unwrap_or_else(|| {
                                 committee_attestations.iter().skip(1).fold(

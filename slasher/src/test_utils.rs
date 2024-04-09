@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 use types::{
-    indexed_attestation::IndexedAttestationBase, AggregateSignature, AttestationData,
-    AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch, Hash256, IndexedAttestation,
-    MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
+    AggregateSignature, AttestationData, AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch,
+    Hash256, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
@@ -13,7 +12,7 @@ pub fn indexed_att(
     target_epoch: u64,
     target_root: u64,
 ) -> IndexedAttestation<E> {
-    IndexedAttestation::Base(IndexedAttestationBase {
+    IndexedAttestation {
         attesting_indices: attesting_indices.as_ref().to_vec().into(),
         data: AttestationData {
             slot: Slot::new(0),
@@ -29,7 +28,7 @@ pub fn indexed_att(
             },
         },
         signature: AggregateSignature::empty(),
-    })
+    }
 }
 
 pub fn att_slashing(
@@ -67,7 +66,7 @@ pub fn slashed_validators_from_slashings(slashings: &HashSet<AttesterSlashing<E>
                 "invalid slashing: {:#?}",
                 slashing
             );
-            hashset_intersection(&att1.attesting_indices(), &att2.attesting_indices())
+            hashset_intersection(&att1.attesting_indices, &att2.attesting_indices)
         })
         .collect()
 }
@@ -85,8 +84,8 @@ pub fn slashed_validators_from_attestations(
 
             if att1.is_double_vote(att2) || att1.is_surround_vote(att2) {
                 slashed_validators.extend(hashset_intersection(
-                    &att1.attesting_indices(),
-                    &att2.attesting_indices(),
+                    &att1.attesting_indices,
+                    &att2.attesting_indices,
                 ));
             }
         }

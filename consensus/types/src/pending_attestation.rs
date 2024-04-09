@@ -23,7 +23,7 @@ use tree_hash_derive::TreeHash;
 )]
 #[arbitrary(bound = "E: EthSpec")]
 pub struct PendingAttestation<E: EthSpec> {
-    pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
+    pub aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot>,
     pub data: AttestationData,
     #[serde(with = "serde_utils::quoted_u64")]
     pub inclusion_delay: u64,

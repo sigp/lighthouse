@@ -60,9 +60,6 @@ pub enum Error {
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[arbitrary(bound = "E: EthSpec")]
 pub struct Attestation<E: EthSpec> {
-    #[superstruct(only(Base), partial_getter(rename = "aggregation_bits_base"))]
-    pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
-    #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
@@ -96,33 +93,33 @@ impl<E: EthSpec> Hash for Attestation<E> {
 }
 
 impl<E: EthSpec> Attestation<E> {
-    pub fn aggregation_bits(&self) -> Vec<u8> {
-        match self {
-            Attestation::Base(att) => att.aggregation_bits.as_slice().to_owned(),
-            Attestation::Electra(att) => att.aggregation_bits.as_slice().to_owned(),
-        }
-    }
+    // pub fn aggregation_bits(&self) -> Vec<u8> {
+    //     match self {
+    //         Attestation::Base(att) => att.aggregation_bits.as_slice().to_owned(),
+    //         Attestation::Electra(att) => att.aggregation_bits.as_slice().to_owned(),
+    //     }
+    // }
 
-    pub fn get_aggregation_bit(&self, index: usize) -> Result<bool, ssz_types::Error> {
-        match self {
-            Attestation::Base(att) => att.aggregation_bits.get(index),
-            Attestation::Electra(att) => att.aggregation_bits.get(index),
-        }
-    }
+    // pub fn get_aggregation_bit(&self, index: usize) -> Result<bool, ssz_types::Error> {
+    //     match self {
+    //         Attestation::Base(att) => att.aggregation_bits.get(index),
+    //         Attestation::Electra(att) => att.aggregation_bits.get(index),
+    //     }
+    // }
 
-    pub fn is_empty_aggregation_bits(&self) -> bool {
-        match self {
-            Attestation::Base(att) => att.aggregation_bits.is_zero(),
-            Attestation::Electra(att) => att.aggregation_bits.is_zero(),
-        }
-    }
+    // pub fn is_empty_aggregation_bits(&self) -> bool {
+    //     match self {
+    //         Attestation::Base(att) => att.aggregation_bits.is_zero(),
+    //         Attestation::Electra(att) => att.aggregation_bits.is_zero(),
+    //     }
+    // }
 
-    pub fn aggregation_num_set_bits(&self) -> usize {
-        match self {
-            Attestation::Base(att) => att.aggregation_bits.num_set_bits(),
-            Attestation::Electra(att) => att.aggregation_bits.num_set_bits(),
-        }
-    }
+    // pub fn aggregation_num_set_bits(&self) -> usize {
+    //     match self {
+    //         Attestation::Base(att) => att.aggregation_bits.num_set_bits(),
+    //         Attestation::Electra(att) => att.aggregation_bits.num_set_bits(),
+    //     }
+    // }
 
     /// Aggregate another Attestation into this one.
     ///
@@ -171,6 +168,24 @@ impl<E: EthSpec> Attestation<E> {
                 fork,
                 genesis_validators_root,
                 spec,
+            ),
+        }
+    }
+
+     /// Returns an `AlreadySigned` error if the `committee_position`'th bit is already `true`.
+     pub fn add_signature(
+        &mut self,
+        signature: &Signature,
+        committee_position: usize,
+    ) -> Result<(), Error> {
+        match self {
+            Attestation::Base(att) => att.add_signature(
+                signature,
+                committee_position,
+            ),
+            Attestation::Electra(att) => att.add_signature(
+                signature,
+                committee_position,
             ),
         }
     }

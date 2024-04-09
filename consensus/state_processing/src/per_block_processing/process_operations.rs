@@ -72,7 +72,7 @@ pub mod base {
             .map_err(|e| e.into_with_index(i))?;
 
             let pending_attestation = PendingAttestation {
-                aggregation_bits: attestation.aggregation_bits_base().unwrap().clone(),
+                aggregation_bits: attestation.aggregation_bits().clone(),
                 data: attestation.data().clone(),
                 inclusion_delay: state.slot().safe_sub(attestation.data().slot)?.as_u64(),
                 proposer_index,
@@ -141,7 +141,7 @@ pub mod altair_deneb {
             spec,
         )
         .map_err(|e| e.into_with_index(att_index))?
-        .attesting_indices();
+        .attesting_indices;
 
         // Matching roots, participation flag indices
         let data = &attestation.data;
@@ -238,7 +238,7 @@ pub mod electra {
             spec,
         )
         .map_err(|e| e.into_with_index(att_index))?
-        .attesting_indices();
+        .attesting_indices;
 
         // Matching roots, participation flag indices
         let data = &attestation.data;

@@ -31,25 +31,21 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         serde_json::from_slice(&read_file_bytes(&attestations_file)?)
             .map_err(|e| format!("Invalid attestation list: {:?}", e))?;
 
-    let indexed_attestations = match state.fork_name(spec)? {
-        ForkName::Base
-        | ForkName::Altair
-        | ForkName::Merge
-        | ForkName::Capella
-        | ForkName::Deneb => attestations
-            .into_iter()
-            .map(|att| {
-                let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
-                indexed_attestation_base::get_indexed_attestation(committee.committee, &att)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Error constructing indexed attestation: {:?}", e))?,
-        ForkName::Electra => attestations
-            .into_iter()
-            .map(|att| indexed_attestation_electra::get_indexed_attestation(&state, &att))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Error constructing indexed attestation: {:?}", e))?,
-    };
+    let indexed_attestations = attestations
+        .into_iter()
+        .map(|att| {
+            match att {
+                Attestation::Base(att) => {
+                    let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
+                    indexed_attestation_base::get_indexed_attestation(committee.committee, &att)
+                }
+                Attestation::Electra(att) => {
+                    indexed_attestation_electra::get_indexed_attestation(&state, &att)
+                }
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Error constructing indexed attestation: {:?}", e))?;
 
     let string_output = serde_json::to_string_pretty(&indexed_attestations)
         .map_err(|e| format!("Unable to convert to JSON: {:?}", e))?;
