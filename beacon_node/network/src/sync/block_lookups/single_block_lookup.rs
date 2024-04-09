@@ -282,8 +282,6 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
                 &components.downloaded_blobs,
             )
         } else {
-            // TODO: the da_checker should look into the availability cache, not only the processing
-            // cache.
             self.da_checker.get_missing_blob_ids_with(block_root)
         }
     }

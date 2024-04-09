@@ -108,9 +108,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .map(|b| b.as_block()),
                     &pending_components.verified_blobs,
                 ),
-                None => MissingBlobs::PossibleMissing(
-                    BlobIdentifier::get_all_blob_ids::<T::EthSpec>(block_root),
-                ),
+                None => MissingBlobs::new_without_block(block_root, self.is_deneb()),
             })
     }
 
