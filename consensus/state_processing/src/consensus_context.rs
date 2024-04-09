@@ -178,7 +178,10 @@ impl<E: EthSpec> ConsensusContext<E> {
                     Entry::Vacant(vacant) => {
                         let indexed_attestation =
                             indexed_attestation_electra::get_indexed_attestation(
-                                state,
+                                // TODO(eip7549) UWNRAP
+                                &state
+                                    .get_beacon_committees_at_slot(attestation.data.slot)
+                                    .unwrap(),
                                 attestation,
                             )?;
                         Ok(vacant.insert(indexed_attestation))

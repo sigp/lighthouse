@@ -172,21 +172,15 @@ impl<E: EthSpec> Attestation<E> {
         }
     }
 
-     /// Returns an `AlreadySigned` error if the `committee_position`'th bit is already `true`.
-     pub fn add_signature(
+    /// Returns an `AlreadySigned` error if the `committee_position`'th bit is already `true`.
+    pub fn add_signature(
         &mut self,
         signature: &Signature,
         committee_position: usize,
     ) -> Result<(), Error> {
         match self {
-            Attestation::Base(att) => att.add_signature(
-                signature,
-                committee_position,
-            ),
-            Attestation::Electra(att) => att.add_signature(
-                signature,
-                committee_position,
-            ),
+            Attestation::Base(att) => att.add_signature(signature, committee_position),
+            Attestation::Electra(att) => att.add_signature(signature, committee_position),
         }
     }
 }

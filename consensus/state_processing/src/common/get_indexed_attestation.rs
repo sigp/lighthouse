@@ -54,7 +54,7 @@ pub mod indexed_attestation_base {
 
 pub mod indexed_attestation_electra {
 
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
     use itertools::Itertools;
@@ -62,10 +62,10 @@ pub mod indexed_attestation_electra {
     type IndexedAttestationResult<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 
     pub fn get_indexed_attestation<E: EthSpec>(
-        beacon_state: &BeaconState<E>,
+        committees: &Vec<BeaconCommittee>,
         attestation: &AttestationElectra<E>,
     ) -> IndexedAttestationResult<IndexedAttestation<E>> {
-        let attesting_indices = get_attesting_indices::<E>(beacon_state, attestation)?;
+        let attesting_indices = get_attesting_indices::<E>(committees, attestation)?;
 
         Ok(IndexedAttestation {
             attesting_indices: VariableList::new(attesting_indices)?,
@@ -74,9 +74,32 @@ pub mod indexed_attestation_electra {
         })
     }
 
+    pub fn get_indexed_attestation_from_state<E: EthSpec>(
+        beacon_state: &BeaconState<E>,
+        attestation: &AttestationElectra<E>,
+    ) -> IndexedAttestationResult<IndexedAttestation<E>> {
+        let committees = beacon_state.get_beacon_committees_at_slot(attestation.data.slot)?;
+        let attesting_indices = get_attesting_indices::<E>(&committees, attestation)?;
+
+        Ok(IndexedAttestation {
+            attesting_indices: VariableList::new(attesting_indices)?,
+            data: attestation.data.clone(),
+            signature: attestation.signature.clone(),
+        })
+    }
+
+    /// Shortcut for getting the attesting indices while fetching the committee from the state's cache.
+    pub fn get_attesting_indices_from_state<E: EthSpec>(
+        state: &BeaconState<E>,
+        att: &AttestationElectra<E>,
+    ) -> Result<Vec<u64>, BeaconStateError> {
+        let committees = state.get_beacon_committees_at_slot(att.data.slot)?;
+        get_attesting_indices::<E>(&committees, &att)
+    }
+
     /// Returns validator indices which participated in the attestation, sorted by increasing index.
     pub fn get_attesting_indices<E: EthSpec>(
-        beacon_state: &BeaconState<E>,
+        committees: &Vec<BeaconCommittee>,
         attestation: &AttestationElectra<E>,
     ) -> Result<Vec<u64>, BeaconStateError> {
         let mut output: HashSet<u64> = HashSet::new();
@@ -84,30 +107,36 @@ pub mod indexed_attestation_electra {
         let committee_indices = get_committee_indices::<E>(attestation.committee_bits.clone());
         let mut committee_offset = 0;
 
+        let committees_map: HashMap<u64, &BeaconCommittee> = committees
+            .iter()
+            .map(|committee| (committee.index, committee))
+            .collect();
+
         for index in committee_indices {
-            let beacon_committee =
-                beacon_state.get_beacon_committee(attestation.data.slot, index)?;
+            if let Some(&beacon_committee) = committees_map.get(&index) {
+                let committee_attesters = beacon_committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, &index)| {
+                        if attestation
+                            .aggregation_bits
+                            .get(committee_offset + i)
+                            .unwrap_or(false)
+                        {
+                            Some(index as u64)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<HashSet<u64>>();
 
-            let committee_attesters = beacon_committee
-                .committee
-                .iter()
-                .enumerate()
-                .filter_map(|(i, &index)| {
-                    if attestation
-                        .aggregation_bits
-                        .get(committee_offset + i)
-                        .unwrap_or(false)
-                    {
-                        Some(index as u64)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<HashSet<u64>>();
+                output.extend(committee_attesters);
 
-            output.extend(committee_attesters);
+                committee_offset += beacon_committee.committee.len();
+            }
 
-            committee_offset += beacon_committee.committee.len();
+            // TODO(eip7549) what should we do when theres no committee found for a given index?
         }
 
         Ok(output.into_iter().collect_vec())

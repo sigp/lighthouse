@@ -222,7 +222,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     indexed_attestation_base::get_attesting_indices_from_state(state, att)?
                 }
                 types::Attestation::Electra(att) => {
-                    indexed_attestation_electra::get_attesting_indices(state, att)?
+                    indexed_attestation_electra::get_attesting_indices_from_state(state, att)?
                 }
             };
 

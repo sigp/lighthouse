@@ -115,7 +115,9 @@ pub mod altair_deneb {
                     altair_deneb::process_attestation(state, att, i, ctxt, verify_signatures, spec)
                 }
                 Attestation::Electra(att) => {
-                    electra::process_attestation(state, att, i, ctxt, verify_signatures, spec)
+                    // TODO(eip7549) this should throw a error
+                    todo!()
+                    // electra::process_attestation(state, att, i, ctxt, verify_signatures, spec)
                 }
             })
     }
@@ -229,6 +231,22 @@ pub mod electra {
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
+
+        let committee_indices: Vec<u64> = attestation
+            .committee_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect();
+
+        let mut participants_count = 0u64;
+        for index in committee_indices.iter() {
+            // TODO(eip7549) assert index < get_committee_count_per_slot(state, data.target.epoch)
+            let committee = state.get_beacon_committee(attestation.data.slot, *index)?;
+            participants_count = participants_count + committee.committee.len() as u64;
+        }
+
+        // TODO(eip7549) assert len(attestation.aggregation_bits) == participants_count
 
         let attesting_indices = &verify_attestation_for_block_inclusion(
             state,

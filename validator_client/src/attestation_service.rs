@@ -9,12 +9,12 @@ use environment::RuntimeContext;
 use futures::future::join_all;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
-use types::attestation::{AttestationBase, AttestationElectra};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
+use types::attestation::{AttestationBase, AttestationElectra};
 use types::{
     AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
     Slot,
@@ -416,8 +416,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 Attestation::Electra(AttestationElectra {
                     aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
                         .unwrap(),
-                    committee_bits: BitList::with_capacity(duty.committee_length as usize)
-                        .unwrap(),
+                    committee_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
                     data: attestation_data.clone(),
                     signature: AggregateSignature::infinity(),
                 })

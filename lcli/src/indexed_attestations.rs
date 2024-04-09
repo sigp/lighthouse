@@ -33,15 +33,14 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
 
     let indexed_attestations = attestations
         .into_iter()
-        .map(|att| {
-            match att {
-                Attestation::Base(att) => {
-                    let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
-                    indexed_attestation_base::get_indexed_attestation(committee.committee, &att)
-                }
-                Attestation::Electra(att) => {
-                    indexed_attestation_electra::get_indexed_attestation(&state, &att)
-                }
+        .map(|att| match att {
+            Attestation::Base(att) => {
+                let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
+                indexed_attestation_base::get_indexed_attestation(committee.committee, &att)
+            }
+            Attestation::Electra(att) => {
+                let committees = state.get_beacon_committees_at_slot(att.data.slot)?;
+                indexed_attestation_electra::get_indexed_attestation(&committees, &att)
             }
         })
         .collect::<Result<Vec<_>, _>>()
