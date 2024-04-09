@@ -23,22 +23,10 @@ use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::{
     test_utils::{SeedableRng, XorShiftRng},
-    BlobSidecar, EthSpec, ForkName, MinimalEthSpec as E, SignedBeaconBlock,
+    BlobSidecar, ForkName, MinimalEthSpec as E, SignedBeaconBlock,
 };
 
 type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
-
-struct TestRig {
-    beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
-    network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-    network_rx_queue: Vec<NetworkMessage<E>>,
-    rng: XorShiftRng,
-    harness: BeaconChainHarness<T>,
-    sync_manager: SyncManager<T>,
-    beacon_processor: Arc<NetworkBeaconProcessor<T>>,
-}
-
-const D: Duration = Duration::new(0, 0);
 
 /// This test utility enables integration testing of Lighthouse sync components.
 ///
@@ -65,6 +53,24 @@ const D: Duration = Duration::new(0, 0);
 ///                       +-----------------+
 ///                       |  - BlockLookups |
 ///                       +-----------------+
+struct TestRig {
+    /// Receiver for `BeaconProcessor` events (e.g. block processing results).
+    beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
+    /// Receiver for `NetworkMessage` (e.g. outgoing RPC requests from sync)
+    network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    /// Stores all `NetworkMessage`s received from `network_recv`. (e.g. outgoing RPC requests)
+    network_rx_queue: Vec<NetworkMessage<E>>,
+    /// To send `SyncMessage`. For sending RPC responses or block processing results to sync.
+    sync_manager: SyncManager<T>,
+    /// To manipulate sync state and peer connection status
+    network_globals: Arc<NetworkGlobals<E>>,
+    /// `rng` for generating test blocks and blobs.
+    rng: XorShiftRng,
+    fork_name: ForkName,
+}
+
+const D: Duration = Duration::new(0, 0);
+
 impl TestRig {
     fn test_setup() -> Self {
         let enable_log = cfg!(feature = "test_logger");
@@ -96,8 +102,9 @@ impl TestRig {
 
         let (_sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<E>>();
 
+        let fork_name = chain.spec.fork_name_at_slot::<E>(chain.slot().unwrap());
+
         // All current tests expect synced and EL online state
-        let beacon_processor = Arc::new(beacon_processor);
         beacon_processor
             .network_globals
             .set_sync_state(SyncState::Synced);
@@ -108,15 +115,15 @@ impl TestRig {
             network_rx,
             network_rx_queue: vec![],
             rng,
-            harness,
-            beacon_processor: beacon_processor.clone(),
+            network_globals: beacon_processor.network_globals.clone(),
             sync_manager: SyncManager::new(
                 chain,
                 network_tx,
-                beacon_processor,
+                beacon_processor.into(),
                 sync_recv,
                 log.clone(),
             ),
+            fork_name,
         }
     }
 
@@ -130,7 +137,7 @@ impl TestRig {
     }
 
     fn after_deneb(&self) -> bool {
-        matches!(self.current_fork(), ForkName::Deneb | ForkName::Electra)
+        matches!(self.fork_name, ForkName::Deneb | ForkName::Electra)
     }
 
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
@@ -160,7 +167,7 @@ impl TestRig {
         &mut self,
         num_blobs: NumBlobs,
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
-        let fork_name = self.current_fork();
+        let fork_name = self.fork_name;
         let rng = &mut self.rng;
         generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
     }
@@ -174,12 +181,6 @@ impl TestRig {
         *block.message_mut().parent_root_mut() = parent_root;
         let block_root = block.canonical_root();
         (parent, block, parent_root, block_root)
-    }
-
-    fn current_fork(&self) -> ForkName {
-        self.harness
-            .spec
-            .fork_name_at_slot::<E>(self.harness.chain.slot().unwrap())
     }
 
     fn send_sync_message(&mut self, sync_message: SyncMessage<E>) {
@@ -218,8 +219,7 @@ impl TestRig {
 
     fn new_connected_peer(&mut self) -> PeerId {
         let peer_id = PeerId::random();
-        self.beacon_processor
-            .network_globals
+        self.network_globals
             .peers
             .write()
             .__add_connected_peer_testing_only(&peer_id);
@@ -1137,14 +1137,9 @@ mod deneb_only {
 
     impl DenebTester {
         fn new(request_trigger: RequestTrigger) -> Option<Self> {
-            let fork_name = get_fork_name();
-            if !matches!(fork_name, ForkName::Deneb) {
+            let Some(mut rig) = TestRig::test_setup_after_deneb() else {
                 return None;
-            }
-            let mut rig = TestRig::test_setup();
-            rig.harness.chain.slot_clock.set_slot(
-                E::slots_per_epoch() * rig.harness.spec.deneb_fork_epoch.unwrap().as_u64(),
-            );
+            };
             let (block, blobs) = rig.rand_block_and_blobs(NumBlobs::Random);
             let mut block = Arc::new(block);
             let mut blobs = blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
@@ -1529,19 +1524,6 @@ mod deneb_only {
                 .trigger_unknown_parent_block(self.peer_id, self.block.clone());
             self
         }
-    }
-
-    fn get_fork_name() -> ForkName {
-        ForkName::from_str(
-            &std::env::var(beacon_chain::test_utils::FORK_NAME_ENV_VAR).unwrap_or_else(|e| {
-                panic!(
-                    "{} env var must be defined when using fork_from_env: {:?}",
-                    beacon_chain::test_utils::FORK_NAME_ENV_VAR,
-                    e
-                )
-            }),
-        )
-        .unwrap()
     }
 
     #[test]
