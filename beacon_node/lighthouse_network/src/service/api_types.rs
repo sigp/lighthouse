@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
-use types::{BlobSidecar, EthSpec, LightClientBootstrap, SignedBeaconBlock};
+use types::{
+    BlobSidecar, EthSpec, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, SignedBeaconBlock,
+};
 
 use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use crate::rpc::{
@@ -40,6 +43,10 @@ pub enum Request {
     BlocksByRoot(BlocksByRootRequest),
     // light client bootstrap request
     LightClientBootstrap(LightClientBootstrapRequest),
+    // light client optimistic update request
+    LightClientOptimisticUpdate,
+    // light client finality update request
+    LightClientFinalityUpdate,
     /// A request blobs root request.
     BlobsByRoot(BlobsByRootRequest),
 }
@@ -64,7 +71,9 @@ impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
                     }),
                 ),
             },
-            Request::LightClientBootstrap(_) => {
+            Request::LightClientBootstrap(_)
+            | Request::LightClientOptimisticUpdate
+            | Request::LightClientFinalityUpdate => {
                 unreachable!("Lighthouse never makes an outbound light client request")
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
@@ -94,6 +103,10 @@ pub enum Response<E: EthSpec> {
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a LightClientUpdate request.
     LightClientBootstrap(Arc<LightClientBootstrap<E>>),
+    /// A response to a LightClientOptimisticUpdate request.
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
+    /// A response to a LightClientFinalityUpdate request.
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
 }
 
 impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
@@ -118,6 +131,12 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
             Response::LightClientBootstrap(b) => {
                 RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
+            }
+            Response::LightClientOptimisticUpdate(o) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientOptimisticUpdate(o))
+            }
+            Response::LightClientFinalityUpdate(f) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(f))
             }
         }
     }
