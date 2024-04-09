@@ -4,7 +4,9 @@ use ssz_derive::{Decode, Encode};
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, Decode, Encode, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Decode, Encode, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(try_from = "String")]
 #[serde(into = "String")]
 #[ssz(enum_behaviour = "tag")]
@@ -271,5 +273,14 @@ mod test {
             fork = next_fork;
         }
         assert_eq!(ForkName::latest(), fork);
+    }
+
+    #[test]
+    fn fork_ord_consistent() {
+        for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {
+            assert_eq!(prev_fork.next_fork(), Some(fork));
+            assert_eq!(fork.previous_fork(), Some(prev_fork));
+            assert!(prev_fork < fork);
+        }
     }
 }
