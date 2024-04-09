@@ -1,4 +1,4 @@
-use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate};
+use super::{EthSpec, FixedVector, Hash256, LightClientHeader, Slot, SyncAggregate};
 use crate::ChainSpec;
 use crate::{
     light_client_update::*, test_utils::TestRandom, ForkName, ForkVersionDeserialize,
@@ -7,7 +7,7 @@ use crate::{
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::Decode;
 use ssz_derive::Encode;
 use superstruct::superstruct;
@@ -59,9 +59,9 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
     pub finalized_header: LightClientHeaderDeneb<E>,
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
-    /// current sync aggreggate
+    /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
-    /// Slot of the sync aggregated singature
+    /// Slot of the sync aggregated signature
     pub signature_slot: Slot,
 }
 
@@ -126,6 +126,17 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         Ok(finality_update)
     }
 
+    pub fn map_with_fork_name<F, R>(&self, func: F) -> R
+    where
+        F: Fn(ForkName) -> R,
+    {
+        match self {
+            Self::Altair(_) => func(ForkName::Altair),
+            Self::Capella(_) => func(ForkName::Capella),
+            Self::Deneb(_) => func(ForkName::Deneb),
+        }
+    }
+
     pub fn get_attested_header_slot<'a>(&'a self) -> Slot {
         map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
             cons(inner);
@@ -152,6 +163,22 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         };
 
         Ok(finality_update)
+    }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
+        // TODO(electra): review electra changes
+        match fork_name {
+            ForkName::Base => 0,
+            ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
+                <LightClientFinalityUpdateAltair<E> as Encode>::ssz_fixed_len()
+                    + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+            }
+        }
     }
 }
 
