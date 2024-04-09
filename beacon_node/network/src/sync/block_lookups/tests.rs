@@ -857,16 +857,6 @@ fn test_parent_lookup_too_many_attempts() {
             rig.parent_lookup_block_response(id, peer_id, None);
             rig.expect_penalty(peer_id);
         }
-        if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            // assert_eq!(
-            //     bl.parent_lookups[0]
-            //         .current_parent_request
-            //         .block_request_state
-            //         .state
-            //         .failed_attempts(),
-            //     dbg!(i)
-            // );
-        }
     }
 
     assert_eq!(rig.active_parent_lookups_count(), 0);
@@ -896,16 +886,6 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
             let bad_block = rig.rand_block();
             rig.parent_lookup_block_response(id, peer_id, Some(bad_block.into()));
             rig.expect_penalty(peer_id);
-        }
-        if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            // assert_eq!(
-            //     bl.parent_lookups[0]
-            //         .current_parent_request
-            //         .block_request_state
-            //         .state
-            //         .failed_attempts(),
-            //     dbg!(i)
-            // );
         }
     }
 
