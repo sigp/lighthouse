@@ -13,8 +13,7 @@ use state_processing::{
     },
     EpochProcessingError,
 };
-use std::path::{Path, PathBuf};
-use types::{BeaconState, EthSpec, ForkName};
+use types::BeaconState;
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, CompareFields)]
 pub struct Deltas {
