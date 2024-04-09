@@ -1080,7 +1080,6 @@ mod deneb_only {
     use crate::sync::SyncMessage;
     use beacon_chain::data_availability_checker::AvailabilityCheckError;
     use ssz_types::VariableList;
-    use std::str::FromStr;
 
     struct DenebTester {
         rig: TestRig,
