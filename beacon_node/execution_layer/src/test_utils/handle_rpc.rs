@@ -11,9 +11,9 @@ pub const BAD_PARAMS_ERROR_CODE: i64 = -32602;
 pub const UNKNOWN_PAYLOAD_ERROR_CODE: i64 = -38001;
 pub const FORK_REQUEST_MISMATCH_ERROR_CODE: i64 = -32000;
 
-pub async fn handle_rpc<T: EthSpec>(
+pub async fn handle_rpc<E: EthSpec>(
     body: JsonValue,
-    ctx: Arc<Context<T>>,
+    ctx: Arc<Context<E>>,
 ) -> Result<JsonValue, (String, i64)> {
     *ctx.previous_request.lock() = Some(body.clone());
 
@@ -95,26 +95,26 @@ pub async fn handle_rpc<T: EthSpec>(
         ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 | ENGINE_NEW_PAYLOAD_V3 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::V1(
-                    get_param::<JsonExecutionPayloadV1<T>>(params, 0)
+                    get_param::<JsonExecutionPayloadV1<E>>(params, 0)
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 ),
-                ENGINE_NEW_PAYLOAD_V2 => get_param::<JsonExecutionPayloadV2<T>>(params, 0)
+                ENGINE_NEW_PAYLOAD_V2 => get_param::<JsonExecutionPayloadV2<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::V2(jep))
                     .or_else(|_| {
-                        get_param::<JsonExecutionPayloadV1<T>>(params, 0)
+                        get_param::<JsonExecutionPayloadV1<E>>(params, 0)
                             .map(|jep| JsonExecutionPayload::V1(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadV4<T>>(params, 0)
+                ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadV4<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::V4(jep))
                     .or_else(|_| {
-                        get_param::<JsonExecutionPayloadV3<T>>(params, 0)
+                        get_param::<JsonExecutionPayloadV3<E>>(params, 0)
                             .map(|jep| JsonExecutionPayload::V3(jep))
                             .or_else(|_| {
-                                get_param::<JsonExecutionPayloadV2<T>>(params, 0)
+                                get_param::<JsonExecutionPayloadV2<E>>(params, 0)
                                     .map(|jep| JsonExecutionPayload::V2(jep))
                                     .or_else(|_| {
-                                        get_param::<JsonExecutionPayloadV1<T>>(params, 0)
+                                        get_param::<JsonExecutionPayloadV1<E>>(params, 0)
                                             .map(|jep| JsonExecutionPayload::V1(jep))
                                     })
                             })
@@ -543,7 +543,7 @@ pub async fn handle_rpc<T: EthSpec>(
 
                 match maybe_block {
                     Some(block) => {
-                        let transactions = Transactions::<T>::new(
+                        let transactions = Transactions::<E>::new(
                             block
                                 .transactions()
                                 .iter()
@@ -563,7 +563,7 @@ pub async fn handle_rpc<T: EthSpec>(
                             )
                         })?;
 
-                        response.push(Some(JsonExecutionPayloadBodyV1::<T> {
+                        response.push(Some(JsonExecutionPayloadBodyV1::<E> {
                             transactions,
                             withdrawals: block
                                 .withdrawals()

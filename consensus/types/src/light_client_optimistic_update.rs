@@ -1,4 +1,4 @@
-use super::{EthSpec, ForkName, ForkVersionDeserialize, Slot, SyncAggregate};
+use super::{EthSpec, ForkName, ForkVersionDeserialize, LightClientHeader, Slot, SyncAggregate};
 use crate::test_utils::TestRandom;
 use crate::{
     light_client_update::*, ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella,
@@ -7,7 +7,7 @@ use crate::{
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::Decode;
 use ssz_derive::Encode;
 use superstruct::superstruct;
@@ -53,9 +53,9 @@ pub struct LightClientOptimisticUpdate<E: EthSpec> {
     pub attested_header: LightClientHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "attested_header_deneb"))]
     pub attested_header: LightClientHeaderDeneb<E>,
-    /// current sync aggreggate
+    /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
-    /// Slot of the sync aggregated singature
+    /// Slot of the sync aggregated signature
     pub signature_slot: Slot,
 }
 
@@ -95,6 +95,17 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
         };
 
         Ok(optimistic_update)
+    }
+
+    pub fn map_with_fork_name<F, R>(&self, func: F) -> R
+    where
+        F: Fn(ForkName) -> R,
+    {
+        match self {
+            Self::Altair(_) => func(ForkName::Altair),
+            Self::Capella(_) => func(ForkName::Capella),
+            Self::Deneb(_) => func(ForkName::Deneb),
+        }
     }
 
     pub fn get_slot<'a>(&'a self) -> Slot {
@@ -138,9 +149,25 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
 
         Ok(optimistic_update)
     }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
+        // TODO(electra): review electra changes
+        match fork_name {
+            ForkName::Base => 0,
+            ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
+                <LightClientOptimisticUpdateAltair<E> as Encode>::ssz_fixed_len()
+                    + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+            }
+        }
+    }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
@@ -151,7 +178,7 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
                 fork_name
             ))),
             _ => Ok(
-                serde_json::from_value::<LightClientOptimisticUpdate<T>>(value)
+                serde_json::from_value::<LightClientOptimisticUpdate<E>>(value)
                     .map_err(serde::de::Error::custom),
             )?,
         }

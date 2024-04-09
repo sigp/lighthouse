@@ -1,4 +1,3 @@
-use crate::BeaconBlockHeader;
 use crate::ChainSpec;
 use crate::ForkName;
 use crate::ForkVersionDeserialize;
@@ -7,6 +6,7 @@ use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
     FixedVector, Hash256, SignedBeaconBlock,
 };
+use crate::{BeaconBlockHeader, ExecutionPayloadHeader};
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
@@ -116,6 +116,15 @@ impl<E: EthSpec> LightClientHeader<E> {
     ) -> Result<Self, ssz::DecodeError> {
         Self::from_ssz_bytes(bytes, fork_name)
     }
+
+    pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge => 0,
+            ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
+                ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+            }
+        }
+    }
 }
 
 impl<E: EthSpec> LightClientHeaderAltair<E> {
@@ -183,7 +192,7 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientHeader<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientHeader<E> {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,

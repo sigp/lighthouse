@@ -3,10 +3,10 @@ use crate::sync::block_lookups::common::{Lookup, RequestState};
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::data_availability_checker::ChildComponents;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, DataAvailabilityChecker, MissingBlobs,
 };
-use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponents};
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerAction;
 use slog::{trace, Logger};
@@ -32,6 +32,8 @@ pub enum LookupVerifyError {
     NoBlockReturned,
     ExtraBlocksReturned,
     UnrequestedBlobId(BlobIdentifier),
+    InvalidInclusionProof,
+    UnrequestedHeader,
     ExtraBlobsReturned,
     NotEnoughBlobsReturned,
     InvalidIndex(u64),
@@ -247,7 +249,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// Returns `true` if the block has already been downloaded.
     pub(crate) fn block_already_downloaded(&self) -> bool {
         if let Some(components) = self.child_components.as_ref() {
-            components.block_exists()
+            components.downloaded_block.is_some()
         } else {
             self.da_checker.has_block(&self.block_root())
         }
@@ -274,15 +276,21 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub(crate) fn missing_blob_ids(&self) -> MissingBlobs {
         let block_root = self.block_root();
         if let Some(components) = self.child_components.as_ref() {
-            self.da_checker.get_missing_blob_ids(block_root, components)
+            self.da_checker.get_missing_blob_ids(
+                block_root,
+                &components.downloaded_block,
+                &components.downloaded_blobs,
+            )
         } else {
-            let Some(processing_availability_view) =
-                self.da_checker.get_processing_components(block_root)
+            let Some(processing_components) = self.da_checker.get_processing_components(block_root)
             else {
                 return MissingBlobs::new_without_block(block_root, self.da_checker.is_deneb());
             };
-            self.da_checker
-                .get_missing_blob_ids(block_root, &processing_availability_view)
+            self.da_checker.get_missing_blob_ids(
+                block_root,
+                &processing_components.block,
+                &processing_components.blob_commitments,
+            )
         }
     }
 
@@ -319,13 +327,13 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
-pub struct BlobRequestState<L: Lookup, T: EthSpec> {
+pub struct BlobRequestState<L: Lookup, E: EthSpec> {
     /// The latest picture of which blobs still need to be requested. This includes information
     /// from both block/blobs downloaded in the network layer and any blocks/blobs that exist in
     /// the data availability checker.
     pub requested_ids: MissingBlobs,
     /// Where we store blobs until we receive the stream terminator.
-    pub blob_download_queue: FixedBlobSidecarList<T>,
+    pub blob_download_queue: FixedBlobSidecarList<E>,
     pub state: SingleLookupRequestState,
     _phantom: PhantomData<L>,
 }
@@ -457,11 +465,10 @@ impl SingleLookupRequestState {
 
     /// Returns the id peer we downloaded from if we have downloaded a verified block, otherwise
     /// returns an error.
-    pub fn processing_peer(&self) -> Result<PeerId, ()> {
-        if let State::Processing { peer_id } = &self.state {
-            Ok(*peer_id)
-        } else {
-            Err(())
+    pub fn processing_peer(&self) -> Result<PeerId, String> {
+        match &self.state {
+            State::Processing { peer_id } => Ok(*peer_id),
+            other => Err(format!("not in processing state: {}", other).to_string()),
         }
     }
 }
@@ -514,6 +521,16 @@ impl slog::Value for SingleLookupRequestState {
         serializer.emit_u8("failed_downloads", self.failed_downloading)?;
         serializer.emit_u8("failed_processing", self.failed_processing)?;
         slog::Result::Ok(())
+    }
+}
+
+impl std::fmt::Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            State::AwaitingDownload => write!(f, "AwaitingDownload"),
+            State::Downloading { .. } => write!(f, "Downloading"),
+            State::Processing { .. } => write!(f, "Processing"),
+        }
     }
 }
 

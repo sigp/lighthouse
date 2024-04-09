@@ -4,7 +4,8 @@ use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+    DisallowedReOrgOffsets, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
 };
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -24,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
-    ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof, ProgressiveBalancesMode,
+    EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
     ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
@@ -557,9 +558,7 @@ impl<E: EthSpec> Tester<E> {
                         block_delay,
                         &state,
                         PayloadVerificationStatus::Irrelevant,
-                        ProgressiveBalancesMode::Strict,
                         &self.harness.chain.spec,
-                        self.harness.logger(),
                     );
 
                 if result.is_ok() {
@@ -748,7 +747,8 @@ impl<E: EthSpec> Tester<E> {
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
-            DEFAULT_RE_ORG_THRESHOLD,
+            DEFAULT_RE_ORG_HEAD_THRESHOLD,
+            DEFAULT_RE_ORG_PARENT_THRESHOLD,
             &DisallowedReOrgOffsets::default(),
             DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
         );

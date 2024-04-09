@@ -40,7 +40,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-pub type DownloadedBlock<T> = (Hash256, RpcBlock<T>);
+pub type DownloadedBlock<E> = (Hash256, RpcBlock<E>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
@@ -267,6 +267,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.da_checker.clone(),
             cx,
         );
+
+        debug!(self.log, "Created new parent lookup"; "block_root" => ?block_root, "parent_root" => ?parent_root);
 
         self.request_parent(parent_lookup, cx);
     }
@@ -589,6 +591,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             | ParentVerifyError::NotEnoughBlobsReturned
             | ParentVerifyError::ExtraBlocksReturned
             | ParentVerifyError::UnrequestedBlobId(_)
+            | ParentVerifyError::InvalidInclusionProof
+            | ParentVerifyError::UnrequestedHeader
             | ParentVerifyError::ExtraBlobsReturned
             | ParentVerifyError::InvalidIndex(_) => {
                 let e = e.into();
@@ -678,7 +682,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .position(|req| req.check_peer_disconnected(peer_id).is_err())
         {
             let parent_lookup = self.parent_lookups.remove(pos);
-            trace!(self.log, "Parent lookup's peer disconnected"; &parent_lookup);
+            debug!(self.log, "Dropping parent lookup after peer disconnected"; &parent_lookup);
             self.request_parent(parent_lookup, cx);
         }
     }
@@ -762,14 +766,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let Some(mut lookup) = self.single_block_lookups.remove(&target_id) else {
+            debug!(self.log, "Unknown single block lookup"; "target_id" => target_id);
             return;
         };
 
         let root = lookup.block_root();
         let request_state = R::request_state_mut(&mut lookup);
 
-        let Ok(peer_id) = request_state.get_state().processing_peer() else {
-            return;
+        let peer_id = match request_state.get_state().processing_peer() {
+            Ok(peer_id) => peer_id,
+            Err(e) => {
+                debug!(self.log, "Attempting to process single block lookup in bad state"; "id" => target_id, "response_type" => ?R::response_type(), "error" => e);
+                return;
+            }
         };
         debug!(
             self.log,

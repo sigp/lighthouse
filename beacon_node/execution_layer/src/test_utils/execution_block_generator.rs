@@ -35,12 +35,12 @@ const GAS_USED: u64 = GAS_LIMIT - 1;
 
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)] // This struct is only for testing.
-pub enum Block<T: EthSpec> {
+pub enum Block<E: EthSpec> {
     PoW(PoWBlock),
-    PoS(ExecutionPayload<T>),
+    PoS(ExecutionPayload<E>),
 }
 
-impl<T: EthSpec> Block<T> {
+impl<E: EthSpec> Block<E> {
     pub fn block_number(&self) -> u64 {
         match self {
             Block::PoW(block) => block.block_number,
@@ -88,7 +88,7 @@ impl<T: EthSpec> Block<T> {
         }
     }
 
-    pub fn as_execution_block_with_tx(&self) -> Option<ExecutionBlockWithTransactions<T>> {
+    pub fn as_execution_block_with_tx(&self) -> Option<ExecutionBlockWithTransactions<E>> {
         match self {
             Block::PoS(payload) => Some(payload.clone().try_into().unwrap()),
             Block::PoW(_) => None,
@@ -107,13 +107,13 @@ pub struct PoWBlock {
 }
 
 #[derive(Debug, Clone)]
-pub struct ExecutionBlockGenerator<T: EthSpec> {
+pub struct ExecutionBlockGenerator<E: EthSpec> {
     /*
      * Common database
      */
-    head_block: Option<Block<T>>,
+    head_block: Option<Block<E>>,
     finalized_block_hash: Option<ExecutionBlockHash>,
-    blocks: HashMap<ExecutionBlockHash, Block<T>>,
+    blocks: HashMap<ExecutionBlockHash, Block<E>>,
     block_hashes: HashMap<u64, Vec<ExecutionBlockHash>>,
     /*
      * PoW block parameters
@@ -124,9 +124,9 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * PoS block parameters
      */
-    pub pending_payloads: HashMap<ExecutionBlockHash, ExecutionPayload<T>>,
+    pub pending_payloads: HashMap<ExecutionBlockHash, ExecutionPayload<E>>,
     pub next_payload_id: u64,
-    pub payload_ids: HashMap<PayloadId, ExecutionPayload<T>>,
+    pub payload_ids: HashMap<PayloadId, ExecutionPayload<E>>,
     /*
      * Post-merge fork triggers
      */
@@ -136,7 +136,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * deneb stuff
      */
-    pub blobs_bundles: HashMap<PayloadId, BlobsBundle<T>>,
+    pub blobs_bundles: HashMap<PayloadId, BlobsBundle<E>>,
     pub kzg: Option<Arc<Kzg>>,
     rng: Arc<Mutex<StdRng>>,
 }
@@ -147,7 +147,7 @@ fn make_rng() -> Arc<Mutex<StdRng>> {
     Arc::new(Mutex::new(StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64)))
 }
 
-impl<T: EthSpec> ExecutionBlockGenerator<T> {
+impl<E: EthSpec> ExecutionBlockGenerator<E> {
     pub fn new(
         terminal_total_difficulty: Uint256,
         terminal_block_number: u64,
@@ -181,7 +181,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         gen
     }
 
-    pub fn latest_block(&self) -> Option<Block<T>> {
+    pub fn latest_block(&self) -> Option<Block<E>> {
         self.head_block.clone()
     }
 
@@ -190,7 +190,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
-    pub fn block_by_number(&self, number: u64) -> Option<Block<T>> {
+    pub fn block_by_number(&self, number: u64) -> Option<Block<E>> {
         // Get the latest canonical head block
         let mut latest_block = self.latest_block()?;
         loop {
@@ -223,7 +223,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
-    pub fn block_by_hash(&self, hash: ExecutionBlockHash) -> Option<Block<T>> {
+    pub fn block_by_hash(&self, hash: ExecutionBlockHash) -> Option<Block<E>> {
         self.blocks.get(&hash).cloned()
     }
 
@@ -235,7 +235,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn execution_block_with_txs_by_hash(
         &self,
         hash: ExecutionBlockHash,
-    ) -> Option<ExecutionBlockWithTransactions<T>> {
+    ) -> Option<ExecutionBlockWithTransactions<E>> {
         self.block_by_hash(hash)
             .and_then(|block| block.as_execution_block_with_tx())
     }
@@ -243,7 +243,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn execution_block_with_txs_by_number(
         &self,
         number: u64,
-    ) -> Option<ExecutionBlockWithTransactions<T>> {
+    ) -> Option<ExecutionBlockWithTransactions<E>> {
         self.block_by_number(number)
             .and_then(|block| block.as_execution_block_with_tx())
     }
@@ -368,7 +368,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
     // This does not reject duplicate blocks inserted. This lets us re-use the same execution
     // block generator for multiple beacon chains which is useful in testing.
-    pub fn insert_block(&mut self, block: Block<T>) -> Result<ExecutionBlockHash, String> {
+    pub fn insert_block(&mut self, block: Block<E>) -> Result<ExecutionBlockHash, String> {
         if block.parent_hash() != ExecutionBlockHash::zero()
             && !self.blocks.contains_key(&block.parent_hash())
         {
@@ -378,7 +378,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         Ok(self.insert_block_without_checks(block))
     }
 
-    pub fn insert_block_without_checks(&mut self, block: Block<T>) -> ExecutionBlockHash {
+    pub fn insert_block_without_checks(&mut self, block: Block<E>) -> ExecutionBlockHash {
         let block_hash = block.block_hash();
         self.block_hashes
             .entry(block.block_number())
@@ -389,7 +389,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         block_hash
     }
 
-    pub fn modify_last_block(&mut self, block_modifier: impl FnOnce(&mut Block<T>)) {
+    pub fn modify_last_block(&mut self, block_modifier: impl FnOnce(&mut Block<E>)) {
         if let Some(last_block_hash) = self
             .block_hashes
             .iter_mut()
@@ -423,15 +423,15 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         }
     }
 
-    pub fn get_payload(&mut self, id: &PayloadId) -> Option<ExecutionPayload<T>> {
+    pub fn get_payload(&mut self, id: &PayloadId) -> Option<ExecutionPayload<E>> {
         self.payload_ids.get(id).cloned()
     }
 
-    pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundle<T>> {
+    pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundle<E>> {
         self.blobs_bundles.get(id).cloned()
     }
 
-    pub fn new_payload(&mut self, payload: ExecutionPayload<T>) -> PayloadStatusV1 {
+    pub fn new_payload(&mut self, payload: ExecutionPayload<E>) -> PayloadStatusV1 {
         let Some(parent) = self.blocks.get(&payload.parent_hash()) else {
             return PayloadStatusV1 {
                 status: PayloadStatusV1Status::Syncing,
@@ -551,10 +551,10 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn build_new_execution_payload(
         &mut self,
         head_block_hash: ExecutionBlockHash,
-        parent: &Block<T>,
+        parent: &Block<E>,
         id: PayloadId,
         attributes: &PayloadAttributes,
-    ) -> Result<ExecutionPayload<T>, String> {
+    ) -> Result<ExecutionPayload<E>, String> {
         let mut execution_payload = match attributes {
             PayloadAttributes::V1(pa) => ExecutionPayload::Merge(ExecutionPayloadMerge {
                 parent_hash: head_block_hash,
@@ -656,7 +656,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             ForkName::Deneb | ForkName::Electra => {
                 // get random number between 0 and Max Blobs
                 let mut rng = self.rng.lock();
-                let num_blobs = rng.gen::<usize>() % (T::max_blobs_per_block() + 1);
+                let num_blobs = rng.gen::<usize>() % (E::max_blobs_per_block() + 1);
                 let (bundle, transactions) = generate_blobs(num_blobs)?;
                 for tx in Vec::from(transactions) {
                     execution_payload
@@ -728,7 +728,7 @@ pub fn generate_blobs<E: EthSpec>(
     Ok((bundle, transactions.into()))
 }
 
-pub fn static_valid_tx<T: EthSpec>() -> Result<Transaction<T::MaxBytesPerTransaction>, String> {
+pub fn static_valid_tx<E: EthSpec>() -> Result<Transaction<E::MaxBytesPerTransaction>, String> {
     // This is a real transaction hex encoded, but we don't care about the contents of the transaction.
     let transaction: EthersTransaction = serde_json::from_str(
         r#"{
@@ -757,11 +757,11 @@ fn payload_id_from_u64(n: u64) -> PayloadId {
     n.to_le_bytes()
 }
 
-pub fn generate_genesis_header<T: EthSpec>(
+pub fn generate_genesis_header<E: EthSpec>(
     spec: &ChainSpec,
     post_transition_merge: bool,
-) -> Option<ExecutionPayloadHeader<T>> {
-    let genesis_fork = spec.fork_name_at_slot::<T>(spec.genesis_slot);
+) -> Option<ExecutionPayloadHeader<E>> {
+    let genesis_fork = spec.fork_name_at_slot::<E>(spec.genesis_slot);
     let genesis_block_hash =
         generate_genesis_block(spec.terminal_total_difficulty, DEFAULT_TERMINAL_BLOCK)
             .ok()
@@ -774,7 +774,7 @@ pub fn generate_genesis_header<T: EthSpec>(
                 *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
                 Some(header)
             } else {
-                Some(ExecutionPayloadHeader::<T>::Merge(<_>::default()))
+                Some(ExecutionPayloadHeader::<E>::Merge(<_>::default()))
             }
         }
         ForkName::Capella => {
