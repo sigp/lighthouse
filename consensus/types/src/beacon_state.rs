@@ -1,7 +1,6 @@
 use self::committee_cache::get_active_validator_indices;
 use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
-use crate::validator::ValidatorTrait;
 use crate::*;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
@@ -37,7 +36,6 @@ pub use milhouse::{interface::Interface, List, Vector};
 #[macro_use]
 mod committee_cache;
 mod balance;
-pub mod compact_state;
 mod exit_cache;
 mod iter;
 mod progressive_balances_cache;
@@ -224,7 +222,7 @@ impl From<BeaconStateHash> for Hash256 {
             arbitrary::Arbitrary,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec, GenericValidator: ValidatorTrait"),
+        arbitrary(bound = "E: EthSpec"),
         derivative(Clone),
     ),
     specific_variant_attributes(
@@ -316,10 +314,10 @@ impl From<BeaconStateHash> for Hash256 {
 )]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec, GenericValidator: ValidatorTrait")]
+#[arbitrary(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct BeaconState<E, GenericValidator: ValidatorTrait = Validator>
+pub struct BeaconState<E>
 where
     E: EthSpec,
 {
@@ -364,7 +362,7 @@ where
 
     // Registry
     #[test_random(default)]
-    pub validators: List<GenericValidator, E::ValidatorRegistryLimit>,
+    pub validators: List<Validator, E::ValidatorRegistryLimit>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
     #[test_random(default)]
@@ -1066,7 +1064,7 @@ impl<E: EthSpec> BeaconState<E> {
                 .get(shuffled_index)
                 .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
             let random_byte = Self::shuffling_random_byte(i, seed.as_bytes())?;
-            let effective_balance = self.get_validator(candidate_index)?.effective_balance();
+            let effective_balance = self.get_validator(candidate_index)?.effective_balance;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
                 >= spec
                     .max_effective_balance
@@ -1088,7 +1086,7 @@ impl<E: EthSpec> BeaconState<E> {
             .map(|&index| {
                 self.validators()
                     .get(index)
-                    .map(|v| *v.pubkey())
+                    .map(|v| v.pubkey)
                     .ok_or(Error::UnknownValidator(index))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -1119,7 +1117,7 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(validator_indices
             .iter()
             .map(|&validator_index| {
-                let pubkey = *self.get_validator(validator_index as usize)?.pubkey();
+                let pubkey = self.get_validator(validator_index as usize)?.pubkey;
 
                 Ok(SyncDuty::from_sync_committee(
                     validator_index,
@@ -1513,7 +1511,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Return the effective balance for a validator with the given `validator_index`.
     pub fn get_effective_balance(&self, validator_index: usize) -> Result<u64, Error> {
         self.get_validator(validator_index)
-            .map(|v| v.effective_balance())
+            .map(|v| v.effective_balance)
     }
 
     /// Get the inactivity score for a single validator.
@@ -1602,7 +1600,7 @@ impl<E: EthSpec> BeaconState<E> {
 
         for validator in self.validators() {
             if validator.is_active_at(current_epoch) {
-                total_active_balance.safe_add_assign(validator.effective_balance())?;
+                total_active_balance.safe_add_assign(validator.effective_balance)?;
             }
         }
         Ok(std::cmp::max(
@@ -1907,7 +1905,7 @@ impl<E: EthSpec> BeaconState<E> {
 
         for (i, validator) in self.validators().iter_from(start_index)?.enumerate() {
             let index = start_index.safe_add(i)?;
-            let success = pubkey_cache.insert(*validator.pubkey(), index);
+            let success = pubkey_cache.insert(validator.pubkey, index);
             if !success {
                 return Err(Error::PubkeyCacheInconsistent);
             }
@@ -1977,8 +1975,7 @@ impl<E: EthSpec> BeaconState<E> {
         val: &Validator,
     ) -> Result<bool, Error> {
         Ok(val.is_active_at(previous_epoch)
-            || (val.slashed()
-                && previous_epoch.safe_add(Epoch::new(1))? < val.withdrawable_epoch()))
+            || (val.slashed && previous_epoch.safe_add(Epoch::new(1))? < val.withdrawable_epoch))
     }
 
     /// Passing `previous_epoch` to this function rather than computing it internally provides
@@ -2026,7 +2023,6 @@ impl<E: EthSpec> BeaconState<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn rebase_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
         // Required for macros (which use type-hints internally).
-        type GenericValidator = Validator;
 
         match (&mut *self, base) {
             (Self::Base(self_inner), Self::Base(base_inner)) => {
@@ -2136,7 +2132,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 }
 
-impl<E: EthSpec, GenericValidator: ValidatorTrait> BeaconState<E, GenericValidator> {
+impl<E: EthSpec> BeaconState<E> {
     /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
     ///
     /// This is relevant to tree-hashing of the `BeaconState`.

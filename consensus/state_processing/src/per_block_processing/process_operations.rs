@@ -5,7 +5,6 @@ use crate::common::{
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
-use std::sync::Arc;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
@@ -413,19 +412,17 @@ pub fn process_deposit<E: EthSpec>(
 
         // Create a new validator.
         let validator = Validator {
-            pubkey: Arc::new(deposit.data.pubkey),
-            mutable: ValidatorMutable {
-                withdrawal_credentials: deposit.data.withdrawal_credentials,
-                activation_eligibility_epoch: spec.far_future_epoch,
-                activation_epoch: spec.far_future_epoch,
-                exit_epoch: spec.far_future_epoch,
-                withdrawable_epoch: spec.far_future_epoch,
-                effective_balance: std::cmp::min(
-                    amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
-                    spec.max_effective_balance,
-                ),
-                slashed: false,
-            },
+            pubkey: deposit.data.pubkey,
+            withdrawal_credentials: deposit.data.withdrawal_credentials,
+            activation_eligibility_epoch: spec.far_future_epoch,
+            activation_epoch: spec.far_future_epoch,
+            exit_epoch: spec.far_future_epoch,
+            withdrawable_epoch: spec.far_future_epoch,
+            effective_balance: std::cmp::min(
+                amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
+                spec.max_effective_balance,
+            ),
+            slashed: false,
         };
         state.validators_mut().push(validator)?;
         state.balances_mut().push(deposit.data.amount)?;

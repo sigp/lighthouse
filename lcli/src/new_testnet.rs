@@ -17,14 +17,13 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
     Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderMerge,
-    ForkName, Hash256, Keypair, PublicKey, Validator, ValidatorMutable,
+    ForkName, Hash256, Keypair, PublicKey, Validator,
 };
 
 pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -276,19 +275,17 @@ fn initialize_state_with_validators<E: EthSpec>(
         let amount = spec.max_effective_balance;
         // Create a new validator.
         let validator = Validator {
-            pubkey: Arc::new(keypair.0.pk.clone().into()),
-            mutable: ValidatorMutable {
-                withdrawal_credentials: withdrawal_credentials(&keypair.1.pk),
-                activation_eligibility_epoch: spec.far_future_epoch,
-                activation_epoch: spec.far_future_epoch,
-                exit_epoch: spec.far_future_epoch,
-                withdrawable_epoch: spec.far_future_epoch,
-                effective_balance: std::cmp::min(
-                    amount - amount % (spec.effective_balance_increment),
-                    spec.max_effective_balance,
-                ),
-                slashed: false,
-            },
+            pubkey: keypair.0.pk.clone().into(),
+            withdrawal_credentials: withdrawal_credentials(&keypair.1.pk),
+            activation_eligibility_epoch: spec.far_future_epoch,
+            activation_epoch: spec.far_future_epoch,
+            exit_epoch: spec.far_future_epoch,
+            withdrawable_epoch: spec.far_future_epoch,
+            effective_balance: std::cmp::min(
+                amount - amount % (spec.effective_balance_increment),
+                spec.max_effective_balance,
+            ),
+            slashed: false,
         };
         state.validators_mut().push(validator).unwrap();
         state.balances_mut().push(amount).unwrap();

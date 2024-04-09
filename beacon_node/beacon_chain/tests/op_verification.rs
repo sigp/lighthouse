@@ -170,7 +170,7 @@ async fn voluntary_exit_duplicate_in_state() {
             .validators()
             .get(exited_validator as usize)
             .unwrap()
-            .exit_epoch(),
+            .exit_epoch,
         spec.far_future_epoch
     );
 
@@ -274,12 +274,14 @@ async fn proposer_slashing_duplicate_in_state() {
         .await;
 
     // Verify validator is actually slashed.
-    assert!(harness
-        .get_current_state()
-        .validators()
-        .get(slashed_validator as usize)
-        .unwrap()
-        .slashed());
+    assert!(
+        harness
+            .get_current_state()
+            .validators()
+            .get(slashed_validator as usize)
+            .unwrap()
+            .slashed
+    );
 
     // Clear the in-memory gossip cache & try to verify the same slashing on gossip.
     // It should still fail because gossip verification should check the validator's `slashed` field
@@ -400,12 +402,14 @@ async fn attester_slashing_duplicate_in_state() {
         .await;
 
     // Verify validator is actually slashed.
-    assert!(harness
-        .get_current_state()
-        .validators()
-        .get(slashed_validator as usize)
-        .unwrap()
-        .slashed());
+    assert!(
+        harness
+            .get_current_state()
+            .validators()
+            .get(slashed_validator as usize)
+            .unwrap()
+            .slashed
+    );
 
     // Clear the in-memory gossip cache & try to verify the same slashing on gossip.
     // It should still fail because gossip verification should check the validator's `slashed` field

@@ -392,7 +392,7 @@ impl ForkChoiceTest {
             .into_iter()
             .map(|v| {
                 if v.is_active_at(state.current_epoch()) {
-                    v.effective_balance()
+                    v.effective_balance
                 } else {
                     0
                 }

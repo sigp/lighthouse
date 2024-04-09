@@ -124,7 +124,7 @@ pub use crate::beacon_block_body::{
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
-pub use crate::beacon_state::{compact_state::CompactBeaconState, Error as BeaconStateError, *};
+pub use crate::beacon_state::{Error as BeaconStateError, *};
 pub use crate::blob_sidecar::{BlobSidecar, BlobSidecarList, BlobsList};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
@@ -220,7 +220,7 @@ pub use crate::sync_committee_subscription::SyncCommitteeSubscription;
 pub use crate::sync_duty::SyncDuty;
 pub use crate::sync_selection_proof::SyncSelectionProof;
 pub use crate::sync_subnet_id::SyncSubnetId;
-pub use crate::validator::{Validator, ValidatorMutable};
+pub use crate::validator::Validator;
 pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;

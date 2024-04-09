@@ -117,7 +117,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
     let mut activation_queue = ActivationQueue::default();
 
     for (index, validator) in state.validators().iter().enumerate() {
-        effective_balances.push(validator.effective_balance());
+        effective_balances.push(validator.effective_balance);
 
         // Add to speculative activation queue.
         activation_queue

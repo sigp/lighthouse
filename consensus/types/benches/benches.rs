@@ -8,7 +8,7 @@ use ssz::Encode;
 use std::sync::Arc;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconState, Epoch, Eth1Data, EthSpec, Hash256,
-    MainnetEthSpec, Validator, ValidatorMutable,
+    MainnetEthSpec, Validator,
 };
 
 fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
@@ -33,16 +33,14 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
             .collect::<Vec<_>>()
             .par_iter()
             .map(|&i| Validator {
-                pubkey: Arc::new(generate_deterministic_keypair(i).pk.compress()),
-                mutable: ValidatorMutable {
-                    withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
-                    effective_balance: spec.max_effective_balance,
-                    slashed: false,
-                    activation_eligibility_epoch: Epoch::new(0),
-                    activation_epoch: Epoch::new(0),
-                    exit_epoch: Epoch::from(u64::max_value()),
-                    withdrawable_epoch: Epoch::from(u64::max_value()),
-                },
+                pubkey: generate_deterministic_keypair(i).pk.compress(),
+                withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
+                effective_balance: spec.max_effective_balance,
+                slashed: false,
+                activation_eligibility_epoch: Epoch::new(0),
+                activation_epoch: Epoch::new(0),
+                exit_epoch: Epoch::from(u64::max_value()),
+                withdrawable_epoch: Epoch::from(u64::max_value()),
             })
             .collect(),
     )

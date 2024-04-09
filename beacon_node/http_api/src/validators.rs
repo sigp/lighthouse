@@ -29,7 +29,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                         .filter(|(index, (validator, _))| {
                             query_ids.as_ref().map_or(true, |ids| {
                                 ids.iter().any(|id| match id {
-                                    ValidatorId::PublicKey(pubkey) => validator.pubkey() == pubkey,
+                                    ValidatorId::PublicKey(pubkey) => &validator.pubkey == pubkey,
                                     ValidatorId::Index(param_index) => {
                                         *param_index == *index as u64
                                     }
@@ -93,7 +93,7 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
                         .filter(|(index, (validator, _))| {
                             optional_ids.map_or(true, |ids| {
                                 ids.iter().any(|id| match id {
-                                    ValidatorId::PublicKey(pubkey) => validator.pubkey() == pubkey,
+                                    ValidatorId::PublicKey(pubkey) => &validator.pubkey == pubkey,
                                     ValidatorId::Index(param_index) => {
                                         *param_index == *index as u64
                                     }

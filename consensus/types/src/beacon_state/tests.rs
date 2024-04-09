@@ -99,7 +99,6 @@ async fn test_beacon_proposer_index<E: EthSpec>() {
         .validators_mut()
         .get_mut(slot0_candidate0)
         .unwrap()
-        .mutable
         .effective_balance = 0;
     test(&state, Slot::new(0), 1);
     for i in 1..E::slots_per_epoch() {

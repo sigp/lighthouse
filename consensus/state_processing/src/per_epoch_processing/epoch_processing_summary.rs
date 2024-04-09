@@ -54,7 +54,7 @@ impl<E: EthSpec> ParticipationEpochSummary<E> {
     pub fn is_active_and_unslashed(&self, val_index: usize, epoch: Epoch) -> bool {
         self.validators
             .get(val_index)
-            .map(|validator| !validator.slashed() && validator.is_active_at(epoch))
+            .map(|validator| !validator.slashed && validator.is_active_at(epoch))
             .unwrap_or(false)
     }
 

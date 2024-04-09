@@ -35,7 +35,7 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
         .zip(state.previous_epoch_participation()?)
     {
         // Exclude slashed validators. We are calculating *unslashed* participating totals.
-        if validator.slashed() {
+        if validator.slashed {
             continue;
         }
 
@@ -78,7 +78,7 @@ fn update_flag_total_balances(
 ) -> Result<(), BeaconStateError> {
     for (flag, balance) in total_balances.total_flag_balances.iter_mut().enumerate() {
         if participation_flags.has_flag(flag)? {
-            balance.safe_add_assign(validator.effective_balance())?;
+            balance.safe_add_assign(validator.effective_balance)?;
         }
     }
     Ok(())
