@@ -113,17 +113,16 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         // Matching here in case variable fields are added in future forks.
+        // TODO(electra): review electra changes
         match fork_name {
             ForkName::Base
             | ForkName::Altair
             | ForkName::Merge
             | ForkName::Capella
-            | ForkName::Deneb => {
+            | ForkName::Deneb
+            | ForkName::Electra => {
                 // Max size of variable length `extra_data` field
                 E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
-            }
-            ForkName::Electra => {
-                unimplemented!("Electra not implemented")
             }
         }
     }

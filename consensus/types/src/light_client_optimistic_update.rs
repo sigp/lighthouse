@@ -152,14 +152,16 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
 
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
+        // TODO(electra): review electra changes
         match fork_name {
             ForkName::Base => 0,
-            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
+            ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
                 <LightClientOptimisticUpdateAltair<E> as Encode>::ssz_fixed_len()
                     + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
-            }
-            ForkName::Electra => {
-                unimplemented!("Electra not implemented")
             }
         }
     }

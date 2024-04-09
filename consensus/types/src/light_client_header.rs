@@ -120,11 +120,8 @@ impl<E: EthSpec> LightClientHeader<E> {
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge => 0,
-            ForkName::Capella | ForkName::Deneb => {
+            ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                 ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
-            }
-            ForkName::Electra => {
-                unimplemented!("Electra not implemented")
             }
         }
     }

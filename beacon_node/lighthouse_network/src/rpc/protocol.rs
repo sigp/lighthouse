@@ -115,10 +115,13 @@ lazy_static! {
 
     pub static ref LIGHT_CLIENT_FINALITY_UPDATE_CAPELLA_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
     pub static ref LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
     pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_CAPELLA_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
     pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
     pub static ref LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
     pub static ref LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
 }
 
 /// The protocol prefix the RPC protocol id.
@@ -183,7 +186,7 @@ fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> Rp
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
         }
         ForkName::Electra => {
-            unimplemented!("Electra not implemented")
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
         }
     }
 }
@@ -201,9 +204,10 @@ fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> 
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra => {
-            unimplemented!("Electra not implemented")
-        }
+        ForkName::Electra => RpcLimits::new(
+            altair_fixed_len,
+            *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
+        ),
     }
 }
 
@@ -215,9 +219,7 @@ fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimit
         ForkName::Altair | ForkName::Merge => RpcLimits::new(altair_fixed_len, altair_fixed_len),
         ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
         ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
-        ForkName::Electra => {
-            unimplemented!("Electra not implemented")
-        }
+        ForkName::Electra => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX),
     }
 }
 
