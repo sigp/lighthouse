@@ -15,6 +15,7 @@ pub use processing_cache::ProcessingComponents;
 use slasher::test_utils::E;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
+use ssz_types::FixedVector;
 use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
@@ -23,7 +24,7 @@ use task_executor::TaskExecutor;
 use types::beacon_block_body::KzgCommitmentOpts;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecarList, ChainSpec, DataColumnSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock,
 };
 
 mod availability_view;
@@ -66,12 +67,12 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
 /// Indicates if the block is fully `Available` or if we need blobs or blocks
 ///  to "complete" the requirements for an `AvailableBlock`.
 #[derive(PartialEq)]
-pub enum Availability<T: EthSpec> {
+pub enum Availability<E: EthSpec> {
     MissingComponents(Hash256),
-    Available(Box<AvailableExecutedBlock<T>>),
+    Available(Box<AvailableExecutedBlock<E>>),
 }
 
-impl<T: EthSpec> Debug for Availability<T> {
+impl<E: EthSpec> Debug for Availability<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::MissingComponents(block_root) => {
@@ -114,14 +115,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.processing_cache.read().get(&block_root).cloned()
     }
 
-    /// A `None` indicates blobs are not required.
-    ///
     /// If there's no block, all possible ids will be returned that don't exist in the given blobs.
     /// If there no blobs, all possible ids will be returned.
-    pub fn get_missing_blob_ids<V: AvailabilityView<T::EthSpec>>(
+    pub fn get_missing_blob_ids<V>(
         &self,
         block_root: Hash256,
-        availability_view: &V,
+        block: &Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        blobs: &FixedVector<Option<V>, <T::EthSpec as EthSpec>::MaxBlobsPerBlock>,
     ) -> MissingBlobs {
         let Some(current_slot) = self.slot_clock.now_or_genesis() else {
             error!(
@@ -134,49 +134,20 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
         if self.da_check_required_for_epoch(current_epoch) {
-            match availability_view.get_cached_block() {
+            match block {
                 Some(cached_block) => {
                     let block_commitments = cached_block.get_commitments();
-                    let blob_commitments = availability_view.get_cached_blobs();
-
-                    let num_blobs_expected = block_commitments.len();
-                    let mut blob_ids = Vec::with_capacity(num_blobs_expected);
-
-                    // Zip here will always limit the number of iterations to the size of
-                    // `block_commitment` because `blob_commitments` will always be populated
-                    // with `Option` values up to `MAX_BLOBS_PER_BLOCK`.
-                    for (index, (block_commitment, blob_commitment_opt)) in block_commitments
-                        .into_iter()
-                        .zip(blob_commitments.iter())
+                    let blob_ids = blobs
+                        .iter()
+                        .take(block_commitments.len())
                         .enumerate()
-                    {
-                        // Always add a missing blob.
-                        let Some(blob_commitment) = blob_commitment_opt else {
-                            blob_ids.push(BlobIdentifier {
+                        .filter_map(|(index, blob_commitment_opt)| {
+                            blob_commitment_opt.is_none().then_some(BlobIdentifier {
                                 block_root,
                                 index: index as u64,
-                            });
-                            continue;
-                        };
-
-                        let blob_commitment = *blob_commitment.get_commitment();
-
-                        // Check for consistency, but this shouldn't happen, an availability view
-                        // should guaruntee consistency.
-                        if blob_commitment != block_commitment {
-                            error!(self.log,
-                                "Inconsistent availability view";
-                                "block_root" => ?block_root,
-                                "block_commitment" => ?block_commitment,
-                                "blob_commitment" => ?blob_commitment,
-                                "index" => index
-                            );
-                            blob_ids.push(BlobIdentifier {
-                                block_root,
-                                index: index as u64,
-                            });
-                        }
-                    }
+                            })
+                        })
+                        .collect();
                     MissingBlobs::KnownMissing(blob_ids)
                 }
                 None => {
@@ -396,41 +367,30 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// them here is useful to avoid duplicate downloads of blocks, as well as understanding
     /// our blob download requirements. We will also serve this over RPC.
     pub fn notify_block(&self, block_root: Hash256, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
-        let slot = block.slot();
         self.processing_cache
             .write()
             .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
+            .or_default()
             .merge_block(block);
     }
 
     /// Add a single blob commitment to the processing cache. This commitment is unverified but caching
     /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
     /// our block and blob download requirements.
-    pub fn notify_gossip_blob(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        blob: &GossipVerifiedBlob<T>,
-    ) {
+    pub fn notify_gossip_blob(&self, block_root: Hash256, blob: &GossipVerifiedBlob<T>) {
         let index = blob.index();
         let commitment = blob.kzg_commitment();
         self.processing_cache
             .write()
             .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
+            .or_default()
             .merge_single_blob(index as usize, commitment);
     }
 
     /// Adds blob commitments to the processing cache. These commitments are unverified but caching
     /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
     /// our block and blob download requirements.
-    pub fn notify_rpc_blobs(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        blobs: &FixedBlobSidecarList<T::EthSpec>,
-    ) {
+    pub fn notify_rpc_blobs(&self, block_root: Hash256, blobs: &FixedBlobSidecarList<T::EthSpec>) {
         let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
         for blob in blobs.iter().flatten() {
             if let Some(commitment) = commitments.get_mut(blob.index as usize) {
@@ -440,21 +400,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.processing_cache
             .write()
             .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
+            .or_default()
             .merge_blobs(commitments);
     }
 
     /// Clears the block and all blobs from the processing cache for a give root if they exist.
     pub fn remove_notified(&self, block_root: &Hash256) {
         self.processing_cache.write().remove(block_root)
-    }
-
-    /// Gather all block roots for which we are not currently processing all components for the
-    /// given slot.
-    pub fn incomplete_processing_components(&self, slot: Slot) -> Vec<Hash256> {
-        self.processing_cache
-            .read()
-            .incomplete_processing_components(slot)
     }
 
     /// The epoch at which we require a data availability check in block processing.

@@ -21,6 +21,7 @@ pub mod data_availability_checker;
 pub mod data_column_verification;
 pub mod deneb_readiness;
 mod early_attester_cache;
+pub mod electra_readiness;
 mod errors;
 pub mod eth1_chain;
 mod eth1_finalization_cache;

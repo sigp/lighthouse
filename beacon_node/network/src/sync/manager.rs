@@ -57,7 +57,6 @@ use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
-use std::boxed::Box;
 use std::ops::IndexMut;
 use std::ops::Sub;
 use std::sync::Arc;
@@ -108,7 +107,7 @@ pub enum RequestId {
 
 #[derive(Debug)]
 /// A message that can be sent to the sync manager thread.
-pub enum SyncMessage<T: EthSpec> {
+pub enum SyncMessage<E: EthSpec> {
     /// A useful peer has been discovered.
     AddPeer(PeerId, SyncInfo),
 
@@ -116,7 +115,7 @@ pub enum SyncMessage<T: EthSpec> {
     RpcBlock {
         request_id: RequestId,
         peer_id: PeerId,
-        beacon_block: Option<Arc<SignedBeaconBlock<T>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
         seen_timestamp: Duration,
     },
 
@@ -124,15 +123,15 @@ pub enum SyncMessage<T: EthSpec> {
     RpcBlob {
         request_id: RequestId,
         peer_id: PeerId,
-        blob_sidecar: Option<Arc<BlobSidecar<T>>>,
+        blob_sidecar: Option<Arc<BlobSidecar<E>>>,
         seen_timestamp: Duration,
     },
 
     /// A block with an unknown parent has been received.
-    UnknownParentBlock(PeerId, RpcBlock<T>, Hash256),
+    UnknownParentBlock(PeerId, RpcBlock<E>, Hash256),
 
     /// A blob with an unknown parent has been received.
-    UnknownParentBlob(PeerId, Arc<BlobSidecar<T>>),
+    UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -157,7 +156,7 @@ pub enum SyncMessage<T: EthSpec> {
     /// Block processed
     BlockComponentProcessed {
         process_type: BlockProcessType,
-        result: BlockProcessingResult<T>,
+        result: BlockProcessingResult<E>,
     },
 }
 
@@ -170,9 +169,9 @@ pub enum BlockProcessType {
 }
 
 #[derive(Debug)]
-pub enum BlockProcessingResult<T: EthSpec> {
+pub enum BlockProcessingResult<E: EthSpec> {
     Ok(AvailabilityProcessingStatus),
-    Err(BlockError<T>),
+    Err(BlockError<E>),
     Ignored,
 }
 
@@ -916,44 +915,28 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { .. } => {
                 crit!(self.log, "Single blob received during block request"; "peer_id" => %peer_id  );
             }
-            RequestId::SingleBlob { id } => {
-                if let Some(blob) = blob.as_ref() {
-                    debug!(self.log,
-                        "Peer returned blob for single lookup";
-                        "peer_id" => %peer_id ,
-                        "blob_id" =>?blob.id()
-                    );
-                }
-                self.block_lookups
-                    .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
-                        id,
-                        peer_id,
-                        blob,
-                        seen_timestamp,
-                        &self.network,
-                    )
-            }
+            RequestId::SingleBlob { id } => self
+                .block_lookups
+                .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
+                    id,
+                    peer_id,
+                    blob,
+                    seen_timestamp,
+                    &self.network,
+                ),
 
             RequestId::ParentLookup { id: _ } => {
                 crit!(self.log, "Single blob received during parent block request"; "peer_id" => %peer_id  );
             }
-            RequestId::ParentLookupBlob { id } => {
-                if let Some(blob) = blob.as_ref() {
-                    debug!(self.log,
-                        "Peer returned blob for parent lookup";
-                        "peer_id" => %peer_id ,
-                        "blob_id" =>?blob.id()
-                    );
-                }
-                self.block_lookups
-                    .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
-                        id,
-                        peer_id,
-                        blob,
-                        seen_timestamp,
-                        &self.network,
-                    )
-            }
+            RequestId::ParentLookupBlob { id } => self
+                .block_lookups
+                .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
+                    id,
+                    peer_id,
+                    blob,
+                    seen_timestamp,
+                    &self.network,
+                ),
             RequestId::BackFillBlocks { id: _ } => {
                 crit!(self.log, "Blob received during backfill block request"; "peer_id" => %peer_id  );
             }
@@ -1094,10 +1077,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 }
 
-impl<T: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<T>>>
-    for BlockProcessingResult<T>
+impl<E: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<E>>>
+    for BlockProcessingResult<E>
 {
-    fn from(result: Result<AvailabilityProcessingStatus, BlockError<T>>) -> Self {
+    fn from(result: Result<AvailabilityProcessingStatus, BlockError<E>>) -> Self {
         match result {
             Ok(status) => BlockProcessingResult::Ok(status),
             Err(e) => BlockProcessingResult::Err(e),
@@ -1105,8 +1088,8 @@ impl<T: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<T>>>
     }
 }
 
-impl<T: EthSpec> From<BlockError<T>> for BlockProcessingResult<T> {
-    fn from(e: BlockError<T>) -> Self {
+impl<E: EthSpec> From<BlockError<E>> for BlockProcessingResult<E> {
+    fn from(e: BlockError<E>) -> Self {
         BlockProcessingResult::Err(e)
     }
 }

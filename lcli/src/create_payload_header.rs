@@ -6,10 +6,10 @@ use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
     EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderMerge, ForkName,
+    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderMerge, ForkName,
 };
 
-pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
+pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let eth1_block_hash = parse_required(matches, "execution-block-hash")?;
     let genesis_time = parse_optional(matches, "genesis-time")?.unwrap_or(
         SystemTime::now()
@@ -22,7 +22,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let file_name = matches.value_of("file").ok_or("No file supplied")?;
     let fork_name: ForkName = parse_optional(matches, "fork")?.unwrap_or(ForkName::Merge);
 
-    let execution_payload_header: ExecutionPayloadHeader<T> = match fork_name {
+    let execution_payload_header: ExecutionPayloadHeader<E> = match fork_name {
         ForkName::Base | ForkName::Altair => return Err("invalid fork name".to_string()),
         ForkName::Merge => ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
             gas_limit,
@@ -47,6 +47,14 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
             block_hash: eth1_block_hash,
             prev_randao: eth1_block_hash.into_root(),
             ..ExecutionPayloadHeaderDeneb::default()
+        }),
+        ForkName::Electra => ExecutionPayloadHeader::Electra(ExecutionPayloadHeaderElectra {
+            gas_limit,
+            base_fee_per_gas,
+            timestamp: genesis_time,
+            block_hash: eth1_block_hash,
+            prev_randao: eth1_block_hash.into_root(),
+            ..ExecutionPayloadHeaderElectra::default()
         }),
     };
 

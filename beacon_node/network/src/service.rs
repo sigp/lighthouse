@@ -62,7 +62,7 @@ pub enum RequestId {
 /// Types of messages that the network service can receive.
 #[derive(Debug, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
-pub enum NetworkMessage<T: EthSpec> {
+pub enum NetworkMessage<E: EthSpec> {
     /// Subscribes the beacon node to the core gossipsub topics. We do this when we are either
     /// synced or close to the head slot.
     SubscribeCoreTopics,
@@ -75,7 +75,7 @@ pub enum NetworkMessage<T: EthSpec> {
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
-        response: Response<T>,
+        response: Response<E>,
         id: PeerRequestId,
     },
     /// Sends an error response to an RPC request.
@@ -86,7 +86,7 @@ pub enum NetworkMessage<T: EthSpec> {
         id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
-    Publish { messages: Vec<PubsubMessage<T>> },
+    Publish { messages: Vec<PubsubMessage<E>> },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.

@@ -117,6 +117,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 "Gossip block is being processed";
                 "action" => "sending rpc block to reprocessing queue",
                 "block_root" => %block_root,
+                "process_type" => ?process_type,
             );
 
             // Send message to work reprocess queue to retry the block
@@ -149,6 +150,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "proposer" => block.message().proposer_index(),
             "slot" => block.slot(),
             "commitments" => commitments_formatted,
+            "process_type" => ?process_type,
         );
 
         let result = self
@@ -267,6 +269,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "slot" => %slot,
                     "block_hash" => %hash,
                 );
+                self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 debug!(
@@ -276,7 +279,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "slot" => %slot,
                 );
             }
-            Err(BlockError::BlockIsAlreadyKnown) => {
+            Err(BlockError::BlockIsAlreadyKnown(_)) => {
                 debug!(
                     self.log,
                     "Blobs have already been imported";
@@ -422,7 +425,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         }
                     }
                     (imported_blocks, Ok(_)) => {
-                        debug!(self.log, "Parent lookup processed successfully");
+                        debug!(
+                            self.log, "Parent lookup processed successfully";
+                            "chain_hash" => %chain_head,
+                            "imported_blocks" => imported_blocks
+                        );
                         BatchProcessResult::Success {
                             was_non_empty: imported_blocks > 0,
                         }
@@ -644,7 +651,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: Some(PeerAction::LowToleranceError),
                 })
             }
-            BlockError::BlockIsAlreadyKnown => {
+            BlockError::BlockIsAlreadyKnown(_) => {
                 // This can happen for many reasons. Head sync's can download multiples and parent
                 // lookups can download blocks before range sync
                 Ok(())

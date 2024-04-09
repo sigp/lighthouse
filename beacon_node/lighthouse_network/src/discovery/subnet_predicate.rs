@@ -7,32 +7,29 @@ use std::ops::Deref;
 use types::DataColumnSubnetId;
 
 /// Returns the predicate for a given subnet.
-pub fn subnet_predicate<TSpec>(
-    subnets: Vec<Subnet>,
-    log: &slog::Logger,
-) -> impl Fn(&Enr) -> bool + Send
+pub fn subnet_predicate<E>(subnets: Vec<Subnet>, log: &slog::Logger) -> impl Fn(&Enr) -> bool + Send
 where
-    TSpec: EthSpec,
+    E: EthSpec,
 {
     let log_clone = log.clone();
 
     move |enr: &Enr| {
-        let attestation_bitfield: EnrAttestationBitfield<TSpec> =
-            match enr.attestation_bitfield::<TSpec>() {
-                Ok(b) => b,
-                Err(_e) => return false,
-            };
+        let attestation_bitfield: EnrAttestationBitfield<E> = match enr.attestation_bitfield::<E>()
+        {
+            Ok(b) => b,
+            Err(_e) => return false,
+        };
 
         // Pre-fork/fork-boundary enrs may not contain a syncnets field.
         // Don't return early here.
-        let sync_committee_bitfield: Result<EnrSyncCommitteeBitfield<TSpec>, _> =
-            enr.sync_committee_bitfield::<TSpec>();
+        let sync_committee_bitfield: Result<EnrSyncCommitteeBitfield<E>, _> =
+            enr.sync_committee_bitfield::<E>();
 
         // Pre-fork/fork-boundary enrs may not contain a peerdas custody field.
         // Don't return early here.
         //
         // NOTE: we could map to minimum custody requirement here.
-        let custody_subnet_count: Result<u64, _> = enr.custody_subnet_count::<TSpec>();
+        let custody_subnet_count: Result<u64, _> = enr.custody_subnet_count::<E>();
 
         let predicate = subnets.iter().any(|subnet| match subnet {
             Subnet::Attestation(s) => attestation_bitfield
@@ -42,7 +39,7 @@ where
                 .as_ref()
                 .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
             Subnet::DataColumn(s) => custody_subnet_count.map_or(false, |count| {
-                let mut subnets = DataColumnSubnetId::compute_custody_subnets::<TSpec>(
+                let mut subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
                     enr.node_id().raw().into(),
                     count,
                 );

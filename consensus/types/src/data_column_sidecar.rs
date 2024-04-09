@@ -22,8 +22,8 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 pub type ColumnIndex = u64;
-pub type Cell<T> = FixedVector<u8, <T as EthSpec>::FieldElementsPerCell>;
-pub type DataColumn<T> = VariableList<Cell<T>, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type Cell<E> = FixedVector<u8, <E as EthSpec>::FieldElementsPerCell>;
+pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Container of the data that identifies an individual data column.
 #[derive(
@@ -46,23 +46,23 @@ pub struct DataColumnIdentifier {
     Derivative,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-#[derivative(PartialEq, Eq, Hash(bound = "T: EthSpec"))]
-pub struct DataColumnSidecar<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: ColumnIndex,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
-    pub column: DataColumn<T>,
+    pub column: DataColumn<E>,
     /// All of the KZG commitments and proofs associated with the block, used for verifying sample cells.
-    pub kzg_commitments: KzgCommitments<T>,
-    pub kzg_proofs: KzgProofs<T>,
+    pub kzg_commitments: KzgCommitments<E>,
+    pub kzg_proofs: KzgProofs<E>,
     pub signed_block_header: SignedBeaconBlockHeader,
     /// An inclusion proof, proving the inclusion of `blob_kzg_commitments` in `BeaconBlockBody`.
-    pub kzg_commitments_inclusion_proof: FixedVector<Hash256, T::KzgCommitmentsInclusionProofDepth>,
+    pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
 }
 
-impl<T: EthSpec> DataColumnSidecar<T> {
+impl<E: EthSpec> DataColumnSidecar<E> {
     pub fn slot(&self) -> Slot {
         self.signed_block_header.message.slot
     }
@@ -72,10 +72,10 @@ impl<T: EthSpec> DataColumnSidecar<T> {
     }
 
     pub fn build_sidecars(
-        blobs: &BlobSidecarList<T>,
-        block: &SignedBeaconBlock<T>,
+        blobs: &BlobSidecarList<E>,
+        block: &SignedBeaconBlock<E>,
         kzg: &Kzg,
-    ) -> Result<DataColumnSidecarList<T>, DataColumnSidecarError> {
+    ) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
         let kzg_commitments = block
             .message()
             .body()
@@ -86,9 +86,9 @@ impl<T: EthSpec> DataColumnSidecar<T> {
         let signed_block_header = block.signed_block_header();
 
         let mut columns =
-            vec![Vec::with_capacity(T::max_blobs_per_block()); T::number_of_columns()];
+            vec![Vec::with_capacity(E::max_blobs_per_block()); E::number_of_columns()];
         let mut column_kzg_proofs =
-            vec![Vec::with_capacity(T::max_blobs_per_block()); T::number_of_columns()];
+            vec![Vec::with_capacity(E::max_blobs_per_block()); E::number_of_columns()];
 
         // NOTE: assumes blob sidecars are ordered by index
         for blob in blobs {
@@ -98,7 +98,7 @@ impl<T: EthSpec> DataColumnSidecar<T> {
             // we iterate over each column, and we construct the column from "top to bottom",
             // pushing on the cell and the corresponding proof at each column index. we do this for
             // each blob (i.e. the outer loop).
-            for col in 0..T::number_of_columns() {
+            for col in 0..E::number_of_columns() {
                 let cell =
                     blob_cells
                         .get(col)
@@ -110,7 +110,7 @@ impl<T: EthSpec> DataColumnSidecar<T> {
                     .into_iter()
                     .flat_map(|data| (*data).into_iter())
                     .collect();
-                let cell = Cell::<T>::from(cell);
+                let cell = Cell::<E>::from(cell);
 
                 let proof = blob_cell_proofs.get(col).ok_or(
                     DataColumnSidecarError::InconsistentArrayLength(format!(
@@ -135,16 +135,16 @@ impl<T: EthSpec> DataColumnSidecar<T> {
             }
         }
 
-        let sidecars: Vec<Arc<DataColumnSidecar<T>>> = columns
+        let sidecars: Vec<Arc<DataColumnSidecar<E>>> = columns
             .into_iter()
             .zip(column_kzg_proofs)
             .enumerate()
             .map(|(index, (col, proofs))| {
                 Arc::new(DataColumnSidecar {
                     index: index as u64,
-                    column: DataColumn::<T>::from(col),
+                    column: DataColumn::<E>::from(col),
                     kzg_commitments: kzg_commitments.clone(),
-                    kzg_proofs: KzgProofs::<T>::from(proofs),
+                    kzg_proofs: KzgProofs::<E>::from(proofs),
                     signed_block_header: signed_block_header.clone(),
                     kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
                 })
@@ -159,7 +159,7 @@ impl<T: EthSpec> DataColumnSidecar<T> {
         // min size is one cell
         Self {
             index: 0,
-            column: VariableList::new(vec![Cell::<T>::default()]).unwrap(),
+            column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
             kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
             signed_block_header: SignedBeaconBlockHeader {
@@ -175,14 +175,14 @@ impl<T: EthSpec> DataColumnSidecar<T> {
     pub fn max_size() -> usize {
         Self {
             index: 0,
-            column: VariableList::new(vec![Cell::<T>::default(); T::MaxBlobsPerBlock::to_usize()])
+            column: VariableList::new(vec![Cell::<E>::default(); E::MaxBlobsPerBlock::to_usize()])
                 .unwrap(),
             kzg_commitments: VariableList::new(vec![
                 KzgCommitment::empty_for_testing();
-                T::MaxBlobsPerBlock::to_usize()
+                E::MaxBlobsPerBlock::to_usize()
             ])
             .unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty(); T::MaxBlobsPerBlock::to_usize()])
+            kzg_proofs: VariableList::new(vec![KzgProof::empty(); E::MaxBlobsPerBlock::to_usize()])
                 .unwrap(),
             signed_block_header: SignedBeaconBlockHeader {
                 message: BeaconBlockHeader::empty(),
@@ -232,10 +232,10 @@ impl From<SszError> for DataColumnSidecarError {
     }
 }
 
-pub type DataColumnSidecarList<T> =
-    VariableList<Arc<DataColumnSidecar<T>>, <T as EthSpec>::DataColumnCount>;
-pub type FixedDataColumnSidecarList<T> =
-    FixedVector<Option<Arc<DataColumnSidecar<T>>>, <T as EthSpec>::DataColumnCount>;
+pub type DataColumnSidecarList<E> =
+    VariableList<Arc<DataColumnSidecar<E>>, <E as EthSpec>::DataColumnCount>;
+pub type FixedDataColumnSidecarList<E> =
+    FixedVector<Option<Arc<DataColumnSidecar<E>>>, <E as EthSpec>::DataColumnCount>;
 
 #[cfg(test)]
 mod test {

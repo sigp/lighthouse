@@ -27,7 +27,7 @@ impl FromStr for OutputFormat {
     }
 }
 
-pub fn run_parse_ssz<T: EthSpec>(
+pub fn run_parse_ssz<E: EthSpec>(
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches,
 ) -> Result<(), String> {
@@ -48,60 +48,68 @@ pub fn run_parse_ssz<T: EthSpec>(
         bytes
     };
 
-    let spec = &network_config.chain_spec::<T>()?;
+    let spec = &network_config.chain_spec::<E>()?;
     info!(
         "Using {} network config ({} preset)",
         spec.config_name.as_deref().unwrap_or("unknown"),
-        T::spec_name()
+        E::spec_name()
     );
     info!("Type: {type_str}");
 
     // More fork-specific decoders may need to be added in future, but shouldn't be 100% necessary,
     // as the fork-generic decoder will always be available (requires correct --network flag).
     match type_str {
-        "SignedBeaconBlock" => decode_and_print::<SignedBeaconBlock<T>>(
+        "SignedBeaconBlock" => decode_and_print::<SignedBeaconBlock<E>>(
             &bytes,
             |bytes| SignedBeaconBlock::from_ssz_bytes(bytes, spec),
             format,
         )?,
         "SignedBeaconBlockBase" | "SignedBeaconBlockPhase0" => {
-            decode_and_print(&bytes, SignedBeaconBlockBase::<T>::from_ssz_bytes, format)?
+            decode_and_print(&bytes, SignedBeaconBlockBase::<E>::from_ssz_bytes, format)?
         }
         "SignedBeaconBlockAltair" => {
-            decode_and_print(&bytes, SignedBeaconBlockAltair::<T>::from_ssz_bytes, format)?
+            decode_and_print(&bytes, SignedBeaconBlockAltair::<E>::from_ssz_bytes, format)?
         }
         "SignedBeaconBlockMerge" | "SignedBeaconBlockBellatrix" => {
-            decode_and_print(&bytes, SignedBeaconBlockMerge::<T>::from_ssz_bytes, format)?
+            decode_and_print(&bytes, SignedBeaconBlockMerge::<E>::from_ssz_bytes, format)?
         }
         "SignedBeaconBlockCapella" => decode_and_print(
             &bytes,
-            SignedBeaconBlockCapella::<T>::from_ssz_bytes,
+            SignedBeaconBlockCapella::<E>::from_ssz_bytes,
             format,
         )?,
         "SignedBeaconBlockDeneb" => {
-            decode_and_print(&bytes, SignedBeaconBlockDeneb::<T>::from_ssz_bytes, format)?
+            decode_and_print(&bytes, SignedBeaconBlockDeneb::<E>::from_ssz_bytes, format)?
         }
-        "BeaconState" => decode_and_print::<BeaconState<T>>(
+        "SignedBeaconBlockElectra" => decode_and_print(
+            &bytes,
+            SignedBeaconBlockElectra::<E>::from_ssz_bytes,
+            format,
+        )?,
+        "BeaconState" => decode_and_print::<BeaconState<E>>(
             &bytes,
             |bytes| BeaconState::from_ssz_bytes(bytes, spec),
             format,
         )?,
         "BeaconStateBase" | "BeaconStatePhase0" => {
-            decode_and_print(&bytes, BeaconStateBase::<T>::from_ssz_bytes, format)?
+            decode_and_print(&bytes, BeaconStateBase::<E>::from_ssz_bytes, format)?
         }
         "BeaconStateAltair" => {
-            decode_and_print(&bytes, BeaconStateAltair::<T>::from_ssz_bytes, format)?
+            decode_and_print(&bytes, BeaconStateAltair::<E>::from_ssz_bytes, format)?
         }
         "BeaconStateMerge" | "BeaconStateBellatrix" => {
-            decode_and_print(&bytes, BeaconStateMerge::<T>::from_ssz_bytes, format)?
+            decode_and_print(&bytes, BeaconStateMerge::<E>::from_ssz_bytes, format)?
         }
         "BeaconStateCapella" => {
-            decode_and_print(&bytes, BeaconStateCapella::<T>::from_ssz_bytes, format)?
+            decode_and_print(&bytes, BeaconStateCapella::<E>::from_ssz_bytes, format)?
         }
         "BeaconStateDeneb" => {
-            decode_and_print(&bytes, BeaconStateDeneb::<T>::from_ssz_bytes, format)?
+            decode_and_print(&bytes, BeaconStateDeneb::<E>::from_ssz_bytes, format)?
         }
-        "BlobSidecar" => decode_and_print(&bytes, BlobSidecar::<T>::from_ssz_bytes, format)?,
+        "BeaconStateElectra" => {
+            decode_and_print(&bytes, BeaconStateElectra::<E>::from_ssz_bytes, format)?
+        }
+        "BlobSidecar" => decode_and_print(&bytes, BlobSidecar::<E>::from_ssz_bytes, format)?,
         other => return Err(format!("Unknown type: {}", other)),
     };
 

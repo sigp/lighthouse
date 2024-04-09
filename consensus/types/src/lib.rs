@@ -74,6 +74,7 @@ pub mod voluntary_exit;
 pub mod withdrawal_credentials;
 #[macro_use]
 pub mod slot_epoch_macros;
+pub mod activation_queue;
 pub mod config_and_preset;
 pub mod execution_block_header;
 pub mod fork_context;
@@ -94,6 +95,7 @@ mod tree_hash_impls;
 pub mod validator_registration_data;
 pub mod withdrawal;
 
+pub mod epoch_cache;
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
@@ -107,6 +109,7 @@ pub mod runtime_var_list;
 
 use ethereum_types::{H160, H256};
 
+pub use crate::activation_queue::ActivationQueue;
 pub use crate::aggregate_and_proof::AggregateAndProof;
 pub use crate::attestation::{Attestation, Error as AttestationError};
 pub use crate::attestation_data::AttestationData;
@@ -114,11 +117,13 @@ pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockDeneb,
-    BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock, EmptyBlock,
+    BeaconBlockElectra, BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock,
+    EmptyBlock,
 };
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyCapella,
-    BeaconBlockBodyDeneb, BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyMerge, BeaconBlockBodyRef,
+    BeaconBlockBodyRefMut,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
@@ -127,7 +132,9 @@ pub use crate::blob_sidecar::{BlobSidecar, BlobSidecarList, BlobsList};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
-pub use crate::config_and_preset::{ConfigAndPreset, ConfigAndPresetCapella, ConfigAndPresetDeneb};
+pub use crate::config_and_preset::{
+    ConfigAndPreset, ConfigAndPresetCapella, ConfigAndPresetDeneb, ConfigAndPresetElectra,
+};
 pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::data_column_sidecar::DataColumnSidecar;
 pub use crate::data_column_subnet_id::DataColumnSubnetId;
@@ -136,17 +143,19 @@ pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
 pub use crate::deposit_tree_snapshot::{DepositTreeSnapshot, FinalizedExecutionBlock};
 pub use crate::enr_fork_id::EnrForkId;
+pub use crate::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::ExecutionBlockHeader;
 pub use crate::execution_payload::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge,
-    ExecutionPayloadRef, Transaction, Transactions, Withdrawals,
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
+    ExecutionPayloadMerge, ExecutionPayloadRef, Transaction, Transactions, Withdrawals,
 };
 pub use crate::execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef,
+    ExecutionPayloadHeaderRefMut,
 };
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
@@ -156,20 +165,37 @@ pub use crate::fork_versioned_response::{ForkVersionDeserialize, ForkVersionedRe
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
-pub use crate::light_client_bootstrap::LightClientBootstrap;
-pub use crate::light_client_finality_update::LightClientFinalityUpdate;
-pub use crate::light_client_header::LightClientHeader;
-pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
-pub use crate::light_client_update::{Error as LightClientError, LightClientUpdate};
+pub use crate::light_client_bootstrap::{
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientBootstrapCapella,
+    LightClientBootstrapDeneb,
+};
+pub use crate::light_client_finality_update::{
+    LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientFinalityUpdateCapella,
+    LightClientFinalityUpdateDeneb,
+};
+pub use crate::light_client_header::{
+    LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+};
+pub use crate::light_client_optimistic_update::{
+    LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair,
+    LightClientOptimisticUpdateCapella, LightClientOptimisticUpdateDeneb,
+};
+pub use crate::light_client_update::{
+    Error as LightClientError, LightClientUpdate, LightClientUpdateAltair,
+    LightClientUpdateCapella, LightClientUpdateDeneb,
+};
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadDeneb,
-    BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload, FullPayload,
-    FullPayloadCapella, FullPayloadDeneb, FullPayloadMerge, FullPayloadRef, OwnedExecPayload,
+    BlindedPayloadElectra, BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload,
+    FullPayload, FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadMerge,
+    FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
-pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, DenebPreset};
+pub use crate::preset::{
+    AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, DenebPreset, ElectraPreset,
+};
 pub use crate::proposer_preparation_data::ProposerPreparationData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
@@ -180,8 +206,8 @@ pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     ssz_tagged_signed_beacon_block, ssz_tagged_signed_beacon_block_arc, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockHash, SignedBeaconBlockMerge,
-    SignedBlindedBeaconBlock,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockHash,
+    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
@@ -212,8 +238,8 @@ pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
-pub type Blob<T> = FixedVector<u8, <T as EthSpec>::BytesPerBlob>;
-pub type KzgProofs<T> = VariableList<KzgProof, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type Blob<E> = FixedVector<u8, <E as EthSpec>::BytesPerBlob>;
+pub type KzgProofs<E> = VariableList<KzgProof, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 pub type VersionedHash = Hash256;
 pub type Hash64 = ethereum_types::H64;
 

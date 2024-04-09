@@ -45,24 +45,24 @@ use types::{
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
-pub struct Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>(
-    PhantomData<(TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore)>,
+pub struct Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>(
+    PhantomData<(TSlotClock, TEth1Backend, E, THotStore, TColdStore)>,
 );
 
-impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore> BeaconChainTypes
-    for Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
+impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore> BeaconChainTypes
+    for Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
 where
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
+    THotStore: ItemStore<E> + 'static,
+    TColdStore: ItemStore<E> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
+    TEth1Backend: Eth1ChainBackend<E> + 'static,
+    E: EthSpec + 'static,
 {
     type HotStore = THotStore;
     type ColdStore = TColdStore;
     type SlotClock = TSlotClock;
     type Eth1Chain = TEth1Backend;
-    type EthSpec = TEthSpec;
+    type EthSpec = E;
 }
 
 /// Builds a `BeaconChain` by either creating anew from genesis, or, resuming from an existing chain
@@ -106,20 +106,20 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     validator_monitor_config: Option<ValidatorMonitorConfig>,
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
+impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
+    THotStore: ItemStore<E> + 'static,
+    TColdStore: ItemStore<E> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
+    TEth1Backend: Eth1ChainBackend<E> + 'static,
+    E: EthSpec + 'static,
 {
     /// Returns a new builder.
     ///
-    /// The `_eth_spec_instance` parameter is only supplied to make concrete the `TEthSpec` trait.
+    /// The `_eth_spec_instance` parameter is only supplied to make concrete the `E` trait.
     /// This should generally be either the `MinimalEthSpec` or `MainnetEthSpec` types.
-    pub fn new(_eth_spec_instance: TEthSpec) -> Self {
+    pub fn new(_eth_spec_instance: E) -> Self {
         Self {
             store: None,
             store_migrator_config: None,
@@ -136,7 +136,7 @@ where
             light_client_server_tx: None,
             head_tracker: None,
             validator_pubkey_cache: None,
-            spec: TEthSpec::default_spec(),
+            spec: E::default_spec(),
             chain_config: ChainConfig::default(),
             log: None,
             graffiti: Graffiti::default(),
@@ -148,7 +148,7 @@ where
         }
     }
 
-    /// Override the default spec (as defined by `TEthSpec`).
+    /// Override the default spec (as defined by `E`).
     ///
     /// This method should generally be called immediately after `Self::new` to ensure components
     /// are started with a consistent spec.
@@ -172,8 +172,8 @@ where
     }
 
     /// Sets the proposer re-org threshold.
-    pub fn proposer_re_org_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
-        self.chain_config.re_org_threshold = threshold;
+    pub fn proposer_re_org_head_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
+        self.chain_config.re_org_head_threshold = threshold;
         self
     }
 
@@ -198,7 +198,7 @@ where
     /// Sets the store (database).
     ///
     /// Should generally be called early in the build chain.
-    pub fn store(mut self, store: Arc<HotColdDB<TEthSpec, THotStore, TColdStore>>) -> Self {
+    pub fn store(mut self, store: Arc<HotColdDB<E, THotStore, TColdStore>>) -> Self {
         self.store = Some(store);
         self
     }
@@ -210,7 +210,7 @@ where
     }
 
     /// Sets the slasher.
-    pub fn slasher(mut self, slasher: Arc<Slasher<TEthSpec>>) -> Self {
+    pub fn slasher(mut self, slasher: Arc<Slasher<E>>) -> Self {
         self.slasher = Some(slasher);
         self
     }
@@ -304,7 +304,7 @@ where
 
         self.op_pool = Some(
             store
-                .get_item::<PersistedOperationPool<TEthSpec>>(&OP_POOL_DB_KEY)
+                .get_item::<PersistedOperationPool<E>>(&OP_POOL_DB_KEY)
                 .map_err(|e| format!("DB error whilst reading persisted op pool: {:?}", e))?
                 .map(PersistedOperationPool::into_operation_pool)
                 .transpose()
@@ -339,8 +339,8 @@ where
     /// Return the `BeaconSnapshot` representing genesis as well as the mutated builder.
     fn set_genesis_state(
         mut self,
-        mut beacon_state: BeaconState<TEthSpec>,
-    ) -> Result<(BeaconSnapshot<TEthSpec>, Self), String> {
+        mut beacon_state: BeaconState<E>,
+    ) -> Result<(BeaconSnapshot<E>, Self), String> {
         let store = self
             .store
             .clone()
@@ -387,7 +387,7 @@ where
     }
 
     /// Starts a new chain from a genesis state.
-    pub fn genesis_state(mut self, beacon_state: BeaconState<TEthSpec>) -> Result<Self, String> {
+    pub fn genesis_state(mut self, beacon_state: BeaconState<E>) -> Result<Self, String> {
         let store = self.store.clone().ok_or("genesis_state requires a store")?;
 
         let (genesis, updated_builder) = self.set_genesis_state(beacon_state)?;
@@ -435,10 +435,10 @@ where
     /// Start the chain from a weak subjectivity state.
     pub fn weak_subjectivity_state(
         mut self,
-        mut weak_subj_state: BeaconState<TEthSpec>,
-        weak_subj_block: SignedBeaconBlock<TEthSpec>,
-        weak_subj_blobs: Option<BlobSidecarList<TEthSpec>>,
-        genesis_state: BeaconState<TEthSpec>,
+        mut weak_subj_state: BeaconState<E>,
+        weak_subj_block: SignedBeaconBlock<E>,
+        weak_subj_blobs: Option<BlobSidecarList<E>>,
+        genesis_state: BeaconState<E>,
     ) -> Result<Self, String> {
         let store = self
             .store
@@ -450,7 +450,7 @@ where
             .ok_or("weak_subjectivity_state requires a log")?;
 
         // Ensure the state is advanced to an epoch boundary.
-        let slots_per_epoch = TEthSpec::slots_per_epoch();
+        let slots_per_epoch = E::slots_per_epoch();
         if weak_subj_state.slot() % slots_per_epoch != 0 {
             debug!(
                 log,
@@ -579,7 +579,7 @@ where
         self.pending_io_batch
             .push(store.pruning_checkpoint_store_op(Checkpoint {
                 root: weak_subj_block_root,
-                epoch: weak_subj_state.slot().epoch(TEthSpec::slots_per_epoch()),
+                epoch: weak_subj_state.slot().epoch(E::slots_per_epoch()),
             }));
 
         let snapshot = BeaconSnapshot {
@@ -613,7 +613,7 @@ where
     }
 
     /// Sets the `BeaconChain` execution layer.
-    pub fn execution_layer(mut self, execution_layer: Option<ExecutionLayer<TEthSpec>>) -> Self {
+    pub fn execution_layer(mut self, execution_layer: Option<ExecutionLayer<E>>) -> Self {
         self.execution_layer = execution_layer;
         self
     }
@@ -621,7 +621,7 @@ where
     /// Sets the `BeaconChain` event handler backend.
     ///
     /// For example, provide `ServerSentEventHandler` as a `handler`.
-    pub fn event_handler(mut self, handler: Option<ServerSentEventHandler<TEthSpec>>) -> Self {
+    pub fn event_handler(mut self, handler: Option<ServerSentEventHandler<E>>) -> Self {
         self.event_handler = handler;
         self
     }
@@ -648,10 +648,7 @@ where
     }
 
     /// Sets a `Sender` to allow the beacon chain to trigger light_client update production.
-    pub fn light_client_server_tx(
-        mut self,
-        sender: Sender<LightClientProducerEvent<TEthSpec>>,
-    ) -> Self {
+    pub fn light_client_server_tx(mut self, sender: Sender<LightClientProducerEvent<E>>) -> Self {
         self.light_client_server_tx = Some(sender);
         self
     }
@@ -696,10 +693,8 @@ where
     #[allow(clippy::type_complexity)] // I think there's nothing to be gained here from a type alias.
     pub fn build(
         mut self,
-    ) -> Result<
-        BeaconChain<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>,
-        String,
-    > {
+    ) -> Result<BeaconChain<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>, String>
+    {
         let log = self.log.ok_or("Cannot build without a logger")?;
         let slot_clock = self
             .slot_clock
@@ -790,8 +785,6 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
-                self.chain_config.progressive_balances_mode,
-                &log,
             )?;
         }
 
@@ -837,7 +830,7 @@ where
 
         if let Some(slot) = slot_clock.now() {
             validator_monitor.process_valid_state(
-                slot.epoch(TEthSpec::slots_per_epoch()),
+                slot.epoch(E::slots_per_epoch()),
                 &head_snapshot.beacon_state,
                 &self.spec,
             );
@@ -860,12 +853,12 @@ where
         // doesn't write a `PersistedBeaconChain` without the rest of the batch.
         let head_tracker_reader = head_tracker.0.read();
         self.pending_io_batch.push(BeaconChain::<
-            Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
+            Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
             genesis_block_root, &head_tracker_reader
         ));
         self.pending_io_batch.push(BeaconChain::<
-            Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
+            Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
         >::persist_fork_choice_in_batch_standalone(
             &fork_choice
         ));
@@ -897,9 +890,9 @@ where
             match slot_clock.now() {
                 Some(current_slot) => {
                     let genesis_backfill_epoch = current_slot
-                        .epoch(TEthSpec::slots_per_epoch())
+                        .epoch(E::slots_per_epoch())
                         .saturating_sub(backfill_epoch_range);
-                    genesis_backfill_epoch.start_slot(TEthSpec::slots_per_epoch())
+                    genesis_backfill_epoch.start_slot(E::slots_per_epoch())
                 }
                 None => {
                     // The slot clock cannot derive the current slot. We therefore assume we are
@@ -1061,15 +1054,13 @@ where
     }
 }
 
-impl<TSlotClock, TEthSpec, THotStore, TColdStore>
-    BeaconChainBuilder<
-        Witness<TSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>,
-    >
+impl<TSlotClock, E, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
+    THotStore: ItemStore<E> + 'static,
+    TColdStore: ItemStore<E> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEthSpec: EthSpec + 'static,
+    E: EthSpec + 'static,
 {
     /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
     pub fn no_eth1_backend(self) -> Self {
@@ -1092,13 +1083,13 @@ where
     }
 }
 
-impl<TEth1Backend, TEthSpec, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TestingSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
+impl<TEth1Backend, E, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TestingSlotClock, TEth1Backend, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
+    THotStore: ItemStore<E> + 'static,
+    TColdStore: ItemStore<E> + 'static,
+    TEth1Backend: Eth1ChainBackend<E> + 'static,
+    E: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
     ///
@@ -1118,10 +1109,10 @@ where
     }
 }
 
-fn genesis_block<T: EthSpec>(
-    genesis_state: &mut BeaconState<T>,
+fn genesis_block<E: EthSpec>(
+    genesis_state: &mut BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<SignedBeaconBlock<T>, String> {
+) -> Result<SignedBeaconBlock<E>, String> {
     let mut genesis_block = BeaconBlock::empty(spec);
     *genesis_block.state_root_mut() = genesis_state
         .update_tree_hash_cache()

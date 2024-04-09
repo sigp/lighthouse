@@ -1,5 +1,4 @@
 #![cfg(test)]
-use lighthouse_network::gossipsub;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
@@ -26,11 +25,13 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
     let merge_fork_epoch = Epoch::new(2);
     let capella_fork_epoch = Epoch::new(3);
     let deneb_fork_epoch = Epoch::new(4);
+    let electra_fork_epoch = Epoch::new(5);
 
     chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
     chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
     chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
     chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+    chain_spec.electra_fork_epoch = Some(electra_fork_epoch);
 
     let current_slot = match fork_name {
         ForkName::Base => Slot::new(0),
@@ -38,6 +39,7 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
         ForkName::Merge => merge_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Capella => capella_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Deneb => deneb_fork_epoch.start_slot(E::slots_per_epoch()),
+        ForkName::Electra => electra_fork_epoch.start_slot(E::slots_per_epoch()),
     };
     ForkContext::new::<E>(current_slot, Hash256::zero(), &chain_spec)
 }

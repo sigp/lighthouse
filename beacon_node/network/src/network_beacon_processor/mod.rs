@@ -654,6 +654,37 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new work event to process a `LightClientOptimisticUpdate` request from the RPC network.
+    pub fn send_light_client_optimistic_update_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_light_client_optimistic_update(peer_id, request_id);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::LightClientOptimisticUpdateRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process a `LightClientFinalityUpdate` request from the RPC network.
+    pub fn send_light_client_finality_update_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || processor.handle_light_client_finality_update(peer_id, request_id);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::LightClientFinalityUpdateRequest(Box::new(process_fn)),
+        })
+    }
+
     /// Send a message to `sync_tx`.
     ///
     /// Creates a log if there is an internal error.

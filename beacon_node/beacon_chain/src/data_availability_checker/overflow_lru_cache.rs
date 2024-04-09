@@ -54,14 +54,14 @@ use types::{BlobSidecar, ChainSpec, DataColumnSidecar, Epoch, EthSpec, Hash256};
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
 #[derive(Encode, Decode, Clone)]
-pub struct PendingComponents<T: EthSpec> {
+pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
-    pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
-    pub verified_data_columns: FixedVector<Option<KzgVerifiedDataColumn<T>>, T::DataColumnCount>,
-    pub executed_block: Option<DietAvailabilityPendingExecutedBlock<T>>,
+    pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
+    pub verified_data_columns: FixedVector<Option<KzgVerifiedDataColumn<E>>, E::DataColumnCount>,
+    pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
 }
 
-impl<T: EthSpec> PendingComponents<T> {
+impl<E: EthSpec> PendingComponents<E> {
     pub fn empty(block_root: Hash256) -> Self {
         Self {
             block_root,
@@ -77,11 +77,11 @@ impl<T: EthSpec> PendingComponents<T> {
     ///
     /// WARNING: This function can potentially take a lot of time if the state needs to be
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    pub fn make_available<R>(self, recover: R) -> Result<Availability<T>, AvailabilityCheckError>
+    pub fn make_available<R>(self, recover: R) -> Result<Availability<E>, AvailabilityCheckError>
     where
         R: FnOnce(
-            DietAvailabilityPendingExecutedBlock<T>,
-        ) -> Result<AvailabilityPendingExecutedBlock<T>, AvailabilityCheckError>,
+            DietAvailabilityPendingExecutedBlock<E>,
+        ) -> Result<AvailabilityPendingExecutedBlock<E>, AvailabilityCheckError>,
     {
         let Self {
             block_root,
@@ -143,7 +143,7 @@ impl<T: EthSpec> PendingComponents<T> {
                             kzg_verified_blob
                                 .as_blob()
                                 .slot()
-                                .epoch(T::slots_per_epoch())
+                                .epoch(E::slots_per_epoch())
                         });
                     }
                 }
@@ -153,7 +153,7 @@ impl<T: EthSpec> PendingComponents<T> {
                             kzg_verified_data_column
                                 .as_data_column()
                                 .slot()
-                                .epoch(T::slots_per_epoch())
+                                .epoch(E::slots_per_epoch())
                         });
                     }
                 }
@@ -946,7 +946,7 @@ mod test {
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
     use tempfile::{tempdir, TempDir};
     use types::non_zero_usize::new_non_zero_usize;
-    use types::{ChainSpec, ExecPayload, MinimalEthSpec};
+    use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 

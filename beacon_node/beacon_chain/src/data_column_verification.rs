@@ -12,7 +12,7 @@ use types::{
 
 /// An error occurred while validating a gossip data column.
 #[derive(Debug)]
-pub enum GossipDataColumnError<T: EthSpec> {
+pub enum GossipDataColumnError<E: EthSpec> {
     /// There was an error whilst processing the data column. It is not known if it is
     /// valid or invalid.
     ///
@@ -65,16 +65,16 @@ pub enum GossipDataColumnError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// We cannot process the data column without validating its parent, the peer isn't necessarily faulty.
-    DataColumnParentUnknown(Arc<DataColumnSidecar<T>>),
+    DataColumnParentUnknown(Arc<DataColumnSidecar<E>>),
 }
 
-impl<T: EthSpec> From<BeaconChainError> for GossipDataColumnError<T> {
+impl<E: EthSpec> From<BeaconChainError> for GossipDataColumnError<E> {
     fn from(e: BeaconChainError) -> Self {
         GossipDataColumnError::BeaconChainError(e)
     }
 }
 
-impl<T: EthSpec> From<BeaconStateError> for GossipDataColumnError<T> {
+impl<E: EthSpec> From<BeaconStateError> for GossipDataColumnError<E> {
     fn from(e: BeaconStateError) -> Self {
         GossipDataColumnError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
@@ -151,22 +151,22 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
 #[derive(Debug, Derivative, Clone, Encode, Decode)]
 #[derivative(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
-pub struct KzgVerifiedDataColumn<T: EthSpec> {
-    data_column: Arc<DataColumnSidecar<T>>,
+pub struct KzgVerifiedDataColumn<E: EthSpec> {
+    data_column: Arc<DataColumnSidecar<E>>,
 }
 
-impl<T: EthSpec> KzgVerifiedDataColumn<T> {
-    pub fn new(data_column: Arc<DataColumnSidecar<T>>, kzg: &Kzg) -> Result<Self, KzgError> {
+impl<E: EthSpec> KzgVerifiedDataColumn<E> {
+    pub fn new(data_column: Arc<DataColumnSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_data_column(data_column, kzg)
     }
-    pub fn to_data_column(self) -> Arc<DataColumnSidecar<T>> {
+    pub fn to_data_column(self) -> Arc<DataColumnSidecar<E>> {
         self.data_column
     }
-    pub fn as_data_column(&self) -> &DataColumnSidecar<T> {
+    pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
         &self.data_column
     }
     /// This is cheap as we're calling clone on an Arc
-    pub fn clone_data_column(&self) -> Arc<DataColumnSidecar<T>> {
+    pub fn clone_data_column(&self) -> Arc<DataColumnSidecar<E>> {
         self.data_column.clone()
     }
 
@@ -178,12 +178,12 @@ impl<T: EthSpec> KzgVerifiedDataColumn<T> {
 /// Complete kzg verification for a `DataColumnSidecar`.
 ///
 /// Returns an error if the kzg verification check fails.
-pub fn verify_kzg_for_data_column<T: EthSpec>(
-    data_column: Arc<DataColumnSidecar<T>>,
+pub fn verify_kzg_for_data_column<E: EthSpec>(
+    data_column: Arc<DataColumnSidecar<E>>,
     _kzg: &Kzg,
-) -> Result<KzgVerifiedDataColumn<T>, KzgError> {
+) -> Result<KzgVerifiedDataColumn<E>, KzgError> {
     // TODO(das): validate data column
-    // validate_blob::<T>(
+    // validate_blob::<E>(
     //     kzg,
     //     &data_column.blob,
     //     data_column.kzg_commitment,
@@ -197,12 +197,12 @@ pub fn verify_kzg_for_data_column<T: EthSpec>(
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
-pub fn verify_kzg_for_data_column_list<'a, T: EthSpec, I>(
+pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
     _data_column_iter: I,
     _kzg: &'a Kzg,
 ) -> Result<(), KzgError>
 where
-    I: Iterator<Item = &'a Arc<DataColumnSidecar<T>>>,
+    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>>,
 {
     // TODO(das): implement kzg verification
     Ok(())

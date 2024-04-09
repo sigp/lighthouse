@@ -3,8 +3,8 @@ use crate::*;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    bit::B0, UInt, Unsigned, U0, U1024, U1048576, U1073741824, U1099511627776, U128, U131072, U16,
-    U16777216, U2, U2048, U256, U32, U4, U4096, U512, U6, U625, U64, U65536, U8, U8192,
+    bit::B0, UInt, U0, U1024, U1048576, U1073741824, U1099511627776, U128, U131072, U16, U16777216,
+    U2, U2048, U256, U32, U4, U4096, U512, U6, U625, U64, U65536, U8, U8192,
 };
 use ssz_types::typenum::{U1, U17, U9};
 use std::fmt::{self, Debug};
@@ -142,6 +142,11 @@ pub trait EthSpec:
     ///
     /// Must be set to `BytesPerFieldElement * FieldElementsPerBlob`.
     type BytesPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
+    /*
+     * New in Electra
+     */
+    type ElectraPlaceholder: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -293,6 +298,10 @@ pub trait EthSpec:
         Self::KzgCommitmentInclusionProofDepth::to_usize()
     }
 
+    fn electra_placeholder() -> usize {
+        Self::ElectraPlaceholder::to_usize()
+    }
+
     fn number_of_columns() -> usize {
         Self::DataColumnCount::to_usize()
     }
@@ -371,6 +380,7 @@ impl EthSpec for MainnetEthSpec {
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
     type MaxBlsToExecutionChanges = U16;
     type MaxWithdrawalsPerPayload = U16;
+    type ElectraPlaceholder = U16;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -429,7 +439,8 @@ impl EthSpec for MinimalEthSpec {
         MaxExtraDataBytes,
         MaxBlsToExecutionChanges,
         MaxBlobsPerBlock,
-        BytesPerFieldElement
+        BytesPerFieldElement,
+        ElectraPlaceholder
     });
 
     fn default_spec() -> ChainSpec {
@@ -482,6 +493,7 @@ impl EthSpec for GnosisEthSpec {
     type BytesPerFieldElement = U32;
     type BytesPerBlob = U131072;
     type KzgCommitmentInclusionProofDepth = U17;
+    type ElectraPlaceholder = U16;
     // DAS spec values copied from `MainnetEthSpec`
     type MinCustodyRequirement = U1;
     type DataColumnSubnetCount = U32;

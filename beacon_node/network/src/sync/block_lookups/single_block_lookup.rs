@@ -3,10 +3,10 @@ use crate::sync::block_lookups::common::{Lookup, RequestState};
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::data_availability_checker::ChildComponents;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, DataAvailabilityChecker, MissingBlobs,
 };
-use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponents};
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerAction;
 use slog::{trace, Logger};
@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::EthSpec;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -31,7 +31,9 @@ pub enum LookupVerifyError {
     RootMismatch,
     NoBlockReturned,
     ExtraBlocksReturned,
-    UnrequestedBlobId,
+    UnrequestedBlobId(BlobIdentifier),
+    InvalidInclusionProof,
+    UnrequestedHeader,
     ExtraBlobsReturned,
     NotEnoughBlobsReturned,
     InvalidIndex(u64),
@@ -249,7 +251,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// Returns `true` if the block has already been downloaded.
     pub(crate) fn block_already_downloaded(&self) -> bool {
         if let Some(components) = self.child_components.as_ref() {
-            components.block_exists()
+            components.downloaded_block.is_some()
         } else {
             self.da_checker.has_block(&self.block_root())
         }
@@ -259,7 +261,9 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// of which blobs still need to be requested. Returns `true` if there are no more blobs to
     /// request.
     pub(crate) fn blobs_already_downloaded(&mut self) -> bool {
-        self.update_blobs_request();
+        if matches!(self.blob_request_state.state.state, State::AwaitingDownload) {
+            self.update_blobs_request();
+        }
         self.blob_request_state.requested_ids.is_empty()
     }
 
@@ -274,19 +278,25 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub(crate) fn missing_blob_ids(&self) -> MissingBlobs {
         let block_root = self.block_root();
         if let Some(components) = self.child_components.as_ref() {
-            self.da_checker.get_missing_blob_ids(block_root, components)
+            self.da_checker.get_missing_blob_ids(
+                block_root,
+                &components.downloaded_block,
+                &components.downloaded_blobs,
+            )
         } else {
-            let Some(processing_availability_view) =
-                self.da_checker.get_processing_components(block_root)
+            let Some(processing_components) = self.da_checker.get_processing_components(block_root)
             else {
                 return MissingBlobs::new_without_block(block_root, self.da_checker.is_deneb());
             };
-            self.da_checker
-                .get_missing_blob_ids(block_root, &processing_availability_view)
+            self.da_checker.get_missing_blob_ids(
+                block_root,
+                &processing_components.block,
+                &processing_components.blob_commitments,
+            )
         }
     }
 
-    /// Penalizes a blob peer if it should have blobs but didn't return them to us.     
+    /// Penalizes a blob peer if it should have blobs but didn't return them to us.
     pub fn penalize_blob_peer(&mut self, cx: &SyncNetworkContext<T>) {
         if let Ok(blob_peer) = self.blob_request_state.state.processing_peer() {
             cx.report_peer(
@@ -319,13 +329,13 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
-pub struct BlobRequestState<L: Lookup, T: EthSpec> {
+pub struct BlobRequestState<L: Lookup, E: EthSpec> {
     /// The latest picture of which blobs still need to be requested. This includes information
     /// from both block/blobs downloaded in the network layer and any blocks/blobs that exist in
     /// the data availability checker.
     pub requested_ids: MissingBlobs,
     /// Where we store blobs until we receive the stream terminator.
-    pub blob_download_queue: FixedBlobSidecarList<T>,
+    pub blob_download_queue: FixedBlobSidecarList<E>,
     pub state: SingleLookupRequestState,
     _phantom: PhantomData<L>,
 }
@@ -521,7 +531,6 @@ impl slog::Value for SingleLookupRequestState {
 mod tests {
     use super::*;
     use crate::sync::block_lookups::common::LookupType;
-    use crate::sync::block_lookups::common::{Lookup, RequestState};
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use sloggers::null::NullLoggerBuilder;
@@ -531,7 +540,7 @@ mod tests {
     use store::{HotColdDB, MemoryStore, StoreConfig};
     use types::{
         test_utils::{SeedableRng, TestRandom, XorShiftRng},
-        ChainSpec, EthSpec, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+        ChainSpec, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     };
 
     fn rand_block() -> SignedBeaconBlock<E> {

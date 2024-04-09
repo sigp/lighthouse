@@ -57,8 +57,8 @@ use super::time_cache::DuplicateCache;
 use super::topic::{Hasher, Topic, TopicHash};
 use super::transform::{DataTransform, IdentityTransform};
 use super::types::{
-    ControlAction, Message, MessageAcceptance, MessageId, PeerInfo, RawMessage, Subscription,
-    SubscriptionAction,
+    ControlAction, FailedMessages, Message, MessageAcceptance, MessageId, PeerInfo, RawMessage,
+    Subscription, SubscriptionAction,
 };
 use super::types::{Graft, IHave, IWant, PeerConnections, PeerKind, Prune};
 use super::{backoff::BackoffStorage, types::RpcSender};
@@ -66,7 +66,7 @@ use super::{
     config::{Config, ValidationMode},
     types::RpcOut,
 };
-use super::{FailedMessages, PublishError, SubscriptionError, TopicScoreParams, ValidationError};
+use super::{PublishError, SubscriptionError, TopicScoreParams, ValidationError};
 use instant::SystemTime;
 use quick_protobuf::{MessageWrite, Writer};
 use std::{cmp::Ordering::Equal, fmt::Debug};
@@ -525,7 +525,7 @@ where
             return Err(SubscriptionError::NotAllowed);
         }
 
-        if self.mesh.get(&topic_hash).is_some() {
+        if self.mesh.contains_key(&topic_hash) {
             tracing::debug!(%topic, "Topic is already in the mesh");
             return Ok(false);
         }
@@ -551,7 +551,7 @@ where
         tracing::debug!(%topic, "Unsubscribing from topic");
         let topic_hash = topic.hash();
 
-        if self.mesh.get(&topic_hash).is_none() {
+        if !self.mesh.contains_key(&topic_hash) {
             tracing::debug!(topic=%topic_hash, "Already unsubscribed from topic");
             // we are not subscribed
             return Ok(false);

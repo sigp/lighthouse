@@ -360,9 +360,9 @@ pub fn register_sync_committee_error(error: &SyncCommitteeError) {
     inc_counter_vec(&GOSSIP_SYNC_COMMITTEE_ERRORS_PER_TYPE, &[error.as_ref()]);
 }
 
-pub fn update_gossip_metrics<T: EthSpec>(
+pub fn update_gossip_metrics<E: EthSpec>(
     gossipsub: &Gossipsub,
-    network_globals: &Arc<NetworkGlobals<T>>,
+    network_globals: &Arc<NetworkGlobals<E>>,
 ) {
     // Mesh peers per client
     // Reset the gauges
@@ -421,7 +421,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
     }
 }
 
-pub fn update_sync_metrics<T: EthSpec>(network_globals: &Arc<NetworkGlobals<T>>) {
+pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>) {
     // reset the counts
     if PEERS_PER_SYNC_TYPE
         .as_ref()

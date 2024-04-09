@@ -40,7 +40,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-pub type DownloadedBlock<T> = (Hash256, RpcBlock<T>);
+pub type DownloadedBlock<E> = (Hash256, RpcBlock<E>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
@@ -162,6 +162,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
             // If the block was already downloaded, or is being downloaded in this moment, do not
             // request it.
+            trace!(self.log, "Already searching for block in a parent lookup request"; "block_root" => ?block_root);
             return;
         }
 
@@ -171,6 +172,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .any(|(hashes, _last_parent_request)| hashes.contains(&block_root))
         {
             // we are already processing this block, ignore it.
+            trace!(self.log, "Already processing block in a parent request"; "block_root" => ?block_root);
             return;
         }
 
@@ -217,19 +219,27 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Make sure this block is not already downloaded, and that neither it or its parent is
         // being searched for.
         if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
-            parent_req.contains_block(&block_root) || parent_req.is_for_block(block_root)
+            parent_req.contains_block(&parent_root) || parent_req.is_for_block(parent_root)
         }) {
             parent_lookup.add_peer(peer_id);
             // we are already searching for this block, ignore it
+            debug!(self.log, "Already searching for parent block";
+                "block_root" => ?block_root, "parent_root" => ?parent_root);
             return;
         }
 
         if self
             .processing_parent_lookups
-            .values()
-            .any(|(hashes, _peers)| hashes.contains(&block_root) || hashes.contains(&parent_root))
+            .iter()
+            .any(|(chain_hash, (hashes, _peers))| {
+                chain_hash == &block_root
+                    || hashes.contains(&block_root)
+                    || hashes.contains(&parent_root)
+            })
         {
             // we are already processing this block, ignore it.
+            debug!(self.log, "Already processing parent block";
+                "block_root" => ?block_root, "parent_root" => ?parent_root);
             return;
         }
         let parent_lookup = ParentLookup::new(
@@ -298,6 +308,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         let expected_block_root = lookup.block_root();
+        if response.is_some() {
+            debug!(self.log,
+                "Peer returned response for single lookup";
+                "peer_id" => %peer_id ,
+                "id" => ?id,
+                "block_root" => ?expected_block_root,
+                "response_type" => ?response_type,
+            );
+        }
 
         match self.single_lookup_response_inner::<R>(peer_id, response, seen_timestamp, cx, lookup)
         {
@@ -478,6 +497,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         };
 
+        if response.is_some() {
+            debug!(self.log,
+                "Peer returned response for parent lookup";
+                "peer_id" => %peer_id ,
+                "id" => ?id,
+                "block_root" => ?parent_lookup.current_parent_request.block_request_state.requested_block_root,
+                "response_type" => ?R::response_type(),
+            );
+        }
+
         match self.parent_lookup_response_inner::<R>(
             peer_id,
             response,
@@ -540,7 +569,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             | ParentVerifyError::NoBlockReturned
             | ParentVerifyError::NotEnoughBlobsReturned
             | ParentVerifyError::ExtraBlocksReturned
-            | ParentVerifyError::UnrequestedBlobId
+            | ParentVerifyError::UnrequestedBlobId(_)
+            | ParentVerifyError::InvalidInclusionProof
+            | ParentVerifyError::UnrequestedHeader
             | ParentVerifyError::ExtraBlobsReturned
             | ParentVerifyError::InvalidIndex(_) => {
                 let e = e.into();
@@ -728,6 +759,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "Block component processed for lookup";
             "response_type" => ?R::response_type(),
             "block_root" => ?root,
+            "result" => ?result,
+            "id" => target_id,
         );
 
         match result {
@@ -811,7 +844,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let root = lookup.block_root();
         trace!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
         match e {
-            BlockError::BlockIsAlreadyKnown => {
+            BlockError::BlockIsAlreadyKnown(_) => {
                 // No error here
                 return Ok(None);
             }
@@ -898,17 +931,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         match &result {
             BlockProcessingResult::Ok(status) => match status {
                 AvailabilityProcessingStatus::Imported(block_root) => {
-                    trace!(self.log, "Parent block processing succeeded"; &parent_lookup, "block_root" => ?block_root)
+                    debug!(self.log, "Parent block processing succeeded"; &parent_lookup, "block_root" => ?block_root)
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
-                    trace!(self.log, "Parent missing parts, triggering single block lookup "; &parent_lookup,"block_root" => ?block_root)
+                    debug!(self.log, "Parent missing parts, triggering single block lookup"; &parent_lookup,"block_root" => ?block_root)
                 }
             },
             BlockProcessingResult::Err(e) => {
-                trace!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e)
+                debug!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e)
             }
             BlockProcessingResult::Ignored => {
-                trace!(
+                debug!(
                     self.log,
                     "Parent block processing job was ignored";
                     "action" => "re-requesting block",
@@ -954,7 +987,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.request_parent(parent_lookup, cx);
             }
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
-            | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
+            | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown(_)) => {
                 // Check if the beacon processor is available
                 let Some(beacon_processor) = cx.beacon_processor_if_enabled() else {
                     return trace!(
@@ -1223,7 +1256,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) -> Result<(), LookupRequestError> {
         match cx.beacon_processor_if_enabled() {
             Some(beacon_processor) => {
-                trace!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
+                debug!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
                 if let Err(e) = beacon_processor.send_rpc_beacon_block(
                     block_root,
                     block,

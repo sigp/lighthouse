@@ -39,23 +39,23 @@ impl DataColumnSubnetId {
         id.into()
     }
 
-    pub fn try_from_column_index<T: EthSpec>(column_index: usize) -> Result<Self, Error> {
-        let id = column_index.safe_rem(T::data_column_subnet_count())? as u64;
+    pub fn try_from_column_index<E: EthSpec>(column_index: usize) -> Result<Self, Error> {
+        let id = column_index.safe_rem(E::data_column_subnet_count())? as u64;
         Ok(id.into())
     }
 
     #[allow(clippy::arithmetic_side_effects)]
-    pub fn columns<T: EthSpec>(&self) -> impl Iterator<Item = u64> {
+    pub fn columns<E: EthSpec>(&self) -> impl Iterator<Item = u64> {
         let subnet = self.0;
-        let data_column_subnet_count = T::data_column_subnet_count() as u64;
-        let columns_per_subnet = (T::number_of_columns() as u64) / data_column_subnet_count;
+        let data_column_subnet_count = E::data_column_subnet_count() as u64;
+        let columns_per_subnet = (E::number_of_columns() as u64) / data_column_subnet_count;
         (0..columns_per_subnet).map(move |i| data_column_subnet_count * i + subnet)
     }
 
     /// Compute required subnets to subscribe to given the node id.
     /// TODO(das): Add epoch param
     #[allow(clippy::arithmetic_side_effects)]
-    pub fn compute_custody_subnets<T: EthSpec>(
+    pub fn compute_custody_subnets<E: EthSpec>(
         node_id: U256,
         custody_subnet_count: u64,
     ) -> impl Iterator<Item = DataColumnSubnetId> {
@@ -72,7 +72,7 @@ impl DataColumnSubnetId {
                 hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
             ];
             let hash_prefix_u64 = u64::from_le_bytes(hash_prefix);
-            let subnet = hash_prefix_u64 % (T::data_column_subnet_count() as u64);
+            let subnet = hash_prefix_u64 % (E::data_column_subnet_count() as u64);
 
             if !subnets.contains(&subnet) {
                 subnets.push(subnet);
@@ -83,12 +83,12 @@ impl DataColumnSubnetId {
         subnets.into_iter().map(DataColumnSubnetId::new)
     }
 
-    pub fn compute_custody_columns<T: EthSpec>(
+    pub fn compute_custody_columns<E: EthSpec>(
         node_id: U256,
         custody_subnet_count: u64,
     ) -> impl Iterator<Item = u64> {
-        Self::compute_custody_subnets::<T>(node_id, custody_subnet_count)
-            .flat_map(|subnet| subnet.columns::<T>())
+        Self::compute_custody_subnets::<E>(node_id, custody_subnet_count)
+            .flat_map(|subnet| subnet.columns::<E>())
     }
 }
 

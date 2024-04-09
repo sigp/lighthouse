@@ -34,13 +34,11 @@ use state_processing::{
     BlockProcessingError, BlockReplayer, SlotProcessingError, StateProcessingStrategy,
 };
 use std::cmp::min;
-use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::blob_sidecar::BlobSidecarList;
 use types::data_column_sidecar::DataColumnSidecarList;
 use types::*;
 
