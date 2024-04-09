@@ -19,7 +19,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                 let epoch = state.current_epoch();
                 let far_future_epoch = chain.spec.far_future_epoch;
                 let ids_filter_set: Option<HashSet<&ValidatorId>> =
-                    query_ids.as_ref().map(|f| HashSet::from_iter(f));
+                    query_ids.as_ref().map(HashSet::from_iter);
 
                 Ok((
                     state
