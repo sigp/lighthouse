@@ -281,7 +281,7 @@ pub struct FinalityCheckpointsData {
     pub finalized: Checkpoint,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(into = "String")]
 #[serde(try_from = "std::borrow::Cow<str>")]
 pub enum ValidatorId {
