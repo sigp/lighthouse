@@ -103,8 +103,8 @@ impl<E: EthSpec> OperationPool<E> {
         Self::default()
     }
 
-    /// Insert a sync contribution into the pool. We don't aggregate these contributions until they
-    /// are retrieved from the pool.
+    /// Insert a sync contribution into the pool. Aggregate the contribution if possible
+    /// or store the one with the most aggregations.
     ///
     /// ## Note
     ///
@@ -115,38 +115,35 @@ impl<E: EthSpec> OperationPool<E> {
     ) -> Result<(), OpPoolError> {
         let aggregate_id = SyncAggregateId::new(contribution.slot, contribution.beacon_block_root);
         let mut contributions = self.sync_contributions.write();
-
         match contributions.entry(aggregate_id) {
             Entry::Vacant(entry) => {
-                // If no contributions exist for the key, insert the given contribution.
                 entry.insert(vec![contribution]);
+                return Ok(());
             }
             Entry::Occupied(mut entry) => {
                 // If contributions exists for this key, check whether there exists a contribution
-                // with a matching `subcommittee_index`. If one exists, check whether the new or
-                // old contribution has more aggregation bits set. If the new one does, add it to the
-                // pool in place of the old one.
+                // with a matching `subcommittee_index`. If one exists, check if we can aggrgate the
+                // signature. If the signature is not aggragatble we should keep the one with the
+                // most signature.
                 let existing_contributions = entry.get_mut();
                 match existing_contributions
                     .iter_mut()
                     .find(|existing_contribution| {
                         existing_contribution.subcommittee_index == contribution.subcommittee_index
                     }) {
+                    None => {
+                        existing_contributions.push(contribution);
+                    }
                     Some(existing_contribution) => {
-                        // Only need to replace the contribution if the new contribution has more
-                        // bits set.
-                        if existing_contribution.aggregation_bits.num_set_bits()
+                        if existing_contribution.signers_disjoint_from(&contribution) {
+                            existing_contribution.aggregate(&contribution);
+                        } else if existing_contribution.aggregation_bits.num_set_bits()
                             < contribution.aggregation_bits.num_set_bits()
                         {
                             *existing_contribution = contribution;
                         }
                     }
-                    None => {
-                        // If there has been no previous sync contribution for this subcommittee index,
-                        // add it to the pool.
-                        existing_contributions.push(contribution);
-                    }
-                }
+                };
             }
         };
         Ok(())
