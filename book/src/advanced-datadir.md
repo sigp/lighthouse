@@ -1,4 +1,4 @@
-## Custom Data Directories
+# Custom Data Directories
 
 Users can override the default Lighthouse data directories (e.g., `~/.lighthouse/mainnet`) using the `--datadir` flag. The custom data directory mirrors the structure of any network specific default directory (e.g. `~/.lighthouse/mainnet`).
 
