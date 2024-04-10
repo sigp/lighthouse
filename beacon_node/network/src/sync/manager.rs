@@ -233,24 +233,13 @@ pub fn spawn<T: BeaconChainTypes>(
     );
 
     // create an instance of the SyncManager
-    let network_globals = beacon_processor.network_globals.clone();
-    let mut sync_manager = SyncManager {
-        chain: beacon_chain.clone(),
-        input_channel: sync_recv,
-        network: SyncNetworkContext::new(
-            network_send,
-            beacon_processor.clone(),
-            beacon_chain.clone(),
-            log.clone(),
-        ),
-        range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
-        backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
-        block_lookups: BlockLookups::new(
-            beacon_chain.data_availability_checker.clone(),
-            log.clone(),
-        ),
-        log: log.clone(),
-    };
+    let mut sync_manager = SyncManager::new(
+        beacon_chain,
+        network_send,
+        beacon_processor,
+        sync_recv,
+        log.clone(),
+    );
 
     // spawn the sync manager thread
     debug!(log, "Sync Manager started");
@@ -258,6 +247,48 @@ pub fn spawn<T: BeaconChainTypes>(
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {
+    pub(crate) fn new(
+        beacon_chain: Arc<BeaconChain<T>>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        beacon_processor: Arc<NetworkBeaconProcessor<T>>,
+        sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
+        log: slog::Logger,
+    ) -> Self {
+        let network_globals = beacon_processor.network_globals.clone();
+        Self {
+            chain: beacon_chain.clone(),
+            input_channel: sync_recv,
+            network: SyncNetworkContext::new(
+                network_send,
+                beacon_processor.clone(),
+                beacon_chain.clone(),
+                log.clone(),
+            ),
+            range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
+            backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
+            block_lookups: BlockLookups::new(
+                beacon_chain.data_availability_checker.clone(),
+                log.clone(),
+            ),
+            log: log.clone(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_single_lookups(&self) -> Vec<Id> {
+        self.block_lookups.active_single_lookups()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_parent_lookups(&self) -> Vec<Hash256> {
+        self.block_lookups.active_parent_lookups()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn failed_chains_contains(&mut self, chain_hash: &Hash256) -> bool {
+        self.block_lookups.failed_chains_contains(chain_hash)
+    }
+
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
         self.network.network_globals()
     }
@@ -597,7 +628,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn handle_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
+    pub(crate) fn handle_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
         match sync_message {
             SyncMessage::AddPeer(peer_id, info) => {
                 self.add_peer(peer_id, info);
@@ -648,11 +679,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     ChildComponents::new(block_root, None, Some(blobs)),
                 );
             }
-            SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
+            SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
+                    debug!(self.log, "Received sync_message"; "message" => "UnknownBlockHashFromAttestation", "block_root" => %block_root);
                     self.block_lookups
-                        .search_block(block_hash, &[peer_id], &mut self.network);
+                        .search_block(block_root, &[peer_id], &mut self.network);
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
