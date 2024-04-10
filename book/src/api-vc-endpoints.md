@@ -18,10 +18,9 @@ HTTP Path | Description |
 [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators.
 [`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs
 
-The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api-vc-auth-header.md). 
+The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api-vc-auth-header.md).
 
 In addition to the above endpoints Lighthouse also supports all of the [standard keymanager APIs](https://ethereum.github.io/keymanager-APIs/).
-
 
 ## `GET /lighthouse/version`
 
@@ -37,13 +36,13 @@ Returns the software version and `git` commit hash for the Lighthouse binary.
 | Typical Responses | 200                                        |
 
 Command:
+
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
 ```
 
 Example Response Body:
-
 
 ```json
 {
@@ -52,9 +51,11 @@ Example Response Body:
     }
 }
 ```
+
 > Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/API-token.txt`. If your database is saved in another directory, modify the `DATADIR` accordingly. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
 
 > As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176`. In this case, you obtain the token from the file `API token.txt` and the command becomes:
+
 ```bash
 curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176" | jq
 ```
@@ -75,6 +76,7 @@ Returns information regarding the health of the host machine.
 *Note: this endpoint is presently only available on Linux.*
 
 Command:
+
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X GET "http://localhost:5062/lighthouse/health" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
@@ -133,6 +135,7 @@ Returns information regarding the health of the host machine.
 | Typical Responses | 200                                        |
 
 Command:
+
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X GET "http://localhost:5062/lighthouse/ui/health" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
@@ -178,10 +181,12 @@ Returns the graffiti that will be used for the next block proposal of each valid
 | Typical Responses | 200                                        |
 
 Command:
+
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X GET "http://localhost:5062/lighthouse/ui/graffiti" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
  ```
+
 Example Response Body
 
 ```json
@@ -323,7 +328,7 @@ Example Response Body
 ## `GET /lighthouse/auth`
 
 Fetch the filesystem path of the [authorization token](./api-vc-auth-header.md).
-Unlike the other endpoints this may be called _without_ providing an authorization token.
+Unlike the other endpoints this may be called *without* providing an authorization token.
 
 This API is intended to be called from the same machine as the validator client, so that the token
 file may be read by a local user with access rights.
@@ -440,7 +445,6 @@ and `graffiti`.  The following example updates a validator from `enabled: true` 
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200, 400                                   |
 
-
 Example Request Body
 
 ```json
@@ -458,6 +462,7 @@ curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf4
 -H "Content-Type: application/json" \
 -d "{\"enabled\":false}" | jq
 ```
+
 ### Example Response Body
 
 ```json
@@ -470,7 +475,6 @@ A `null` response indicates that the request is successful. At the same time, `l
 INFO Disabled validator                      voting_pubkey: 0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde
 INFO Modified key_cache saved successfully
 ```
-
 
 ## `POST /lighthouse/validators/`
 
@@ -510,7 +514,8 @@ Validators are generated from the mnemonic according to
 ]
 ```
 
-Command: 
+Command:
+
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X POST http://localhost:5062/lighthouse/validators \
@@ -625,6 +630,7 @@ Import a keystore into the validator client.
 We can use [JSON to String Converter](https://jsontostring.com/) so that the above data can be properly presented as a command. The command is as below:
 
 Command:
+
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X POST http://localhost:5062/lighthouse/validators/keystore \
@@ -636,6 +642,7 @@ curl -X POST http://localhost:5062/lighthouse/validators/keystore \
 As this is an example for demonstration, the above command will return `InvalidPassword`. However, with a keystore file and correct password, running the above command will import the keystore to the validator client. An example of a success message is shown below:
 
 ### Example Response Body
+
 ```json
 {
   "data": {
@@ -759,8 +766,8 @@ Create any number of new validators, all of which will refer to a
 
 Some of the fields above may be omitted or nullified to obtain default values (e.g., `graffiti`, `request_timeout_ms`).
 
-
 Command:
+
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X POST http://localhost:5062/lighthouse/validators/web3signer \
@@ -769,9 +776,7 @@ curl -X POST http://localhost:5062/lighthouse/validators/web3signer \
 -d "[{\"enable\":true,\"description\":\"validator_one\",\"graffiti\":\"Mr F was here\",\"suggested_fee_recipient\":\"0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d\",\"voting_public_key\":\"0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380\",\"builder_proposals\":true,\"url\":\"http://path-to-web3signer.com\",\"root_certificate_path\":\"/path/to/certificate.pem\",\"client_identity_path\":\"/path/to/identity.p12\",\"client_identity_password\":\"pass\",\"request_timeout_ms\":12000}]"
 ```
 
-
 ### Example Response Body
-
 
 ```json
 null
@@ -782,7 +787,6 @@ A `null` response indicates that the request is successful. At the same time, `l
 ```
 INFO Enabled validator                       voting_pubkey: 0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380, signing_method: remote_signer
 ```
-
 
 ## `GET /lighthouse/logs`
 
