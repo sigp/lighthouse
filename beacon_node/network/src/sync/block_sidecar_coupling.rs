@@ -3,7 +3,9 @@ use ssz_types::VariableList;
 use std::{collections::VecDeque, sync::Arc};
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
-#[derive(Debug, Default)]
+use super::range_sync::ByRangeRequestType;
+
+#[derive(Debug)]
 pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     accumulated_blocks: VecDeque<Arc<SignedBeaconBlock<E>>>,
@@ -13,9 +15,25 @@ pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
     is_blocks_stream_terminated: bool,
     /// Whether the individual RPC request for sidecars is finished or not.
     is_sidecars_stream_terminated: bool,
+    /// True if this accumulator should wait for a sidecars stream termination
+    request_type: ByRangeRequestType,
 }
 
 impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
+    pub fn new(request_type: ByRangeRequestType) -> Self {
+        Self {
+            accumulated_blocks: <_>::default(),
+            accumulated_sidecars: <_>::default(),
+            is_blocks_stream_terminated: <_>::default(),
+            is_sidecars_stream_terminated: <_>::default(),
+            request_type,
+        }
+    }
+
+    pub fn get_request_type(&self) -> ByRangeRequestType {
+        self.request_type
+    }
+
     pub fn add_block_response(&mut self, block_opt: Option<Arc<SignedBeaconBlock<E>>>) {
         match block_opt {
             Some(block) => self.accumulated_blocks.push_back(block),
@@ -78,6 +96,7 @@ impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
     }
 
     pub fn is_finished(&self) -> bool {
-        self.is_blocks_stream_terminated && self.is_sidecars_stream_terminated
+        let blobs_requested = matches!(self.request_type, ByRangeRequestType::BlocksAndBlobs);
+        self.is_blocks_stream_terminated && (!blobs_requested || self.is_sidecars_stream_terminated)
     }
 }

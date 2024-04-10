@@ -24,7 +24,6 @@ use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 pub struct BlocksAndBlobsByRangeResponse<E: EthSpec> {
     pub batch_id: BatchId,
     pub responses: Result<Vec<RpcBlock<E>>, String>,
-    pub request_type: ByRangeRequestType,
 }
 
 pub struct BlocksAndBlobsByRangeRequest<E: EthSpec> {
@@ -235,13 +234,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         batch_id,
                         block_blob_info,
                     } = entry.remove();
-                    let request_type = block_blob_info.get_request_type();
                     Some((
                         chain_id,
                         BlocksAndBlobsByRangeResponse {
                             batch_id,
                             responses: block_blob_info.into_responses(),
-                            request_type,
                         },
                     ))
                 } else {
@@ -309,12 +306,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     // If the request is finished, dequeue everything
                     let (batch_id, info) = entry.remove();
 
-                    let request_type = info.get_request_type();
+                    let requested_blobs = info.requested_blobs();
                     let responses = info.into_responses();
                     Some(BlocksAndBlobsByRangeResponse {
                         batch_id,
                         responses,
-                        request_type,
                     })
                 } else {
                     None

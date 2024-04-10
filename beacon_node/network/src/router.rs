@@ -500,10 +500,9 @@ impl<T: BeaconChainTypes> Router<T> {
                     crit!(self.log, "Block lookups do not request BBRange requests"; "peer_id" => %peer_id);
                     return;
                 }
-                id @ (SyncId::BackFillBlocks { .. }
-                | SyncId::RangeBlocks { .. }
-                | SyncId::BackFillBlockAndBlobs { .. }
-                | SyncId::RangeBlockAndBlobs { .. }) => id,
+                id @ (SyncId::BackFillBlockAndBlobs { .. } | SyncId::RangeBlockAndBlobs { .. }) => {
+                    id
+                }
             },
             RequestId::Router => {
                 crit!(self.log, "All BBRange requests belong to sync"; "peer_id" => %peer_id);
@@ -562,10 +561,7 @@ impl<T: BeaconChainTypes> Router<T> {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
                 id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
-                SyncId::BackFillBlocks { .. }
-                | SyncId::RangeBlocks { .. }
-                | SyncId::RangeBlockAndBlobs { .. }
-                | SyncId::BackFillBlockAndBlobs { .. } => {
+                SyncId::RangeBlockAndBlobs { .. } | SyncId::BackFillBlockAndBlobs { .. } => {
                     crit!(self.log, "Batch syncing do not request BBRoot requests"; "peer_id" => %peer_id);
                     return;
                 }
@@ -607,10 +603,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     crit!(self.log, "Block response to blobs by roots request"; "peer_id" => %peer_id);
                     return;
                 }
-                SyncId::BackFillBlocks { .. }
-                | SyncId::RangeBlocks { .. }
-                | SyncId::RangeBlockAndBlobs { .. }
-                | SyncId::BackFillBlockAndBlobs { .. } => {
+                SyncId::RangeBlockAndBlobs { .. } | SyncId::BackFillBlockAndBlobs { .. } => {
                     crit!(self.log, "Batch syncing does not request BBRoot requests"; "peer_id" => %peer_id);
                     return;
                 }

@@ -905,7 +905,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, batch_type) = batch.to_blocks_by_range_request();
-            match network.blocks_by_range_request(peer, batch_type, request, self.id, batch_id) {
+            match network
+                .range_sync_blocks_by_range_request(peer, batch_type, request, self.id, batch_id)
+            {
                 Ok(request_id) => {
                     // inform the batch about the new request
                     batch.start_downloading_from_peer(peer, request_id)?;
