@@ -530,7 +530,7 @@ mod tests {
                 panic!("Should have sent a batch request to the peer")
             };
             let blob_req_id = match fork_name {
-                ForkName::Deneb => {
+                ForkName::Deneb | ForkName::Electra => {
                     if let Ok(NetworkMessage::SendRequest {
                         peer_id,
                         request: _,
@@ -637,7 +637,12 @@ mod tests {
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
         let (network_beacon_processor, beacon_processor_rx) =
-            NetworkBeaconProcessor::null_for_testing(globals.clone());
+            NetworkBeaconProcessor::null_for_testing(
+                globals.clone(),
+                chain.clone(),
+                harness.runtime.task_executor.clone(),
+                log.clone(),
+            );
         let cx = SyncNetworkContext::new(
             network_tx,
             Arc::new(network_beacon_processor),

@@ -38,6 +38,8 @@ pub enum ParentVerifyError {
     NotEnoughBlobsReturned,
     ExtraBlocksReturned,
     UnrequestedBlobId(BlobIdentifier),
+    InvalidInclusionProof,
+    UnrequestedHeader,
     ExtraBlobsReturned,
     InvalidIndex(u64),
     PreviousFailure { parent_root: Hash256 },
@@ -125,14 +127,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .update_requested_parent_block(next_parent)
     }
 
-    pub fn block_processing_peer(&self) -> Result<PeerId, ()> {
+    pub fn block_processing_peer(&self) -> Result<PeerId, String> {
         self.current_parent_request
             .block_request_state
             .state
             .processing_peer()
     }
 
-    pub fn blob_processing_peer(&self) -> Result<PeerId, ()> {
+    pub fn blob_processing_peer(&self) -> Result<PeerId, String> {
         self.current_parent_request
             .blob_request_state
             .state
@@ -244,6 +246,8 @@ impl From<LookupVerifyError> for ParentVerifyError {
             E::NoBlockReturned => ParentVerifyError::NoBlockReturned,
             E::ExtraBlocksReturned => ParentVerifyError::ExtraBlocksReturned,
             E::UnrequestedBlobId(blob_id) => ParentVerifyError::UnrequestedBlobId(blob_id),
+            E::InvalidInclusionProof => ParentVerifyError::InvalidInclusionProof,
+            E::UnrequestedHeader => ParentVerifyError::UnrequestedHeader,
             E::ExtraBlobsReturned => ParentVerifyError::ExtraBlobsReturned,
             E::InvalidIndex(index) => ParentVerifyError::InvalidIndex(index),
             E::NotEnoughBlobsReturned => ParentVerifyError::NotEnoughBlobsReturned,

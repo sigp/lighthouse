@@ -309,29 +309,29 @@ pub struct BlockImportData<E: EthSpec> {
     pub consensus_context: ConsensusContext<E>,
 }
 
-pub type GossipVerifiedBlockContents<T> =
-    (GossipVerifiedBlock<T>, Option<GossipVerifiedBlobList<T>>);
+pub type GossipVerifiedBlockContents<E> =
+    (GossipVerifiedBlock<E>, Option<GossipVerifiedBlobList<E>>);
 
 #[derive(Debug)]
-pub enum BlockContentsError<T: EthSpec> {
-    BlockError(BlockError<T>),
-    BlobError(GossipBlobError<T>),
+pub enum BlockContentsError<E: EthSpec> {
+    BlockError(BlockError<E>),
+    BlobError(GossipBlobError<E>),
     SidecarError(BlobSidecarError),
 }
 
-impl<T: EthSpec> From<BlockError<T>> for BlockContentsError<T> {
-    fn from(value: BlockError<T>) -> Self {
+impl<E: EthSpec> From<BlockError<E>> for BlockContentsError<E> {
+    fn from(value: BlockError<E>) -> Self {
         Self::BlockError(value)
     }
 }
 
-impl<T: EthSpec> From<GossipBlobError<T>> for BlockContentsError<T> {
-    fn from(value: GossipBlobError<T>) -> Self {
+impl<E: EthSpec> From<GossipBlobError<E>> for BlockContentsError<E> {
+    fn from(value: GossipBlobError<E>) -> Self {
         Self::BlobError(value)
     }
 }
 
-impl<T: EthSpec> std::fmt::Display for BlockContentsError<T> {
+impl<E: EthSpec> std::fmt::Display for BlockContentsError<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BlockContentsError::BlockError(err) => {

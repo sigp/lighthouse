@@ -1,9 +1,7 @@
-use super::child_components::ChildComponents;
 use super::state_lru_cache::DietAvailabilityPendingExecutedBlock;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::AsBlock;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
-use crate::data_availability_checker::ProcessingComponents;
 use kzg::KzgCommitment;
 use ssz_types::FixedVector;
 use std::sync::Arc;
@@ -180,27 +178,11 @@ macro_rules! impl_availability_view {
 }
 
 impl_availability_view!(
-    ProcessingComponents,
-    Arc<SignedBeaconBlock<E>>,
-    KzgCommitment,
-    block,
-    blob_commitments
-);
-
-impl_availability_view!(
     PendingComponents,
     DietAvailabilityPendingExecutedBlock<E>,
     KzgVerifiedBlob<E>,
     executed_block,
     verified_blobs
-);
-
-impl_availability_view!(
-    ChildComponents,
-    Arc<SignedBeaconBlock<E>>,
-    Arc<BlobSidecar<E>>,
-    downloaded_block,
-    downloaded_blobs
 );
 
 pub trait GetCommitments<E: EthSpec> {
@@ -302,32 +284,6 @@ pub mod tests {
         (block, blobs, invalid_blobs)
     }
 
-    type ProcessingViewSetup<E> = (
-        Arc<SignedBeaconBlock<E>>,
-        FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
-        FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
-    );
-
-    pub fn setup_processing_components(
-        block: SignedBeaconBlock<E>,
-        valid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        invalid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) -> ProcessingViewSetup<E> {
-        let blobs = FixedVector::from(
-            valid_blobs
-                .iter()
-                .map(|blob_opt| blob_opt.as_ref().map(|blob| blob.kzg_commitment))
-                .collect::<Vec<_>>(),
-        );
-        let invalid_blobs = FixedVector::from(
-            invalid_blobs
-                .iter()
-                .map(|blob_opt| blob_opt.as_ref().map(|blob| blob.kzg_commitment))
-                .collect::<Vec<_>>(),
-        );
-        (Arc::new(block), blobs, invalid_blobs)
-    }
-
     type PendingComponentsSetup<E> = (
         DietAvailabilityPendingExecutedBlock<E>,
         FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
@@ -379,23 +335,6 @@ pub mod tests {
             },
         };
         (block.into(), blobs, invalid_blobs)
-    }
-
-    type ChildComponentsSetup<E> = (
-        Arc<SignedBeaconBlock<E>>,
-        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    );
-
-    pub fn setup_child_components(
-        block: SignedBeaconBlock<E>,
-        valid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        invalid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) -> ChildComponentsSetup<E> {
-        let blobs = FixedVector::from(valid_blobs.into_iter().cloned().collect::<Vec<_>>());
-        let invalid_blobs =
-            FixedVector::from(invalid_blobs.into_iter().cloned().collect::<Vec<_>>());
-        (Arc::new(block), blobs, invalid_blobs)
     }
 
     pub fn assert_cache_consistent<V: AvailabilityView<E>>(cache: V) {
@@ -517,24 +456,10 @@ pub mod tests {
     }
 
     generate_tests!(
-        processing_components_tests,
-        ProcessingComponents::<E>,
-        kzg_commitments,
-        processing_blobs,
-        setup_processing_components
-    );
-    generate_tests!(
         pending_components_tests,
         PendingComponents<E>,
         executed_block,
         verified_blobs,
         setup_pending_components
-    );
-    generate_tests!(
-        child_component_tests,
-        ChildComponents::<E>,
-        downloaded_block,
-        downloaded_blobs,
-        setup_child_components
     );
 }

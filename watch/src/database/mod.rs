@@ -127,9 +127,9 @@ pub fn insert_canonical_slot(conn: &mut PgConn, new_slot: WatchCanonicalSlot) ->
     Ok(())
 }
 
-pub fn insert_beacon_block<T: EthSpec>(
+pub fn insert_beacon_block<E: EthSpec>(
     conn: &mut PgConn,
-    block: SignedBeaconBlock<T>,
+    block: SignedBeaconBlock<E>,
     root: WatchHash,
 ) -> Result<(), Error> {
     use self::canonical_slots::dsl::{beacon_block, slot as canonical_slot};
