@@ -19,7 +19,7 @@
 // DEALINGS IN THE SOFTWARE.
 
 //! Data structure for efficiently storing known back-off's when pruning peers.
-use crate::gossipsub::topic::TopicHash;
+use crate::topic::TopicHash;
 use instant::Instant;
 use libp2p::identity::PeerId;
 use std::collections::{

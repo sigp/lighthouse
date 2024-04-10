@@ -1,6 +1,5 @@
 use clap::{App, Arg, ArgGroup};
 use strum::VariantNames;
-use types::ProgressiveBalancesMode;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -1041,8 +1040,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("proposer-reorg-threshold")
                 .long("proposer-reorg-threshold")
                 .value_name("PERCENT")
-                .help("Percentage of vote weight below which to attempt a proposer reorg. \
+                .help("Percentage of head vote weight below which to attempt a proposer reorg. \
                        Default: 20%")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-parent-threshold")
+                .long("proposer-reorg-parent-threshold")
+                .value_name("PERCENT")
+                .help("Percentage of parent vote weight above which to attempt a proposer reorg. \
+                       Default: 160%")
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
@@ -1224,14 +1231,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("progressive-balances")
                 .long("progressive-balances")
                 .value_name("MODE")
-                .help("Control the progressive balances cache mode. The default `fast` mode uses \
-                        the cache to speed up fork choice. A more conservative `checked` mode \
-                        compares the cache's results against results without the cache. If \
-                        there is a mismatch, it falls back to the cache-free result. Using the \
-                        default `fast` mode is recommended unless advised otherwise by the \
-                        Lighthouse team.")
+                .help("Deprecated. This optimisation is now the default and cannot be disabled.")
                 .takes_value(true)
-                .possible_values(ProgressiveBalancesMode::VARIANTS)
+                .possible_values(&["fast", "disabled", "checked", "strict"])
         )
         .arg(
             Arg::with_name("beacon-processor-max-workers")

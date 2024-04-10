@@ -66,6 +66,7 @@ pub struct MockExecutionConfig {
     pub terminal_block_hash: ExecutionBlockHash,
     pub shanghai_time: Option<u64>,
     pub cancun_time: Option<u64>,
+    pub prague_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
@@ -78,18 +79,19 @@ impl Default for MockExecutionConfig {
             server_config: Config::default(),
             shanghai_time: None,
             cancun_time: None,
+            prague_time: None,
         }
     }
 }
 
-pub struct MockServer<T: EthSpec> {
+pub struct MockServer<E: EthSpec> {
     _shutdown_tx: oneshot::Sender<()>,
     listen_socket_addr: SocketAddr,
     last_echo_request: Arc<RwLock<Option<Bytes>>>,
-    pub ctx: Arc<Context<T>>,
+    pub ctx: Arc<Context<E>>,
 }
 
-impl<T: EthSpec> MockServer<T> {
+impl<E: EthSpec> MockServer<E> {
     pub fn unit_testing() -> Self {
         Self::new(
             &runtime::Handle::current(),
@@ -99,7 +101,8 @@ impl<T: EthSpec> MockServer<T> {
             ExecutionBlockHash::zero(),
             None, // FIXME(capella): should this be the default?
             None, // FIXME(deneb): should this be the default?
-            None, // FIXME(deneb): should this be the default?
+            None, // FIXME(electra): should this be the default?
+            None,
         )
     }
 
@@ -116,6 +119,7 @@ impl<T: EthSpec> MockServer<T> {
             server_config,
             shanghai_time,
             cancun_time,
+            prague_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -125,10 +129,11 @@ impl<T: EthSpec> MockServer<T> {
             terminal_block_hash,
             shanghai_time,
             cancun_time,
+            prague_time,
             kzg,
         );
 
-        let ctx: Arc<Context<T>> = Arc::new(Context {
+        let ctx: Arc<Context<E>> = Arc::new(Context {
             config: server_config,
             jwt_key,
             log: null_logger().unwrap(),
@@ -187,6 +192,7 @@ impl<T: EthSpec> MockServer<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
+        prague_time: Option<u64>,
         kzg: Option<Kzg>,
     ) -> Self {
         Self::new_with_config(
@@ -199,12 +205,13 @@ impl<T: EthSpec> MockServer<T> {
                 terminal_block_hash,
                 shanghai_time,
                 cancun_time,
+                prague_time,
             },
             kzg,
         )
     }
 
-    pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<T>> {
+    pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<E>> {
         self.ctx.execution_block_generator.write()
     }
 
@@ -416,7 +423,7 @@ impl<T: EthSpec> MockServer<T> {
             .insert_block_without_checks(block);
     }
 
-    pub fn get_block(&self, block_hash: ExecutionBlockHash) -> Option<Block<T>> {
+    pub fn get_block(&self, block_hash: ExecutionBlockHash) -> Option<Block<E>> {
         self.ctx
             .execution_block_generator
             .read()
@@ -494,12 +501,12 @@ impl warp::reject::Reject for AuthError {}
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<T: EthSpec> {
+pub struct Context<E: EthSpec> {
     pub config: Config,
     pub jwt_key: JwtKey,
     pub log: Logger,
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
-    pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
+    pub execution_block_generator: RwLock<ExecutionBlockGenerator<E>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
@@ -518,10 +525,10 @@ pub struct Context<T: EthSpec> {
     pub syncing_response: Arc<Mutex<Result<bool, String>>>,
 
     pub engine_capabilities: Arc<RwLock<EngineCapabilities>>,
-    pub _phantom: PhantomData<T>,
+    pub _phantom: PhantomData<E>,
 }
 
-impl<T: EthSpec> Context<T> {
+impl<E: EthSpec> Context<E> {
     pub fn get_new_payload_status(
         &self,
         block_hash: &ExecutionBlockHash,
@@ -630,8 +637,8 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<T: EthSpec>(
-    ctx: Arc<Context<T>>,
+pub fn serve<E: EthSpec>(
+    ctx: Arc<Context<E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
@@ -646,7 +653,7 @@ pub fn serve<T: EthSpec>(
     let root = warp::path::end()
         .and(warp::body::json())
         .and(ctx_filter.clone())
-        .and_then(|body: serde_json::Value, ctx: Arc<Context<T>>| async move {
+        .and_then(|body: serde_json::Value, ctx: Arc<Context<E>>| async move {
             let id = body
                 .get("id")
                 .and_then(serde_json::Value::as_u64)
@@ -693,7 +700,7 @@ pub fn serve<T: EthSpec>(
     let echo = warp::path("echo")
         .and(warp::body::bytes())
         .and(ctx_filter)
-        .and_then(|bytes: Bytes, ctx: Arc<Context<T>>| async move {
+        .and_then(|bytes: Bytes, ctx: Arc<Context<E>>| async move {
             *ctx.last_echo_request.write() = Some(bytes.clone());
             Ok::<_, warp::reject::Rejection>(
                 warp::http::Response::builder().status(200).body(bytes),

@@ -369,10 +369,8 @@ OPTIONS:
             useful for execution nodes which don't improve their payload after the first call, and high values are
             useful for ensuring the EL is given ample notice. Default: 1/3 of a slot.
         --progressive-balances <MODE>
-            Control the progressive balances cache mode. The default `fast` mode uses the cache to speed up fork choice.
-            A more conservative `checked` mode compares the cache's results against results without the cache. If there
-            is a mismatch, it falls back to the cache-free result. Using the default `fast` mode is recommended unless
-            advised otherwise by the Lighthouse team. [possible values: disabled, checked, strict, fast]
+            Deprecated. This optimisation is now the default and cannot be disabled. [possible values: fast, disabled,
+            checked, strict]
         --proposer-reorg-cutoff <MILLISECONDS>
             Maximum delay after the start of the slot at which to propose a reorging block. Lower values can prevent
             failed reorgs by ensuring the block has ample time to propagate and be processed by the network. The default
@@ -385,8 +383,11 @@ OPTIONS:
         --proposer-reorg-epochs-since-finalization <EPOCHS>
             Maximum number of epochs since finalization at which proposer reorgs are allowed. Default: 2
 
+        --proposer-reorg-parent-threshold <PERCENT>
+            Percentage of parent vote weight above which to attempt a proposer reorg. Default: 160%
+
         --proposer-reorg-threshold <PERCENT>
-            Percentage of vote weight below which to attempt a proposer reorg. Default: 20%
+            Percentage of head vote weight below which to attempt a proposer reorg. Default: 20%
 
         --prune-blobs <BOOLEAN>
             Prune blobs from Lighthouse's database when they are older than the data data availability boundary relative

@@ -1,4 +1,4 @@
-use super::{BeaconState, EthSpec, FixedVector, Hash256, SyncCommittee};
+use super::{BeaconState, EthSpec, FixedVector, Hash256, LightClientHeader, SyncCommittee};
 use crate::{
     light_client_update::*, test_utils::TestRandom, ChainSpec, ForkName, ForkVersionDeserialize,
     LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
@@ -7,7 +7,7 @@ use crate::{
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use superstruct::superstruct;
@@ -59,6 +59,17 @@ pub struct LightClientBootstrap<E: EthSpec> {
 }
 
 impl<E: EthSpec> LightClientBootstrap<E> {
+    pub fn map_with_fork_name<F, R>(&self, func: F) -> R
+    where
+        F: Fn(ForkName) -> R,
+    {
+        match self {
+            Self::Altair(_) => func(ForkName::Altair),
+            Self::Capella(_) => func(ForkName::Capella),
+            Self::Deneb(_) => func(ForkName::Deneb),
+        }
+    }
+
     pub fn get_slot<'a>(&'a self) -> Slot {
         map_light_client_bootstrap_ref!(&'a _, self.to_ref(), |inner, cons| {
             cons(inner);
@@ -69,16 +80,11 @@ impl<E: EthSpec> LightClientBootstrap<E> {
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let bootstrap = match fork_name {
             ForkName::Altair | ForkName::Merge => {
-                let header = LightClientBootstrapAltair::from_ssz_bytes(bytes)?;
-                Self::Altair(header)
+                Self::Altair(LightClientBootstrapAltair::from_ssz_bytes(bytes)?)
             }
-            ForkName::Capella => {
-                let header = LightClientBootstrapCapella::from_ssz_bytes(bytes)?;
-                Self::Capella(header)
-            }
-            ForkName::Deneb => {
-                let header = LightClientBootstrapDeneb::from_ssz_bytes(bytes)?;
-                Self::Deneb(header)
+            ForkName::Capella => Self::Capella(LightClientBootstrapCapella::from_ssz_bytes(bytes)?),
+            ForkName::Deneb | ForkName::Electra => {
+                Self::Deneb(LightClientBootstrapDeneb::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
@@ -88,6 +94,22 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         };
 
         Ok(bootstrap)
+    }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
+        // TODO(electra): review electra changes
+        match fork_name {
+            ForkName::Base => 0,
+            ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
+                <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
+                    + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+            }
+        }
     }
 
     pub fn from_beacon_state(
@@ -117,7 +139,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                 current_sync_committee,
                 current_sync_committee_branch,
             }),
-            ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb {
+            ForkName::Deneb | ForkName::Electra => Self::Deneb(LightClientBootstrapDeneb {
                 header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
                 current_sync_committee,
                 current_sync_committee_branch,
@@ -134,14 +156,12 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientBootstrap<E> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
-                Ok(serde_json::from_value::<LightClientBootstrap<E>>(value)
-                    .map_err(serde::de::Error::custom))?
-            }
             ForkName::Base => Err(serde::de::Error::custom(format!(
                 "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
                 fork_name
             ))),
+            _ => Ok(serde_json::from_value::<LightClientBootstrap<E>>(value)
+                .map_err(serde::de::Error::custom))?,
         }
     }
 }

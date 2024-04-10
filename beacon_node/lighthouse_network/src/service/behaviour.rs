@@ -3,7 +3,6 @@ use crate::peer_manager::PeerManager;
 use crate::rpc::{ReqId, RPC};
 use crate::types::SnappyTransform;
 
-use crate::gossipsub;
 use libp2p::identify;
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::NetworkBehaviour;
@@ -17,19 +16,19 @@ pub type SubscriptionFilter =
 pub type Gossipsub = gossipsub::Behaviour<SnappyTransform, SubscriptionFilter>;
 
 #[derive(NetworkBehaviour)]
-pub(crate) struct Behaviour<AppReqId, TSpec>
+pub(crate) struct Behaviour<AppReqId, E>
 where
     AppReqId: ReqId,
-    TSpec: EthSpec,
+    E: EthSpec,
 {
     /// Keep track of active and pending connections to enforce hard limits.
     pub connection_limits: libp2p::connection_limits::Behaviour,
     /// The peer manager that keeps track of peer's reputation and status.
-    pub peer_manager: PeerManager<TSpec>,
+    pub peer_manager: PeerManager<E>,
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub eth2_rpc: RPC<RequestId<AppReqId>, TSpec>,
+    pub eth2_rpc: RPC<RequestId<AppReqId>, E>,
     /// Discv5 Discovery protocol.
-    pub discovery: Discovery<TSpec>,
+    pub discovery: Discovery<E>,
     /// Keep regular connection to peers and disconnect if absent.
     // NOTE: The id protocol is used for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.

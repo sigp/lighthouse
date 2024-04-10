@@ -709,11 +709,11 @@ impl HttpJsonRpc {
         .await
     }
 
-    pub async fn get_block_by_hash_with_txns<T: EthSpec>(
+    pub async fn get_block_by_hash_with_txns<E: EthSpec>(
         &self,
         block_hash: ExecutionBlockHash,
         fork: ForkName,
-    ) -> Result<Option<ExecutionBlockWithTransactions<T>>, Error> {
+    ) -> Result<Option<ExecutionBlockWithTransactions<E>>, Error> {
         let params = json!([block_hash, true]);
         Ok(Some(match fork {
             ForkName::Merge => ExecutionBlockWithTransactions::Merge(
@@ -740,6 +740,14 @@ impl HttpJsonRpc {
                 )
                 .await?,
             ),
+            ForkName::Electra => ExecutionBlockWithTransactions::Electra(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
             ForkName::Base | ForkName::Altair => {
                 return Err(Error::UnsupportedForkVariant(format!(
                     "called get_block_by_hash_with_txns with fork {:?}",
@@ -749,9 +757,9 @@ impl HttpJsonRpc {
         }))
     }
 
-    pub async fn new_payload_v1<T: EthSpec>(
+    pub async fn new_payload_v1<E: EthSpec>(
         &self,
-        execution_payload: ExecutionPayload<T>,
+        execution_payload: ExecutionPayload<E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
@@ -766,9 +774,9 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v2<T: EthSpec>(
+    pub async fn new_payload_v2<E: EthSpec>(
         &self,
-        execution_payload: ExecutionPayload<T>,
+        execution_payload: ExecutionPayload<E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
@@ -783,9 +791,9 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v3<T: EthSpec>(
+    pub async fn new_payload_v3_deneb<E: EthSpec>(
         &self,
-        new_payload_request_deneb: NewPayloadRequestDeneb<'_, T>,
+        new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
             JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
@@ -804,13 +812,34 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn get_payload_v1<T: EthSpec>(
+    pub async fn new_payload_v3_electra<E: EthSpec>(
+        &self,
+        new_payload_request_electra: NewPayloadRequestElectra<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::V4(new_payload_request_electra.execution_payload.clone().into()),
+            new_payload_request_electra.versioned_hashes,
+            new_payload_request_electra.parent_beacon_block_root,
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V3,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn get_payload_v1<E: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let payload_v1: JsonExecutionPayloadV1<T> = self
+        let payload_v1: JsonExecutionPayloadV1<E> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_V1,
                 params,
@@ -827,16 +856,16 @@ impl HttpJsonRpc {
         }))
     }
 
-    pub async fn get_payload_v2<T: EthSpec>(
+    pub async fn get_payload_v2<E: EthSpec>(
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
             ForkName::Merge => {
-                let response: JsonGetPayloadResponseV1<T> = self
+                let response: JsonGetPayloadResponseV1<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
                         params,
@@ -846,7 +875,7 @@ impl HttpJsonRpc {
                 Ok(JsonGetPayloadResponse::V1(response).into())
             }
             ForkName::Capella => {
-                let response: JsonGetPayloadResponseV2<T> = self
+                let response: JsonGetPayloadResponseV2<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
                         params,
@@ -855,22 +884,22 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Base | ForkName::Altair | ForkName::Deneb => Err(
+            ForkName::Base | ForkName::Altair | ForkName::Deneb | ForkName::Electra => Err(
                 Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
             ),
         }
     }
 
-    pub async fn get_payload_v3<T: EthSpec>(
+    pub async fn get_payload_v3<E: EthSpec>(
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
             ForkName::Deneb => {
-                let response: JsonGetPayloadResponseV3<T> = self
+                let response: JsonGetPayloadResponseV3<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V3,
                         params,
@@ -878,6 +907,16 @@ impl HttpJsonRpc {
                     )
                     .await?;
                 Ok(JsonGetPayloadResponse::V3(response).into())
+            }
+            ForkName::Electra => {
+                let response: JsonGetPayloadResponseV4<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V3,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V4(response).into())
             }
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => Err(
                 Error::UnsupportedForkVariant(format!("called get_payload_v3 with {}", fork_name)),
@@ -1050,9 +1089,9 @@ impl HttpJsonRpc {
 
     // automatically selects the latest version of
     // new_payload that the execution engine supports
-    pub async fn new_payload<T: EthSpec>(
+    pub async fn new_payload<E: EthSpec>(
         &self,
-        new_payload_request: NewPayloadRequest<'_, T>,
+        new_payload_request: NewPayloadRequest<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match new_payload_request {
@@ -1069,7 +1108,15 @@ impl HttpJsonRpc {
             }
             NewPayloadRequest::Deneb(new_payload_request_deneb) => {
                 if engine_capabilities.new_payload_v3 {
-                    self.new_payload_v3(new_payload_request_deneb).await
+                    self.new_payload_v3_deneb(new_payload_request_deneb).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV3"))
+                }
+            }
+            NewPayloadRequest::Electra(new_payload_request_electra) => {
+                if engine_capabilities.new_payload_v3 {
+                    self.new_payload_v3_electra(new_payload_request_electra)
+                        .await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV3"))
                 }
@@ -1079,11 +1126,11 @@ impl HttpJsonRpc {
 
     // automatically selects the latest version of
     // get_payload that the execution engine supports
-    pub async fn get_payload<T: EthSpec>(
+    pub async fn get_payload<E: EthSpec>(
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match fork_name {
             ForkName::Merge | ForkName::Capella => {
@@ -1095,7 +1142,7 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayload"))
                 }
             }
-            ForkName::Deneb => {
+            ForkName::Deneb | ForkName::Electra => {
                 if engine_capabilities.get_payload_v3 {
                     self.get_payload_v3(fork_name, payload_id).await
                 } else {
@@ -1775,7 +1822,7 @@ mod test {
                         "extraData":"0x",
                         "baseFeePerGas":"0x7",
                         "blockHash":"0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c",
-                        "transactions":[]
+                        "transactions":[],
                     }
                 })],
                 |client| async move {
@@ -1799,7 +1846,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
-                        transactions: vec![].into(),
+                            transactions: vec![].into(),
                         });
 
                     assert_eq!(payload, expected);
@@ -1846,7 +1893,7 @@ mod test {
                         "extraData":"0x",
                         "baseFeePerGas":"0x7",
                         "blockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
-                        "transactions":[]
+                        "transactions":[],
                     }],
                 })
             )

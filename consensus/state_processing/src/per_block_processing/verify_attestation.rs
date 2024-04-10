@@ -15,13 +15,13 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// to `state`. Otherwise, returns a descriptive `Err`.
 ///
 /// Optionally verifies the aggregate signature, depending on `verify_signatures`.
-pub fn verify_attestation_for_block_inclusion<'ctxt, T: EthSpec>(
-    state: &BeaconState<T>,
-    attestation: &Attestation<T>,
-    ctxt: &'ctxt mut ConsensusContext<T>,
+pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
+    state: &BeaconState<E>,
+    attestation: &Attestation<E>,
+    ctxt: &'ctxt mut ConsensusContext<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<&'ctxt IndexedAttestation<T>> {
+) -> Result<&'ctxt IndexedAttestation<E>> {
     let data = &attestation.data;
 
     verify!(
@@ -38,7 +38,7 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, T: EthSpec>(
         | BeaconState::Merge(_)
         | BeaconState::Capella(_) => {
             verify!(
-                state.slot() <= data.slot.safe_add(T::slots_per_epoch())?,
+                state.slot() <= data.slot.safe_add(E::slots_per_epoch())?,
                 Invalid::IncludedTooLate {
                     state: state.slot(),
                     attestation: data.slot,
@@ -46,7 +46,7 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, T: EthSpec>(
             );
         }
         // [Modified in Deneb:EIP7045]
-        BeaconState::Deneb(_) => {}
+        BeaconState::Deneb(_) | BeaconState::Electra(_) => {}
     }
 
     verify_attestation_for_state(state, attestation, ctxt, verify_signatures, spec)
@@ -59,13 +59,13 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, T: EthSpec>(
 /// prior blocks in `state`.
 ///
 /// Spec v0.12.1
-pub fn verify_attestation_for_state<'ctxt, T: EthSpec>(
-    state: &BeaconState<T>,
-    attestation: &Attestation<T>,
-    ctxt: &'ctxt mut ConsensusContext<T>,
+pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
+    state: &BeaconState<E>,
+    attestation: &Attestation<E>,
+    ctxt: &'ctxt mut ConsensusContext<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<&'ctxt IndexedAttestation<T>> {
+) -> Result<&'ctxt IndexedAttestation<E>> {
     let data = &attestation.data;
 
     verify!(
@@ -86,24 +86,24 @@ pub fn verify_attestation_for_state<'ctxt, T: EthSpec>(
 /// Check target epoch and source checkpoint.
 ///
 /// Spec v0.12.1
-fn verify_casper_ffg_vote<T: EthSpec>(
-    attestation: &Attestation<T>,
-    state: &BeaconState<T>,
+fn verify_casper_ffg_vote<E: EthSpec>(
+    attestation: &Attestation<E>,
+    state: &BeaconState<E>,
 ) -> Result<()> {
     let data = &attestation.data;
     verify!(
-        data.target.epoch == data.slot.epoch(T::slots_per_epoch()),
+        data.target.epoch == data.slot.epoch(E::slots_per_epoch()),
         Invalid::TargetEpochSlotMismatch {
             target_epoch: data.target.epoch,
-            slot_epoch: data.slot.epoch(T::slots_per_epoch()),
+            slot_epoch: data.slot.epoch(E::slots_per_epoch()),
         }
     );
     if data.target.epoch == state.current_epoch() {
         verify!(
             data.source == state.current_justified_checkpoint(),
             Invalid::WrongJustifiedCheckpoint {
-                state: state.current_justified_checkpoint(),
-                attestation: data.source,
+                state: Box::new(state.current_justified_checkpoint()),
+                attestation: Box::new(data.source),
                 is_current: true,
             }
         );
@@ -112,8 +112,8 @@ fn verify_casper_ffg_vote<T: EthSpec>(
         verify!(
             data.source == state.previous_justified_checkpoint(),
             Invalid::WrongJustifiedCheckpoint {
-                state: state.previous_justified_checkpoint(),
-                attestation: data.source,
+                state: Box::new(state.previous_justified_checkpoint()),
+                attestation: Box::new(data.source),
                 is_current: false,
             }
         );

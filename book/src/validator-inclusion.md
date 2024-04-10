@@ -65,7 +65,7 @@ From this data you can calculate:
 
 #### Justification/Finalization Rate
 
-`previous_epoch_target_attesting_gwei / previous_epoch_active_gwei`
+`previous_epoch_target_attesting_gwei / current_epoch_active_gwei`
 
 When this value is greater than or equal to `2/3` it is possible that the
 beacon chain may justify and/or finalize the epoch.
@@ -80,7 +80,6 @@ curl -X GET "http://localhost:5052/lighthouse/validator_inclusion/0/global" -H  
 {
   "data": {
     "current_epoch_active_gwei": 642688000000000,
-    "previous_epoch_active_gwei": 642688000000000,
     "current_epoch_target_attesting_gwei": 366208000000000,
     "previous_epoch_target_attesting_gwei": 1000000000,
     "previous_epoch_head_attesting_gwei": 1000000000
