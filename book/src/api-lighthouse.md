@@ -365,21 +365,21 @@ from the very head of the execution chain. Useful for understanding the immediat
 health of the execution node that the beacon node is connected to.
 - `latest_cached_block_number` & `latest_cached_block_timestamp`: the block
 number and timestamp of the latest block we have in our block cache.
- 	- For correct execution client voting this timestamp should be later than the
+  - For correct execution client voting this timestamp should be later than the
 `voting_target_timestamp`.
 
 - `voting_target_timestamp`: The latest timestamp allowed for an execution layer block in this voting period.
 - `eth1_node_sync_status_percentage` (float): An estimate of how far the head of the
   execution node is from the head of the execution chain.
- 	- `100.0` indicates a fully synced execution node.
- 	- `0.0` indicates an execution node that has not verified any blocks past the
+  - `100.0` indicates a fully synced execution node.
+  - `0.0` indicates an execution node that has not verified any blocks past the
   genesis block.
 - `lighthouse_is_cached_and_ready`: Is set to `true` if the caches in the
  beacon node are ready for block production.
- 	- This value might be set to
+  - This value might be set to
  `false` whilst `eth1_node_sync_status_percentage == 100.0` if the beacon
  node is still building its internal cache.
- 	- This value might be set to `true` whilst
+  - This value might be set to `true` whilst
  `eth1_node_sync_status_percentage < 100.0` since the cache only cares
  about blocks a certain distance behind the head.
 

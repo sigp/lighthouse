@@ -3,7 +3,5 @@
 MD010:
   # Set code blocks to false so that code blocks will be ignored, default is true
   code_blocks: false
-  # Fenced code languages to ignore
-  ignore_code_languages: []
-  # Number of spaces for each hard tab
-  spaces_per_tab: 1
+
+  

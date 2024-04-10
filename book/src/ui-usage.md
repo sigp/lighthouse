@@ -1,6 +1,6 @@
 # Usage
 
-# Dashboard
+## Dashboard
 
 Siren's dashboard view provides a summary of all performance and key validator metrics. Sync statuses, uptimes, accumulated rewards, hardware and network metrics are all consolidated on the dashboard for evaluation.
 
@@ -46,7 +46,7 @@ The log statistics present an hourly combined rate of critical, warning, and err
 
 <img height="350" src="imgs/ui-dash-logs.png"/>
 
-# Validator Management
+## Validator Management
 
 Siren's validator management view provides a detailed overview of all validators with options to deposit to and/or add new validators. Each validator table row displays the validator name, index, balance, rewards, status and all available actions per validator.
 
@@ -58,13 +58,13 @@ Clicking the validator icon activates a detailed validator modal component. This
 
 <img height="450" src="imgs/ui-validator-modal.png"/>
 
-# Settings
+## Settings
 
 Siren's settings view provides access to the application theme, version, name, device name and important external links. From the settings page users can also access the configuration screen to adjust any beacon or validator node parameters.
 
 ![](imgs/ui-settings.png)
 
-# Validator and Beacon Logs
+## Validator and Beacon Logs
 
 The logs page provides users with the functionality to access and review recorded logs for both validators and beacons. Users can conveniently observe log severity, messages, timestamps, and any additional data associated with each log entry. The interface allows for seamless switching between validator and beacon log outputs, and incorporates useful features such as built-in text search and the ability to pause log feeds.
 
