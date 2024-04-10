@@ -1170,6 +1170,14 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             Request::LightClientBootstrap(_) => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["light_client_bootstrap"])
             }
+            Request::LightClientOptimisticUpdate => metrics::inc_counter_vec(
+                &metrics::TOTAL_RPC_REQUESTS,
+                &["light_client_optimistic_update"],
+            ),
+            Request::LightClientFinalityUpdate => metrics::inc_counter_vec(
+                &metrics::TOTAL_RPC_REQUESTS,
+                &["light_client_finality_update"],
+            ),
             Request::BlocksByRange { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
             }
@@ -1508,6 +1516,22 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                         );
                         Some(event)
                     }
+                    InboundRequest::LightClientOptimisticUpdate => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::LightClientOptimisticUpdate,
+                        );
+                        Some(event)
+                    }
+                    InboundRequest::LightClientFinalityUpdate => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::LightClientFinalityUpdate,
+                        );
+                        Some(event)
+                    }
                 }
             }
             HandlerEvent::Ok(RPCReceived::Response(id, resp)) => {
@@ -1545,6 +1569,16 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                     RPCResponse::LightClientBootstrap(bootstrap) => {
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
                     }
+                    RPCResponse::LightClientOptimisticUpdate(update) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::LightClientOptimisticUpdate(update),
+                    ),
+                    RPCResponse::LightClientFinalityUpdate(update) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::LightClientFinalityUpdate(update),
+                    ),
                 }
             }
             HandlerEvent::Ok(RPCReceived::EndOfStream(id, termination)) => {

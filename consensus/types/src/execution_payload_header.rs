@@ -1,7 +1,7 @@
 use crate::{test_utils::TestRandom, *};
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -106,6 +106,23 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
             ForkName::Deneb => ExecutionPayloadHeaderDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
             ForkName::Electra => {
                 ExecutionPayloadHeaderElectra::from_ssz_bytes(bytes).map(Self::Electra)
+            }
+        }
+    }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
+        // Matching here in case variable fields are added in future forks.
+        // TODO(electra): review electra changes
+        match fork_name {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
+                // Max size of variable length `extra_data` field
+                E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
             }
         }
     }
