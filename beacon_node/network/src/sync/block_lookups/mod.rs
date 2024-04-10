@@ -76,6 +76,24 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn active_single_lookups(&self) -> Vec<Id> {
+        self.single_block_lookups.keys().cloned().collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_parent_lookups(&self) -> Vec<Hash256> {
+        self.parent_lookups
+            .iter()
+            .map(|r| r.chain_hash())
+            .collect::<Vec<_>>()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn failed_chains_contains(&mut self, chain_hash: &Hash256) -> bool {
+        self.failed_chains.contains(chain_hash)
+    }
+
     /* Lookup requests */
 
     /// Creates a lookup for the block with the given `block_root` and immediately triggers it.

@@ -427,7 +427,7 @@ impl<T: BeaconChainTypes> Critical<T> {
 
     /// Returns true if the block root is known, without altering the LRU ordering
     pub fn has_block(&self, block_root: &Hash256) -> bool {
-        self.in_memory.peek(block_root).is_some() || self.store_keys.get(block_root).is_some()
+        self.in_memory.peek(block_root).is_some() || self.store_keys.contains(block_root)
     }
 
     /// This only checks for the blobs in memory
