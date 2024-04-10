@@ -508,20 +508,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: BlocksByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move |send_idle_on_drop| {
+        let process_fn = async move {
             let executor = processor.executor.clone();
-            processor.handle_blocks_by_range_request(
-                executor,
-                send_idle_on_drop,
-                peer_id,
-                request_id,
-                request,
-            )
+            processor
+                .handle_blocks_by_range_request(executor, peer_id, request_id, request)
+                .await;
         };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::BlocksByRangeRequest(Box::new(process_fn)),
+            work: Work::BlocksByRangeRequest(Box::pin(process_fn)),
         })
     }
 
@@ -533,20 +529,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: BlocksByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move |send_idle_on_drop| {
+        let process_fn = async move {
             let executor = processor.executor.clone();
-            processor.handle_blocks_by_root_request(
-                executor,
-                send_idle_on_drop,
-                peer_id,
-                request_id,
-                request,
-            )
+            processor
+                .handle_blocks_by_root_request(executor, peer_id, request_id, request)
+                .await;
         };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::BlocksByRootsRequest(Box::new(process_fn)),
+            work: Work::BlocksByRootsRequest(Box::pin(process_fn)),
         })
     }
 

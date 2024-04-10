@@ -624,8 +624,8 @@ pub enum Work<E: EthSpec> {
     ChainSegment(AsyncFn),
     ChainSegmentBackfill(AsyncFn),
     Status(BlockingFn),
-    BlocksByRangeRequest(BlockingFnWithManualSendOnIdle),
-    BlocksByRootsRequest(BlockingFnWithManualSendOnIdle),
+    BlocksByRangeRequest(AsyncFn),
+    BlocksByRootsRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
@@ -1493,7 +1493,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 task_spawner.spawn_blocking(process_fn)
             }
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
-                task_spawner.spawn_blocking_with_manual_send_idle(work)
+                task_spawner.spawn_async(work)
             }
             Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
             Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
@@ -1551,23 +1551,6 @@ impl TaskSpawner {
             || {
                 task();
                 drop(self.send_idle_on_drop)
-            },
-            WORKER_TASK_NAME,
-        )
-    }
-
-    /// Spawn a blocking task, passing the `SendOnDrop` into the task.
-    ///
-    /// ## Notes
-    ///
-    /// Users must ensure the `SendOnDrop` is dropped at the appropriate time!
-    pub fn spawn_blocking_with_manual_send_idle<F>(self, task: F)
-    where
-        F: FnOnce(SendOnDrop) + Send + 'static,
-    {
-        self.executor.spawn_blocking(
-            || {
-                task(self.send_idle_on_drop);
             },
             WORKER_TASK_NAME,
         )
