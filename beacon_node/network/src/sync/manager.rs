@@ -680,12 +680,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
-                // If we are not synced, ignore this block.
-                if self.synced_and_connected(&peer_id) {
-                    debug!(self.log, "Received sync_message"; "message" => "UnknownBlockHashFromAttestation", "block_root" => %block_root);
-                    self.block_lookups
-                        .search_block(block_root, &[peer_id], &mut self.network);
-                }
+                debug!(self.log, "Received unknown block hash message"; "block_root" => %block_root);
+                self.handle_unknown_block_root(peer_id, block_root);
             }
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);
@@ -757,7 +753,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         slot: Slot,
         child_components: ChildComponents<T::EthSpec>,
     ) {
-        match self.should_search_for_block(slot, &peer_id) {
+        match self.should_search_for_block(Some(slot), &peer_id) {
             Ok(_) => {
                 self.block_lookups.search_parent(
                     slot,
@@ -779,12 +775,28 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    fn handle_unknown_block_root(&mut self, peer_id: PeerId, block_root: Hash256) {
+        match self.should_search_for_block(None, &peer_id) {
+            Ok(_) => {
+                self.block_lookups
+                    .search_block(block_root, &[peer_id], &mut self.network);
+            }
+            Err(reason) => {
+                debug!(self.log, "Ignoring unknown block request"; "block_root" => %block_root, "reason" => reason);
+            }
+        }
+    }
+
     fn should_search_for_block(
         &mut self,
-        block_slot: Slot,
+        block_slot: Option<Slot>,
         peer_id: &PeerId,
     ) -> Result<(), &'static str> {
         if !self.network_globals().sync_state.read().is_synced() {
+            let Some(block_slot) = block_slot else {
+                return Err("not synced");
+            };
+
             let head_slot = self.chain.canonical_head.cached_head().head_slot();
 
             // if the block is far in the future, ignore it. If its within the slot tolerance of
@@ -805,15 +817,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             return Err("execution engine offline");
         }
         Ok(())
-    }
-
-    fn synced(&mut self) -> bool {
-        self.network_globals().sync_state.read().is_synced()
-            && self.network.is_execution_engine_online()
-    }
-
-    fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {
-        self.synced() && self.network_globals().peers.read().is_connected(peer_id)
     }
 
     fn handle_new_execution_engine_state(&mut self, engine_state: EngineState) {
