@@ -34,6 +34,7 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
+use super::block_lookups::common::LookupType;
 use super::block_lookups::BlockLookups;
 use super::network_context::{BlockOrBlob, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
@@ -80,6 +81,7 @@ pub type Id = u32;
 pub struct SingleLookupReqId {
     pub id: Id,
     pub req_counter: Id,
+    pub lookup_type: LookupType,
 }
 
 /// Id of rpc requests sent by sync to the network.
@@ -89,12 +91,6 @@ pub enum RequestId {
     SingleBlock { id: SingleLookupReqId },
     /// Request searching for a set of blobs given a hash.
     SingleBlob { id: SingleLookupReqId },
-    /// Request searching for a block's parent. The id is the chain, share with the corresponding
-    /// blob id.
-    ParentLookup { id: SingleLookupReqId },
-    /// Request searching for a block's parent blobs. The id is the chain, shared with the corresponding
-    /// block id.
-    ParentLookupBlob { id: SingleLookupReqId },
     /// Request was from the backfill sync algorithm.
     BackFillBlocks { id: Id },
     /// Backfill request that is composed by both a block range request and a blob range request.
@@ -331,42 +327,42 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn inject_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
         trace!(self.log, "Sync manager received a failed RPC");
         match request_id {
-            RequestId::SingleBlock { id } => {
-                self.block_lookups
+            RequestId::SingleBlock { id } => match id.lookup_type {
+                LookupType::Current => self
+                    .block_lookups
                     .single_block_lookup_failed::<BlockRequestState<Current>>(
                         id,
                         &peer_id,
                         &self.network,
                         error,
-                    );
-            }
-            RequestId::SingleBlob { id } => {
-                self.block_lookups
+                    ),
+                LookupType::Parent => self
+                    .block_lookups
+                    .parent_lookup_failed::<BlockRequestState<Parent>>(
+                        id,
+                        &peer_id,
+                        &self.network,
+                        error,
+                    ),
+            },
+            RequestId::SingleBlob { id } => match id.lookup_type {
+                LookupType::Current => self
+                    .block_lookups
                     .single_block_lookup_failed::<BlobRequestState<Current, T::EthSpec>>(
                         id,
                         &peer_id,
                         &self.network,
                         error,
-                    );
-            }
-            RequestId::ParentLookup { id } => {
-                self.block_lookups
-                    .parent_lookup_failed::<BlockRequestState<Parent>>(
-                        id,
-                        peer_id,
-                        &self.network,
-                        error,
-                    );
-            }
-            RequestId::ParentLookupBlob { id } => {
-                self.block_lookups
+                    ),
+                LookupType::Parent => self
+                    .block_lookups
                     .parent_lookup_failed::<BlobRequestState<Parent, T::EthSpec>>(
                         id,
-                        peer_id,
+                        &peer_id,
                         &self.network,
                         error,
-                    );
-            }
+                    ),
+            },
             RequestId::BackFillBlocks { id } => {
                 if let Some(batch_id) = self
                     .network
@@ -879,29 +875,28 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id } => self
-                .block_lookups
-                .single_lookup_response::<BlockRequestState<Current>>(
-                    id,
-                    peer_id,
-                    block,
-                    seen_timestamp,
-                    &self.network,
-                ),
+            RequestId::SingleBlock { id } => match id.lookup_type {
+                LookupType::Current => self
+                    .block_lookups
+                    .single_lookup_response::<BlockRequestState<Current>>(
+                        id,
+                        peer_id,
+                        block,
+                        seen_timestamp,
+                        &self.network,
+                    ),
+                LookupType::Parent => self
+                    .block_lookups
+                    .parent_lookup_response::<BlockRequestState<Parent>>(
+                        id,
+                        peer_id,
+                        block,
+                        seen_timestamp,
+                        &self.network,
+                    ),
+            },
             RequestId::SingleBlob { .. } => {
                 crit!(self.log, "Block received during blob request"; "peer_id" => %peer_id  );
-            }
-            RequestId::ParentLookup { id } => self
-                .block_lookups
-                .parent_lookup_response::<BlockRequestState<Parent>>(
-                    id,
-                    peer_id,
-                    block,
-                    seen_timestamp,
-                    &self.network,
-                ),
-            RequestId::ParentLookupBlob { id: _ } => {
-                crit!(self.log, "Block received during parent blob request"; "peer_id" => %peer_id  );
             }
             RequestId::BackFillBlocks { id } => {
                 let is_stream_terminator = block.is_none();
@@ -963,28 +958,26 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { .. } => {
                 crit!(self.log, "Single blob received during block request"; "peer_id" => %peer_id  );
             }
-            RequestId::SingleBlob { id } => self
-                .block_lookups
-                .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
-                    id,
-                    peer_id,
-                    blob,
-                    seen_timestamp,
-                    &self.network,
-                ),
-
-            RequestId::ParentLookup { id: _ } => {
-                crit!(self.log, "Single blob received during parent block request"; "peer_id" => %peer_id  );
-            }
-            RequestId::ParentLookupBlob { id } => self
-                .block_lookups
-                .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
-                    id,
-                    peer_id,
-                    blob,
-                    seen_timestamp,
-                    &self.network,
-                ),
+            RequestId::SingleBlob { id } => match id.lookup_type {
+                LookupType::Current => self
+                    .block_lookups
+                    .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
+                        id,
+                        peer_id,
+                        blob,
+                        seen_timestamp,
+                        &self.network,
+                    ),
+                LookupType::Parent => self
+                    .block_lookups
+                    .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
+                        id,
+                        peer_id,
+                        blob,
+                        seen_timestamp,
+                        &self.network,
+                    ),
+            },
             RequestId::BackFillBlocks { id: _ } => {
                 crit!(self.log, "Blob received during backfill block request"; "peer_id" => %peer_id  );
             }
