@@ -247,7 +247,7 @@ impl<E: EthSpec> RateLimiterItem for super::OutboundRequest<E> {
     }
 
     fn expected_responses(&self) -> u64 {
-        self.expected_responses()
+        self.max_responses()
     }
 }
 impl RPCRateLimiter {

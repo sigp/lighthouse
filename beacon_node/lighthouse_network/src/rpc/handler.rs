@@ -180,7 +180,7 @@ struct OutboundInfo<Id, E: EthSpec> {
     /// Info over the protocol this substream is handling.
     proto: Protocol,
     /// Number of chunks to be seen from the peer's response.
-    remaining_chunks: Option<u64>,
+    max_remaining_chunks: Option<u64>,
     /// `Id` as given by the application that sent the request.
     req_id: Id,
 }
@@ -664,15 +664,19 @@ where
                     request,
                 } => match substream.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(response))) => {
-                        if request.expected_responses() > 1 && !response.close_after() {
+                        if request.expect_exactly_one_response() || response.close_after() {
+                            // either this is a single response request or this response closes the
+                            // stream
+                            entry.get_mut().state = OutboundSubstreamState::Closing(substream);
+                        } else {
                             let substream_entry = entry.get_mut();
                             let delay_key = &substream_entry.delay_key;
                             // chunks left after this one
-                            let remaining_chunks = substream_entry
-                                .remaining_chunks
+                            let max_remaining_chunks = substream_entry
+                                .max_remaining_chunks
                                 .map(|count| count.saturating_sub(1))
                                 .unwrap_or_else(|| 0);
-                            if remaining_chunks == 0 {
+                            if max_remaining_chunks == 0 {
                                 // this is the last expected message, close the stream as all expected chunks have been received
                                 substream_entry.state = OutboundSubstreamState::Closing(substream);
                             } else {
@@ -682,14 +686,10 @@ where
                                         substream,
                                         request,
                                     };
-                                substream_entry.remaining_chunks = Some(remaining_chunks);
+                                substream_entry.max_remaining_chunks = Some(max_remaining_chunks);
                                 self.outbound_substreams_delay
                                     .reset(delay_key, self.resp_timeout);
                             }
-                        } else {
-                            // either this is a single response request or this response closes the
-                            // stream
-                            entry.get_mut().state = OutboundSubstreamState::Closing(substream);
                         }
 
                         // Check what type of response we got and report it accordingly
@@ -725,7 +725,16 @@ where
                         self.outbound_substreams_delay.remove(delay_key);
                         entry.remove_entry();
                         // notify the application error
-                        if request.expected_responses() > 1 {
+                        if request.expect_exactly_one_response() {
+                            // else we return an error, stream should not have closed early.
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                HandlerEvent::Err(HandlerErr::Outbound {
+                                    id: request_id,
+                                    proto: request.versioned_protocol().protocol(),
+                                    error: RPCError::IncompleteStream,
+                                }),
+                            ));
+                        } else {
                             // return an end of stream result
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                                 HandlerEvent::Ok(RPCReceived::EndOfStream(
@@ -734,16 +743,6 @@ where
                                 )),
                             ));
                         }
-
-                        // else we return an error, stream should not have closed early.
-                        let outbound_err = HandlerErr::Outbound {
-                            id: request_id,
-                            proto: request.versioned_protocol().protocol(),
-                            error: RPCError::IncompleteStream,
-                        };
-                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                            HandlerEvent::Err(outbound_err),
-                        ));
                     }
                     Poll::Pending => {
                         entry.get_mut().state =
@@ -948,8 +947,14 @@ where
         }
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
-        let expected_responses = request.expected_responses();
-        if expected_responses > 0 {
+        let max_responses = request.max_responses();
+        if max_responses > 0 {
+            let max_remaining_chunks = if request.expect_exactly_one_response() {
+                // Currently enforced only for multiple responses
+                None
+            } else {
+                Some(max_responses)
+            };
             // new outbound request. Store the stream and tag the output.
             let delay_key = self
                 .outbound_substreams_delay
@@ -957,12 +962,6 @@ where
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(substream),
                 request,
-            };
-            let expected_responses = if expected_responses > 1 {
-                // Currently enforced only for multiple responses
-                Some(expected_responses)
-            } else {
-                None
             };
             if self
                 .outbound_substreams
@@ -972,7 +971,7 @@ where
                         state: awaiting_stream,
                         delay_key,
                         proto,
-                        remaining_chunks: expected_responses,
+                        max_remaining_chunks,
                         req_id: id,
                     },
                 )
