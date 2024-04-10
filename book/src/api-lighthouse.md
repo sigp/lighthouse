@@ -773,15 +773,15 @@ Should provide an output that emits log events as they occur:
 ```json
 {
 "data": {
-   "time": "Mar 13 15:28:41",
-   "level": "INFO",
-   "msg": "Syncing",
-   "service": "slot_notifier",
-   "est_time": "1 hr 27 mins",
-   "speed": "5.33 slots/sec",
-   "distance": "28141 slots (3 days 21 hrs)",
-   "peers": "8"
- }
+	  "time": "Mar 13 15:28:41",
+	  "level": "INFO",
+	  "msg": "Syncing",
+	  "service": "slot_notifier",
+	  "est_time": "1 hr 27 mins",
+	  "speed": "5.33 slots/sec",
+	  "distance": "28141 slots (3 days 21 hrs)",
+	  "peers": "8"
+	}
 }
 ```
 

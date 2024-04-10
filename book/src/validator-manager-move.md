@@ -31,13 +31,13 @@ The following command will move all validators from the VC running at
 
 ```bash
 lighthouse \
- validator-manager \
- move \
- --src-vc-url http://localhost:6062 \
- --src-vc-token ~/src-token.txt \
- --dest-vc-url http://localhost:5062 \
- --dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
- --validators all
+	validator-manager \
+	move \
+	--src-vc-url http://localhost:6062 \
+	--src-vc-token ~/src-token.txt \
+	--dest-vc-url http://localhost:5062 \
+	--dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
+	--validators all
 ```
 
 ## Detailed Guide
@@ -138,13 +138,13 @@ host** run the command to move the validators:
 
 ```bash
 lighthouse \
- validator-manager \
- move \
- --src-vc-url http://localhost:6062 \
- --src-vc-token ~/src-token.txt \
- --dest-vc-url http://localhost:5062 \
- --dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
- --validators all
+	validator-manager \
+	move \
+	--src-vc-url http://localhost:6062 \
+	--src-vc-token ~/src-token.txt \
+	--dest-vc-url http://localhost:5062 \
+	--dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
+	--validators all
 ```
 
 The command will provide information about the progress of the operation and
@@ -175,13 +175,13 @@ If you would only like to move some validators, you can replace the flag `--vali
 
 ```bash
 lighthouse \
- validator-manager \
- move \
- --src-vc-url http://localhost:6062 \
- --src-vc-token ~/src-token.txt \
- --dest-vc-url http://localhost:5062 \
- --dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
- --validators 0x9096aab771e44da149bd7c9926d6f7bb96ef465c0eeb4918be5178cd23a1deb4aec232c61d85ff329b54ed4a3bdfff3a,0x90fc4f72d898a8f01ab71242e36f4545aaf87e3887be81632bb8ba4b2ae8fb70753a62f866344d7905e9a07f5a9cdda1
+	validator-manager \
+	move \
+	--src-vc-url http://localhost:6062 \
+	--src-vc-token ~/src-token.txt \
+	--dest-vc-url http://localhost:5062 \
+	--dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
+	--validators 0x9096aab771e44da149bd7c9926d6f7bb96ef465c0eeb4918be5178cd23a1deb4aec232c61d85ff329b54ed4a3bdfff3a,0x90fc4f72d898a8f01ab71242e36f4545aaf87e3887be81632bb8ba4b2ae8fb70753a62f866344d7905e9a07f5a9cdda1
 ```
 
 > Note: If you have the `validator-monitor-auto` turned on, the source beacon node may still be reporting the attestation status of the validators that have been moved:

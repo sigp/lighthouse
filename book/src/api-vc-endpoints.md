@@ -807,13 +807,13 @@ logs emitted are INFO level or higher.
 ```json
 {
   "data": {
-   "time": "Mar 13 15:26:53",
-   "level": "INFO",
-   "msg": "Connected to beacon node(s)",
-   "service": "notifier",
-   "synced": 1,
-   "available": 1,
-   "total": 1
+	  "time": "Mar 13 15:26:53",
+	  "level": "INFO",
+	  "msg": "Connected to beacon node(s)",
+	  "service": "notifier",
+	  "synced": 1,
+	  "available": 1,
+	  "total": 1
   }
 }
 ```

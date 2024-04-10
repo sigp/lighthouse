@@ -192,10 +192,10 @@ in this document can be substituted with:
 
 ```bash
 docker run -it \
- -v $HOME/.lighthouse:/root/.lighthouse \
- -v $(pwd)/validator_keys:/root/validator_keys \
- sigp/lighthouse \
- lighthouse --network mainnet account validator import --directory /root/validator_keys
+	-v $HOME/.lighthouse:/root/.lighthouse \
+	-v $(pwd)/validator_keys:/root/validator_keys \
+	sigp/lighthouse \
+	lighthouse --network mainnet account validator import --directory /root/validator_keys
 ```
 
 Here we use two `-v` volumes to attach:
@@ -210,17 +210,17 @@ Those using Docker images can start the processes with:
 
 ```bash
 $ docker run \
- --network host \
- -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse \
- lighthouse --network mainnet bn --staking --http-address 0.0.0.0
+	--network host \
+	-v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse \
+	lighthouse --network mainnet bn --staking --http-address 0.0.0.0
 ```
 
 ```bash
 $ docker run \
- --network host \
- -v $HOME/.lighthouse:/root/.lighthouse \
- sigp/lighthouse \
- lighthouse --network mainnet vc
+	--network host \
+	-v $HOME/.lighthouse:/root/.lighthouse \
+	sigp/lighthouse \
+	lighthouse --network mainnet vc
 ```
 
 If you get stuck you can always reach out on our [Discord][discord] or [create an
