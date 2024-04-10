@@ -22,15 +22,20 @@ use tokio::sync::mpsc;
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 pub struct BlocksAndBlobsByRangeResponse<E: EthSpec> {
-    pub batch_id: BatchId,
+    pub sender_id: RangeRequestId,
     pub responses: Result<Vec<RpcBlock<E>>, String>,
     pub request_type: ByRangeRequestType,
 }
 
-pub struct BlocksAndBlobsByRangeRequest<E: EthSpec> {
-    pub chain_id: ChainId,
-    pub batch_id: BatchId,
-    pub block_blob_info: BlocksAndBlobsRequestInfo<E>,
+#[derive(Debug, Clone, Copy)]
+pub enum RangeRequestId {
+    RangeSync {
+        chain_id: ChainId,
+        batch_id: BatchId,
+    },
+    BackfillSync {
+        batch_id: BatchId,
+    },
 }
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
@@ -41,12 +46,9 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// A sequential ID for all RPC requests.
     request_id: Id,
 
-    /// BlocksByRange requests paired with BlobsByRange requests made by the range.
-    range_blocks_and_blobs_requests: FnvHashMap<Id, BlocksAndBlobsByRangeRequest<T::EthSpec>>,
-
-    /// BlocksByRange requests paired with BlobsByRange requests made by the backfill sync.
-    backfill_blocks_and_blobs_requests:
-        FnvHashMap<Id, (BatchId, BlocksAndBlobsRequestInfo<T::EthSpec>)>,
+    /// BlocksByRange requests paired with BlobsByRange
+    range_blocks_and_blobs_requests:
+        FnvHashMap<Id, (RangeRequestId, BlocksAndBlobsRequestInfo<T::EthSpec>)>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
@@ -91,7 +93,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
             request_id: 1,
             range_blocks_and_blobs_requests: FnvHashMap::default(),
-            backfill_blocks_and_blobs_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
             log,
@@ -134,26 +135,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 request_id,
             });
         }
-    }
-
-    pub fn range_sync_blocks_by_range_request(
-        &mut self,
-        peer_id: PeerId,
-        batch_type: ByRangeRequestType,
-        request: BlocksByRangeRequest,
-        chain_id: ChainId,
-        batch_id: BatchId,
-    ) -> Result<Id, &'static str> {
-        let id = self.blocks_by_range_request(peer_id, batch_type, request)?;
-        self.range_blocks_and_blobs_requests.insert(
-            id,
-            BlocksAndBlobsByRangeRequest {
-                chain_id,
-                batch_id,
-                block_blob_info: BlocksAndBlobsRequestInfo::new(batch_type),
-            },
-        );
-        Ok(id)
     }
 
     /// A blocks by range request for the range sync algorithm.
@@ -201,90 +182,32 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// A blocks by range request sent by the backfill sync algorithm
-    pub fn backfill_blocks_by_range_request(
+    pub fn blocks_and_blobs_by_range_request(
         &mut self,
         peer_id: PeerId,
         batch_type: ByRangeRequestType,
         request: BlocksByRangeRequest,
-        batch_id: BatchId,
+        sender_id: RangeRequestId,
     ) -> Result<Id, &'static str> {
         let id = self.blocks_by_range_request(peer_id, batch_type, request)?;
-        self.backfill_blocks_and_blobs_requests
-            .insert(id, (batch_id, BlocksAndBlobsRequestInfo::new(batch_type)));
+        self.range_blocks_and_blobs_requests
+            .insert(id, (sender_id, BlocksAndBlobsRequestInfo::new(batch_type)));
         Ok(id)
     }
 
-    /// Received a blocks by range response for a request that couples blocks and blobs.
-    pub fn range_sync_block_and_blob_response(
-        &mut self,
-        request_id: Id,
-        block_or_blob: BlockOrBlob<T::EthSpec>,
-    ) -> Option<(ChainId, BlocksAndBlobsByRangeResponse<T::EthSpec>)> {
-        match self.range_blocks_and_blobs_requests.entry(request_id) {
-            Entry::Occupied(mut entry) => {
-                let req = entry.get_mut();
-                let info = &mut req.block_blob_info;
-                match block_or_blob {
-                    BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
-                }
-                if info.is_finished() {
-                    // If the request is finished, dequeue everything
-                    let BlocksAndBlobsByRangeRequest {
-                        chain_id,
-                        batch_id,
-                        block_blob_info,
-                    } = entry.remove();
-                    let request_type = block_blob_info.get_request_type();
-                    Some((
-                        chain_id,
-                        BlocksAndBlobsByRangeResponse {
-                            batch_id,
-                            responses: block_blob_info.into_responses(),
-                            request_type,
-                        },
-                    ))
-                } else {
-                    None
-                }
-            }
-            Entry::Vacant(_) => None,
-        }
-    }
-
-    pub fn range_sync_request_failed(&mut self, request_id: Id) -> Option<(ChainId, BatchId)> {
-        let req = self
+    pub fn range_request_failed(&mut self, request_id: Id) -> Option<RangeRequestId> {
+        let sender_id = self
             .range_blocks_and_blobs_requests
             .remove(&request_id)
-            .map(|req| (req.chain_id, req.batch_id));
-        if let Some(req) = req {
-            debug!(
-                self.log,
-                "Range sync request failed";
-                "request_id" => request_id,
-                "chain_id" => ?req.0,
-                "batch_id" => ?req.1
-            );
-            Some(req)
-        } else {
-            debug!(self.log, "Range sync request failed"; "request_id" => request_id);
-            None
-        }
-    }
-
-    pub fn backfill_request_failed(&mut self, request_id: Id) -> Option<BatchId> {
-        let batch_id = self
-            .backfill_blocks_and_blobs_requests
-            .remove(&request_id)
-            .map(|(batch_id, _info)| batch_id);
-        if let Some(batch_id) = batch_id {
+            .map(|(sender_id, _info)| sender_id);
+        if let Some(sender_id) = sender_id {
             debug!(
                 self.log,
                 "Backfill sync request failed";
                 "request_id" => request_id,
-                "batch_id" => ?batch_id
+                "sender_id" => ?sender_id
             );
-            Some(batch_id)
+            Some(sender_id)
         } else {
             debug!(self.log, "Backfill sync request failed"; "request_id" => request_id);
             None
@@ -293,12 +216,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Received a blocks by range or blobs by range response for a request that couples blocks '
     /// and blobs.
-    pub fn backfill_sync_block_and_blob_response(
+    pub fn range_block_and_blob_response(
         &mut self,
         request_id: Id,
         block_or_blob: BlockOrBlob<T::EthSpec>,
     ) -> Option<BlocksAndBlobsByRangeResponse<T::EthSpec>> {
-        match self.backfill_blocks_and_blobs_requests.entry(request_id) {
+        match self.range_blocks_and_blobs_requests.entry(request_id) {
             Entry::Occupied(mut entry) => {
                 let (_, info) = entry.get_mut();
                 match block_or_blob {
@@ -307,14 +230,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 }
                 if info.is_finished() {
                     // If the request is finished, dequeue everything
-                    let (batch_id, info) = entry.remove();
-
+                    let (sender_id, info) = entry.remove();
                     let request_type = info.get_request_type();
-                    let responses = info.into_responses();
                     Some(BlocksAndBlobsByRangeResponse {
-                        batch_id,
-                        responses,
+                        sender_id,
                         request_type,
+                        responses: info.into_responses(),
                     })
                 } else {
                     None
@@ -493,18 +414,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn insert_range_blocks_and_blobs_request(
         &mut self,
         id: Id,
-        request: BlocksAndBlobsByRangeRequest<T::EthSpec>,
+        sender_id: RangeRequestId,
+        info: BlocksAndBlobsRequestInfo<T::EthSpec>,
     ) {
-        self.range_blocks_and_blobs_requests.insert(id, request);
-    }
-
-    pub fn insert_backfill_blocks_and_blobs_requests(
-        &mut self,
-        id: Id,
-        batch_id: BatchId,
-        request: BlocksAndBlobsRequestInfo<T::EthSpec>,
-    ) {
-        self.backfill_blocks_and_blobs_requests
-            .insert(id, (batch_id, request));
+        self.range_blocks_and_blobs_requests
+            .insert(id, (sender_id, info));
     }
 }
