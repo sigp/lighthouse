@@ -58,3 +58,4 @@ environment = { workspace = true }
 disable-backfill = []
 fork_from_env = ["beacon_chain/fork_from_env"]
 portable = ["beacon_chain/portable"]
+test_logger = []

@@ -278,19 +278,11 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         if let Some(components) = self.child_components.as_ref() {
             self.da_checker.get_missing_blob_ids(
                 block_root,
-                &components.downloaded_block,
+                components.downloaded_block.as_ref().map(|b| b.as_ref()),
                 &components.downloaded_blobs,
             )
         } else {
-            let Some(processing_components) = self.da_checker.get_processing_components(block_root)
-            else {
-                return MissingBlobs::new_without_block(block_root, self.da_checker.is_deneb());
-            };
-            self.da_checker.get_missing_blob_ids(
-                block_root,
-                &processing_components.block,
-                &processing_components.blob_commitments,
-            )
+            self.da_checker.get_missing_blob_ids_with(block_root)
         }
     }
 
