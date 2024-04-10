@@ -1077,7 +1077,6 @@ fn test_same_chain_race_condition() {
 
 mod deneb_only {
     use super::*;
-    use crate::sync::SyncMessage;
     use beacon_chain::data_availability_checker::AvailabilityCheckError;
     use ssz_types::VariableList;
 
