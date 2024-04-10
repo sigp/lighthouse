@@ -1,19 +1,19 @@
 use crate::errors::BeaconChainError;
 use crate::{metrics, BeaconChainTypes, BeaconStore};
 use parking_lot::{Mutex, RwLock};
+use safe_arith::{ArithError, SafeArith};
 use slog::{debug, Logger};
 use ssz_types::FixedVector;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tree_hash::TreeHash;
 use types::light_client_update::{
     FinalizedRootProofLen, NextSyncCommitteeProofLen, FINALIZED_ROOT_INDEX,
     NEXT_SYNC_COMMITTEE_INDEX,
 };
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, Slot, SyncAggregate,
+    BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, Slot, SyncAggregate,
     SyncCommittee,
 };
 
@@ -82,7 +82,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
     /// Given a block with a SyncAggregate computes better or more recent light client updates. The
     /// results are cached either on disk or memory to be served via p2p and rest API
-    #[allow(clippy::too_many_arguments)]
     pub fn recompute_and_cache_updates(
         &self,
         store: BeaconStore<T>,
@@ -155,14 +154,38 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                     chain_spec,
                 )?);
 
-                self.persist_best_light_client_update(
-                    store,
-                    block_slot,
-                    attested_block,
-                    finalized_block,
+                let new_light_client_update = LightClientUpdate::new(
                     sync_aggregate,
+                    block_slot,
+                    cached_parts.next_sync_committee,
+                    cached_parts.next_sync_committee_branch,
+                    cached_parts.finality_branch,
+                    &attested_block,
+                    &finalized_block,
                     chain_spec,
                 )?;
+
+                let sync_period = block_slot
+                    .epoch(T::EthSpec::slots_per_epoch())
+                    .sync_committee_period(chain_spec)?;
+
+                let prev_light_client_update = self.get_light_client_update(sync_period);
+
+                if let Some(prev_light_client_update) = prev_light_client_update {
+                    if is_better_light_client_update(
+                        &prev_light_client_update,
+                        &new_light_client_update,
+                        chain_spec,
+                    )? {
+                        self.light_client_updates_cache
+                            .lock()
+                            .put(sync_period, new_light_client_update);
+                    }
+                } else {
+                    self.light_client_updates_cache
+                        .lock()
+                        .put(sync_period, new_light_client_update);
+                }
             } else {
                 debug!(
                     log,
@@ -170,66 +193,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                     "finalized_block_root" => format!("{}", cached_parts.finalized_block_root),
                 );
             }
-        }
-
-        Ok(())
-    }
-
-    // - Is finalized
-    // - Has the most bits
-    // - Signed header at the oldest slot
-    fn persist_best_light_client_update(
-        &self,
-        store: BeaconStore<T>,
-        block_slot: Slot,
-        attested_block: SignedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
-        finalized_block: SignedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
-        sync_aggregate: &SyncAggregate<T::EthSpec>,
-        chain_spec: &ChainSpec,
-    ) -> Result<(), BeaconChainError> {
-        let cached_parts = self.get_or_compute_prev_block_cache(
-            store,
-            &attested_block.tree_hash_root(),
-            &attested_block.state_root(),
-            attested_block.slot(),
-        )?;
-
-        let sync_period = block_slot
-            .epoch(T::EthSpec::slots_per_epoch())
-            .sync_committee_period(chain_spec)?;
-
-        let new_light_client_update = LightClientUpdate::new(
-            sync_aggregate,
-            block_slot,
-            cached_parts.next_sync_committee,
-            cached_parts.next_sync_committee_branch,
-            cached_parts.finality_branch,
-            &attested_block,
-            &finalized_block,
-            chain_spec,
-        )?;
-
-        let mut mutex = self.light_client_updates_cache.lock();
-
-        if let Some(existing_light_client_update) = mutex.get(&sync_period) {
-            let new_sync_aggregate_bits = new_light_client_update.sync_aggregate().num_set_bits();
-            let new_signature_slot = new_light_client_update.signature_slot();
-
-            let existing_sync_aggregate_bits =
-                existing_light_client_update.sync_aggregate().num_set_bits();
-            let existing_signature_slot = existing_light_client_update.signature_slot();
-
-            if new_sync_aggregate_bits > existing_sync_aggregate_bits
-                && new_signature_slot < existing_signature_slot
-            {
-                self.light_client_updates_cache
-                    .lock()
-                    .put(sync_period, new_light_client_update);
-            }
-        } else {
-            self.light_client_updates_cache
-                .lock()
-                .put(sync_period, new_light_client_update);
         }
 
         Ok(())
@@ -273,6 +236,18 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
     pub fn get_latest_optimistic_update(&self) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
         self.latest_optimistic_update.read().clone()
+    }
+
+    pub fn get_light_client_update(
+        &self,
+        sync_committee_period: u64,
+    ) -> Option<LightClientUpdate<T::EthSpec>> {
+        let mut mutex = self.light_client_updates_cache.lock();
+        if let Some(light_client_update) = mutex.get(&sync_committee_period) {
+            return Some(light_client_update.clone());
+        }
+
+        None
     }
 
     pub fn get_light_client_updates(
@@ -354,4 +329,127 @@ fn is_latest_optimistic_update<T: EthSpec>(
     } else {
         attested_slot == prev_slot && signature_slot > *prev.signature_slot()
     }
+}
+
+// Implements spec prioritization rules:
+// Full nodes SHOULD provide the best derivable LightClientUpdate for each sync committee period
+// ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_update
+fn is_better_light_client_update<E: EthSpec>(
+    prev: &LightClientUpdate<E>,
+    new: &LightClientUpdate<E>,
+    chain_spec: &ChainSpec,
+) -> Result<bool, BeaconChainError> {
+    // Compare super majority (> 2/3) sync committee participation
+    let max_active_participants = new.sync_aggregate().sync_committee_bits.len();
+    let new_active_participants = new.sync_aggregate().sync_committee_bits.num_set_bits();
+    let prev_active_participants = prev.sync_aggregate().sync_committee_bits.num_set_bits();
+
+    let new_has_super_majority =
+        new_active_participants.safe_mul(3)? >= max_active_participants.safe_mul(2)?;
+    let prev_has_super_majority =
+        prev_active_participants.safe_mul(3)? >= max_active_participants.safe_mul(2)?;
+
+    if new_has_super_majority != prev_has_super_majority {
+        return Ok(new_has_super_majority & !prev_has_super_majority);
+    }
+
+    if !new_has_super_majority && new_active_participants != prev_active_participants {
+        return Ok(new_active_participants > prev_active_participants);
+    }
+
+    let new_attested_header_slot = match new {
+        LightClientUpdate::Altair(update) => update.attested_header.beacon.slot,
+        LightClientUpdate::Capella(update) => update.attested_header.beacon.slot,
+        LightClientUpdate::Deneb(update) => update.attested_header.beacon.slot,
+    };
+
+    let new_finalized_header_slot = match new {
+        LightClientUpdate::Altair(update) => update.finalized_header.beacon.slot,
+        LightClientUpdate::Capella(update) => update.finalized_header.beacon.slot,
+        LightClientUpdate::Deneb(update) => update.finalized_header.beacon.slot,
+    };
+
+    let prev_attested_header_slot = match prev {
+        LightClientUpdate::Altair(update) => update.attested_header.beacon.slot,
+        LightClientUpdate::Capella(update) => update.attested_header.beacon.slot,
+        LightClientUpdate::Deneb(update) => update.attested_header.beacon.slot,
+    };
+
+    let prev_finalized_header_slot = match prev {
+        LightClientUpdate::Altair(update) => update.finalized_header.beacon.slot,
+        LightClientUpdate::Capella(update) => update.finalized_header.beacon.slot,
+        LightClientUpdate::Deneb(update) => update.finalized_header.beacon.slot,
+    };
+
+    let new_attested_header_sync_committee_period =
+        compute_sync_committee_period_at_slot::<E>(new_attested_header_slot, chain_spec)?;
+
+    let new_signature_slot_sync_committee_period =
+        compute_sync_committee_period_at_slot::<E>(*new.signature_slot(), chain_spec)?;
+
+    let prev_attested_header_sync_committee_period =
+        compute_sync_committee_period_at_slot::<E>(prev_attested_header_slot, chain_spec)?;
+
+    let prev_signature_slot_sync_committee_period =
+        compute_sync_committee_period_at_slot::<E>(*prev.signature_slot(), chain_spec)?;
+
+    // Compare presence of relevant sync committee
+    let new_has_relevant_sync_committee = new.next_sync_committee_branch().is_empty()
+        && (new_attested_header_sync_committee_period == new_signature_slot_sync_committee_period);
+
+    let prev_has_relevant_sync_committee = prev.next_sync_committee_branch().is_empty()
+        && (prev_attested_header_sync_committee_period
+            == prev_signature_slot_sync_committee_period);
+
+    if new_has_relevant_sync_committee != prev_has_relevant_sync_committee {
+        return Ok(new_has_relevant_sync_committee);
+    }
+
+    // Compare indication of any finality
+    let new_has_finality = new.finality_branch().is_empty();
+    let prev_has_finality = prev.finality_branch().is_empty();
+    if new_has_finality != prev_has_finality {
+        return Ok(new_has_finality);
+    }
+
+    // Compare sync committee finality
+    if new_has_finality {
+        let new_has_sync_committee_finality =
+            compute_sync_committee_period_at_slot::<E>(new_finalized_header_slot, chain_spec)?
+                == compute_sync_committee_period_at_slot::<E>(
+                    new_attested_header_slot,
+                    chain_spec,
+                )?;
+
+        let prev_has_sync_committee_finality =
+            compute_sync_committee_period_at_slot::<E>(prev_finalized_header_slot, chain_spec)?
+                == compute_sync_committee_period_at_slot::<E>(
+                    prev_attested_header_slot,
+                    chain_spec,
+                )?;
+
+        if new_has_sync_committee_finality != prev_has_sync_committee_finality {
+            return Ok(new_has_sync_committee_finality);
+        }
+    }
+
+    // Tiebreaker 1: Sync committee participation beyond super majority
+    if new_active_participants != prev_active_participants {
+        return Ok(new_active_participants > prev_active_participants);
+    }
+
+    // Tiebreaker 2: Prefer older data (fewer changes to best)
+    if new_attested_header_slot != prev_attested_header_slot {
+        return Ok(new_attested_header_slot < prev_attested_header_slot);
+    }
+
+    return Ok(new.signature_slot() < prev.signature_slot());
+}
+
+fn compute_sync_committee_period_at_slot<E: EthSpec>(
+    slot: Slot,
+    chain_spec: &ChainSpec,
+) -> Result<Epoch, ArithError> {
+    slot.epoch(E::slots_per_epoch())
+        .safe_div(chain_spec.epochs_per_sync_committee_period)
 }
