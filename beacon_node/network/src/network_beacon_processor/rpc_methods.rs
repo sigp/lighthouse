@@ -293,7 +293,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    /// Handle a `BlocksByRoot` request from the peer.
+    /// Handle a `LightClientBootstrap` request from the peer.
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -329,6 +329,60 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
     }
 
+    /// Handle a `LightClientOptimisticUpdate` request from the peer.
+    pub fn handle_light_client_optimistic_update(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) {
+        let Some(light_client_optimistic_update) = self
+            .chain
+            .light_client_server_cache
+            .get_latest_optimistic_update()
+        else {
+            self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::ResourceUnavailable,
+                "Latest optimistic update not available".into(),
+                request_id,
+            );
+            return;
+        };
+
+        self.send_response(
+            peer_id,
+            Response::LightClientOptimisticUpdate(Arc::new(light_client_optimistic_update)),
+            request_id,
+        )
+    }
+
+    /// Handle a `LightClientFinalityUpdate` request from the peer.
+    pub fn handle_light_client_finality_update(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) {
+        let Some(light_client_finality_update) = self
+            .chain
+            .light_client_server_cache
+            .get_latest_finality_update()
+        else {
+            self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::ResourceUnavailable,
+                "Latest finality update not available".into(),
+                request_id,
+            );
+            return;
+        };
+
+        self.send_response(
+            peer_id,
+            Response::LightClientFinalityUpdate(Arc::new(light_client_finality_update)),
+            request_id,
+        )
+    }
+
     /// Handle a `BlocksByRange` request from the peer.
     pub fn handle_blocks_by_range_request(
         self: Arc<Self>,
@@ -350,7 +404,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .epoch()
                 .map_or(self.chain.spec.max_request_blocks, |epoch| {
                     match self.chain.spec.fork_name_at_epoch(epoch) {
-                        ForkName::Deneb => self.chain.spec.max_request_blocks_deneb,
+                        ForkName::Deneb | ForkName::Electra => {
+                            self.chain.spec.max_request_blocks_deneb
+                        }
                         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                             self.chain.spec.max_request_blocks
                         }

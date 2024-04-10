@@ -14,14 +14,14 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb),
+    variants(Base, Altair, Merge, Capella, Deneb, Electra),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
 #[ssz(enum_behaviour = "transparent")]
-pub struct PartialBeaconState<T>
+pub struct PartialBeaconState<E>
 where
-    T: EthSpec,
+    E: EthSpec,
 {
     // Versioning
     pub genesis_time: u64,
@@ -34,85 +34,90 @@ where
     pub latest_block_header: BeaconBlockHeader,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    pub block_roots: Option<FixedVector<Hash256, T::SlotsPerHistoricalRoot>>,
+    pub block_roots: Option<FixedVector<Hash256, E::SlotsPerHistoricalRoot>>,
     #[ssz(skip_serializing, skip_deserializing)]
-    pub state_roots: Option<FixedVector<Hash256, T::SlotsPerHistoricalRoot>>,
+    pub state_roots: Option<FixedVector<Hash256, E::SlotsPerHistoricalRoot>>,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    pub historical_roots: Option<VariableList<Hash256, T::HistoricalRootsLimit>>,
+    pub historical_roots: Option<VariableList<Hash256, E::HistoricalRootsLimit>>,
 
     // Ethereum 1.0 chain data
     pub eth1_data: Eth1Data,
-    pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
+    pub eth1_data_votes: VariableList<Eth1Data, E::SlotsPerEth1VotingPeriod>,
     pub eth1_deposit_index: u64,
 
     // Registry
-    pub validators: VariableList<Validator, T::ValidatorRegistryLimit>,
-    pub balances: VariableList<u64, T::ValidatorRegistryLimit>,
+    pub validators: VariableList<Validator, E::ValidatorRegistryLimit>,
+    pub balances: VariableList<u64, E::ValidatorRegistryLimit>,
 
     // Shuffling
     /// Randao value from the current slot, for patching into the per-epoch randao vector.
     pub latest_randao_value: Hash256,
     #[ssz(skip_serializing, skip_deserializing)]
-    pub randao_mixes: Option<FixedVector<Hash256, T::EpochsPerHistoricalVector>>,
+    pub randao_mixes: Option<FixedVector<Hash256, E::EpochsPerHistoricalVector>>,
 
     // Slashings
-    slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
+    slashings: FixedVector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
     #[superstruct(only(Base))]
-    pub previous_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
+    pub previous_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
     #[superstruct(only(Base))]
-    pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
+    pub current_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella, Deneb))]
-    pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb))]
-    pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    pub previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    pub current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
-    pub justification_bits: BitVector<T::JustificationBitsLength>,
+    pub justification_bits: BitVector<E::JustificationBitsLength>,
     pub previous_justified_checkpoint: Checkpoint,
     pub current_justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge, Capella, Deneb))]
-    pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
+    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    pub inactivity_scores: VariableList<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella, Deneb))]
-    pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb))]
-    pub next_sync_committee: Arc<SyncCommittee<T>>,
+    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    pub current_sync_committee: Arc<SyncCommittee<E>>,
+    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
     #[superstruct(
         only(Merge),
         partial_getter(rename = "latest_execution_payload_header_merge")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderMerge<T>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderMerge<E>,
     #[superstruct(
         only(Capella),
         partial_getter(rename = "latest_execution_payload_header_capella")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<T>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<E>,
     #[superstruct(
         only(Deneb),
         partial_getter(rename = "latest_execution_payload_header_deneb")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<T>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<E>,
+    #[superstruct(
+        only(Electra),
+        partial_getter(rename = "latest_execution_payload_header_electra")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
 
     // Capella
-    #[superstruct(only(Capella, Deneb))]
+    #[superstruct(only(Capella, Deneb, Electra))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb))]
+    #[superstruct(only(Capella, Deneb, Electra))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella, Deneb))]
-    pub historical_summaries: Option<VariableList<HistoricalSummary, T::HistoricalRootsLimit>>,
+    #[superstruct(only(Capella, Deneb, Electra))]
+    pub historical_summaries: Option<VariableList<HistoricalSummary, E::HistoricalRootsLimit>>,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -168,9 +173,9 @@ macro_rules! impl_from_state_forgetful {
     }
 }
 
-impl<T: EthSpec> PartialBeaconState<T> {
+impl<E: EthSpec> PartialBeaconState<E> {
     /// Convert a `BeaconState` to a `PartialBeaconState`, while dropping the optional fields.
-    pub fn from_state_forgetful(outer: &BeaconState<T>) -> Self {
+    pub fn from_state_forgetful(outer: &BeaconState<E>) -> Self {
         match outer {
             BeaconState::Base(s) => impl_from_state_forgetful!(
                 s,
@@ -243,6 +248,23 @@ impl<T: EthSpec> PartialBeaconState<T> {
                 ],
                 [historical_summaries]
             ),
+            BeaconState::Electra(s) => impl_from_state_forgetful!(
+                s,
+                outer,
+                Electra,
+                PartialBeaconStateElectra,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index
+                ],
+                [historical_summaries]
+            ),
         }
     }
 
@@ -259,7 +281,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         )?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
+        let fork_at_slot = spec.fork_name_at_slot::<E>(slot);
 
         Ok(map_fork_name!(
             fork_at_slot,
@@ -274,13 +296,13 @@ impl<T: EthSpec> PartialBeaconState<T> {
         KeyValueStoreOp::PutKeyValue(db_key, self.as_ssz_bytes())
     }
 
-    pub fn load_block_roots<S: KeyValueStore<T>>(
+    pub fn load_block_roots<S: KeyValueStore<E>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         if self.block_roots().is_none() {
-            *self.block_roots_mut() = Some(load_vector_from_db::<BlockRoots, T, _>(
+            *self.block_roots_mut() = Some(load_vector_from_db::<BlockRoots, E, _>(
                 store,
                 self.slot(),
                 spec,
@@ -289,13 +311,13 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_state_roots<S: KeyValueStore<T>>(
+    pub fn load_state_roots<S: KeyValueStore<E>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         if self.state_roots().is_none() {
-            *self.state_roots_mut() = Some(load_vector_from_db::<StateRoots, T, _>(
+            *self.state_roots_mut() = Some(load_vector_from_db::<StateRoots, E, _>(
                 store,
                 self.slot(),
                 spec,
@@ -304,20 +326,20 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_historical_roots<S: KeyValueStore<T>>(
+    pub fn load_historical_roots<S: KeyValueStore<E>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         if self.historical_roots().is_none() {
             *self.historical_roots_mut() = Some(
-                load_variable_list_from_db::<HistoricalRoots, T, _>(store, self.slot(), spec)?,
+                load_variable_list_from_db::<HistoricalRoots, E, _>(store, self.slot(), spec)?,
             );
         }
         Ok(())
     }
 
-    pub fn load_historical_summaries<S: KeyValueStore<T>>(
+    pub fn load_historical_summaries<S: KeyValueStore<E>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
@@ -326,7 +348,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         if let Ok(historical_summaries) = self.historical_summaries_mut() {
             if historical_summaries.is_none() {
                 *historical_summaries =
-                    Some(load_variable_list_from_db::<HistoricalSummaries, T, _>(
+                    Some(load_variable_list_from_db::<HistoricalSummaries, E, _>(
                         store, slot, spec,
                     )?);
             }
@@ -334,7 +356,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
-    pub fn load_randao_mixes<S: KeyValueStore<T>>(
+    pub fn load_randao_mixes<S: KeyValueStore<E>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
@@ -342,10 +364,10 @@ impl<T: EthSpec> PartialBeaconState<T> {
         if self.randao_mixes().is_none() {
             // Load the per-epoch values from the database
             let mut randao_mixes =
-                load_vector_from_db::<RandaoMixes, T, _>(store, self.slot(), spec)?;
+                load_vector_from_db::<RandaoMixes, E, _>(store, self.slot(), spec)?;
 
             // Patch the value for the current slot into the index for the current epoch
-            let current_epoch = self.slot().epoch(T::slots_per_epoch());
+            let current_epoch = self.slot().epoch(E::slots_per_epoch());
             let len = randao_mixes.len();
             randao_mixes[current_epoch.as_usize() % len] = *self.latest_randao_value();
 
@@ -398,6 +420,8 @@ macro_rules! impl_try_into_beacon_state {
             committee_caches: <_>::default(),
             pubkey_cache: <_>::default(),
             exit_cache: <_>::default(),
+            slashings_cache: <_>::default(),
+            epoch_cache: <_>::default(),
             tree_hash_cache: <_>::default(),
 
             // Variant-specific fields
@@ -476,6 +500,22 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 inner,
                 Deneb,
                 BeaconStateDeneb,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index
+                ],
+                [historical_summaries]
+            ),
+            PartialBeaconState::Electra(inner) => impl_try_into_beacon_state!(
+                inner,
+                Electra,
+                BeaconStateElectra,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

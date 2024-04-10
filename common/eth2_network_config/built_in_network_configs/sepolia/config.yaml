@@ -69,6 +69,10 @@ MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
 # ---------------------------------------------------------------
 # 40%
 PROPOSER_SCORE_BOOST: 40
+# 20%
+REORG_HEAD_WEIGHT_THRESHOLD: 20
+# 160%
+REORG_PARENT_WEIGHT_THRESHOLD: 160
 
 # Deposit contract
 # ---------------------------------------------------------------

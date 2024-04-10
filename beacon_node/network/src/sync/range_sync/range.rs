@@ -530,7 +530,7 @@ mod tests {
                 panic!("Should have sent a batch request to the peer")
             };
             let blob_req_id = match fork_name {
-                ForkName::Deneb => {
+                ForkName::Deneb | ForkName::Electra => {
                     if let Ok(NetworkMessage::SendRequest {
                         peer_id,
                         request: _,

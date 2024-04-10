@@ -1,4 +1,3 @@
-use crate::BeaconBlockHeader;
 use crate::ChainSpec;
 use crate::ForkName;
 use crate::ForkVersionDeserialize;
@@ -7,6 +6,7 @@ use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
     FixedVector, Hash256, SignedBeaconBlock,
 };
+use crate::{BeaconBlockHeader, ExecutionPayloadHeader};
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
@@ -81,7 +81,7 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Capella => LightClientHeader::Capella(
                 LightClientHeaderCapella::block_to_light_client_header(block)?,
             ),
-            ForkName::Deneb => LightClientHeader::Deneb(
+            ForkName::Deneb | ForkName::Electra => LightClientHeader::Deneb(
                 LightClientHeaderDeneb::block_to_light_client_header(block)?,
             ),
         };
@@ -91,16 +91,13 @@ impl<E: EthSpec> LightClientHeader<E> {
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let header = match fork_name {
             ForkName::Altair | ForkName::Merge => {
-                let header = LightClientHeaderAltair::from_ssz_bytes(bytes)?;
-                LightClientHeader::Altair(header)
+                LightClientHeader::Altair(LightClientHeaderAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => {
-                let header = LightClientHeaderCapella::from_ssz_bytes(bytes)?;
-                LightClientHeader::Capella(header)
+                LightClientHeader::Capella(LightClientHeaderCapella::from_ssz_bytes(bytes)?)
             }
-            ForkName::Deneb => {
-                let header = LightClientHeaderDeneb::from_ssz_bytes(bytes)?;
-                LightClientHeader::Deneb(header)
+            ForkName::Deneb | ForkName::Electra => {
+                LightClientHeader::Deneb(LightClientHeaderDeneb::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
@@ -118,6 +115,15 @@ impl<E: EthSpec> LightClientHeader<E> {
         fork_name: ForkName,
     ) -> Result<Self, ssz::DecodeError> {
         Self::from_ssz_bytes(bytes, fork_name)
+    }
+
+    pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge => 0,
+            ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
+                ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+            }
+        }
     }
 }
 
@@ -186,7 +192,7 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientHeader<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientHeader<E> {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
@@ -198,7 +204,7 @@ impl<T: EthSpec> ForkVersionDeserialize for LightClientHeader<T> {
             ForkName::Capella => serde_json::from_value(value)
                 .map(|light_client_header| Self::Capella(light_client_header))
                 .map_err(serde::de::Error::custom),
-            ForkName::Deneb => serde_json::from_value(value)
+            ForkName::Deneb | ForkName::Electra => serde_json::from_value(value)
                 .map(|light_client_header| Self::Deneb(light_client_header))
                 .map_err(serde::de::Error::custom),
             ForkName::Base => Err(serde::de::Error::custom(format!(

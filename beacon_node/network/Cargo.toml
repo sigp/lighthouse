@@ -11,6 +11,7 @@ matches = "0.1.8"
 slog-term = { workspace = true }
 slog-async = { workspace = true }
 eth2 = { workspace = true }
+gossipsub = { workspace = true }
 
 [dependencies]
 async-channel = { workspace = true }

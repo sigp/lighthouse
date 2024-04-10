@@ -21,9 +21,9 @@ use tree_hash_derive::TreeHash;
     TestRandom,
     arbitrary::Arbitrary,
 )]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct PendingAttestation<T: EthSpec> {
-    pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
+#[arbitrary(bound = "E: EthSpec")]
+pub struct PendingAttestation<E: EthSpec> {
+    pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     #[serde(with = "serde_utils::quoted_u64")]
     pub inclusion_delay: u64,
