@@ -1830,7 +1830,6 @@ mod pending_components_tests {
     use crate::block_verification_types::BlockImportData;
     use crate::eth1_finalization_cache::Eth1FinalizationData;
     use crate::test_utils::{generate_rand_block_and_blobs, NumBlobs};
-    use crate::AvailabilityPendingExecutedBlock;
     use crate::PayloadVerificationOutcome;
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
@@ -1838,7 +1837,7 @@ mod pending_components_tests {
     use rand::SeedableRng;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
-    use types::{BeaconState, ChainSpec, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
+    use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
 
     type E = MainnetEthSpec;
 
