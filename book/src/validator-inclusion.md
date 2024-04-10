@@ -28,7 +28,7 @@ Generally, you should consider the "current" values to be incomplete and the
 include attestations from the _current_ epoch in the _next_ epoch, however this
 is not the case for attestations from the _previous_ epoch.
 
-```
+```text
                   `epoch` query parameter
                   |
                   |     --------- values are calculated here
