@@ -4,16 +4,23 @@ use parking_lot::{Mutex, RwLock};
 use slog::{debug, Logger};
 use ssz_types::FixedVector;
 use std::num::NonZeroUsize;
-use types::light_client_update::{FinalizedRootProofLen, FINALIZED_ROOT_INDEX};
+use std::sync::Arc;
+use tree_hash::TreeHash;
+use types::light_client_update::{
+    FinalizedRootProofLen, NextSyncCommitteeProofLen, FINALIZED_ROOT_INDEX,
+    NEXT_SYNC_COMMITTEE_INDEX,
+};
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, Slot, SyncAggregate,
+    SyncCommittee,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
 /// prev block cache are very small 32 * (6 + 1) = 224 bytes. 32 is an arbitrary number that
 /// represents unlikely re-orgs, while keeping the cache very small.
+// TODO(lightclientupdate) this cache size has now increased
 const PREV_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(32);
 
 // TODO(lightclientupdate) we want to cache 6 months worth of light client updates
@@ -34,7 +41,7 @@ pub struct LightClientServerCache<T: BeaconChainTypes> {
     /// Tracks a single global latest optimistic update out of all imported blocks.
     latest_optimistic_update: RwLock<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
     /// Caches state proofs by block root
-    prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData>>,
+    prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData<T::EthSpec>>>,
     /// Caches `LightClientUpdate`'s by sync committee period
     light_client_updates_cache: Mutex<lru::LruCache<u64, LightClientUpdate<T::EthSpec>>>,
 }
@@ -79,7 +86,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     pub fn recompute_and_cache_updates(
         &self,
         store: BeaconStore<T>,
-        block_root: &Hash256,
         block_slot: Slot,
         block_parent_root: &Hash256,
         sync_aggregate: &SyncAggregate<T::EthSpec>,
@@ -150,10 +156,11 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 )?);
 
                 self.persist_best_light_client_update(
-                    &store,
-                    block_root,
+                    store,
+                    block_slot,
                     attested_block,
                     finalized_block,
+                    sync_aggregate,
                     chain_spec,
                 )?;
             } else {
@@ -173,39 +180,30 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     // - Signed header at the oldest slot
     fn persist_best_light_client_update(
         &self,
-        store: &BeaconStore<T>,
-        block_root: &Hash256,
+        store: BeaconStore<T>,
+        block_slot: Slot,
         attested_block: SignedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
         finalized_block: SignedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
+        sync_aggregate: &SyncAggregate<T::EthSpec>,
         chain_spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
-        let (block, _) = store
-            .get_full_block(block_root)?
-            .ok_or(BeaconChainError::DBInconsistent(format!(
-                "Block not available {:?}",
-                block_root
-            )))?
-            .deconstruct();
+        let cached_parts = self.get_or_compute_prev_block_cache(
+            store,
+            &attested_block.tree_hash_root(),
+            &attested_block.state_root(),
+            attested_block.slot(),
+        )?;
 
-        let beacon_state = store
-            .get_state(&block.state_root(), Some(block.slot()))?
-            .ok_or(BeaconChainError::DBInconsistent(format!(
-                "Beacon state not available {:?}",
-                attested_block.state_root()
-            )))?;
+        let sync_period = block_slot
+            .epoch(T::EthSpec::slots_per_epoch())
+            .sync_committee_period(chain_spec)?;
 
-        let mut attested_state = store
-            .get_state(&attested_block.state_root(), Some(attested_block.slot()))?
-            .ok_or(BeaconChainError::DBInconsistent(format!(
-                "Attested state not available {:?}",
-                attested_block.state_root()
-            )))?;
-
-        let sync_period = block.epoch().sync_committee_period(chain_spec)?;
         let new_light_client_update = LightClientUpdate::new(
-            beacon_state,
-            block,
-            &mut attested_state,
+            sync_aggregate,
+            block_slot,
+            cached_parts.next_sync_committee,
+            cached_parts.next_sync_committee_branch,
+            cached_parts.finality_branch,
             &attested_block,
             &finalized_block,
             chain_spec,
@@ -247,7 +245,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         block_root: &Hash256,
         block_state_root: &Hash256,
         block_slot: Slot,
-    ) -> Result<LightClientCachedData, BeaconChainError> {
+    ) -> Result<LightClientCachedData<T::EthSpec>, BeaconChainError> {
         // Attempt to get the value from the cache first.
         if let Some(cached_parts) = self.prev_block_cache.lock().get(block_root) {
             return Ok(cached_parts.clone());
@@ -301,17 +299,24 @@ impl<T: BeaconChainTypes> Default for LightClientServerCache<T> {
 }
 
 type FinalityBranch = FixedVector<Hash256, FinalizedRootProofLen>;
+type NextSyncCommitteeBranch = FixedVector<Hash256, NextSyncCommitteeProofLen>;
 
 #[derive(Clone)]
-struct LightClientCachedData {
+struct LightClientCachedData<E: EthSpec> {
     finality_branch: FinalityBranch,
+    next_sync_committee_branch: NextSyncCommitteeBranch,
+    next_sync_committee: Arc<SyncCommittee<E>>,
     finalized_block_root: Hash256,
 }
 
-impl LightClientCachedData {
-    fn from_state<T: EthSpec>(state: &mut BeaconState<T>) -> Result<Self, BeaconChainError> {
+impl<E: EthSpec> LightClientCachedData<E> {
+    fn from_state(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
         Ok(Self {
             finality_branch: state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?.into(),
+            next_sync_committee: state.next_sync_committee()?.clone(),
+            next_sync_committee_branch: state
+                .compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?
+                .into(),
             finalized_block_root: state.finalized_checkpoint().root,
         })
     }
