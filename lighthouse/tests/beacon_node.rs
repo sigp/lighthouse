@@ -1588,6 +1588,14 @@ fn http_allow_origin_all_flag() {
 }
 
 #[test]
+fn http_allow_sync_stalled_flag() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("http-allow-sync-stalled", None)
+        .run_with_zero_port();
+}
+
+#[test]
 fn http_enable_beacon_processor() {
     CommandLineTest::new()
         .flag("http", None)
@@ -1631,6 +1639,14 @@ fn http_spec_fork_default() {
         .flag("http", None)
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.spec_fork_name, None));
+}
+
+#[test]
+fn http_spec_fork_override() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("http-spec-fork", Some("altair"))
+        .run_with_zero_port();
 }
 
 // Tests for Metrics flags.

@@ -127,6 +127,14 @@ pub fn get_config<E: EthSpec>(
             client_config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
+        if cli_args.is_present("http-spec-fork") {
+            warn!(
+                log,
+                "Ignoring --http-spec-fork";
+                "info" => "this flag is deprecated and will be removed"
+            );
+        }
+
         if cli_args.is_present("http-enable-tls") {
             client_config.http_api.tls_config = Some(TlsConfig {
                 cert: cli_args
@@ -140,6 +148,14 @@ pub fn get_config<E: EthSpec>(
                     .parse::<PathBuf>()
                     .map_err(|_| "http-tls-key is not a valid path name.")?,
             });
+        }
+
+        if cli_args.is_present("http-allow-sync-stalled") {
+            warn!(
+                log,
+                "Ignoring --http-allow-sync-stalled";
+                "info" => "this flag is deprecated and will be removed"
+            );
         }
 
         client_config.http_api.sse_capacity_multiplier =
