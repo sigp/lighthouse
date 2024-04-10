@@ -4,4 +4,5 @@ MD010:
   # Set code blocks to false so that code blocks will be ignored, default is true
   code_blocks: false
 
-  
+# MD036 set to false to preserver deprecation notice on key-management.md
+MD036: false
