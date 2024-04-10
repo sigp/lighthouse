@@ -22,12 +22,8 @@
 
 use super::*;
 use crate::subscription_filter::WhitelistSubscriptionFilter;
-use crate::transform::{DataTransform, IdentityTransform};
-use crate::types::{RpcOut, RpcReceiver};
-use crate::ValidationError;
-use crate::{
-    config::Config, config::ConfigBuilder, types::Rpc, IdentTopic as Topic, TopicScoreParams,
-};
+use crate::types::RpcReceiver;
+use crate::{config::ConfigBuilder, types::Rpc, IdentTopic as Topic};
 use byteorder::{BigEndian, ByteOrder};
 use libp2p::core::ConnectedPoint;
 use rand::Rng;

@@ -1,4 +1,4 @@
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
 use slog::{crit, debug, Logger};
 use std::collections::HashMap;
@@ -412,8 +412,13 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     fn check_caches(&self, root: Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
         if self.check_caches == CheckCaches::Yes {
             self.beacon_chain
-                .data_availability_checker
-                .get_block(&root)
+                .reqresp_pre_import_cache
+                .read()
+                .get(&root)
+                .map(|block| {
+                    metrics::inc_counter(&metrics::BEACON_REQRESP_PRE_IMPORT_CACHE_HITS);
+                    block.clone()
+                })
                 .or(self.beacon_chain.early_attester_cache.get_block(root))
         } else {
             None

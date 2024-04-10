@@ -172,8 +172,8 @@ where
     }
 
     /// Sets the proposer re-org threshold.
-    pub fn proposer_re_org_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
-        self.chain_config.re_org_threshold = threshold;
+    pub fn proposer_re_org_head_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
+        self.chain_config.re_org_head_threshold = threshold;
         self
     }
 
@@ -775,8 +775,6 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
-                self.chain_config.progressive_balances_mode,
-                &log,
             )?;
         }
 
@@ -957,6 +955,7 @@ where
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
+            reqresp_pre_import_cache: <_>::default(),
             light_client_server_cache: LightClientServerCache::new(),
             light_client_server_tx: self.light_client_server_tx,
             shutdown_sender: self

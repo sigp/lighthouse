@@ -2,8 +2,8 @@ use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
-use serde::Deserialize;
-use serde::{Deserializer, Serialize, Serializer};
+use safe_arith::{ArithError, SafeArith};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
 use std::fs::File;
@@ -114,6 +114,8 @@ pub struct ChainSpec {
      */
     pub safe_slots_to_update_justified: u64,
     pub proposer_score_boost: Option<u64>,
+    pub reorg_head_weight_threshold: Option<u64>,
+    pub reorg_parent_weight_threshold: Option<u64>,
 
     /*
      * Eth1
@@ -331,15 +333,13 @@ impl ChainSpec {
         }
     }
 
-    /// For a given `BeaconState`, return the inactivity penalty quotient associated with its variant.
-    pub fn inactivity_penalty_quotient_for_state<E: EthSpec>(&self, state: &BeaconState<E>) -> u64 {
-        match state {
-            BeaconState::Base(_) => self.inactivity_penalty_quotient,
-            BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Deneb(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Electra(_) => self.inactivity_penalty_quotient_bellatrix,
+    pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
+        if fork_name >= ForkName::Merge {
+            self.inactivity_penalty_quotient_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            self.inactivity_penalty_quotient_altair
+        } else {
+            self.inactivity_penalty_quotient
         }
     }
 
@@ -348,13 +348,13 @@ impl ChainSpec {
         &self,
         state: &BeaconState<E>,
     ) -> u64 {
-        match state {
-            BeaconState::Base(_) => self.proportional_slashing_multiplier,
-            BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
-            BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Deneb(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Electra(_) => self.proportional_slashing_multiplier_bellatrix,
+        let fork_name = state.fork_name_unchecked();
+        if fork_name >= ForkName::Merge {
+            self.proportional_slashing_multiplier_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            self.proportional_slashing_multiplier_altair
+        } else {
+            self.proportional_slashing_multiplier
         }
     }
 
@@ -363,13 +363,13 @@ impl ChainSpec {
         &self,
         state: &BeaconState<E>,
     ) -> u64 {
-        match state {
-            BeaconState::Base(_) => self.min_slashing_penalty_quotient,
-            BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Deneb(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Electra(_) => self.min_slashing_penalty_quotient_bellatrix,
+        let fork_name = state.fork_name_unchecked();
+        if fork_name >= ForkName::Merge {
+            self.min_slashing_penalty_quotient_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            self.min_slashing_penalty_quotient_altair
+        } else {
+            self.min_slashing_penalty_quotient
         }
     }
 
@@ -511,6 +511,13 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
+    /// Compute the epoch used for activations prior to Deneb, and for exits under all forks.
+    ///
+    /// Spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#compute_activation_exit_epoch
+    pub fn compute_activation_exit_epoch(&self, epoch: Epoch) -> Result<Epoch, ArithError> {
+        epoch.safe_add(1)?.safe_add(self.max_seed_lookahead)
+    }
+
     pub fn maximum_gossip_clock_disparity(&self) -> Duration {
         Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
     }
@@ -524,22 +531,19 @@ impl ChainSpec {
     }
 
     pub fn max_blocks_by_root_request(&self, fork_name: ForkName) -> usize {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                self.max_blocks_by_root_request
-            }
-            ForkName::Deneb | ForkName::Electra => self.max_blocks_by_root_request_deneb,
+        if fork_name >= ForkName::Deneb {
+            self.max_blocks_by_root_request_deneb
+        } else {
+            self.max_blocks_by_root_request
         }
     }
 
     pub fn max_request_blocks(&self, fork_name: ForkName) -> usize {
-        let max_request_blocks = match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                self.max_request_blocks
-            }
-            ForkName::Deneb | ForkName::Electra => self.max_request_blocks_deneb,
-        };
-        max_request_blocks as usize
+        if fork_name >= ForkName::Deneb {
+            self.max_request_blocks_deneb as usize
+        } else {
+            self.max_request_blocks as usize
+        }
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -637,6 +641,8 @@ impl ChainSpec {
              */
             safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
+            reorg_head_weight_threshold: Some(20),
+            reorg_parent_weight_threshold: Some(160),
 
             /*
              * Eth1
@@ -907,6 +913,8 @@ impl ChainSpec {
              */
             safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
+            reorg_head_weight_threshold: Some(20),
+            reorg_parent_weight_threshold: Some(160),
 
             /*
              * Eth1
@@ -1640,7 +1648,6 @@ where
 mod tests {
     use super::*;
     use itertools::Itertools;
-    use safe_arith::SafeArith;
 
     #[test]
     fn test_mainnet_spec_can_be_constructed() {

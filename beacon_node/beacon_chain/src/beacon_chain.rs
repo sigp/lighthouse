@@ -95,6 +95,7 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
     common::get_attesting_indices_from_state,
+    epoch_cache::initialize_epoch_cache,
     per_block_processing,
     per_block_processing::{
         errors::AttestationValidationError, get_expected_withdrawals,
@@ -358,6 +359,9 @@ pub type BeaconStore<T> = Arc<
     >,
 >;
 
+/// Cache gossip verified blocks to serve over ReqResp before they are imported
+type ReqRespPreImportCache<E> = HashMap<Hash256, Arc<SignedBeaconBlock<E>>>;
+
 /// Represents the "Beacon Chain" component of Ethereum 2.0. Allows import of blocks and block
 /// operations and chooses a canonical head.
 pub struct BeaconChain<T: BeaconChainTypes> {
@@ -460,6 +464,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) attester_cache: Arc<AttesterCache>,
     /// A cache used when producing attestations whilst the head block is still being imported.
     pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
+    /// Cache gossip verified blocks to serve over ReqResp before they are imported
+    pub reqresp_pre_import_cache: Arc<RwLock<ReqRespPreImportCache<T::EthSpec>>>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
@@ -2897,8 +2903,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        self.data_availability_checker
-            .notify_gossip_blob(block_root, &blob);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
         self.remove_notified(&block_root, r)
     }
@@ -2931,8 +2935,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        self.data_availability_checker
-            .notify_rpc_blobs(block_root, &blobs);
         let r = self
             .check_rpc_blob_availability_and_import(slot, block_root, blobs)
             .await;
@@ -2949,7 +2951,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let has_missing_components =
             matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
         if !has_missing_components {
-            self.data_availability_checker.remove_notified(block_root);
+            self.reqresp_pre_import_cache.write().remove(block_root);
         }
         r
     }
@@ -2962,8 +2964,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        self.data_availability_checker
-            .notify_block(block_root, unverified_block.block_cloned());
+        self.reqresp_pre_import_cache
+            .write()
+            .insert(block_root, unverified_block.block_cloned());
+
         let r = self
             .process_block(block_root, unverified_block, notify_execution_layer, || {
                 Ok(())
@@ -3360,9 +3364,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_delay,
                     &state,
                     payload_verification_status,
-                    self.config.progressive_balances_mode,
                     &self.spec,
-                    &self.log,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
@@ -4263,7 +4265,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_slot: Slot,
         canonical_head: Hash256,
     ) -> Option<BlockProductionPreState<T::EthSpec>> {
-        let re_org_threshold = self.config.re_org_threshold?;
+        let re_org_head_threshold = self.config.re_org_head_threshold?;
+        let re_org_parent_threshold = self.config.re_org_parent_threshold?;
 
         if self.spec.proposer_score_boost.is_none() {
             warn!(
@@ -4320,7 +4323,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_proposer_head(
                 slot,
                 canonical_head,
-                re_org_threshold,
+                re_org_head_threshold,
+                re_org_parent_threshold,
                 &self.config.re_org_disallowed_offsets,
                 self.config.re_org_max_epochs_since_finalization,
             )
@@ -4374,7 +4378,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "weak_head" => ?canonical_head,
             "parent" => ?re_org_parent_block,
             "head_weight" => proposer_head.head_node.weight,
-            "threshold_weight" => proposer_head.re_org_weight_threshold
+            "threshold_weight" => proposer_head.re_org_head_weight_threshold
         );
 
         Some(pre_state)
@@ -4594,9 +4598,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_OVERRIDE_FCU_TIMES);
 
         // Never override if proposer re-orgs are disabled.
-        let re_org_threshold = self
+        let re_org_head_threshold = self
             .config
-            .re_org_threshold
+            .re_org_head_threshold
+            .ok_or(DoNotReOrg::ReOrgsDisabled)?;
+
+        let re_org_parent_threshold = self
+            .config
+            .re_org_parent_threshold
             .ok_or(DoNotReOrg::ReOrgsDisabled)?;
 
         let head_block_root = canonical_forkchoice_params.head_root;
@@ -4607,7 +4616,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .get_preliminary_proposer_head(
                 head_block_root,
-                re_org_threshold,
+                re_org_head_threshold,
+                re_org_parent_threshold,
                 &self.config.re_org_disallowed_offsets,
                 self.config.re_org_max_epochs_since_finalization,
             )
@@ -4675,16 +4685,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // If the current slot is already equal to the proposal slot (or we are in the tail end of
-        // the prior slot), then check the actual weight of the head against the re-org threshold.
-        let head_weak = if fork_choice_slot == re_org_block_slot {
-            info.head_node.weight < info.re_org_weight_threshold
+        // the prior slot), then check the actual weight of the head against the head re-org threshold
+        // and the actual weight of the parent against the parent re-org threshold.
+        let (head_weak, parent_strong) = if fork_choice_slot == re_org_block_slot {
+            (
+                info.head_node.weight < info.re_org_head_weight_threshold,
+                info.parent_node.weight > info.re_org_parent_weight_threshold,
+            )
         } else {
-            true
+            (true, true)
         };
         if !head_weak {
             return Err(DoNotReOrg::HeadNotWeak {
                 head_weight: info.head_node.weight,
-                re_org_weight_threshold: info.re_org_weight_threshold,
+                re_org_head_weight_threshold: info.re_org_head_weight_threshold,
+            }
+            .into());
+        }
+        if !parent_strong {
+            return Err(DoNotReOrg::ParentNotStrong {
+                parent_weight: info.parent_node.weight,
+                re_org_parent_weight_threshold: info.re_org_parent_weight_threshold,
             }
             .into());
         }
@@ -4980,6 +5001,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let attestation_packing_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
+
+        // Epoch cache and total balance cache are required for op pool packing.
+        state.build_total_active_balance_cache(&self.spec)?;
+        initialize_epoch_cache(&mut state, &self.spec)?;
 
         let mut prev_filter_cache = HashMap::new();
         let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
