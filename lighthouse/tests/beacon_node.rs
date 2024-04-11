@@ -19,7 +19,7 @@ use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
