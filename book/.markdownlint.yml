@@ -19,3 +19,7 @@ MD024:
 # MD040 code blocks should have a language specified: https://github.com/DavidAnson/markdownlint/blob/main/doc/md040.md
 # Set to false as the help_x.md files are code blocks without a language specified, to change need to change the cli.sh file which is not desirable
 MD040: false
+
+# MD033 in-line html: https://github.com/DavidAnson/markdownlint/blob/main/doc/md033.md
+# In-line html is fine in the markdown files, so this is set to false
+MD033: false
