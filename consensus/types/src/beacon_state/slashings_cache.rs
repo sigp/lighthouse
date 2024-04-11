@@ -20,7 +20,7 @@ impl SlashingsCache {
         let slashed_validators = validators
             .into_iter()
             .enumerate()
-            .filter_map(|(i, validator)| validator.slashed().then_some(i))
+            .filter_map(|(i, validator)| validator.slashed.then_some(i))
             .collect();
         Self {
             latest_block_slot: Some(latest_block_slot),

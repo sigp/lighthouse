@@ -17,7 +17,7 @@ pub fn process_registry_updates<E: EthSpec>(
     let current_epoch = state.current_epoch();
     let is_ejectable = |validator: &Validator| {
         validator.is_active_at(current_epoch)
-            && validator.effective_balance() <= spec.ejection_balance
+            && validator.effective_balance <= spec.ejection_balance
     };
     let indices_to_update: Vec<_> = state
         .validators()
@@ -32,7 +32,7 @@ pub fn process_registry_updates<E: EthSpec>(
     for index in indices_to_update {
         let validator = state.get_validator_mut(index)?;
         if validator.is_eligible_for_activation_queue(spec) {
-            validator.mutable.activation_eligibility_epoch = current_epoch.safe_add(1)?;
+            validator.activation_eligibility_epoch = current_epoch.safe_add(1)?;
         }
         if is_ejectable(validator) {
             initiate_validator_exit(state, index, spec)?;
@@ -50,7 +50,7 @@ pub fn process_registry_updates<E: EthSpec>(
 
     let delayed_activation_epoch = state.compute_activation_exit_epoch(current_epoch, spec)?;
     for index in activation_queue {
-        state.get_validator_mut(index)?.mutable.activation_epoch = delayed_activation_epoch;
+        state.get_validator_mut(index)?.activation_epoch = delayed_activation_epoch;
     }
 
     Ok(())

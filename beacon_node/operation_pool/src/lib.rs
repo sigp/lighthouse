@@ -392,7 +392,7 @@ impl<E: EthSpec> OperationPool<E> {
                     && state
                         .validators()
                         .get(slashing.as_inner().signed_header_1.message.proposer_index as usize)
-                        .map_or(false, |validator| !validator.slashed())
+                        .map_or(false, |validator| !validator.slashed)
             },
             |slashing| slashing.as_inner().clone(),
             E::MaxProposerSlashings::to_usize(),
@@ -451,7 +451,7 @@ impl<E: EthSpec> OperationPool<E> {
     pub fn prune_proposer_slashings(&self, head_state: &BeaconState<E>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
-            |_, validator| validator.exit_epoch() <= head_state.finalized_checkpoint().epoch,
+            |_, validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
             head_state,
         );
     }
@@ -470,7 +470,7 @@ impl<E: EthSpec> OperationPool<E> {
                     //
                     // We cannot check the `slashed` field since the `head` is not finalized and
                     // a fork could un-slash someone.
-                    validator.exit_epoch() > head_state.finalized_checkpoint().epoch
+                    validator.exit_epoch > head_state.finalized_checkpoint().epoch
                 })
                 .map_or(false, |indices| !indices.is_empty());
 
@@ -527,7 +527,7 @@ impl<E: EthSpec> OperationPool<E> {
             //
             // We choose simplicity over the gain of pruning more exits since they are small and
             // should not be seen frequently.
-            |_, validator| validator.exit_epoch() <= head_state.finalized_checkpoint().epoch,
+            |_, validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
             head_state,
         );
     }
@@ -1272,12 +1272,7 @@ mod release_tests {
         // Each validator will have a multiple of 1_000_000_000 wei.
         // Safe from overflow unless there are about 18B validators (2^64 / 1_000_000_000).
         for i in 0..state.validators().len() {
-            state
-                .validators_mut()
-                .get_mut(i)
-                .unwrap()
-                .mutable
-                .effective_balance = 1_000_000_000 * i as u64;
+            state.validators_mut().get_mut(i).unwrap().effective_balance = 1_000_000_000 * i as u64;
         }
 
         let num_validators = num_committees
@@ -1535,24 +1530,9 @@ mod release_tests {
         let spec = &harness.spec;
         let mut state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        state
-            .validators_mut()
-            .get_mut(1)
-            .unwrap()
-            .mutable
-            .effective_balance = 17_000_000_000;
-        state
-            .validators_mut()
-            .get_mut(2)
-            .unwrap()
-            .mutable
-            .effective_balance = 17_000_000_000;
-        state
-            .validators_mut()
-            .get_mut(3)
-            .unwrap()
-            .mutable
-            .effective_balance = 17_000_000_000;
+        state.validators_mut().get_mut(1).unwrap().effective_balance = 17_000_000_000;
+        state.validators_mut().get_mut(2).unwrap().effective_balance = 17_000_000_000;
+        state.validators_mut().get_mut(3).unwrap().effective_balance = 17_000_000_000;
 
         let slashing_1 = harness.make_attester_slashing(vec![1, 2, 3]);
         let slashing_2 = harness.make_attester_slashing(vec![4, 5, 6]);

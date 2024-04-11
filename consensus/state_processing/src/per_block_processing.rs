@@ -251,7 +251,7 @@ pub fn process_block_header<E: EthSpec>(
 
     // Verify proposer is not slashed
     verify!(
-        !state.get_validator(proposer_index as usize)?.slashed(),
+        !state.get_validator(proposer_index as usize)?.slashed,
         HeaderInvalid::ProposerSlashed(proposer_index)
     );
 

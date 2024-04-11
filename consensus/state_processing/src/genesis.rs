@@ -159,13 +159,13 @@ pub fn process_activations<E: EthSpec>(
             .get(index)
             .copied()
             .ok_or(Error::BalancesOutOfBounds(index))?;
-        validator.mutable.effective_balance = std::cmp::min(
+        validator.effective_balance = std::cmp::min(
             balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
             spec.max_effective_balance,
         );
-        if validator.effective_balance() == spec.max_effective_balance {
-            validator.mutable.activation_eligibility_epoch = E::genesis_epoch();
-            validator.mutable.activation_epoch = E::genesis_epoch();
+        if validator.effective_balance == spec.max_effective_balance {
+            validator.activation_eligibility_epoch = E::genesis_epoch();
+            validator.activation_epoch = E::genesis_epoch();
         }
     }
     Ok(())

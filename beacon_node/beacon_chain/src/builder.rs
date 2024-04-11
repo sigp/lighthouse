@@ -1282,7 +1282,7 @@ mod test {
         }
 
         for v in state.validators() {
-            let creds = v.withdrawal_credentials();
+            let creds = v.withdrawal_credentials;
             let creds = creds.as_bytes();
             assert_eq!(
                 creds[0], spec.bls_withdrawal_prefix_byte,
@@ -1290,7 +1290,7 @@ mod test {
             );
             assert_eq!(
                 &creds[1..],
-                &hash(&v.pubkey().as_ssz_bytes())[1..],
+                &hash(&v.pubkey.as_ssz_bytes())[1..],
                 "rest of withdrawal creds should be pubkey hash"
             )
         }

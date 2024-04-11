@@ -4809,7 +4809,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let pubkey = state
             .validators()
             .get(proposer_index as usize)
-            .map(|v| *v.pubkey())
+            .map(|v| v.pubkey)
             .ok_or(BlockProductionError::BeaconChain(
                 BeaconChainError::ValidatorIndexUnknown(proposer_index as usize),
             ))?;

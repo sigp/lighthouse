@@ -53,14 +53,11 @@ pub fn run<E: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
 
         eprintln!("{}: {}", index, keypair.pk);
 
-        validators
-            .get_mut(index)
-            .unwrap()
-            .replace_pubkey(keypair.pk.into());
+        validators.get_mut(index).unwrap().pubkey = keypair.pk.into();
 
         // Update the deposit tree.
         let mut deposit_data = DepositData {
-            pubkey: *validators.get(index).unwrap().pubkey(),
+            pubkey: validators.get(index).unwrap().pubkey,
             // Set this to a junk value since it's very time consuming to generate the withdrawal
             // keys and it's not useful for the time being.
             withdrawal_credentials: Hash256::zero(),

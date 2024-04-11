@@ -200,8 +200,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         let is_active_current_epoch = validator.is_active_at(current_epoch);
         let is_active_previous_epoch = validator.is_active_at(previous_epoch);
         let is_eligible = is_active_previous_epoch
-            || (validator.slashed()
-                && previous_epoch.safe_add(1)? < validator.withdrawable_epoch());
+            || (validator.slashed && previous_epoch.safe_add(1)? < validator.withdrawable_epoch);
 
         let base_reward = if is_eligible {
             epoch_cache.get_base_reward(index)?
@@ -211,10 +210,10 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
         let validator_info = &ValidatorInfo {
             index,
-            effective_balance: validator.effective_balance(),
+            effective_balance: validator.effective_balance,
             base_reward,
             is_eligible,
-            is_slashed: validator.slashed(),
+            is_slashed: validator.slashed,
             is_active_current_epoch,
             is_active_previous_epoch,
             previous_epoch_participation,
@@ -468,17 +467,16 @@ fn process_single_registry_update(
     let current_epoch = state_ctxt.current_epoch;
 
     if validator.is_eligible_for_activation_queue(spec) {
-        validator.make_mut()?.mutable.activation_eligibility_epoch = current_epoch.safe_add(1)?;
+        validator.make_mut()?.activation_eligibility_epoch = current_epoch.safe_add(1)?;
     }
 
-    if validator.is_active_at(current_epoch)
-        && validator.effective_balance() <= spec.ejection_balance
+    if validator.is_active_at(current_epoch) && validator.effective_balance <= spec.ejection_balance
     {
         initiate_validator_exit(validator, exit_cache, state_ctxt, spec)?;
     }
 
     if activation_queue.contains(&validator_info.index) {
-        validator.make_mut()?.mutable.activation_epoch =
+        validator.make_mut()?.activation_epoch =
             spec.compute_activation_exit_epoch(current_epoch)?;
     }
 
@@ -500,7 +498,7 @@ fn initiate_validator_exit(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Return if the validator already initiated exit
-    if validator.exit_epoch() != spec.far_future_epoch {
+    if validator.exit_epoch != spec.far_future_epoch {
         return Ok(());
     }
 
@@ -516,8 +514,8 @@ fn initiate_validator_exit(
     }
 
     let validator = validator.make_mut()?;
-    validator.mutable.exit_epoch = exit_queue_epoch;
-    validator.mutable.withdrawable_epoch =
+    validator.exit_epoch = exit_queue_epoch;
+    validator.withdrawable_epoch =
         exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
 
     exit_cache.record_validator_exit(exit_queue_epoch)?;
@@ -554,12 +552,11 @@ fn process_single_slashing(
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if validator.slashed()
-        && slashings_ctxt.target_withdrawable_epoch == validator.withdrawable_epoch()
+    if validator.slashed && slashings_ctxt.target_withdrawable_epoch == validator.withdrawable_epoch
     {
         let increment = spec.effective_balance_increment;
         let penalty_numerator = validator
-            .effective_balance()
+            .effective_balance
             .safe_div(increment)?
             .safe_mul(slashings_ctxt.adjusted_total_slashing_balance)?;
         let penalty = penalty_numerator
@@ -599,11 +596,11 @@ fn process_single_effective_balance_update(
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let old_effective_balance = validator.effective_balance();
+    let old_effective_balance = validator.effective_balance;
     let new_effective_balance = if balance.safe_add(eb_ctxt.downward_threshold)?
-        < validator.effective_balance()
+        < validator.effective_balance
         || validator
-            .effective_balance()
+            .effective_balance
             .safe_add(eb_ctxt.upward_threshold)?
             < balance
     {
@@ -612,7 +609,7 @@ fn process_single_effective_balance_update(
             spec.max_effective_balance,
         )
     } else {
-        validator.effective_balance()
+        validator.effective_balance
     };
 
     if validator.is_active_at(state_ctxt.next_epoch) {
@@ -620,12 +617,12 @@ fn process_single_effective_balance_update(
     }
 
     if new_effective_balance != old_effective_balance {
-        validator.make_mut()?.mutable.effective_balance = new_effective_balance;
+        validator.make_mut()?.effective_balance = new_effective_balance;
 
         // Update progressive balances cache for the *current* epoch, which will soon become the
         // previous epoch once the epoch transition completes.
         progressive_balances.on_effective_balance_change(
-            validator.slashed(),
+            validator.slashed,
             validator_info.current_epoch_participation,
             old_effective_balance,
             new_effective_balance,

@@ -135,7 +135,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposer_slashing_reward.safe_add_assign(
                 state
                     .get_validator(proposer_slashing.proposer_index() as usize)?
-                    .effective_balance()
+                    .effective_balance
                     .safe_div(self.spec.whistleblower_reward_quotient)?,
             )?;
         }
@@ -157,7 +157,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 attester_slashing_reward.safe_add_assign(
                     state
                         .get_validator(attester_index as usize)?
-                        .effective_balance()
+                        .effective_balance
                         .safe_div(self.spec.whistleblower_reward_quotient)?,
                 )?;
             }

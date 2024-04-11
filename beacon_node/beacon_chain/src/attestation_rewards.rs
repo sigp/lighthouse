@@ -230,13 +230,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let mut inactivity_penalty = 0i64;
 
             if eligible {
-                let effective_balance = validator.effective_balance();
+                let effective_balance = validator.effective_balance;
 
                 for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
                     let (ideal_reward, penalty) = ideal_rewards_hashmap
                         .get(&(flag_index, effective_balance))
                         .ok_or(BeaconChainError::AttestationRewardsError)?;
-                    let voted_correctly = !validator.slashed()
+                    let voted_correctly = !validator.slashed
                         && previous_epoch_participation_flags.has_flag(flag_index)?;
                     if voted_correctly {
                         if flag_index == TIMELY_HEAD_FLAG_INDEX {

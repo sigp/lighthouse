@@ -84,7 +84,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                 state
                     .validators()
                     .iter_from(self.pubkeys.len())?
-                    .map(|v| *v.pubkey),
+                    .map(|v| v.pubkey),
             )
         } else {
             Ok(vec![])
