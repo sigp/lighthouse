@@ -3,15 +3,17 @@ use std::cmp::max;
 use types::{BeaconStateError as Error, *};
 
 /// Initiate the exit of the validator of the given `index`.
-pub fn initiate_validator_exit<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn initiate_validator_exit<E: EthSpec>(
+    state: &mut BeaconState<E>,
     index: usize,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // Return if the validator already initiated exit
-    if state.get_validator(index)?.exit_epoch != spec.far_future_epoch {
-        return Ok(());
-    }
+    // We do things in a slightly different order to the spec here. Instead of immediately checking
+    // whether the validator has already exited, we instead prepare the exit cache and compute the
+    // cheap-to-calculate values from that. *Then* we look up the validator a single time in the
+    // validator tree (expensive), make the check and mutate as appropriate. Compared to the spec
+    // ordering, this saves us from looking up the validator in the validator registry multiple
+    // times.
 
     // Ensure the exit cache is built.
     state.build_exit_cache(spec)?;
@@ -28,12 +30,20 @@ pub fn initiate_validator_exit<T: EthSpec>(
         exit_queue_epoch.safe_add_assign(1)?;
     }
 
+    let validator = state.get_validator_mut(index)?;
+
+    // Return if the validator already initiated exit
+    if validator.exit_epoch != spec.far_future_epoch {
+        return Ok(());
+    }
+
+    validator.exit_epoch = exit_queue_epoch;
+    validator.withdrawable_epoch =
+        exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
+
     state
         .exit_cache_mut()
         .record_validator_exit(exit_queue_epoch)?;
-    state.get_validator_mut(index)?.exit_epoch = exit_queue_epoch;
-    state.get_validator_mut(index)?.withdrawable_epoch =
-        exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
 
     Ok(())
 }

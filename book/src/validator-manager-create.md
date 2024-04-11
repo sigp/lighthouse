@@ -139,7 +139,7 @@ In order to import the validators, the location of the VC `api-token.txt` file
 must be known. The location of the file varies, but it is located in the
 "validator directory" of your data directory. For example:
 `~/.lighthouse/mainnet/validators/api-token.txt`. We will use `<API-TOKEN-PATH>`
-to subsitute this value. If you are unsure of the `api-token.txt` path, you can run `curl http://localhost:5062/lighthouse/auth` which will show the path.
+to substitute this value. If you are unsure of the `api-token.txt` path, you can run `curl http://localhost:5062/lighthouse/auth` which will show the path.
 
 
 Once the VC is running, use the `import` command to import the validators to the VC:

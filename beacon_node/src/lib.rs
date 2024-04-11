@@ -99,7 +99,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 DatabaseBackendOverride::Success(old_backend) => {
                     info!(
                         log,
-                        "Slasher backend overriden";
+                        "Slasher backend overridden";
                         "reason" => "database exists",
                         "configured_backend" => %old_backend,
                         "override_backend" => %slasher_config.backend,

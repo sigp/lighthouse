@@ -18,6 +18,8 @@ pub struct Config {
     pub discovery_enabled: bool,
     /// Whether metrics are enabled.
     pub metrics_enabled: bool,
+    /// Whether quic is enabled.
+    pub quic_enabled: bool,
     /// Target number of peers to connect to.
     pub target_peer_count: usize,
 
@@ -37,6 +39,7 @@ impl Default for Config {
         Config {
             discovery_enabled: true,
             metrics_enabled: false,
+            quic_enabled: true,
             target_peer_count: DEFAULT_TARGET_PEERS,
             status_interval: DEFAULT_STATUS_INTERVAL,
             ping_interval_inbound: DEFAULT_PING_INTERVAL_INBOUND,

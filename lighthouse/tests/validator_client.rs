@@ -422,6 +422,21 @@ fn no_doppelganger_protection_flag() {
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
 #[test]
+fn produce_block_v3_flag() {
+    CommandLineTest::new()
+        .flag("produce-block-v3", None)
+        .run()
+        .with_config(|config| assert!(config.produce_block_v3));
+}
+
+#[test]
+fn no_produce_block_v3_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.produce_block_v3));
+}
+
+#[test]
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
@@ -447,6 +462,32 @@ fn builder_proposals_flag() {
         .flag("builder-proposals", None)
         .run()
         .with_config(|config| assert!(config.builder_proposals));
+}
+#[test]
+fn builder_boost_factor_flag() {
+    CommandLineTest::new()
+        .flag("builder-boost-factor", Some("150"))
+        .run()
+        .with_config(|config| assert_eq!(config.builder_boost_factor, Some(150)));
+}
+#[test]
+fn no_builder_boost_factor_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.builder_boost_factor, None));
+}
+#[test]
+fn prefer_builder_proposals_flag() {
+    CommandLineTest::new()
+        .flag("prefer-builder-proposals", None)
+        .run()
+        .with_config(|config| assert!(config.prefer_builder_proposals));
+}
+#[test]
+fn no_prefer_builder_proposals_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.prefer_builder_proposals));
 }
 #[test]
 fn no_builder_registration_timestamp_override_flag() {
@@ -594,4 +635,21 @@ fn validator_registration_batch_size_zero_value() {
     CommandLineTest::new()
         .flag("validator-registration-batch-size", Some("0"))
         .run();
+}
+
+#[test]
+fn validator_disable_web3_signer_slashing_protection_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_web3signer_slashing_protection);
+    });
+}
+
+#[test]
+fn validator_disable_web3_signer_slashing_protection() {
+    CommandLineTest::new()
+        .flag("disable-slashing-protection-web3signer", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_web3signer_slashing_protection);
+        });
 }

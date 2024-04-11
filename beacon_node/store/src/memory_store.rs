@@ -108,7 +108,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         self.transaction_mutex.lock()
     }
 
-    fn compact(&self) -> Result<(), Error> {
+    fn compact_column(&self, _column: DBColumn) -> Result<(), Error> {
         Ok(())
     }
 }

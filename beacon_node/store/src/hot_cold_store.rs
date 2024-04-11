@@ -33,14 +33,11 @@ use state_processing::{
     BlockProcessingError, BlockReplayer, SlotProcessingError, StateProcessingStrategy,
 };
 use std::cmp::min;
-use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::blob_sidecar::BlobSidecarList;
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -1345,7 +1342,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         high_restore_point
             .get_block_root(slot)
             .or_else(|_| high_restore_point.get_oldest_block_root())
-            .map(|x| *x)
+            .copied()
             .map_err(HotColdDBError::RestorePointBlockHashError)
     }
 
@@ -2055,7 +2052,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
         let min_data_availability_boundary = std::cmp::max(
             deneb_fork_epoch,
-            min_current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+            min_current_epoch.saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
         );
 
         self.try_prune_blobs(force, min_data_availability_boundary)
@@ -2376,6 +2373,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
             self.cold_db.do_atomically(cold_ops)?;
         }
+
+        // In order to reclaim space, we need to compact the freezer DB as well.
+        self.cold_db.compact()?;
 
         Ok(())
     }

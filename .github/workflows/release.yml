@@ -68,7 +68,7 @@ jobs:
         needs: extract-version
         steps:
             - name: Checkout sources
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
             - name: Get latest version of stable Rust
               if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
@@ -80,7 +80,7 @@ jobs:
             - uses: KyleMayes/install-llvm-action@v1
               if: env.SELF_HOSTED_RUNNERS == 'false' && startsWith(matrix.arch, 'x86_64-windows')
               with:
-                version: "15.0"
+                version: "16.0"
                 directory: ${{ runner.temp }}/llvm
             - name: Set LIBCLANG_PATH
               if: startsWith(matrix.arch, 'x86_64-windows')
@@ -172,17 +172,19 @@ jobs:
             # This is required to share artifacts between different jobs
             # =======================================================================
 
-            - name:  Upload artifact
-              uses:  actions/upload-artifact@v3
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+                  compression-level: 0
 
             - name: Upload signature
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
+                  compression-level: 0
 
     draft-release:
         name:   Draft Release
@@ -193,7 +195,7 @@ jobs:
         steps:
             # This is necessary for generating the changelog. It has to come before "Download Artifacts" or else it deletes the artifacts.
             - name: Checkout sources
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   fetch-depth: 0
 
@@ -202,7 +204,7 @@ jobs:
             # ==============================
 
             - name: Download artifacts
-              uses: actions/download-artifact@v3
+              uses: actions/download-artifact@v4
 
             # ==============================
             #       Create release draft
@@ -282,6 +284,6 @@ jobs:
                   | <img src="https://simpleicons.org/icons/docker.svg" style="width: 32px;"/> | Docker | [${{ env.VERSION }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}/tags?page=1&ordering=last_updated&name=${{ env.VERSION }}) | [${{ env.IMAGE_NAME }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}) |
                   ENDBODY
                   )
-                  assets=(./lighthouse-*.tar.gz*)
+                  assets=(./lighthouse-*.tar.gz*/lighthouse-*.tar.gz*)
                   tag_name="${{ env.VERSION }}"
                   echo "$body" | gh release create --draft -F "-" "$tag_name" "${assets[@]}"

@@ -21,3 +21,4 @@ tips about how things work under the hood.
 * [Maximal Extractable Value](./builders.md): use external builders for a potential higher rewards during block proposals
 * [Merge Migration](./merge-migration.md): look at what you need to do during a significant network upgrade: The Merge
 * [Late Block Re-orgs](./late-block-re-orgs.md): read information about Lighthouse late block re-orgs.
+* [Blobs](./advanced-blobs.md): information about blobs in Deneb upgrade

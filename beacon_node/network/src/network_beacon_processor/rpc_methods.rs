@@ -5,10 +5,7 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use beacon_processor::SendOnDrop;
 use itertools::process_results;
-use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, MAX_REQUEST_BLOB_SIDECARS, MAX_REQUEST_BLOCKS_DENEB,
-};
-use lighthouse_network::rpc::StatusMessage;
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
@@ -142,7 +139,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let requested_blocks = request.block_roots().len();
         let mut block_stream = match self
             .chain
-            .get_blocks_checking_early_attester_cache(request.block_roots().to_vec(), &executor)
+            .get_blocks_checking_caches(request.block_roots().to_vec(), &executor)
         {
             Ok(block_stream) => block_stream,
             Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
@@ -222,12 +219,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: PeerRequestId,
         request: BlobsByRootRequest,
     ) {
-        let Some(requested_root) = request.blob_ids.first().map(|id| id.block_root) else {
+        let Some(requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
+        else {
             // No blob ids requested.
             return;
         };
         let requested_indices = request
             .blob_ids
+            .as_slice()
             .iter()
             .map(|id| id.index)
             .collect::<Vec<_>>();
@@ -235,9 +234,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let send_response = true;
 
         let mut blob_list_results = HashMap::new();
-        for id in request.blob_ids.into_iter() {
+        for id in request.blob_ids.as_slice() {
             // First attempt to get the blobs from the RPC cache.
-            if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(&id) {
+            if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(id) {
                 self.send_response(peer_id, Response::BlobsByRoot(Some(blob)), request_id);
                 send_blob_count += 1;
             } else {
@@ -248,7 +247,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 let blob_list_result = match blob_list_results.entry(root) {
                     Entry::Vacant(entry) => {
-                        entry.insert(self.chain.get_blobs_checking_early_attester_cache(&root))
+                        entry.insert(self.chain.get_blobs_checking_early_attester_cache(root))
                     }
                     Entry::Occupied(entry) => entry.into_mut(),
                 };
@@ -256,7 +255,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 match blob_list_result.as_ref() {
                     Ok(blobs_sidecar_list) => {
                         'inner: for blob_sidecar in blobs_sidecar_list.iter() {
-                            if blob_sidecar.index == index {
+                            if blob_sidecar.index == *index {
                                 self.send_response(
                                     peer_id,
                                     Response::BlobsByRoot(Some(blob_sidecar.clone())),
@@ -294,7 +293,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    /// Handle a `BlocksByRoot` request from the peer.
+    /// Handle a `LightClientBootstrap` request from the peer.
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -305,7 +304,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match self.chain.get_light_client_bootstrap(&block_root) {
             Ok(Some((bootstrap, _))) => self.send_response(
                 peer_id,
-                Response::LightClientBootstrap(bootstrap),
+                Response::LightClientBootstrap(Arc::new(bootstrap)),
                 request_id,
             ),
             Ok(None) => self.send_error_response(
@@ -330,6 +329,60 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
     }
 
+    /// Handle a `LightClientOptimisticUpdate` request from the peer.
+    pub fn handle_light_client_optimistic_update(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) {
+        let Some(light_client_optimistic_update) = self
+            .chain
+            .light_client_server_cache
+            .get_latest_optimistic_update()
+        else {
+            self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::ResourceUnavailable,
+                "Latest optimistic update not available".into(),
+                request_id,
+            );
+            return;
+        };
+
+        self.send_response(
+            peer_id,
+            Response::LightClientOptimisticUpdate(Arc::new(light_client_optimistic_update)),
+            request_id,
+        )
+    }
+
+    /// Handle a `LightClientFinalityUpdate` request from the peer.
+    pub fn handle_light_client_finality_update(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) {
+        let Some(light_client_finality_update) = self
+            .chain
+            .light_client_server_cache
+            .get_latest_finality_update()
+        else {
+            self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::ResourceUnavailable,
+                "Latest finality update not available".into(),
+                request_id,
+            );
+            return;
+        };
+
+        self.send_response(
+            peer_id,
+            Response::LightClientFinalityUpdate(Arc::new(light_client_finality_update)),
+            request_id,
+        )
+    }
+
     /// Handle a `BlocksByRange` request from the peer.
     pub fn handle_blocks_by_range_request(
         self: Arc<Self>,
@@ -346,14 +399,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        let max_request_size = self.chain.epoch().map_or(MAX_REQUEST_BLOCKS, |epoch| {
-            match self.chain.spec.fork_name_at_epoch(epoch) {
-                ForkName::Deneb => MAX_REQUEST_BLOCKS_DENEB,
-                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                    MAX_REQUEST_BLOCKS
-                }
-            }
-        });
+        let max_request_size =
+            self.chain
+                .epoch()
+                .map_or(self.chain.spec.max_request_blocks, |epoch| {
+                    match self.chain.spec.fork_name_at_epoch(epoch) {
+                        ForkName::Deneb | ForkName::Electra => {
+                            self.chain.spec.max_request_blocks_deneb
+                        }
+                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                            self.chain.spec.max_request_blocks
+                        }
+                    }
+                });
         if *req.count() > max_request_size {
             return self.send_error_response(
                 peer_id,
@@ -586,7 +644,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        if req.max_blobs_requested::<T::EthSpec>() > MAX_REQUEST_BLOB_SIDECARS {
+        if req.max_blobs_requested::<T::EthSpec>() > self.chain.spec.max_request_blob_sidecars {
             return self.send_error_response(
                 peer_id,
                 RPCResponseErrorCode::InvalidRequest,

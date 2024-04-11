@@ -1,16 +1,14 @@
 #![allow(non_snake_case)]
 
 use super::*;
-use crate::cases::common::{SszStaticType, TestU128, TestU256};
-use crate::cases::ssz_static::{check_serialization, check_tree_hash};
+use crate::cases::common::{TestU128, TestU256};
 use crate::decode::{snappy_decode_file, yaml_decode_file};
 use serde::Deserialize;
 use serde::{de::Error as SerdeError, Deserializer};
 use ssz_derive::{Decode, Encode};
-use std::path::{Path, PathBuf};
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
-use types::{BitList, BitVector, FixedVector, ForkName, VariableList};
+use types::{BitList, BitVector, FixedVector, VariableList};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {

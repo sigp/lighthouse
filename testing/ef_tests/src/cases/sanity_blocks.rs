@@ -7,7 +7,7 @@ use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
     ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
-use types::{BeaconState, EthSpec, ForkName, RelativeEpoch, SignedBeaconBlock};
+use types::{BeaconState, RelativeEpoch, SignedBeaconBlock};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {

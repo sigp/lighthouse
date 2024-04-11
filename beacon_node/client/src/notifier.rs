@@ -1,6 +1,8 @@
 use crate::metrics;
 use beacon_chain::{
     capella_readiness::CapellaReadiness,
+    deneb_readiness::DenebReadiness,
+    electra_readiness::ElectraReadiness,
     merge_readiness::{GenesisExecutionPayloadStatus, MergeConfig, MergeReadiness},
     BeaconChain, BeaconChainTypes, ExecutionStatus,
 };
@@ -319,6 +321,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             eth1_logging(&beacon_chain, &log);
             merge_readiness_logging(current_slot, &beacon_chain, &log).await;
             capella_readiness_logging(current_slot, &beacon_chain, &log).await;
+            deneb_readiness_logging(current_slot, &beacon_chain, &log).await;
+            electra_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -356,8 +360,8 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
     }
 
     if merge_completed && !has_execution_layer {
+        // Logging of the EE being offline is handled in the other readiness logging functions.
         if !beacon_chain.is_time_to_prepare_for_capella(current_slot) {
-            // logging of the EE being offline is handled in `capella_readiness_logging()`
             error!(
                 log,
                 "Execution endpoint required";
@@ -445,12 +449,15 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
     }
 
     if capella_completed && !has_execution_layer {
-        error!(
-            log,
-            "Execution endpoint required";
-            "info" => "you need a Capella enabled execution engine to validate blocks, see: \
-                       https://lighthouse-book.sigmaprime.io/merge-migration.html"
-        );
+        // Logging of the EE being offline is handled in the other readiness logging functions.
+        if !beacon_chain.is_time_to_prepare_for_deneb(current_slot) {
+            error!(
+                log,
+                "Execution endpoint required";
+                "info" => "you need a Capella enabled execution engine to validate blocks, see: \
+                           https://lighthouse-book.sigmaprime.io/merge-migration.html"
+            );
+        }
         return;
     }
 
@@ -473,6 +480,124 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
         readiness => warn!(
             log,
             "Not ready for Capella";
+            "hint" => "try updating the execution endpoint",
+            "info" => %readiness,
+        ),
+    }
+}
+
+/// Provides some helpful logging to users to indicate if their node is ready for Deneb
+async fn deneb_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    let deneb_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_block
+        .message()
+        .body()
+        .execution_payload()
+        .map_or(false, |payload| payload.blob_gas_used().is_ok());
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if deneb_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_deneb(current_slot)
+    {
+        return;
+    }
+
+    if deneb_completed && !has_execution_layer {
+        error!(
+            log,
+            "Execution endpoint required";
+            "info" => "you need a Deneb enabled execution engine to validate blocks."
+        );
+        return;
+    }
+
+    match beacon_chain.check_deneb_readiness().await {
+        DenebReadiness::Ready => {
+            info!(
+                log,
+                "Ready for Deneb";
+                "info" => "ensure the execution endpoint is updated to the latest Deneb/Cancun release"
+            )
+        }
+        readiness @ DenebReadiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                log,
+                "Not ready for Deneb";
+                "hint" => "the execution endpoint may be offline",
+                "info" => %readiness,
+            )
+        }
+        readiness => warn!(
+            log,
+            "Not ready for Deneb";
+            "hint" => "try updating the execution endpoint",
+            "info" => %readiness,
+        ),
+    }
+}
+/// Provides some helpful logging to users to indicate if their node is ready for Electra.
+async fn electra_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    // TODO(electra): Once Electra has features, this code can be swapped back.
+    let electra_completed = false;
+    //let electra_completed = beacon_chain
+    //    .canonical_head
+    //    .cached_head()
+    //    .snapshot
+    //    .beacon_block
+    //    .message()
+    //    .body()
+    //    .execution_payload()
+    //    .map_or(false, |payload| payload.electra_placeholder().is_ok());
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if electra_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_electra(current_slot)
+    {
+        return;
+    }
+
+    if electra_completed && !has_execution_layer {
+        // When adding a new fork, add a check for the next fork readiness here.
+        error!(
+            log,
+            "Execution endpoint required";
+            "info" => "you need a Electra enabled execution engine to validate blocks."
+        );
+        return;
+    }
+
+    match beacon_chain.check_electra_readiness().await {
+        ElectraReadiness::Ready => {
+            info!(
+                log,
+                "Ready for Electra";
+                "info" => "ensure the execution endpoint is updated to the latest Electra/Prague release"
+            )
+        }
+        readiness @ ElectraReadiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                log,
+                "Not ready for Electra";
+                "hint" => "the execution endpoint may be offline",
+                "info" => %readiness,
+            )
+        }
+        readiness => warn!(
+            log,
+            "Not ready for Electra";
             "hint" => "try updating the execution endpoint",
             "info" => %readiness,
         ),

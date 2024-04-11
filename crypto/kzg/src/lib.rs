@@ -4,12 +4,15 @@ mod trusted_setup;
 
 use std::fmt::Debug;
 
-pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof, trusted_setup::TrustedSetup};
+pub use crate::{
+    kzg_commitment::{KzgCommitment, VERSIONED_HASH_VERSION_KZG},
+    kzg_proof::KzgProof,
+    trusted_setup::TrustedSetup,
+};
 pub use c_kzg::{
     Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
     BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
 };
-
 #[derive(Debug)]
 pub enum Error {
     /// An error from the underlying kzg library.

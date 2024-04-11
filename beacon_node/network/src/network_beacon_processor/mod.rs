@@ -3,16 +3,13 @@ use crate::{
     sync::{manager::BlockProcessType, SyncMessage},
 };
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::{
-    builder::Witness, eth1_chain::CachingEth1Backend, test_utils::BeaconChainHarness, BeaconChain,
-};
+use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorChannels, BeaconProcessorSend,
     DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
     WorkEvent as BeaconWorkEvent,
 };
-use environment::null_logger;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
@@ -24,7 +21,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
-use task_executor::test_utils::TestRuntime;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use types::*;
@@ -589,7 +585,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Create a new work event to process `LightClientBootstrap`s from the RPC network.
-    pub fn send_lightclient_bootstrap_request(
+    pub fn send_light_client_bootstrap_request(
         self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -602,6 +598,37 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::LightClientBootstrapRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process a `LightClientOptimisticUpdate` request from the RPC network.
+    pub fn send_light_client_optimistic_update_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_light_client_optimistic_update(peer_id, request_id);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::LightClientOptimisticUpdateRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process a `LightClientFinalityUpdate` request from the RPC network.
+    pub fn send_light_client_finality_update_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || processor.handle_light_client_finality_update(peer_id, request_id);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::LightClientFinalityUpdateRequest(Box::new(process_fn)),
         })
     }
 
@@ -636,6 +663,9 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
     // processor (but not much else).
     pub fn null_for_testing(
         network_globals: Arc<NetworkGlobals<E>>,
+        chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
+        executor: TaskExecutor,
+        log: Logger,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
@@ -646,27 +676,17 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
-        let log = null_logger().unwrap();
-        let harness: BeaconChainHarness<TestBeaconChainType<E>> =
-            BeaconChainHarness::builder(E::default())
-                .spec(E::default_spec())
-                .deterministic_keypairs(8)
-                .logger(log.clone())
-                .fresh_ephemeral_store()
-                .mock_execution_layer()
-                .build();
-        let runtime = TestRuntime::default();
 
         let network_beacon_processor = Self {
             beacon_processor_send: beacon_processor_tx,
             duplicate_cache: DuplicateCache::default(),
-            chain: harness.chain,
+            chain,
             network_tx,
             sync_tx,
             reprocess_tx: work_reprocessing_tx,
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
-            executor: runtime.task_executor.clone(),
+            executor,
             log,
         };
 

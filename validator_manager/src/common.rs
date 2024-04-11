@@ -46,6 +46,8 @@ pub struct ValidatorSpecification {
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
     pub builder_proposals: Option<bool>,
+    pub builder_boost_factor: Option<u64>,
+    pub prefer_builder_proposals: Option<bool>,
     pub enabled: Option<bool>,
 }
 
@@ -64,6 +66,8 @@ impl ValidatorSpecification {
             gas_limit,
             builder_proposals,
             enabled,
+            builder_boost_factor,
+            prefer_builder_proposals,
         } = self;
 
         let voting_public_key = voting_keystore
@@ -136,6 +140,8 @@ impl ValidatorSpecification {
                     enabled,
                     gas_limit,
                     builder_proposals,
+                    builder_boost_factor,
+                    prefer_builder_proposals,
                     None, // Grafitti field is not maintained between validator moves.
                 )
                 .await

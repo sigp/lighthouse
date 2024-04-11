@@ -1,4 +1,4 @@
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
 use slog::{crit, debug, Logger};
 use std::collections::HashMap;
@@ -15,11 +15,12 @@ use types::{
     SignedBlindedBeaconBlock, Slot,
 };
 use types::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadHeader, ExecutionPayloadMerge,
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadHeader,
+    ExecutionPayloadMerge,
 };
 
 #[derive(PartialEq)]
-pub enum CheckEarlyAttesterCache {
+pub enum CheckCaches {
     Yes,
     No,
 }
@@ -98,6 +99,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Merge => ExecutionPayloadMerge::default().into(),
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
+        ForkName::Electra => ExecutionPayloadElectra::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
@@ -385,14 +387,14 @@ impl<E: EthSpec> EngineRequest<E> {
 
 pub struct BeaconBlockStreamer<T: BeaconChainTypes> {
     execution_layer: ExecutionLayer<T::EthSpec>,
-    check_early_attester_cache: CheckEarlyAttesterCache,
+    check_caches: CheckCaches,
     beacon_chain: Arc<BeaconChain<T>>,
 }
 
 impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     pub fn new(
         beacon_chain: &Arc<BeaconChain<T>>,
-        check_early_attester_cache: CheckEarlyAttesterCache,
+        check_caches: CheckCaches,
     ) -> Result<Self, BeaconChainError> {
         let execution_layer = beacon_chain
             .execution_layer
@@ -402,17 +404,22 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
 
         Ok(Self {
             execution_layer,
-            check_early_attester_cache,
+            check_caches,
             beacon_chain: beacon_chain.clone(),
         })
     }
 
-    fn check_early_attester_cache(
-        &self,
-        root: Hash256,
-    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
-        if self.check_early_attester_cache == CheckEarlyAttesterCache::Yes {
-            self.beacon_chain.early_attester_cache.get_block(root)
+    fn check_caches(&self, root: Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+        if self.check_caches == CheckCaches::Yes {
+            self.beacon_chain
+                .reqresp_pre_import_cache
+                .read()
+                .get(&root)
+                .map(|block| {
+                    metrics::inc_counter(&metrics::BEACON_REQRESP_PRE_IMPORT_CACHE_HITS);
+                    block.clone()
+                })
+                .or(self.beacon_chain.early_attester_cache.get_block(root))
         } else {
             None
         }
@@ -422,10 +429,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         let mut db_blocks = Vec::new();
 
         for root in block_roots {
-            if let Some(cached_block) = self
-                .check_early_attester_cache(root)
-                .map(LoadedBeaconBlock::Full)
-            {
+            if let Some(cached_block) = self.check_caches(root).map(LoadedBeaconBlock::Full) {
                 db_blocks.push((root, Ok(Some(cached_block))));
                 continue;
             }
@@ -554,7 +558,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             "Using slower fallback method of eth_getBlockByHash()"
         );
         for root in block_roots {
-            let cached_block = self.check_early_attester_cache(root);
+            let cached_block = self.check_caches(root);
             let block_result = if cached_block.is_some() {
                 Ok(cached_block)
             } else {
@@ -682,7 +686,7 @@ impl From<Error> for BeaconChainError {
 
 #[cfg(test)]
 mod tests {
-    use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
+    use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
     use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
     use execution_layer::test_utils::{Block, DEFAULT_ENGINE_CAPABILITIES};
     use execution_layer::EngineCapabilities;
@@ -715,12 +719,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_all_blocks_from_altair_to_deneb() {
+    async fn check_all_blocks_from_altair_to_electra() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 8;
+        let num_epochs = 10;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
         let deneb_fork_epoch = 6usize;
+        let electra_fork_epoch = 8usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
@@ -728,6 +733,7 @@ mod tests {
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
+        spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());
         // go to bellatrix fork
@@ -804,7 +810,7 @@ mod tests {
             let start = epoch * slots_per_epoch;
             let mut epoch_roots = vec![Hash256::zero(); slots_per_epoch];
             epoch_roots[..].clone_from_slice(&block_roots[start..(start + slots_per_epoch)]);
-            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckEarlyAttesterCache::No)
+            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckCaches::No)
                 .expect("should create streamer");
             let (block_tx, mut block_rx) = mpsc::unbounded_channel();
             streamer.stream(epoch_roots.clone(), block_tx).await;
@@ -836,12 +842,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_fallback_altair_to_deneb() {
+    async fn check_fallback_altair_to_electra() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 8;
+        let num_epochs = 10;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
         let deneb_fork_epoch = 6usize;
+        let electra_fork_epoch = 8usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
@@ -849,6 +856,7 @@ mod tests {
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
+        spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
 
@@ -945,7 +953,7 @@ mod tests {
             let start = epoch * slots_per_epoch;
             let mut epoch_roots = vec![Hash256::zero(); slots_per_epoch];
             epoch_roots[..].clone_from_slice(&block_roots[start..(start + slots_per_epoch)]);
-            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckEarlyAttesterCache::No)
+            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckCaches::No)
                 .expect("should create streamer");
             let (block_tx, mut block_rx) = mpsc::unbounded_channel();
             streamer.stream(epoch_roots.clone(), block_tx).await;

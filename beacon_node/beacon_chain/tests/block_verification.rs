@@ -1,4 +1,4 @@
-// #![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
 use beacon_chain::{
@@ -840,7 +840,7 @@ async fn invalid_signature_exit() {
     }
 }
 
-fn unwrap_err<T, E>(result: Result<T, E>) -> E {
+fn unwrap_err<T, U>(result: Result<T, U>) -> U {
     match result {
         Ok(_) => panic!("called unwrap_err on Ok"),
         Err(e) => e,
@@ -1087,7 +1087,7 @@ async fn block_gossip_verification() {
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
-            BlockError::BlockIsAlreadyKnown,
+            BlockError::BlockIsAlreadyKnown(_),
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
     );
@@ -1115,7 +1115,7 @@ async fn block_gossip_verification() {
                 .verify_block_for_gossip(block.clone())
                 .await
                 .expect_err("should error when processing known block"),
-            BlockError::BlockIsAlreadyKnown
+            BlockError::BlockIsAlreadyKnown(_)
         ),
         "the second proposal by this validator should be rejected"
     );
@@ -1142,11 +1142,7 @@ async fn verify_block_for_gossip_slashing_detection() {
     let ((block1, blobs1), _) = harness.make_block(state.clone(), Slot::new(1)).await;
     let ((block2, _blobs2), _) = harness.make_block(state, Slot::new(1)).await;
 
-    let verified_block = harness
-        .chain
-        .verify_block_for_gossip(Arc::new(block1))
-        .await
-        .unwrap();
+    let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
     if let Some((kzg_proofs, blobs)) = blobs1 {
         let sidecars =
@@ -1174,12 +1170,7 @@ async fn verify_block_for_gossip_slashing_detection() {
         )
         .await
         .unwrap();
-    unwrap_err(
-        harness
-            .chain
-            .verify_block_for_gossip(Arc::new(block2))
-            .await,
-    );
+    unwrap_err(harness.chain.verify_block_for_gossip(block2).await);
 
     // Slasher should have been handed the two conflicting blocks and crafted a slashing.
     slasher.process_queued(Epoch::new(0)).unwrap();
@@ -1198,11 +1189,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
     let state = harness.get_current_state();
     let ((block, _), _) = harness.make_block(state.clone(), Slot::new(1)).await;
 
-    let verified_block = harness
-        .chain
-        .verify_block_for_gossip(Arc::new(block))
-        .await
-        .unwrap();
+    let verified_block = harness.chain.verify_block_for_gossip(block).await.unwrap();
     let attestations = verified_block.block.message().body().attestations().clone();
     harness
         .chain
@@ -1564,7 +1551,6 @@ async fn import_duplicate_block_unrealized_justification() {
     let slot = harness.get_current_slot();
     let (block_contents, _) = harness.make_block(state.clone(), slot).await;
     let (block, _) = block_contents;
-    let block = Arc::new(block);
     let block_root = block.canonical_root();
 
     // Create two verified variants of the block, representing the same block being processed in

@@ -9,8 +9,11 @@ USAGE:
     lighthouse beacon_node [FLAGS] [OPTIONS]
 
 FLAGS:
-        --always-prefer-builder-payload        If set, the beacon node always uses the payload from the builder instead
-                                               of the local payload.
+        --allow-insecure-genesis-sync          Enable syncing from genesis, which is generally insecure and incompatible
+                                               with data availability checks. Checkpoint syncing is the preferred method
+                                               for syncing a node. Only use this flag when testing. DO NOT use on
+                                               mainnet!
+        --always-prefer-builder-payload        This flag is deprecated and has no effect.
         --always-prepare-payload               Send payload attributes with every fork choice update. This is intended
                                                for use by block builders, relays and developers. You should set a fee
                                                recipient on this BN and also consider adjusting the --prepare-payload-
@@ -26,14 +29,10 @@ FLAGS:
                                                contention which degrades staking performance. Stakers should generally
                                                choose to avoid this flag since backfill sync is not required for
                                                staking.
-        --disable-deposit-contract-sync        Explictly disables syncing of deposit logs from the execution node. This
+        --disable-deposit-contract-sync        Explicitly disables syncing of deposit logs from the execution node. This
                                                overrides any previous option that depends on it. Useful if you intend to
                                                run a non-validating beacon node.
-        --disable-duplicate-warn-logs          Disable warning logs for duplicate gossip messages. The WARN level log is
-                                               useful for detecting a duplicate validator key running elsewhere.
-                                               However, this may result in excessive warning logs if the validator is
-                                               broadcasting messages to multiple beacon nodes via the validator client
-                                               --broadcast flag. In this case, disabling these warn logs may be useful.
+        --disable-duplicate-warn-logs          This flag is deprecated and has no effect.
     -x, --disable-enr-auto-update              Discovery automatically updates the nodes local ENR with an external IP
                                                address and port as seen by other peers on the network. This disables
                                                this feature, fixing the ENR's IP/PORT to those specified on boot.
@@ -126,25 +125,6 @@ OPTIONS:
         --auto-compact-db <auto-compact-db>
             Enable or disable automatic compaction of the database on finalization. [default: true]
 
-        --beacon-processor-aggregate-batch-size <INTEGER>
-            Specifies the number of gossip aggregate attestations in a signature verification batch. Higher values may
-            reduce CPU usage in a healthy network while lower values may increase CPU usage in an unhealthy or hostile
-            network. [default: 64]
-        --beacon-processor-attestation-batch-size <INTEGER>
-            Specifies the number of gossip attestations in a signature verification batch. Higher values may reduce CPU
-            usage in a healthy network whilst lower values may increase CPU usage in an unhealthy or hostile network.
-            [default: 64]
-        --beacon-processor-max-workers <INTEGER>
-            Specifies the maximum concurrent tasks for the task scheduler. Increasing this value may increase resource
-            consumption. Reducing the value may result in decreased resource usage and diminished performance. The
-            default value is the number of logical CPU cores on the host.
-        --beacon-processor-reprocess-queue-len <INTEGER>
-            Specifies the length of the queue for messages requiring delayed processing. Higher values may prevent
-            messages from being dropped while lower values may help protect the node from becoming overwhelmed.
-            [default: 12288]
-        --beacon-processor-work-queue-len <INTEGER>
-            Specifies the length of the inbound event queue. Higher values may prevent messages from being dropped while
-            lower values may help protect the node from becoming overwhelmed. [default: 16384]
         --blob-prune-margin-epochs <EPOCHS>
             The margin for blob pruning in epochs. The oldest blobs are pruned up until data_availability_boundary -
             blob_prune_margin_epochs. [default: 0]
@@ -175,15 +155,14 @@ OPTIONS:
             `SLOTS_PER_EPOCH`, it will NOT query any connected builders, and will use the local execution engine for
             payload construction. [default: 8]
         --builder-profit-threshold <WEI_VALUE>
-            The minimum reward in wei provided to the proposer by a block builder for an external payload to be
-            considered for inclusion in a proposal. If this threshold is not met, the local EE's payload will be used.
-            This is currently *NOT* in comparison to the value of the local EE's payload. It simply checks whether the
-            total proposer reward from an external payload is equal to or greater than this value. In the future, a
-            comparison to a local payload is likely to be added. Example: Use 250000000000000000 to set the threshold to
-            0.25 ETH. [default: 0]
+            This flag is deprecated and has no effect.
+
         --builder-user-agent <STRING>
             The HTTP user agent to send alongside requests to the builder URL. The default is Lighthouse's version
             string.
+        --checkpoint-blobs <BLOBS_SSZ>
+            Set the checkpoint blobs to start syncing from. Must be aligned and match --checkpoint-block. Using
+            --checkpoint-sync-url instead is recommended.
         --checkpoint-block <BLOCK_SSZ>
             Set a checkpoint block to start syncing from. Must be aligned and match --checkpoint-state. Using
             --checkpoint-sync-url instead is recommended.
@@ -313,14 +292,6 @@ OPTIONS:
         --http-tls-key <http-tls-key>
             The path of the private key to be used when serving the HTTP API server over TLS. Must not be password-
             protected.
-        --ignore-builder-override-suggestion-threshold <PERCENTAGE>
-            When the EE advises Lighthouse to ignore the builder payload, this flag specifies a percentage threshold for
-            the difference between the reward from the builder payload and the local EE's payload. This threshold must
-            be met for Lighthouse to consider ignoring the EE's suggestion. If the reward from the builder's payload
-            doesn't exceed the local payload by at least this percentage, the local payload will be used. The conditions
-            under which the EE may make this suggestion depend on the EE's implementation, with the primary intent being
-            to safeguard against potential censorship attacks from builders. Setting this flag to 0 will cause
-            Lighthouse to always ignore the EE's suggestion. Default: 10.0 (equivalent to 10%). [default: 10.0]
         --invalid-gossip-verified-blocks-path <PATH>
             If a block succeeds gossip validation whilst failing full validation, store the block SSZ as a file at this
             path. This feature is only recommended for developers. This directory is not pruned, users should be careful
@@ -398,10 +369,8 @@ OPTIONS:
             useful for execution nodes which don't improve their payload after the first call, and high values are
             useful for ensuring the EL is given ample notice. Default: 1/3 of a slot.
         --progressive-balances <MODE>
-            Control the progressive balances cache mode. The default `fast` mode uses the cache to speed up fork choice.
-            A more conservative `checked` mode compares the cache's results against results without the cache. If there
-            is a mismatch, it falls back to the cache-free result. Using the default `fast` mode is recommended unless
-            advised otherwise by the Lighthouse team. [possible values: disabled, checked, strict, fast]
+            Deprecated. This optimisation is now the default and cannot be disabled. [possible values: fast, disabled,
+            checked, strict]
         --proposer-reorg-cutoff <MILLISECONDS>
             Maximum delay after the start of the slot at which to propose a reorging block. Lower values can prevent
             failed reorgs by ensuring the block has ample time to propagate and be processed by the network. The default
@@ -414,8 +383,11 @@ OPTIONS:
         --proposer-reorg-epochs-since-finalization <EPOCHS>
             Maximum number of epochs since finalization at which proposer reorgs are allowed. Default: 2
 
+        --proposer-reorg-parent-threshold <PERCENT>
+            Percentage of parent vote weight above which to attempt a proposer reorg. Default: 160%
+
         --proposer-reorg-threshold <PERCENT>
-            Percentage of vote weight below which to attempt a proposer reorg. Default: 20%
+            Percentage of head vote weight below which to attempt a proposer reorg. Default: 20%
 
         --prune-blobs <BOOLEAN>
             Prune blobs from Lighthouse's database when they are older than the data data availability boundary relative
@@ -471,6 +443,9 @@ OPTIONS:
         --slots-per-restore-point <SLOT_COUNT>
             Specifies how often a freezer DB restore point should be stored. Cannot be changed after initialization.
             [default: 8192 (mainnet) or 64 (minimal)]
+        --state-cache-size <STATE_CACHE_SIZE>
+            Specifies the size of the snapshot cache [default: 3]
+
         --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
             Emergency fallback fee recipient for use in case the validator client does not have one configured. You
             should set this flag on the validator client instead of (or in addition to) setting it here.
@@ -517,3 +492,4 @@ OPTIONS:
             block root should be 0x-prefixed. Note that this flag is for verification only, to perform a checkpoint sync
             from a recent state use --checkpoint-sync-url.
 ```
+<style> .content main {max-width:88%;} </style>

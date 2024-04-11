@@ -3,15 +3,12 @@
 use crate::{
     config::MEGABYTE,
     database::{
-        interface::{Key, OpenDatabases, Value},
+        interface::{Key, Value},
         *,
     },
-    Config, Error,
 };
 use lmdb::{Cursor as _, DatabaseFlags, Transaction, WriteFlags};
 use lmdb_sys::{MDB_FIRST, MDB_GET_CURRENT, MDB_LAST, MDB_NEXT};
-use std::borrow::Cow;
-use std::marker::PhantomData;
 use std::path::PathBuf;
 
 #[derive(Debug)]

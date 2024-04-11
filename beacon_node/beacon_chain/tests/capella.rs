@@ -7,8 +7,8 @@ use types::*;
 const VALIDATOR_COUNT: usize = 32;
 type E = MainnetEthSpec;
 
-fn verify_execution_payload_chain<T: EthSpec>(chain: &[FullPayload<T>]) {
-    let mut prev_ep: Option<FullPayload<T>> = None;
+fn verify_execution_payload_chain<E: EthSpec>(chain: &[FullPayload<E>]) {
+    let mut prev_ep: Option<FullPayload<E>> = None;
 
     for ep in chain {
         assert!(!ep.is_default_with_empty_roots());

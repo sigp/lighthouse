@@ -10,11 +10,8 @@ pub mod enr_ext;
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use crate::{metrics, ClearDialError};
-use discv5::{enr::NodeId, Discv5, Discv5Event};
-pub use enr::{
-    build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
-    Eth2Enr,
-};
+use discv5::{enr::NodeId, Discv5};
+pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2Enr};
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::identity::{Keypair, PublicKey};
 
@@ -62,7 +59,7 @@ const MAX_DISCOVERY_RETRY: usize = 3;
 /// Note: we always allow a single FindPeers query, so we would be
 /// running a maximum of `MAX_CONCURRENT_SUBNET_QUERIES + 1`
 /// discovery queries at a time.
-const MAX_CONCURRENT_SUBNET_QUERIES: usize = 2;
+const MAX_CONCURRENT_SUBNET_QUERIES: usize = 4;
 /// The max number of subnets to search for in a single subnet discovery query.
 const MAX_SUBNETS_IN_QUERY: usize = 3;
 /// The number of closest peers to search for when doing a regular peer search.
@@ -147,22 +144,17 @@ enum EventStream {
     /// Awaiting an event stream to be generated. This is required due to the poll nature of
     /// `Discovery`
     Awaiting(
-        Pin<
-            Box<
-                dyn Future<Output = Result<mpsc::Receiver<Discv5Event>, discv5::Discv5Error>>
-                    + Send,
-            >,
-        >,
+        Pin<Box<dyn Future<Output = Result<mpsc::Receiver<discv5::Event>, discv5::Error>> + Send>>,
     ),
     /// The future has completed.
-    Present(mpsc::Receiver<Discv5Event>),
+    Present(mpsc::Receiver<discv5::Event>),
     // The future has failed or discv5 has been disabled. There are no events from discv5.
     InActive,
 }
 
 /// The main discovery service. This can be disabled via CLI arguements. When disabled the
 /// underlying processes are not started, but this struct still maintains our current ENR.
-pub struct Discovery<TSpec: EthSpec> {
+pub struct Discovery<E: EthSpec> {
     /// A collection of seen live ENRs for quick lookup and to map peer-id's to ENRs.
     cached_enrs: LruCache<PeerId, Enr>,
 
@@ -176,7 +168,7 @@ pub struct Discovery<TSpec: EthSpec> {
     discv5: Discv5,
 
     /// A collection of network constants that can be read from other threads.
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    network_globals: Arc<NetworkGlobals<E>>,
 
     /// Indicates if we are actively searching for peers. We only allow a single FindPeers query at
     /// a time, regardless of the query concurrency.
@@ -202,12 +194,12 @@ pub struct Discovery<TSpec: EthSpec> {
     log: slog::Logger,
 }
 
-impl<TSpec: EthSpec> Discovery<TSpec> {
+impl<E: EthSpec> Discovery<E> {
     /// NOTE: Creating discovery requires running within a tokio execution environment.
     pub async fn new(
         local_key: Keypair,
         config: &NetworkConfig,
-        network_globals: Arc<NetworkGlobals<TSpec>>,
+        network_globals: Arc<NetworkGlobals<E>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let log = log.clone();
@@ -456,7 +448,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         match subnet {
             Subnet::Attestation(id) => {
                 let id = *id as usize;
-                let mut current_bitfield = local_enr.attestation_bitfield::<TSpec>()?;
+                let mut current_bitfield = local_enr.attestation_bitfield::<E>()?;
                 if id >= current_bitfield.len() {
                     return Err(format!(
                         "Subnet id: {} is outside the ENR bitfield length: {}",
@@ -489,7 +481,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
             Subnet::SyncCommittee(id) => {
                 let id = *id as usize;
-                let mut current_bitfield = local_enr.sync_committee_bitfield::<TSpec>()?;
+                let mut current_bitfield = local_enr.sync_committee_bitfield::<E>()?;
 
                 if id >= current_bitfield.len() {
                     return Err(format!(
@@ -726,7 +718,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
             // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate = subnet_predicate::<TSpec>(filtered_subnets, &self.log);
+            let subnet_predicate = subnet_predicate::<E>(filtered_subnets, &self.log);
 
             debug!(
                 self.log,
@@ -853,7 +845,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
                             // Check the specific subnet against the enr
                             let subnet_predicate =
-                                subnet_predicate::<TSpec>(vec![query.subnet], &self.log);
+                                subnet_predicate::<E>(vec![query.subnet], &self.log);
 
                             r.clone()
                                 .into_iter()
@@ -924,7 +916,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
 /* NetworkBehaviour Implementation */
 
-impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
+impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
     // Discovery is not a real NetworkBehaviour...
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = DiscoveredPeers;
@@ -996,7 +988,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                     match event {
                         // We filter out unwanted discv5 events here and only propagate useful results to
                         // the peer manager.
-                        Discv5Event::Discovered(_enr) => {
+                        discv5::Event::Discovered(_enr) => {
                             // Peers that get discovered during a query but are not contactable or
                             // don't match a predicate can end up here. For debugging purposes we
                             // log these to see if we are unnecessarily dropping discovered peers
@@ -1009,10 +1001,13 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             }
                             */
                         }
-                        Discv5Event::SocketUpdated(socket_addr) => {
+                        discv5::Event::SocketUpdated(socket_addr) => {
                             info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
-                            metrics::check_nat();
+                            // We have SOCKET_UPDATED messages. This occurs when discovery has a majority of
+                            // users reporting an external port and our ENR gets updated.
+                            // Which means we are able to do NAT traversal.
+                            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["discv5"], 1);
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
 
@@ -1030,10 +1025,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             // NOTE: We assume libp2p itself can keep track of IP changes and we do
                             // not inform it about IP changes found via discovery.
                         }
-                        Discv5Event::EnrAdded { .. }
-                        | Discv5Event::TalkRequest(_)
-                        | Discv5Event::NodeInserted { .. }
-                        | Discv5Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
+                        discv5::Event::EnrAdded { .. }
+                        | discv5::Event::TalkRequest(_)
+                        | discv5::Event::NodeInserted { .. }
+                        | discv5::Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
                     }
                 }
             }
@@ -1121,7 +1116,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> Discovery<TSpec> {
+impl<E: EthSpec> Discovery<E> {
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
             match error {
@@ -1144,7 +1139,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV2};
-    use enr::EnrBuilder;
     use libp2p::identity::secp256k1;
     use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
@@ -1227,7 +1221,7 @@ mod tests {
     }
 
     fn make_enr(subnet_ids: Vec<usize>) -> Enr {
-        let mut builder = EnrBuilder::new("v4");
+        let mut builder = Enr::builder();
         let keypair = secp256k1::Keypair::generate();
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
 

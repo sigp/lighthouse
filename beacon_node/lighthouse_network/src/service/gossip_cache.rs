@@ -268,8 +268,6 @@ impl futures::stream::Stream for GossipCache {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::GossipKind;
-
     use super::*;
     use futures::stream::StreamExt;
 

@@ -1,6 +1,6 @@
 use crate::{
     consts::altair, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config,
-    DenebPreset, EthSpec, ForkName,
+    DenebPreset, ElectraPreset, EthSpec, ForkName,
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use superstruct::superstruct;
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Capella, Deneb),
+    variants(Capella, Deneb, Electra),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -29,28 +29,48 @@ pub struct ConfigAndPreset {
     pub bellatrix_preset: BellatrixPreset,
     #[serde(flatten)]
     pub capella_preset: CapellaPreset,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Deneb, Electra))]
     #[serde(flatten)]
     pub deneb_preset: DenebPreset,
+    #[superstruct(only(Electra))]
+    #[serde(flatten)]
+    pub electra_preset: ElectraPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, Value>,
 }
 
 impl ConfigAndPreset {
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec, fork_name: Option<ForkName>) -> Self {
-        let config = Config::from_chain_spec::<T>(spec);
-        let base_preset = BasePreset::from_chain_spec::<T>(spec);
-        let altair_preset = AltairPreset::from_chain_spec::<T>(spec);
-        let bellatrix_preset = BellatrixPreset::from_chain_spec::<T>(spec);
-        let capella_preset = CapellaPreset::from_chain_spec::<T>(spec);
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec, fork_name: Option<ForkName>) -> Self {
+        let config = Config::from_chain_spec::<E>(spec);
+        let base_preset = BasePreset::from_chain_spec::<E>(spec);
+        let altair_preset = AltairPreset::from_chain_spec::<E>(spec);
+        let bellatrix_preset = BellatrixPreset::from_chain_spec::<E>(spec);
+        let capella_preset = CapellaPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
-        if spec.deneb_fork_epoch.is_some()
+        if spec.electra_fork_epoch.is_some()
+            || fork_name.is_none()
+            || fork_name == Some(ForkName::Electra)
+        {
+            let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
+            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
+
+            ConfigAndPreset::Electra(ConfigAndPresetElectra {
+                config,
+                base_preset,
+                altair_preset,
+                bellatrix_preset,
+                capella_preset,
+                deneb_preset,
+                electra_preset,
+                extra_fields,
+            })
+        } else if spec.deneb_fork_epoch.is_some()
             || fork_name.is_none()
             || fork_name == Some(ForkName::Deneb)
         {
-            let deneb_preset = DenebPreset::from_chain_spec::<T>(spec);
+            let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
             ConfigAndPreset::Deneb(ConfigAndPresetDeneb {
                 config,
                 base_preset,
@@ -136,8 +156,8 @@ mod test {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: ConfigAndPresetDeneb =
+        let from: ConfigAndPresetElectra =
             serde_yaml::from_reader(reader).expect("error while deserializing");
-        assert_eq!(ConfigAndPreset::Deneb(from), yamlconfig);
+        assert_eq!(ConfigAndPreset::Electra(from), yamlconfig);
     }
 }

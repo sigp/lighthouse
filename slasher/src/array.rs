@@ -7,9 +7,7 @@ use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
-use std::convert::TryFrom;
 use std::io::Read;
-use std::iter::Extend;
 use std::sync::Arc;
 use types::{AttesterSlashing, Epoch, EthSpec, IndexedAttestation};
 

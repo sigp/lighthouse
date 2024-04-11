@@ -14,7 +14,7 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
-# List of features to use when building natively. Can be overriden via the environment.
+# List of features to use when building natively. Can be overridden via the environment.
 # No jemalloc on Windows
 ifeq ($(OS),Windows_NT)
     FEATURES?=
@@ -39,7 +39,7 @@ PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair merge capella deneb
+FORKS=phase0 altair merge capella deneb electra
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
@@ -143,7 +143,6 @@ run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
-	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Runs EF test vectors with nextest
@@ -151,7 +150,6 @@ nextest-run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
-	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
@@ -200,12 +198,17 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
-# Updates the CLI help text pages in the Lighthouse book.
+# Updates the CLI help text pages in the Lighthouse book, building with Docker.
 cli:
 	docker run --rm --user=root \
 	-v ${PWD}:/home/runner/actions-runner/lighthouse sigmaprime/github-runner \
 	bash -c 'cd lighthouse && make && ./scripts/cli.sh'
-	
+
+# Updates the CLI help text pages in the Lighthouse book, building using local
+# `cargo`.
+cli-local:
+	make && ./scripts/cli.sh
+
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 

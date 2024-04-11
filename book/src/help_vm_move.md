@@ -26,10 +26,13 @@ FLAGS:
     -V, --version                        Prints version information
 
 OPTIONS:
+        --builder-boost-factor <UINT64>
+            Defines the boost factor, a percentage multiplier to apply to the builder's payload value when choosing
+            between a builder payload header and payload from the local execution node.
         --builder-proposals <builder-proposals>
             When provided, all created validators will attempt to create blocks via builder rather than the local EL.
             [possible values: true, false]
-        --count <VALIDATOR_COUNT>                               The number of validators to move.
+        --count <VALIDATOR_COUNT>                                The number of validators to move.
     -d, --datadir <DIR>
             Used to specify a custom root data directory for lighthouse keys and databases. Defaults to
             $HOME/.lighthouse/{network} where network is the value of the `network` flag Note: Users should specify
@@ -75,6 +78,9 @@ OPTIONS:
         --network <network>
             Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
             chiado, sepolia, holesky]
+        --prefer-builder-proposals <prefer-builder-proposals>
+            If this flag is set, Lighthouse will always prefer blocks constructed by builders, regardless of payload
+            value. [possible values: true, false]
         --safe-slots-to-import-optimistically <INTEGER>
             Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
@@ -110,3 +116,4 @@ OPTIONS:
         --validators <STRING>
             The validators to be moved. Either a list of 0x-prefixed validator pubkeys or the keyword "all".
 ```
+<style> .content main {max-width:88%;} </style>

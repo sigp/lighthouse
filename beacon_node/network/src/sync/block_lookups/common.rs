@@ -8,17 +8,16 @@ use crate::sync::block_lookups::{
 use crate::sync::manager::{BlockProcessType, Id, SingleLookupReqId};
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_availability_checker::{AvailabilityView, ChildComponents};
+use beacon_chain::data_availability_checker::ChildComponents;
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::rpc::BlocksByRootRequest;
 use rand::prelude::IteratorRandom;
-use ssz_types::VariableList;
 use std::ops::IndexMut;
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
-use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BlobSidecar, ChainSpec, Hash256, SignedBeaconBlock};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {
@@ -87,11 +86,14 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /* Request building methods */
 
     /// Construct a new request.
-    fn build_request(&mut self) -> Result<(PeerId, Self::RequestType), LookupRequestError> {
+    fn build_request(
+        &mut self,
+        spec: &ChainSpec,
+    ) -> Result<(PeerId, Self::RequestType), LookupRequestError> {
         // Verify and construct request.
         self.too_many_attempts()?;
         let peer = self.get_peer()?;
-        let request = self.new_request();
+        let request = self.new_request(spec);
         Ok((peer, request))
     }
 
@@ -99,16 +101,15 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     fn build_request_and_send(
         &mut self,
         id: Id,
-        already_downloaded: bool,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         // Check if request is necessary.
-        if already_downloaded || !matches!(self.get_state().state, State::AwaitingDownload) {
+        if !matches!(self.get_state().state, State::AwaitingDownload) {
             return Ok(());
         }
 
         // Construct request.
-        let (peer_id, request) = self.build_request()?;
+        let (peer_id, request) = self.build_request(&cx.chain.spec)?;
 
         // Update request state.
         self.get_state_mut().state = State::Downloading { peer_id };
@@ -151,7 +152,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     }
 
     /// Initialize `Self::RequestType`.
-    fn new_request(&self) -> Self::RequestType;
+    fn new_request(&self, spec: &ChainSpec) -> Self::RequestType;
 
     /// Send the request to the network service.
     fn make_request(
@@ -254,8 +255,8 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
     type VerifiedResponseType = Arc<SignedBeaconBlock<T::EthSpec>>;
     type ReconstructedResponseType = RpcBlock<T::EthSpec>;
 
-    fn new_request(&self) -> BlocksByRootRequest {
-        BlocksByRootRequest::new(VariableList::from(vec![self.requested_block_root]))
+    fn new_request(&self, spec: &ChainSpec) -> BlocksByRootRequest {
+        BlocksByRootRequest::new(vec![self.requested_block_root], spec)
     }
 
     fn make_request(
@@ -353,10 +354,9 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
     type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
     type ReconstructedResponseType = FixedBlobSidecarList<T::EthSpec>;
 
-    fn new_request(&self) -> BlobsByRootRequest {
+    fn new_request(&self, spec: &ChainSpec) -> BlobsByRootRequest {
         let blob_id_vec: Vec<BlobIdentifier> = self.requested_ids.clone().into();
-        let blob_ids = VariableList::from(blob_id_vec);
-        BlobsByRootRequest { blob_ids }
+        BlobsByRootRequest::new(blob_id_vec, spec)
     }
 
     fn make_request(
@@ -371,27 +371,35 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
 
     fn verify_response_inner(
         &mut self,
-        _expected_block_root: Hash256,
+        expected_block_root: Hash256,
         blob: Option<Self::ResponseType>,
         peer_id: PeerId,
     ) -> Result<Option<FixedBlobSidecarList<T::EthSpec>>, LookupVerifyError> {
         match blob {
             Some(blob) => {
                 let received_id = blob.id();
-                if !self.requested_ids.contains(&received_id) {
-                    self.state.register_failure_downloading();
-                    Err(LookupVerifyError::UnrequestedBlobId)
-                } else {
-                    // State should remain downloading until we receive the stream terminator.
-                    self.requested_ids.remove(&received_id);
-                    let blob_index = blob.index;
 
-                    if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
-                        return Err(LookupVerifyError::InvalidIndex(blob.index));
-                    }
-                    *self.blob_download_queue.index_mut(blob_index as usize) = Some(blob);
-                    Ok(None)
+                if !self.requested_ids.contains(&received_id) {
+                    Err(LookupVerifyError::UnrequestedBlobId(received_id))
+                } else if !blob.verify_blob_sidecar_inclusion_proof().unwrap_or(false) {
+                    Err(LookupVerifyError::InvalidInclusionProof)
+                } else if blob.block_root() != expected_block_root {
+                    Err(LookupVerifyError::UnrequestedHeader)
+                } else {
+                    Ok(())
                 }
+                .map_err(|e| {
+                    self.state.register_failure_downloading();
+                    e
+                })?;
+
+                // State should remain downloading until we receive the stream terminator.
+                self.requested_ids.remove(&received_id);
+
+                // The inclusion proof check above ensures `blob.index` is < MAX_BLOBS_PER_BLOCK
+                let blob_index = blob.index;
+                *self.blob_download_queue.index_mut(blob_index as usize) = Some(blob);
+                Ok(None)
             }
             None => {
                 self.state.state = State::Processing { peer_id };

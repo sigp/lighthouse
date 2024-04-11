@@ -49,7 +49,7 @@ fn main() {
     actual_thing::<E>(&mut state);
 }
 
-fn actual_thing<T: EthSpec>(state: &mut BeaconState<T>) {
+fn actual_thing<E: EthSpec>(state: &mut BeaconState<E>) {
     for _ in 0..200_024 {
         let _ = state.update_tree_hash_cache().expect("should update cache");
     }

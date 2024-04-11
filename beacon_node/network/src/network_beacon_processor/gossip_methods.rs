@@ -78,8 +78,8 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
 }
 
 /// An attestation that failed validation by the `BeaconChain`.
-struct RejectedUnaggregate<T: EthSpec> {
-    attestation: Box<Attestation<T>>,
+struct RejectedUnaggregate<E: EthSpec> {
+    attestation: Box<Attestation<E>>,
     error: AttnError,
 }
 
@@ -112,26 +112,26 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
 }
 
 /// An attestation that failed validation by the `BeaconChain`.
-struct RejectedAggregate<T: EthSpec> {
-    signed_aggregate: Box<SignedAggregateAndProof<T>>,
+struct RejectedAggregate<E: EthSpec> {
+    signed_aggregate: Box<SignedAggregateAndProof<E>>,
     error: AttnError,
 }
 
 /// Data for an aggregated or unaggregated attestation that failed verification.
-enum FailedAtt<T: EthSpec> {
+enum FailedAtt<E: EthSpec> {
     Unaggregate {
-        attestation: Box<Attestation<T>>,
+        attestation: Box<Attestation<E>>,
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
     },
     Aggregate {
-        attestation: Box<SignedAggregateAndProof<T>>,
+        attestation: Box<SignedAggregateAndProof<E>>,
         seen_timestamp: Duration,
     },
 }
 
-impl<T: EthSpec> FailedAtt<T> {
+impl<E: EthSpec> FailedAtt<E> {
     pub fn beacon_block_root(&self) -> &Hash256 {
         &self.attestation().data.beacon_block_root
     }
@@ -143,7 +143,7 @@ impl<T: EthSpec> FailedAtt<T> {
         }
     }
 
-    pub fn attestation(&self) -> &Attestation<T> {
+    pub fn attestation(&self) -> &Attestation<E> {
         match self {
             FailedAtt::Unaggregate { attestation, .. } => attestation,
             FailedAtt::Aggregate { attestation, .. } => &attestation.message.aggregate,
@@ -963,7 +963,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(BlockError::BlockIsAlreadyKnown) => {
+            Err(BlockError::BlockIsAlreadyKnown(_)) => {
                 debug!(
                     self.log,
                     "Gossip block is already known";
@@ -1657,7 +1657,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                         self.gossip_penalize_peer(
                             peer_id,
-                            PeerAction::LowToleranceError,
+                            PeerAction::HighToleranceError,
                             "light_client_gossip_error",
                         );
                     }
@@ -1675,15 +1675,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "light_client_gossip_error",
                         );
                     }
-                    LightClientFinalityUpdateError::FinalityUpdateAlreadySeen => debug!(
-                        self.log,
-                        "Light client finality update already seen";
-                        "peer" => %peer_id,
-                        "error" => ?e,
-                    ),
-                    LightClientFinalityUpdateError::BeaconChainError(_)
-                    | LightClientFinalityUpdateError::LightClientUpdateError(_)
-                    | LightClientFinalityUpdateError::SigSlotStartIsNone
+                    LightClientFinalityUpdateError::SigSlotStartIsNone
                     | LightClientFinalityUpdateError::FailedConstructingUpdate => debug!(
                         self.log,
                         "Light client error constructing finality update";
@@ -1801,19 +1793,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "light_client_gossip_error",
                         );
                     }
-                    LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen => {
-                        metrics::register_optimistic_update_error(&e);
-
-                        debug!(
-                            self.log,
-                            "Light client optimistic update already seen";
-                            "peer" => %peer_id,
-                            "error" => ?e,
-                        )
-                    }
-                    LightClientOptimisticUpdateError::BeaconChainError(_)
-                    | LightClientOptimisticUpdateError::LightClientUpdateError(_)
-                    | LightClientOptimisticUpdateError::SigSlotStartIsNone
+                    LightClientOptimisticUpdateError::SigSlotStartIsNone
                     | LightClientOptimisticUpdateError::FailedConstructingUpdate => {
                         metrics::register_optimistic_update_error(&e);
 

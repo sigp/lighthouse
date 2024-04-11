@@ -52,13 +52,13 @@ use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256};
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
 #[derive(Encode, Decode, Clone)]
-pub struct PendingComponents<T: EthSpec> {
+pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
-    pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
-    pub executed_block: Option<DietAvailabilityPendingExecutedBlock<T>>,
+    pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
+    pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
 }
 
-impl<T: EthSpec> PendingComponents<T> {
+impl<E: EthSpec> PendingComponents<E> {
     pub fn empty(block_root: Hash256) -> Self {
         Self {
             block_root,
@@ -73,11 +73,11 @@ impl<T: EthSpec> PendingComponents<T> {
     ///
     /// WARNING: This function can potentially take a lot of time if the state needs to be
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    pub fn make_available<R>(self, recover: R) -> Result<Availability<T>, AvailabilityCheckError>
+    pub fn make_available<R>(self, recover: R) -> Result<Availability<E>, AvailabilityCheckError>
     where
         R: FnOnce(
-            DietAvailabilityPendingExecutedBlock<T>,
-        ) -> Result<AvailabilityPendingExecutedBlock<T>, AvailabilityCheckError>,
+            DietAvailabilityPendingExecutedBlock<E>,
+        ) -> Result<AvailabilityPendingExecutedBlock<E>, AvailabilityCheckError>,
     {
         let Self {
             block_root,
@@ -129,7 +129,7 @@ impl<T: EthSpec> PendingComponents<T> {
                             kzg_verified_blob
                                 .as_blob()
                                 .slot()
-                                .epoch(T::slots_per_epoch())
+                                .epoch(E::slots_per_epoch())
                         });
                     }
                 }
@@ -305,6 +305,11 @@ impl<T: BeaconChainTypes> Critical<T> {
         Ok(())
     }
 
+    /// Returns true if the block root is known, without altering the LRU ordering
+    pub fn has_block(&self, block_root: &Hash256) -> bool {
+        self.in_memory.peek(block_root).is_some() || self.store_keys.contains(block_root)
+    }
+
     /// This only checks for the blobs in memory
     pub fn peek_blob(
         &self,
@@ -320,6 +325,13 @@ impl<T: BeaconChainTypes> Critical<T> {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn peek_pending_components(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<&PendingComponents<T::EthSpec>> {
+        self.in_memory.peek(block_root)
     }
 
     /// Puts the pending components in the LRU cache. If the cache
@@ -363,6 +375,16 @@ impl<T: BeaconChainTypes> Critical<T> {
             }
         }
     }
+
+    /// Returns the number of pending component entries in memory.
+    pub fn num_blocks(&self) -> usize {
+        self.in_memory.len()
+    }
+
+    /// Returns the number of entries that have overflowed to disk.
+    pub fn num_store_entries(&self) -> usize {
+        self.store_keys.len()
+    }
 }
 
 /// This is the main struct for this module. Outside methods should
@@ -399,6 +421,11 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         })
     }
 
+    /// Returns true if the block root is known, without altering the LRU ordering
+    pub fn has_block(&self, block_root: &Hash256) -> bool {
+        self.critical.read().has_block(block_root)
+    }
+
     /// Fetch a blob from the cache without affecting the LRU ordering
     pub fn peek_blob(
         &self,
@@ -413,6 +440,14 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn with_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
+        &self,
+        block_root: &Hash256,
+        f: F,
+    ) -> R {
+        f(self.critical.read().peek_pending_components(block_root))
     }
 
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
@@ -671,6 +706,21 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     pub fn state_lru_cache(&self) -> &StateLRUCache<T> {
         &self.state_cache
     }
+
+    /// Number of states stored in memory in the cache.
+    pub fn state_cache_size(&self) -> usize {
+        self.state_cache.lru_cache().read().len()
+    }
+
+    /// Number of pending component entries in memory in the cache.
+    pub fn block_cache_size(&self) -> usize {
+        self.critical.read().num_blocks()
+    }
+
+    /// Returns the number of entries in the cache that have overflowed to disk.
+    pub fn num_store_entries(&self) -> usize {
+        self.critical.read().num_store_entries()
+    }
 }
 
 impl ssz::Encode for OverflowKey {
@@ -755,7 +805,7 @@ mod test {
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
     use tempfile::{tempdir, TempDir};
     use types::non_zero_usize::new_non_zero_usize;
-    use types::{ChainSpec, ExecPayload, MinimalEthSpec};
+    use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
@@ -952,7 +1002,7 @@ mod test {
         };
 
         let availability_pending_block = AvailabilityPendingExecutedBlock {
-            block: Arc::new(block),
+            block,
             import_data,
             payload_verification_outcome,
         };

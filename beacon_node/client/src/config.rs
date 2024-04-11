@@ -35,6 +35,7 @@ pub enum ClientGenesis {
     WeakSubjSszBytes {
         anchor_state_bytes: Vec<u8>,
         anchor_block_bytes: Vec<u8>,
+        anchor_blobs_bytes: Option<Vec<u8>>,
     },
     CheckpointSyncUrl {
         url: SensitiveUrl,
@@ -78,6 +79,7 @@ pub struct Config {
     pub beacon_processor: BeaconProcessorConfig,
     pub genesis_state_url: Option<String>,
     pub genesis_state_url_timeout: Duration,
+    pub allow_insecure_genesis_sync: bool,
 }
 
 impl Default for Config {
@@ -108,6 +110,7 @@ impl Default for Config {
             genesis_state_url: <_>::default(),
             // This default value should always be overwritten by the CLI default value.
             genesis_state_url_timeout: Duration::from_secs(60),
+            allow_insecure_genesis_sync: false,
         }
     }
 }
@@ -115,7 +118,7 @@ impl Default for Config {
 impl Config {
     /// Updates the data directory for the Client.
     pub fn set_data_dir(&mut self, data_dir: PathBuf) {
-        self.data_dir = data_dir.clone();
+        self.data_dir.clone_from(&data_dir);
         self.http_api.data_dir = data_dir;
     }
 

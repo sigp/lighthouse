@@ -28,7 +28,7 @@ operating system.
 Install the following packages:
 
 ```bash
-sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
+sudo apt update && sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
 ```
 
 > Tips:
@@ -39,6 +39,16 @@ sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clan
 > Note: Lighthouse requires CMake v3.12 or newer, which isn't available in the package repositories
 > of Ubuntu 18.04 or earlier. On these distributions CMake can still be installed via PPA:
 > [https://apt.kitware.com/](https://apt.kitware.com)
+
+After this, you are ready to [build Lighthouse](#build-lighthouse).
+
+#### Fedora/RHEL/CentOS
+
+Install the following packages:
+
+```bash
+yum -y install git make perl clang cmake
+```
 
 After this, you are ready to [build Lighthouse](#build-lighthouse).
 

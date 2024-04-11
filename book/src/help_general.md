@@ -13,8 +13,8 @@ FLAGS:
         --disable-malloc-tuning          If present, do not configure the system allocator. Providing this flag will
                                          generally increase memory usage, it should only be provided when debugging
                                          specific memory allocation issues.
-    -l                                   Enables environment logging giving access to sub-protocol logs such as discv5
-                                         and libp2p
+    -l                                   DEPRECATED Enables environment logging giving access to sub-protocol logs such
+                                         as discv5 and libp2p
     -h, --help                           Prints help information
         --log-color                      Force outputting colors when emitting logs to the terminal.
         --logfile-compress               If present, compress old log files. This can help reduce the space needed to
@@ -105,3 +105,4 @@ SUBCOMMANDS:
     validator_manager    Utilities for managing a Lighthouse validator client via the HTTP API. [aliases: vm,
                          validator-manager, validator_manager]
 ```
+<style> .content main {max-width:88%;} </style>

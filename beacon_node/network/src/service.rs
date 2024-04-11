@@ -1,5 +1,5 @@
 use super::sync::manager::RequestId as SyncId;
-use crate::nat::EstablishedUPnPMappings;
+use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
@@ -27,6 +27,7 @@ use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
+use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
 use strum::IntoStaticStr;
@@ -60,7 +61,7 @@ pub enum RequestId {
 /// Types of messages that the network service can receive.
 #[derive(Debug, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
-pub enum NetworkMessage<T: EthSpec> {
+pub enum NetworkMessage<E: EthSpec> {
     /// Subscribes the beacon node to the core gossipsub topics. We do this when we are either
     /// synced or close to the head slot.
     SubscribeCoreTopics,
@@ -73,7 +74,7 @@ pub enum NetworkMessage<T: EthSpec> {
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
-        response: Response<T>,
+        response: Response<E>,
         id: PeerRequestId,
     },
     /// Sends an error response to an RPC request.
@@ -84,7 +85,7 @@ pub enum NetworkMessage<T: EthSpec> {
         id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
-    Publish { messages: Vec<PubsubMessage<T>> },
+    Publish { messages: Vec<PubsubMessage<E>> },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.
@@ -93,11 +94,6 @@ pub enum NetworkMessage<T: EthSpec> {
         message_id: MessageId,
         /// The result of the validation
         validation_result: MessageAcceptance,
-    },
-    /// Called if  UPnP managed to establish an external port mapping.
-    UPnPMappingEstablished {
-        /// The mappings that were established.
-        mappings: EstablishedUPnPMappings,
     },
     /// Reports a peer to the peer manager for performing an action.
     ReportPeer {
@@ -124,7 +120,7 @@ pub enum NetworkMessage<T: EthSpec> {
 pub enum ValidatorSubscriptionMessage {
     /// Subscribes a list of validators to specific slots for attestation duties.
     AttestationSubscribe {
-        subscriptions: Vec<ValidatorSubscription>,
+        subscriptions: BTreeSet<ValidatorSubscription>,
     },
     SyncCommitteeSubscribe {
         subscriptions: Vec<SyncCommitteeSubscription>,
@@ -188,9 +184,6 @@ pub struct NetworkService<T: BeaconChainTypes> {
     store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-    /// Stores potentially created UPnP mappings to be removed on shutdown. (TCP port and UDP
-    /// ports).
-    upnp_mappings: EstablishedUPnPMappings,
     /// A delay that expires when a new fork takes place.
     next_fork_update: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to subscribe to a new fork's topics.
@@ -237,22 +230,24 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             "Backfill is disabled. DO NOT RUN IN PRODUCTION"
         );
 
-        // try and construct UPnP port mappings if required.
-        if let Some(upnp_config) = crate::nat::UPnPConfig::from_config(config) {
-            let upnp_log = network_log.new(o!("service" => "UPnP"));
-            let upnp_network_send = network_senders.network_send();
-            if config.upnp_enabled {
-                executor.spawn_blocking(
-                    move || {
-                        crate::nat::construct_upnp_mappings(
-                            upnp_config,
-                            upnp_network_send,
-                            upnp_log,
-                        )
-                    },
-                    "UPnP",
-                );
-            }
+        if let (true, false, Some(v4)) = (
+            config.upnp_enabled,
+            config.disable_discovery,
+            config.listen_addrs().v4(),
+        ) {
+            let nw = network_log.clone();
+            let v4 = v4.clone();
+            executor.spawn(
+                async move {
+                    info!(nw, "UPnP Attempting to initialise routes");
+                    if let Err(e) =
+                        nat::construct_upnp_mappings(v4.addr, v4.disc_port, nw.clone()).await
+                    {
+                        info!(nw, "Could not UPnP map Discovery port"; "error" => %e);
+                    }
+                },
+                "UPnP",
+            );
         }
 
         // get a reference to the beacon chain store
@@ -358,7 +353,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             router_send,
             store,
             network_globals: network_globals.clone(),
-            upnp_mappings: EstablishedUPnPMappings::default(),
             next_fork_update,
             next_fork_subscriptions,
             next_unsubscribe,
@@ -636,21 +630,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             } => {
                 self.libp2p.send_error_response(peer_id, id, error, reason);
             }
-            NetworkMessage::UPnPMappingEstablished { mappings } => {
-                self.upnp_mappings = mappings;
-                // If there is an external TCP port update, modify our local ENR.
-                if let Some(tcp_port) = self.upnp_mappings.tcp_port {
-                    if let Err(e) = self.libp2p.discovery_mut().update_enr_tcp_port(tcp_port) {
-                        warn!(self.log, "Failed to update ENR"; "error" => e);
-                    }
-                }
-                // If there is an external QUIC port update, modify our local ENR.
-                if let Some(quic_port) = self.upnp_mappings.udp_quic_port {
-                    if let Err(e) = self.libp2p.discovery_mut().update_enr_quic_port(quic_port) {
-                        warn!(self.log, "Failed to update ENR"; "error" => e);
-                    }
-                }
-            }
             NetworkMessage::ValidationResult {
                 propagation_source,
                 message_id,
@@ -716,9 +695,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                for topic_kind in
-                    core_topics_to_subscribe::<T::EthSpec>(self.fork_context.current_fork())
-                {
+                for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
+                    self.fork_context.current_fork(),
+                    &self.fork_context.spec,
+                ) {
                     for fork_digest in self.required_gossip_fork_digests() {
                         let topic = GossipTopic::new(
                             topic_kind.clone(),
@@ -804,7 +784,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions } => {
                 if let Err(e) = self
                     .attestation_service
-                    .validator_subscriptions(subscriptions)
+                    .validator_subscriptions(subscriptions.into_iter())
                 {
                     warn!(self.log, "Attestation validator subscription failed"; "error" => e);
                 }
@@ -945,7 +925,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 
     fn subscribed_core_topics(&self) -> bool {
-        let core_topics = core_topics_to_subscribe::<T::EthSpec>(self.fork_context.current_fork());
+        let core_topics = core_topics_to_subscribe::<T::EthSpec>(
+            self.fork_context.current_fork(),
+            &self.fork_context.spec,
+        );
         let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
         let subscriptions = self.network_globals.gossipsub_subscriptions.read();
         let subscribed_topics: HashSet<&GossipKind> =
@@ -1005,10 +988,6 @@ impl<T: BeaconChainTypes> Drop for NetworkService<T> {
                 "Saved DHT state";
             ),
         }
-
-        // attempt to remove port mappings
-        crate::nat::remove_mappings(&self.upnp_mappings, &self.log);
-
         info!(self.log, "Network service shutdown");
     }
 }

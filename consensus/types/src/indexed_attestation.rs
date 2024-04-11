@@ -25,17 +25,17 @@ use tree_hash_derive::TreeHash;
     arbitrary::Arbitrary,
 )]
 #[derivative(PartialEq, Eq)] // to satisfy Clippy's lint about `Hash`
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct IndexedAttestation<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct IndexedAttestation<E: EthSpec> {
     /// Lists validator registry indices, not committee indices.
     #[serde(with = "quoted_variable_list_u64")]
-    pub attesting_indices: VariableList<u64, T::MaxValidatorsPerCommittee>,
+    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
 }
 
-impl<T: EthSpec> IndexedAttestation<T> {
+impl<E: EthSpec> IndexedAttestation<E> {
     /// Check if ``attestation_data_1`` and ``attestation_data_2`` have the same target.
     ///
     /// Spec v0.12.1
@@ -57,7 +57,7 @@ impl<T: EthSpec> IndexedAttestation<T> {
 /// Guarantees `att1 == att2 -> hash(att1) == hash(att2)`.
 ///
 /// Used in the operation pool.
-impl<T: EthSpec> Hash for IndexedAttestation<T> {
+impl<E: EthSpec> Hash for IndexedAttestation<E> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.attesting_indices.hash(state);
         self.data.hash(state);
@@ -106,7 +106,7 @@ mod quoted_variable_list_u64 {
 mod tests {
     use super::*;
     use crate::slot_epoch::Epoch;
-    use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use crate::test_utils::{SeedableRng, XorShiftRng};
     use crate::MainnetEthSpec;
 
     #[test]

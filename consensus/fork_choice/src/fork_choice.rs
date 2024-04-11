@@ -1,15 +1,10 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
-use per_epoch_processing::altair::participation_cache::Error as ParticipationCacheError;
 use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
     ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
-use slog::{crit, debug, error, warn, Logger};
+use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
-use state_processing::per_epoch_processing::altair::ParticipationCache;
-use state_processing::per_epoch_processing::{
-    weigh_justification_and_finalization, JustificationAndFinalizationState,
-};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
 };
@@ -23,7 +18,6 @@ use types::{
     EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
     SignedBeaconBlock, Slot,
 };
-use types::{ProgressiveBalancesCache, ProgressiveBalancesMode};
 
 #[derive(Debug)]
 pub enum Error<T> {
@@ -77,10 +71,7 @@ pub enum Error<T> {
         proposer_boost_root: Hash256,
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
-    ParticipationCacheBuild(BeaconStateError),
-    ParticipationCacheError(ParticipationCacheError),
     ValidatorStatuses(BeaconStateError),
-    ProgressiveBalancesCacheCheckFailed(String),
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -104,12 +95,6 @@ impl<T> From<state_processing::EpochProcessingError> for Error<T> {
 impl<T> From<BeaconStateError> for Error<T> {
     fn from(e: BeaconStateError) -> Self {
         Error::BeaconStateError(e)
-    }
-}
-
-impl<T> From<ParticipationCacheError> for Error<T> {
-    fn from(e: ParticipationCacheError) -> Self {
-        Error::ParticipationCacheError(e)
     }
 }
 
@@ -532,7 +517,8 @@ where
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
-        re_org_threshold: ReOrgThreshold,
+        re_org_head_threshold: ReOrgThreshold,
+        re_org_parent_threshold: ReOrgThreshold,
         disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
@@ -564,7 +550,8 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
-                re_org_threshold,
+                re_org_head_threshold,
+                re_org_parent_threshold,
                 disallowed_offsets,
                 max_epochs_since_finalization,
             )
@@ -574,7 +561,8 @@ where
     pub fn get_preliminary_proposer_head(
         &self,
         canonical_head: Hash256,
-        re_org_threshold: ReOrgThreshold,
+        re_org_head_threshold: ReOrgThreshold,
+        re_org_parent_threshold: ReOrgThreshold,
         disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
@@ -584,7 +572,8 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
-                re_org_threshold,
+                re_org_head_threshold,
+                re_org_parent_threshold,
                 disallowed_offsets,
                 max_epochs_since_finalization,
             )
@@ -658,9 +647,7 @@ where
         block_delay: Duration,
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
-        progressive_balances_mode: ProgressiveBalancesMode,
         spec: &ChainSpec,
-        log: &Logger,
     ) -> Result<(), Error<T::Error>> {
         // If this block has already been processed we do not need to reprocess it.
         // We check this immediately in case re-processing the block mutates some property of the
@@ -723,6 +710,7 @@ where
         // Add proposer score boost if the block is timely.
         let is_before_attesting_interval =
             block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
+
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
         if current_slot == block.slot() && is_before_attesting_interval && is_first_block {
             self.fc_store.set_proposer_boost_root(block_root);
@@ -755,84 +743,43 @@ where
                 parent_justified.epoch == block_epoch && parent_finalized.epoch + 1 == block_epoch
             });
 
-        let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = if let Some((
-            parent_justified,
-            parent_finalized,
-        )) =
-            parent_checkpoints
-        {
-            (parent_justified, parent_finalized)
-        } else {
-            let justification_and_finalization_state = match block {
-                BeaconBlockRef::Deneb(_)
-                | BeaconBlockRef::Capella(_)
-                | BeaconBlockRef::Merge(_)
-                | BeaconBlockRef::Altair(_) => match progressive_balances_mode {
-                    ProgressiveBalancesMode::Disabled => {
-                        let participation_cache = ParticipationCache::new(state, spec)
-                            .map_err(Error::ParticipationCacheBuild)?;
-                        per_epoch_processing::altair::process_justification_and_finalization(
+        let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) =
+            if let Some((parent_justified, parent_finalized)) = parent_checkpoints {
+                (parent_justified, parent_finalized)
+            } else {
+                let justification_and_finalization_state = match block {
+                    BeaconBlockRef::Electra(_)
+                    | BeaconBlockRef::Deneb(_)
+                    | BeaconBlockRef::Capella(_)
+                    | BeaconBlockRef::Merge(_)
+                    | BeaconBlockRef::Altair(_) => {
+                        // NOTE: Processing justification & finalization requires the progressive
+                        // balances cache, but we cannot initialize it here as we only have an
+                        // immutable reference. The state *should* have come straight from block
+                        // processing, which initialises the cache, but if we add other `on_block`
+                        // calls in future it could be worth passing a mutable reference.
+                        per_epoch_processing::altair::process_justification_and_finalization(state)?
+                    }
+                    BeaconBlockRef::Base(_) => {
+                        let mut validator_statuses =
+                            per_epoch_processing::base::ValidatorStatuses::new(state, spec)
+                                .map_err(Error::ValidatorStatuses)?;
+                        validator_statuses
+                            .process_attestations(state)
+                            .map_err(Error::ValidatorStatuses)?;
+                        per_epoch_processing::base::process_justification_and_finalization(
                             state,
-                            &participation_cache,
+                            &validator_statuses.total_balances,
+                            spec,
                         )?
                     }
-                    ProgressiveBalancesMode::Fast
-                    | ProgressiveBalancesMode::Checked
-                    | ProgressiveBalancesMode::Strict => {
-                        let maybe_participation_cache = progressive_balances_mode
-                            .perform_comparative_checks()
-                            .then(|| {
-                                ParticipationCache::new(state, spec)
-                                    .map_err(Error::ParticipationCacheBuild)
-                            })
-                            .transpose()?;
+                };
 
-                        process_justification_and_finalization_from_progressive_cache::<E, T>(
-                                state,
-                                maybe_participation_cache.as_ref(),
-                            )
-                            .or_else(|e| {
-                                if progressive_balances_mode != ProgressiveBalancesMode::Strict {
-                                    error!(
-                                        log,
-                                        "Processing with progressive balances cache failed";
-                                        "info" => "falling back to the non-optimized processing method",
-                                        "error" => ?e,
-                                    );
-                                    let participation_cache = maybe_participation_cache
-                                        .map(Ok)
-                                        .unwrap_or_else(|| ParticipationCache::new(state, spec))
-                                        .map_err(Error::ParticipationCacheBuild)?;
-                                    per_epoch_processing::altair::process_justification_and_finalization(
-                                        state,
-                                        &participation_cache,
-                                    ).map_err(Error::from)
-                                } else {
-                                    Err(e)
-                                }
-                            })?
-                    }
-                },
-                BeaconBlockRef::Base(_) => {
-                    let mut validator_statuses =
-                        per_epoch_processing::base::ValidatorStatuses::new(state, spec)
-                            .map_err(Error::ValidatorStatuses)?;
-                    validator_statuses
-                        .process_attestations(state)
-                        .map_err(Error::ValidatorStatuses)?;
-                    per_epoch_processing::base::process_justification_and_finalization(
-                        state,
-                        &validator_statuses.total_balances,
-                        spec,
-                    )?
-                }
+                (
+                    justification_and_finalization_state.current_justified_checkpoint(),
+                    justification_and_finalization_state.finalized_checkpoint(),
+                )
             };
-
-            (
-                justification_and_finalization_state.current_justified_checkpoint(),
-                justification_and_finalization_state.finalized_checkpoint(),
-            )
-        };
 
         // Update best known unrealized justified & finalized checkpoints
         if unrealized_justified_checkpoint.epoch
@@ -1558,92 +1505,6 @@ where
     }
 }
 
-/// Process justification and finalization using progressive cache. Also performs a comparative
-/// check against the `ParticipationCache` if it is supplied.
-///
-/// Returns an error if the cache is not initialized or if there is a mismatch on the comparative check.
-fn process_justification_and_finalization_from_progressive_cache<E, T>(
-    state: &BeaconState<E>,
-    maybe_participation_cache: Option<&ParticipationCache>,
-) -> Result<JustificationAndFinalizationState<E>, Error<T::Error>>
-where
-    E: EthSpec,
-    T: ForkChoiceStore<E>,
-{
-    let justification_and_finalization_state = JustificationAndFinalizationState::new(state);
-    if state.current_epoch() <= E::genesis_epoch() + 1 {
-        return Ok(justification_and_finalization_state);
-    }
-
-    // Load cached balances
-    let progressive_balances_cache: &ProgressiveBalancesCache = state.progressive_balances_cache();
-    let previous_target_balance =
-        progressive_balances_cache.previous_epoch_target_attesting_balance()?;
-    let current_target_balance =
-        progressive_balances_cache.current_epoch_target_attesting_balance()?;
-    let total_active_balance = state.get_total_active_balance()?;
-
-    if let Some(participation_cache) = maybe_participation_cache {
-        check_progressive_balances::<E, T>(
-            state,
-            participation_cache,
-            previous_target_balance,
-            current_target_balance,
-            total_active_balance,
-        )?;
-    }
-
-    weigh_justification_and_finalization(
-        justification_and_finalization_state,
-        total_active_balance,
-        previous_target_balance,
-        current_target_balance,
-    )
-    .map_err(Error::from)
-}
-
-/// Perform comparative checks against `ParticipationCache`, will return error if there's a mismatch.
-fn check_progressive_balances<E, T>(
-    state: &BeaconState<E>,
-    participation_cache: &ParticipationCache,
-    cached_previous_target_balance: u64,
-    cached_current_target_balance: u64,
-    cached_total_active_balance: u64,
-) -> Result<(), Error<T::Error>>
-where
-    E: EthSpec,
-    T: ForkChoiceStore<E>,
-{
-    let slot = state.slot();
-    let epoch = state.current_epoch();
-
-    // Check previous epoch target balances
-    let previous_target_balance = participation_cache.previous_epoch_target_attesting_balance()?;
-    if previous_target_balance != cached_previous_target_balance {
-        return Err(Error::ProgressiveBalancesCacheCheckFailed(
-            format!("Previous epoch target attesting balance mismatch, slot: {}, epoch: {}, actual: {}, cached: {}", slot, epoch, previous_target_balance, cached_previous_target_balance)
-        ));
-    }
-
-    // Check current epoch target balances
-    let current_target_balance = participation_cache.current_epoch_target_attesting_balance()?;
-    if current_target_balance != cached_current_target_balance {
-        return Err(Error::ProgressiveBalancesCacheCheckFailed(
-            format!("Current epoch target attesting balance mismatch, slot: {}, epoch: {}, actual: {}, cached: {}", slot, epoch, current_target_balance, cached_current_target_balance)
-        ));
-    }
-
-    // Check current epoch total balances
-    let total_active_balance = participation_cache.current_epoch_total_active_balance();
-    if total_active_balance != cached_total_active_balance {
-        return Err(Error::ProgressiveBalancesCacheCheckFailed(
-            format!("Current epoch total active balance mismatch, slot: {}, epoch: {}, actual: {}, cached: {}", slot, epoch, total_active_balance, cached_total_active_balance)
-        ));
-    }
-
-    Ok(())
-}
-
 /// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
 ///
 /// This is used when persisting the state of the fork choice to disk.
@@ -1655,7 +1516,7 @@ pub struct PersistedForkChoice {
 
 #[cfg(test)]
 mod tests {
-    use types::{EthSpec, MainnetEthSpec};
+    use types::MainnetEthSpec;
 
     use super::*;
 

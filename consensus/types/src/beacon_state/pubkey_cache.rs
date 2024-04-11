@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 type ValidatorIndex = usize;
 
+#[allow(clippy::len_without_is_empty)]
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
 pub struct PubkeyCache {
     /// Maintain the number of keys added to the map. It is not sufficient to just use the HashMap
