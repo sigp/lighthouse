@@ -67,31 +67,31 @@ The steps to do port forwarding depends on the router, but the general steps are
 
 1. Determine the default gateway IP:
 
-- On Linux: open a terminal and run `ip route | grep default`, the result should look something similar to `default via 192.168.50.1 dev wlp2s0 proto dhcp metric 600`. The `192.168.50.1` is your router management default gateway IP.
-- On MacOS: open a terminal and run `netstat -nr|grep default` and it should return the default gateway IP.
-- On Windows: open a command prompt and run `ipconfig` and look for the `Default Gateway` which will show you the gateway IP.
+    - On Linux: open a terminal and run `ip route | grep default`, the result should look something similar to `default via 192.168.50.1 dev wlp2s0 proto dhcp metric 600`. The `192.168.50.1` is your router management default gateway IP.
+    - On MacOS: open a terminal and run `netstat -nr|grep default` and it should return the default gateway IP.
+    - On Windows: open a command prompt and run `ipconfig` and look for the `Default Gateway` which will show you the gateway IP.
 
-  The default gateway IP usually looks like 192.168.X.X. Once you obtain the IP, enter it to a web browser and it will lead you to the router management page.
+    The default gateway IP usually looks like 192.168.X.X. Once you obtain the IP, enter it to a web browser and it will lead you to the router management page.
 
-2. Login to the router management page. The login credentials are usually available in the manual or the router, or it can be found on a sticker underneath the router. You can also try the login credentials for some common router brands listed [here](https://www.noip.com/support/knowledgebase/general-port-forwarding-guide/).
+1. Login to the router management page. The login credentials are usually available in the manual or the router, or it can be found on a sticker underneath the router. You can also try the login credentials for some common router brands listed [here](https://www.noip.com/support/knowledgebase/general-port-forwarding-guide/).
 
-3. Navigate to the port forward settings in your router. The exact step depends on the router, but typically it will fall under the "Advanced" section, under the name "port forwarding" or "virtual server".
+1. Navigate to the port forward settings in your router. The exact step depends on the router, but typically it will fall under the "Advanced" section, under the name "port forwarding" or "virtual server".
 
-4. Configure a port forwarding rule as below:
+1. Configure a port forwarding rule as below:
 
-- Protocol: select `TCP/UDP` or `BOTH`
-- External port: `9000`
-- Internal port: `9000`
-- IP address: Usually there is a dropdown list for you to select the device. Choose the device that is running Lighthouse.
+    - Protocol: select `TCP/UDP` or `BOTH`
+    - External port: `9000`
+    - Internal port: `9000`
+    - IP address: Usually there is a dropdown list for you to select the device. Choose the device that is running Lighthouse.
 
-Since V4.5.0 port 9001/UDP is also used for QUIC support.
+    Since V4.5.0 port 9001/UDP is also used for QUIC support.
 
-- Protocol: select `UDP`
-- External port: `9001`
-- Internal port: `9001`
-- IP address: Choose the device that is running Lighthouse.
+    - Protocol: select `UDP`
+    - External port: `9001`
+    - Internal port: `9001`
+    - IP address: Choose the device that is running  Lighthouse.
 
-5. To check that you have successfully opened the ports, go to [yougetsignal](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. Note: this will only confirm if port 9000/TCP is open. You will need to ensure you have correctly setup port forwarding for the UDP ports (`9000` and `9001` by default).
+1. To check that you have successfully opened the ports, go to [yougetsignal](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. Note: this will only confirm if port 9000/TCP is open. You will need to ensure you have correctly setup port forwarding for the UDP ports (`9000` and `9001` by default).
 
 ## ENR Configuration
 

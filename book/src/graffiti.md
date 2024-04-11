@@ -67,10 +67,10 @@ Usage: `lighthouse bn --graffiti fortytwo`
 > Note: The order of preference for loading the graffiti is as follows:
 >
 > 1. Read from `--graffiti-file` if provided.
-> 2. If `--graffiti-file` is not provided or errors, read graffiti from `validator_definitions.yml`.
-> 3. If graffiti is not specified in `validator_definitions.yml`, load the graffiti passed in the `--graffiti` flag on the validator client.
-> 4. If the `--graffiti` flag on the validator client is not passed, load the graffiti passed in the `--graffiti` flag on the beacon node.
-> 4. If the `--graffiti` flag is not passed, load the default Lighthouse graffiti.
+> 1. If `--graffiti-file` is not provided or errors, read graffiti from `validator_definitions.yml`.
+> 1. If graffiti is not specified in `validator_definitions.yml`, load the graffiti passed in the `--graffiti` flag on the validator client.
+> 1. If the `--graffiti` flag on the validator client is not passed, load the graffiti passed in the `--graffiti` flag on the beacon node.
+> 1. If the `--graffiti` flag is not passed, load the default Lighthouse graffiti.
 
 ## Set Graffiti via HTTP
 

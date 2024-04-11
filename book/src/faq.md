@@ -170,25 +170,25 @@ This warning usually comes with an http error code. Some examples are given belo
 
 1. The log shows:
 
-```
-WARN Error processing HTTP API request       method: GET, path: /eth/v1/validator/attestation_data, status: 500 Internal Server Error, elapsed: 305.65µs
-```
+    ```
+    WARN Error processing HTTP API request       method: GET, path: /eth/v1/validator/attestation_data, status: 500 Internal Server Error, elapsed: 305.65µs
+    ```
 
-The error is `500 Internal Server Error`. This suggests that the execution client is not synced. Once the execution client is synced, the error will disappear.
+    The error is `500 Internal Server Error`. This suggests that the execution client is not synced. Once the execution client is synced, the error will disappear.
 
-2. The log shows:
+1. The log shows:
 
-```
-WARN Error processing HTTP API request       method: POST, path: /eth/v1/validator/duties/attester/199565, status: 503 Service Unavailable, elapsed: 96.787µs
-```
+    ```
+    WARN Error processing HTTP API request       method: POST, path: /eth/v1/validator/duties/attester/199565, status: 503 Service Unavailable, elapsed: 96.787µs
+    ```
 
-The error is `503 Service Unavailable`. This means that the beacon node is still syncing. When this happens, the validator client will log:
+    The error is `503 Service Unavailable`. This means that the beacon node is still syncing. When this happens, the validator client will log:
 
-```
-ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
-```
+    ```
+    ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
+    ```
 
-This means that the validator client is sending requests to the beacon node. However, as the beacon node is still syncing, it is therefore unable to fulfil the request. The error will disappear once the beacon node is synced.
+    This means that the validator client is sending requests to the beacon node. However, as the beacon node is still syncing, it is therefore unable to fulfil the request. The error will disappear once the beacon node is synced.
 
 ### <a name="bn-fork-choice"></a> My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?
 
@@ -389,25 +389,25 @@ expect, there are a few things to check on:
 
 1. Ensure that port forward was correctly set up as described [here](./advanced_networking.md#nat-traversal-port-forwarding).
 
-To check that the ports are forwarded, run the command:
+    To check that the ports are forwarded, run the command:
 
-  ```bash
-  curl http://localhost:5052/lighthouse/nat
-  ```
+    ```bash
+    curl http://localhost:5052/lighthouse/nat
+    ```
 
-It should return `{"data":true}`. If it returns `{"data":false}`, you may want to double check if the port forward was correctly set up.
+    It should return `{"data":true}`. If it returns `{"data":false}`, you may want to double check if the port forward was correctly set up.
 
-If the ports are open, you should have incoming peers. To check that you have incoming peers, run the command:
+    If the ports are open, you should have incoming peers. To check that you have incoming peers, run the command:
 
-  ```bash
-  curl localhost:5052/lighthouse/peers | jq '.[] | select(.peer_info.connection_direction=="Incoming")'
-  ```
+    ```bash
+    curl localhost:5052/lighthouse/peers | jq '.[] | select(.peer_info.connection_direction=="Incoming")'
+    ```
 
-If you have incoming peers, it should return a lot of data containing information of peers. If the response is empty, it means that you have no incoming peers and there the ports are not open. You may want to double check if the port forward was correctly set up.
+    If you have incoming peers, it should return a lot of data containing information of peers. If the response is empty, it means that you have no incoming peers and there the ports are not open. You may want to double check if the port forward was correctly set up.
 
-2. Check that you do not lower the number of peers using the flag `--target-peers`. The default is 80. A lower value set will lower the maximum number of peers your node can connect to, which may potentially interrupt the validator performance. We recommend users to leave the `--target peers` untouched to keep a diverse set of peers.
+1. Check that you do not lower the number of peers using the flag `--target-peers`. The default is 80. A lower value set will lower the maximum number of peers your node can connect to, which may potentially interrupt the validator performance. We recommend users to leave the `--target peers` untouched to keep a diverse set of peers.
 
-3. Ensure that you have a quality router for the internet connection. For example, if you connect the router to many devices including the node, it may be possible that the router cannot handle all routing tasks, hence struggling to keep up the number of peers. Therefore, using a quality router for the node is important to keep a healthy number of peers.
+1. Ensure that you have a quality router for the internet connection. For example, if you connect the router to many devices including the node, it may be possible that the router cannot handle all routing tasks, hence struggling to keep up the number of peers. Therefore, using a quality router for the node is important to keep a healthy number of peers.
 
 ### <a name="net-update"></a> How do I update lighthouse?
 
