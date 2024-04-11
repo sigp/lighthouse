@@ -12,10 +12,10 @@ In order to apply these APIs, you need to have historical states information in 
 
 ## Endpoints
 
-HTTP Path | Description |
+| HTTP Path | Description |
 | --- | -- |
-[`/lighthouse/validator_inclusion/{epoch}/global`](#global) | A global vote count for a given epoch.
-[`/lighthouse/validator_inclusion/{epoch}/{validator_id}`](#individual) | A per-validator breakdown of votes in a given epoch.
+| [`/lighthouse/validator_inclusion/{epoch}/global`](#global) | A global vote count for a given epoch. |
+| [`/lighthouse/validator_inclusion/{epoch}/{validator_id}`](#individual) | A per-validator breakdown of votes in a given epoch. |
 
 ## Global
 

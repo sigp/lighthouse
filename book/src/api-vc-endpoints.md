@@ -2,21 +2,22 @@
 
 ## Endpoints
 
-HTTP Path | Description |
+| HTTP Path | Description |
 | --- | -- |
-[`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version.
-[`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine.
-[`GET /lighthouse/ui/health`](#get-lighthouseuihealth) | Get information about the host machine. Focused for UI applications.
-[`GET /lighthouse/spec`](#get-lighthousespec) | Get the Ethereum proof-of-stake consensus specification used by the validator.
-[`GET /lighthouse/auth`](#get-lighthouseauth) | Get the location of the authorization token.
-[`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators.
-[`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator.
-[`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator.
-[`POST /lighthouse/validators`](#post-lighthousevalidators) | Create a new validator and mnemonic.
-[`POST /lighthouse/validators/keystore`](#post-lighthousevalidatorskeystore) | Import a keystore.
-[`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic.
-[`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators.
-[`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs
+| [`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version. |
+| [`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine. |
+| [`GET /lighthouse/ui/health`](#get-lighthouseuihealth) | Get information about the host machine. Focused for UI applications. |
+| [`GET /lighthouse/spec`](#get-lighthousespec) | Get the Ethereum proof-of-stake consensus specification used by the validator. |
+| [`GET /lighthouse/auth`](#get-lighthouseauth) | Get the location of the authorization token. |
+| [`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators. |
+| [`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators. |
+| [`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator. |
+| [`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator. |
+| [`POST /lighthouse/validators`](#post-lighthousevalidators) | Create a new validator and mnemonic. |
+| [`POST /lighthouse/validators/keystore`](#post-lighthousevalidatorskeystore) | Import a keystore. |
+| [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic. |
+| [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators. |
+| [`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs |
 
 The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api-vc-auth-header.md).
 
