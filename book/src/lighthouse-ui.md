@@ -9,7 +9,6 @@ _Documentation for Siren users and developers._
 
 ![ui-overview](./imgs/ui.png)
 
-
 Siren is a user interface built for Lighthouse that connects to a Lighthouse Beacon Node and
 a Lighthouse Validator Client to monitor performance and display key validator
 metrics.
