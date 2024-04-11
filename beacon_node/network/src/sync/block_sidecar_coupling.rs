@@ -100,3 +100,31 @@ impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
         self.is_blocks_stream_terminated && (!blobs_requested || self.is_sidecars_stream_terminated)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::BlocksAndBlobsRequestInfo;
+    use crate::sync::range_sync::ByRangeRequestType;
+    use beacon_chain::test_utils::{generate_rand_block_and_blobs, NumBlobs};
+    use rand::SeedableRng;
+    use types::{test_utils::XorShiftRng, ForkName, MinimalEthSpec as E};
+
+    #[test]
+    fn no_blobs_into_responses() {
+        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::Blocks);
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let blocks = (0..4)
+            .map(|_| generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng).0)
+            .collect::<Vec<_>>();
+
+        // Send blocks and complete terminate response
+        for block in blocks {
+            info.add_block_response(Some(block.into()));
+        }
+        info.add_block_response(None);
+
+        // Assert response is finished and RpcBlocks can be constructed
+        assert!(info.is_finished());
+        info.into_responses().unwrap();
+    }
+}
