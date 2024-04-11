@@ -1,13 +1,12 @@
 #! /usr/bin/env bash
 
-#set -e
+set -e
 
-# use markdownlint-cli docker to check for markdown file s
+# use markdownlint-cli to check for markdown files
 docker run -v ./book:/workdir ghcr.io/igorshubovych/markdownlint-cli:latest '**/*.md' --ignore node_modules --fix
 
 # exit code
 exit_code=$(echo $?)
-echo $exit_code
 
 if [[ $exit_code == 0 ]]; then
     echo "All markdown files are properly formatted."
