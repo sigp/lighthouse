@@ -10,3 +10,8 @@ MD036: false
 # MD028: set to false to allow blank line between blockquote: https://github.com/DavidAnson/markdownlint/blob/main/doc/md028.md
 # This is because the blockquotes are shown separatedly (a deisred outcome) when having a blank line in between
 MD028: false
+
+# MD024: set siblings_only to true so that same headings with different parent headings are allowed
+# https://github.com/DavidAnson/markdownlint/blob/main/doc/md024.md
+MD024:
+  siblings_only: true
