@@ -26,6 +26,7 @@ use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
+use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::ExecutionLayer;
 use futures::channel::mpsc::Receiver;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
@@ -43,10 +44,9 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
-use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadHeaderMerge, Hash256, SignedBeaconBlock, Transactions,
+    ExecutionBlockHash, Hash256, SignedBeaconBlock,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -272,16 +272,17 @@ where
                 validator_count,
                 genesis_time,
             } => {
-                let execution_payload_header = ExecutionPayloadHeaderMerge {
-                    transactions_root: Transactions::<E>::empty().tree_hash_root(),
-                    ..Default::default()
-                };
+                //let execution_payload_header = ExecutionPayloadHeaderMerge {
+                //    transactions_root: Transactions::<E>::empty().tree_hash_root(),
+                //    ..Default::default()
+                //};
+                let execution_payload_header = generate_genesis_header(&spec, true);
                 let keypairs = generate_deterministic_keypairs(validator_count);
                 let genesis_state = interop_genesis_state(
                     &keypairs,
                     genesis_time,
                     Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                    Some(execution_payload_header.into()),
+                    execution_payload_header,
                     &spec,
                 )?;
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
