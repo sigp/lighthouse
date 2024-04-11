@@ -2,7 +2,6 @@ use super::state_lru_cache::DietAvailabilityPendingExecutedBlock;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::AsBlock;
 use crate::data_availability_checker::overflow_lru_cache::PendingComponents;
-use crate::data_availability_checker::ProcessingComponents;
 use kzg::KzgCommitment;
 use ssz_types::FixedVector;
 use std::sync::Arc;
@@ -179,14 +178,6 @@ macro_rules! impl_availability_view {
 }
 
 impl_availability_view!(
-    ProcessingComponents,
-    Arc<SignedBeaconBlock<E>>,
-    KzgCommitment,
-    block,
-    blob_commitments
-);
-
-impl_availability_view!(
     PendingComponents,
     DietAvailabilityPendingExecutedBlock<E>,
     KzgVerifiedBlob<E>,
@@ -291,32 +282,6 @@ pub mod tests {
         }
 
         (block, blobs, invalid_blobs)
-    }
-
-    type ProcessingViewSetup<E> = (
-        Arc<SignedBeaconBlock<E>>,
-        FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
-        FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>,
-    );
-
-    pub fn setup_processing_components(
-        block: SignedBeaconBlock<E>,
-        valid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        invalid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-    ) -> ProcessingViewSetup<E> {
-        let blobs = FixedVector::from(
-            valid_blobs
-                .iter()
-                .map(|blob_opt| blob_opt.as_ref().map(|blob| blob.kzg_commitment))
-                .collect::<Vec<_>>(),
-        );
-        let invalid_blobs = FixedVector::from(
-            invalid_blobs
-                .iter()
-                .map(|blob_opt| blob_opt.as_ref().map(|blob| blob.kzg_commitment))
-                .collect::<Vec<_>>(),
-        );
-        (Arc::new(block), blobs, invalid_blobs)
     }
 
     type PendingComponentsSetup<E> = (
@@ -490,13 +455,6 @@ pub mod tests {
         };
     }
 
-    generate_tests!(
-        processing_components_tests,
-        ProcessingComponents::<E>,
-        kzg_commitments,
-        processing_blobs,
-        setup_processing_components
-    );
     generate_tests!(
         pending_components_tests,
         PendingComponents<E>,

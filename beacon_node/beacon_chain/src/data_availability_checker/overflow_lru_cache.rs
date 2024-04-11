@@ -305,6 +305,11 @@ impl<T: BeaconChainTypes> Critical<T> {
         Ok(())
     }
 
+    /// Returns true if the block root is known, without altering the LRU ordering
+    pub fn has_block(&self, block_root: &Hash256) -> bool {
+        self.in_memory.peek(block_root).is_some() || self.store_keys.contains(block_root)
+    }
+
     /// This only checks for the blobs in memory
     pub fn peek_blob(
         &self,
@@ -320,6 +325,13 @@ impl<T: BeaconChainTypes> Critical<T> {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn peek_pending_components(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<&PendingComponents<T::EthSpec>> {
+        self.in_memory.peek(block_root)
     }
 
     /// Puts the pending components in the LRU cache. If the cache
@@ -409,6 +421,11 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         })
     }
 
+    /// Returns true if the block root is known, without altering the LRU ordering
+    pub fn has_block(&self, block_root: &Hash256) -> bool {
+        self.critical.read().has_block(block_root)
+    }
+
     /// Fetch a blob from the cache without affecting the LRU ordering
     pub fn peek_blob(
         &self,
@@ -423,6 +440,14 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn with_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
+        &self,
+        block_root: &Hash256,
+        f: F,
+    ) -> R {
+        f(self.critical.read().peek_pending_components(block_root))
     }
 
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(

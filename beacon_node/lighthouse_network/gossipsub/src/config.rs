@@ -903,7 +903,6 @@ impl std::fmt::Debug for Config {
 mod test {
     use super::*;
     use crate::topic::IdentityHash;
-    use crate::types::PeerKind;
     use crate::Topic;
     use libp2p::core::UpgradeInfo;
     use std::collections::hash_map::DefaultHasher;

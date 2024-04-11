@@ -103,6 +103,7 @@ bincode = "1"
 bitvec = "1"
 byteorder = "1"
 bytes = "1"
+c-kzg = "1"
 clap = "2"
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.3"

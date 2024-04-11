@@ -300,6 +300,14 @@ lazy_static! {
         "Count of times the early attester cache returns an attestation"
     );
 
+    pub static ref BEACON_REQRESP_PRE_IMPORT_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_reqresp_pre_import_cache_size",
+        "Current count of items of the reqresp pre import cache"
+    );
+    pub static ref BEACON_REQRESP_PRE_IMPORT_CACHE_HITS: Result<IntCounter> = try_create_int_counter(
+        "beacon_reqresp_pre_import_cache_hits",
+        "Count of times the reqresp pre import cache returns an item"
+    );
 }
 
 // Second lazy-static block is used to account for macro recursion limit.
@@ -1125,15 +1133,9 @@ lazy_static! {
         Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
     );
 
-
     /*
     * Data Availability cache metrics
     */
-    pub static ref DATA_AVAILABILITY_PROCESSING_CACHE_SIZE: Result<IntGauge> =
-        try_create_int_gauge(
-            "data_availability_processing_cache_size",
-            "Number of entries in the data availability processing cache."
-        );
     pub static ref DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE: Result<IntGauge> =
         try_create_int_gauge(
             "data_availability_overflow_memory_block_cache_size",
@@ -1187,11 +1189,12 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         beacon_chain.store.state_cache_len(),
     );
 
-    let da_checker_metrics = beacon_chain.data_availability_checker.metrics();
     set_gauge_by_usize(
-        &DATA_AVAILABILITY_PROCESSING_CACHE_SIZE,
-        da_checker_metrics.processing_cache_size,
+        &BEACON_REQRESP_PRE_IMPORT_CACHE_SIZE,
+        beacon_chain.reqresp_pre_import_cache.read().len(),
     );
+
+    let da_checker_metrics = beacon_chain.data_availability_checker.metrics();
     set_gauge_by_usize(
         &DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE,
         da_checker_metrics.block_cache_size,

@@ -2491,6 +2491,7 @@ pub fn build_log(level: slog::Level, enabled: bool) -> Logger {
 
 pub enum NumBlobs {
     Random,
+    Number(usize),
     None,
 }
 
@@ -2511,6 +2512,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
                 NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =
@@ -2530,6 +2532,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
                 NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =

@@ -15,12 +15,11 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::ChainSpec;
 use types::{
-    BlobSidecar, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap,
-    RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockMerge,
+    BlobSidecar, ChainSpec, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -72,6 +71,8 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
                 RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
+                RPCResponse::LightClientOptimisticUpdate(res) => res.as_ssz_bytes(),
+                RPCResponse::LightClientFinalityUpdate(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
                 // Encode the correct version of the MetaData response based on the negotiated version.
@@ -387,32 +388,51 @@ fn context_bytes<E: EthSpec>(
     // Add the context bytes if required
     if protocol.has_context_bytes() {
         if let RPCCodedResponse::Success(rpc_variant) = resp {
-            if let RPCResponse::BlocksByRange(ref_box_block)
-            | RPCResponse::BlocksByRoot(ref_box_block) = rpc_variant
-            {
-                return match **ref_box_block {
-                    // NOTE: If you are adding another fork type here, be sure to modify the
-                    //       `fork_context.to_context_bytes()` function to support it as well!
-                    SignedBeaconBlock::Electra { .. } => {
-                        fork_context.to_context_bytes(ForkName::Electra)
-                    }
-                    SignedBeaconBlock::Deneb { .. } => {
-                        fork_context.to_context_bytes(ForkName::Deneb)
-                    }
-                    SignedBeaconBlock::Capella { .. } => {
-                        fork_context.to_context_bytes(ForkName::Capella)
-                    }
-                    SignedBeaconBlock::Merge { .. } => {
-                        fork_context.to_context_bytes(ForkName::Merge)
-                    }
-                    SignedBeaconBlock::Altair { .. } => {
-                        fork_context.to_context_bytes(ForkName::Altair)
-                    }
-                    SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
-                };
-            }
-            if let RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) = rpc_variant {
-                return fork_context.to_context_bytes(ForkName::Deneb);
+            match rpc_variant {
+                RPCResponse::BlocksByRange(ref_box_block)
+                | RPCResponse::BlocksByRoot(ref_box_block) => {
+                    return match **ref_box_block {
+                        // NOTE: If you are adding another fork type here, be sure to modify the
+                        //       `fork_context.to_context_bytes()` function to support it as well!
+                        SignedBeaconBlock::Electra { .. } => {
+                            fork_context.to_context_bytes(ForkName::Electra)
+                        }
+                        SignedBeaconBlock::Deneb { .. } => {
+                            fork_context.to_context_bytes(ForkName::Deneb)
+                        }
+                        SignedBeaconBlock::Capella { .. } => {
+                            fork_context.to_context_bytes(ForkName::Capella)
+                        }
+                        SignedBeaconBlock::Merge { .. } => {
+                            fork_context.to_context_bytes(ForkName::Merge)
+                        }
+                        SignedBeaconBlock::Altair { .. } => {
+                            fork_context.to_context_bytes(ForkName::Altair)
+                        }
+                        SignedBeaconBlock::Base { .. } => {
+                            Some(fork_context.genesis_context_bytes())
+                        }
+                    };
+                }
+                RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) => {
+                    return fork_context.to_context_bytes(ForkName::Deneb);
+                }
+                RPCResponse::LightClientBootstrap(lc_bootstrap) => {
+                    return lc_bootstrap
+                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
+                }
+                RPCResponse::LightClientOptimisticUpdate(lc_optimistic_update) => {
+                    return lc_optimistic_update
+                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
+                }
+                RPCResponse::LightClientFinalityUpdate(lc_finality_update) => {
+                    return lc_finality_update
+                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
+                }
+                // These will not pass the has_context_bytes() check
+                RPCResponse::Status(_) | RPCResponse::Pong(_) | RPCResponse::MetaData(_) => {
+                    return None;
+                }
             }
         }
     }
@@ -500,6 +520,12 @@ fn handle_rpc_request<E: EthSpec>(
                 root: Hash256::from_ssz_bytes(decoded_buffer)?,
             }),
         )),
+        SupportedProtocol::LightClientOptimisticUpdateV1 => {
+            Ok(Some(InboundRequest::LightClientOptimisticUpdate))
+        }
+        SupportedProtocol::LightClientFinalityUpdateV1 => {
+            Ok(Some(InboundRequest::LightClientFinalityUpdate))
+        }
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         SupportedProtocol::MetaDataV2 => {
@@ -587,6 +613,30 @@ fn handle_rpc_response<E: EthSpec>(
         SupportedProtocol::LightClientBootstrapV1 => match fork_name {
             Some(fork_name) => Ok(Some(RPCResponse::LightClientBootstrap(Arc::new(
                 LightClientBootstrap::from_ssz_bytes(decoded_buffer, fork_name)?,
+            )))),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::LightClientOptimisticUpdateV1 => match fork_name {
+            Some(fork_name) => Ok(Some(RPCResponse::LightClientOptimisticUpdate(Arc::new(
+                LightClientOptimisticUpdate::from_ssz_bytes(decoded_buffer, fork_name)?,
+            )))),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::LightClientFinalityUpdateV1 => match fork_name {
+            Some(fork_name) => Ok(Some(RPCResponse::LightClientFinalityUpdate(Arc::new(
+                LightClientFinalityUpdate::from_ssz_bytes(decoded_buffer, fork_name)?,
             )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,

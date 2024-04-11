@@ -56,8 +56,8 @@ pub fn process_registry_updates<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_registry_updates_slow<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_registry_updates_slow<E: EthSpec>(
+    state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     process_epoch_single_pass(
