@@ -163,7 +163,7 @@ struct InboundInfo<E: EthSpec> {
     /// Protocol of the original request we received from the peer.
     protocol: Protocol,
     /// Responses that the peer is still expecting from us.
-    remaining_chunks: u64,
+    max_remaining_chunks: u64,
     /// Useful to timing how long each request took to process. Currently only used by
     /// BlocksByRange.
     request_start_time: Instant,
@@ -471,7 +471,7 @@ where
                         // Process one more message if one exists.
                         if let Some(message) = info.pending_items.pop_front() {
                             // If this is the last chunk, terminate the stream.
-                            let last_chunk = info.remaining_chunks <= 1;
+                            let last_chunk = info.max_remaining_chunks <= 1;
                             let fut =
                                 send_message_to_inbound_substream(substream, message, last_chunk)
                                     .boxed();
@@ -537,7 +537,8 @@ where
                             {
                                 // The substream is still active, decrement the remaining
                                 // chunks expected.
-                                info.remaining_chunks = info.remaining_chunks.saturating_sub(1);
+                                info.max_remaining_chunks =
+                                    info.max_remaining_chunks.saturating_sub(1);
 
                                 // If this substream has not ended, we reset the timer.
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
@@ -552,7 +553,7 @@ where
                                     // Process one more message if one exists.
                                     if let Some(message) = info.pending_items.pop_front() {
                                         // If this is the last chunk, terminate the stream.
-                                        let last_chunk = info.remaining_chunks <= 1;
+                                        let last_chunk = info.max_remaining_chunks <= 1;
                                         let fut = send_message_to_inbound_substream(
                                             substream, message, last_chunk,
                                         )
@@ -726,7 +727,7 @@ where
                         entry.remove_entry();
                         // notify the application error
                         if request.expect_exactly_one_response() {
-                            // else we return an error, stream should not have closed early.
+                            // return an error, stream should not have closed early.
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                                 HandlerEvent::Err(HandlerErr::Outbound {
                                     id: request_id,
@@ -879,10 +880,10 @@ where
         }
 
         let (req, substream) = substream;
-        let expected_responses = req.expected_responses();
+        let max_responses = req.max_responses();
 
         // store requests that expect responses
-        if expected_responses > 0 {
+        if max_responses > 0 {
             if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
                 // Store the stream and tag the output.
                 let delay_key = self
@@ -893,14 +894,13 @@ where
                     self.current_inbound_substream_id,
                     InboundInfo {
                         state: awaiting_stream,
-                        pending_items: VecDeque::with_capacity(std::cmp::min(
-                            expected_responses,
-                            128,
-                        ) as usize),
+                        pending_items: VecDeque::with_capacity(
+                            std::cmp::min(max_responses, 128) as usize
+                        ),
                         delay_key: Some(delay_key),
                         protocol: req.versioned_protocol().protocol(),
                         request_start_time: Instant::now(),
-                        remaining_chunks: expected_responses,
+                        max_remaining_chunks: max_responses,
                     },
                 );
             } else {

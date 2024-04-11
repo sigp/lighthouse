@@ -91,7 +91,7 @@ impl<E: EthSpec> OutboundRequest<E> {
     }
     /* These functions are used in the handler for stream management */
 
-    /// Number of responses expected for this request.
+    /// Maximum number of responses expected for this request.
     pub fn max_responses(&self) -> u64 {
         match self {
             OutboundRequest::Status(_) => 1,
