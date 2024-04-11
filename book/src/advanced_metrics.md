@@ -77,7 +77,7 @@ You can adjust the frequency at which Lighthouse sends metrics to the remote ser
 `--monitoring-endpoint-period` flag. It takes an integer value in seconds, defaulting to 60
 seconds.
 
-```
+```bash
 lighthouse bn --monitoring-endpoint-period 60 --monitoring-endpoint "https://url"
 ```
 

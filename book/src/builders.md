@@ -18,7 +18,7 @@ a missed proposal and the opportunity cost of lost block rewards.
 
 The beacon node and validator client each require a new flag for lighthouse to be fully compatible with builder API servers.
 
-```
+```bash
 lighthouse bn --builder https://mainnet-builder.test
 ```
 
@@ -28,19 +28,19 @@ The beacon node will *only* query for this type of block (a "blinded" block) whe
 Otherwise, it will continue to serve full blocks as normal. In order to configure the validator client to query for
 blinded blocks, you should use the following flag:
 
-```
+```bash
 lighthouse vc --builder-proposals
 ```
 
 With the `--builder-proposals` flag, the validator client will ask for blinded blocks for all validators it manages.
 
-```
+```bash
 lighthouse vc --prefer-builder-proposals
 ```
 
 With the `--prefer-builder-proposals` flag, the validator client will always prefer blinded blocks, regardless of the payload value, for all validators it manages.
 
-```
+```bash
 lighthouse vc --builder-boost-factor <INTEGER>
 ```
 
@@ -103,7 +103,7 @@ You can also update the configured gas limit with these requests.
 
 #### Example Path
 
-```
+```text
 localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde
 ```
 
@@ -141,7 +141,7 @@ null
 
 A `null` response indicates that the request is successful. At the same time, `lighthouse vc` will show a log which looks like:
 
-```
+```text
 INFO Published validator registrations to the builder network, count: 3, service: preparation
 ```
 
@@ -153,7 +153,7 @@ Refer to [suggested fee recipient](suggested-fee-recipient.md) documentation.
 
 You can also directly configure these fields in the `validator_definitions.yml` file.
 
-```
+```text
 ---
 - enabled: true
   voting_public_key: "0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007"
@@ -202,20 +202,20 @@ You can check that your builder is configured correctly by looking for these log
 
 On start-up, the beacon node will log if a builder is configured:
 
-```
+```text
 INFO Using external block builder
 ```
 
 At regular intervals the validator client will log that it successfully registered its validators
 with the builder network:
 
-```
+```text
 INFO Published validator registrations to the builder network
 ```
 
 When you successfully propose a block using a builder, you will see this log on the beacon node:
 
-```
+```text
 INFO Successfully published a block to the builder network
 ```
 
@@ -224,30 +224,30 @@ for `INFO` and `WARN` messages indicating why the builder was not used.
 
 Examples of messages indicating fallback to a locally produced block are:
 
-```
+```text
 INFO Builder did not return a payload
 ```
 
-```
+```text
 WARN Builder error when requesting payload
 ```
 
-```
+```text
 WARN Builder returned invalid payload
 ```
 
-```
+```text
 INFO Builder payload ignored
 ```
 
-```
+```text
 INFO Chain is unhealthy, using local payload
 ```
 
 In case of fallback you should see a log indicating that the locally produced payload was
 used in place of one from the builder:
 
-```
+```text
 INFO Reconstructing a full block using a local payload
 ```
 

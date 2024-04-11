@@ -15,20 +15,20 @@ To begin checkpoint sync you will need HTTP API access to another synced beacon 
 checkpoint sync by providing the other beacon node's URL to `--checkpoint-sync-url`, alongside any
 other flags:
 
-```
+```bash
 lighthouse bn --checkpoint-sync-url "http://remote-bn:5052" ...
 ```
 
 Lighthouse will print a message to indicate that checkpoint sync is being used:
 
-```
+```text
 INFO Starting checkpoint sync                remote_url: http://remote-bn:8000/, service: beacon
 ```
 
 After a short time (usually less than a minute), it will log the details of the checkpoint
 loaded from the remote beacon node:
 
-```
+```text
 INFO Loaded checkpoint block and state       state_root: 0xe8252c68784a8d5cc7e5429b0e95747032dd1dcee0d1dc9bdaf6380bf90bc8a6, block_root: 0x5508a20147299b1a7fe9dbea1a8b3bf979f74c52e7242039bd77cbff62c0695a, slot: 2034720, service: beacon
 ```
 
@@ -44,7 +44,7 @@ as soon as forwards sync completes.
 
 The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the url for the `--checkpoint-sync-url` flag.  e.g.
 
-```
+```bash
 lighthouse bn --checkpoint-sync-url https://example.com/ ...
 ```
 
@@ -53,7 +53,7 @@ lighthouse bn --checkpoint-sync-url https://example.com/ ...
 If the beacon node fails to start due to a timeout from the checkpoint sync server, you can try
 running it again with a longer timeout by adding the flag `--checkpoint-sync-url-timeout`.
 
-```
+```bash
 lighthouse bn --checkpoint-sync-url-timeout 300 --checkpoint-sync-url https://example.com/ ...
 ```
 
@@ -67,7 +67,7 @@ from the checkpoint back to genesis.
 The beacon node will log messages similar to the following each minute while it completes backfill
 sync:
 
-```
+```text
 INFO Downloading historical blocks  est_time: 5 hrs 0 mins, speed: 111.96 slots/sec, distance: 2020451 slots (40 weeks 0 days), service: slot_notifier
 ```
 
@@ -118,7 +118,7 @@ states:
 Reconstruction runs from the state lower limit to the upper limit, narrowing the window of
 unavailable states as it goes. It will log messages like the following to show its progress:
 
-```
+```text
 INFO State reconstruction in progress        remaining: 747519, slot: 466944, service: freezer_db
 ```
 

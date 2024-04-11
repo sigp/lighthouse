@@ -10,7 +10,7 @@ In the Deneb network upgrade, one of the changes is the implementation of EIP-48
 
    One blob is 128 KB in size. Each block can carry a maximum of 6 blobs. Blobs will be kept for 4096 epochs and pruned afterwards. This means that the maximum increase in storage requirement will be:
 
-   ```
+   ```text
    2**17 bytes / blob * 6 blobs / block * 32 blocks / epoch * 4096 epochs = 96 GB
    ```
 
@@ -24,7 +24,7 @@ In the Deneb network upgrade, one of the changes is the implementation of EIP-48
 
    Use the flag `--prune-blobs false` in the beacon node. The storage requirement will be:
 
-   ```
+   ```text
    2**17 bytes * 3 blobs / block * 7200 blocks / day * 30 days = 79GB / month or 948GB / year
    ```
 

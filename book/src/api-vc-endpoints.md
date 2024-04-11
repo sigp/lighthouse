@@ -472,7 +472,7 @@ null
 
 A `null` response indicates that the request is successful. At the same time, `lighthouse vc` will log:
 
-```
+```text
 INFO Disabled validator                      voting_pubkey: 0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde
 INFO Modified key_cache saved successfully
 ```
@@ -566,7 +566,7 @@ curl -X POST http://localhost:5062/lighthouse/validators \
 
  `lighthouse vc` will log:
 
-```
+```text
 INFO Enabled validator                      voting_pubkey: 0x8ffbc881fb60841a4546b4b385ec5e9b5090fd1c4395e568d98b74b94b41a912c6101113da39d43c101369eeb9b48e50, signing_method: local_keystore
 INFO Modified key_cache saved successfully
 INFO Disabled validator                     voting_pubkey: 0xa9fadd620dc68e9fe0d6e1a69f6c54a0271ad65ab5a509e645e45c6e60ff8f4fc538f301781193a08b55821444801502
@@ -725,7 +725,7 @@ curl -X POST http://localhost:5062/lighthouse/validators/mnemonic \
 
 `lighthouse vc` will log:
 
-```
+```text
 INFO Enabled validator                       voting_pubkey: 0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380, signing_method: local_keystore
 INFO Modified key_cache saved successfully
 ```
@@ -785,7 +785,7 @@ null
 
 A `null` response indicates that the request is successful. At the same time, `lighthouse vc` will log:
 
-```
+```text
 INFO Enabled validator                       voting_pubkey: 0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380, signing_method: remote_signer
 ```
 

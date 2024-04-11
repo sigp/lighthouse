@@ -41,7 +41,7 @@ be applied. On start-up, if a split directory scenario is detected (i.e. `~/here
 Lighthouse will continue to operate with split directories. In such a scenario, the following
 harmless log will show:
 
-```
+```text
 WARN Legacy datadir location    location: "/home/user/datadir/beacon", msg: this occurs when using relative paths for a datadir location
 ```
 

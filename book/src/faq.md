@@ -56,13 +56,13 @@
 
 The error can be a warning:
 
-```
+```text
 Nov 30 21:04:28.268 WARN Syncing deposit contract block cache   est_blocks_remaining: initializing deposits, service: slot_notifier
 ```
 
 or an error:
 
-```
+```text
 ERRO Error updating deposit contract cache   error: Failed to get remote head and new block ranges: EndpointError(FarBehind), retry_millis: 60000, service: deposit_contract_rpc
 ```
 
@@ -120,7 +120,7 @@ If the same log appears every minute and you do not see progress in downloading 
 
 ### <a name="bn-duplicate"></a> I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?
 
-```
+```text
 INFO Block from HTTP API already known`
 WARN Could not publish message error: Duplicate, service: libp2p
 ```
@@ -133,7 +133,7 @@ In short, it is nothing to worry about.
 
 The log looks like:
 
-```
+```text
 WARN Head is optimistic       execution_block_hash: 0x47e7555f1d4215d1ad409b1ac188b008fcb286ed8f38d3a5e8078a0af6cbd6e1, info: chain not fully verified, block and attestation production disabled until execution engine syncs, service: slot_notifier
 ```
 
@@ -143,7 +143,7 @@ It means the beacon node will follow the chain, but it will not be able to attes
 
 An example of the log is shown below:
 
-```
+```text
 CRIT Beacon block processing error           error: ValidatorPubkeyCacheLockTimeout, service: beacon
 WARN BlockProcessingFailure                  outcome: ValidatorPubkeyCacheLockTimeout, msg: unexpected condition in processing block.
 ```
@@ -154,7 +154,7 @@ A `Timeout` error suggests that the computer may be overloaded at the moment, fo
 
 An example of the full log is shown below:
 
-```
+```text
 WARN BlockProcessingFailure                  outcome: MissingBeaconBlock(0xbdba211f8d72029554e405d8e4906690dca807d1d7b1bc8c9b88d7970f1648bc), msg: unexpected condition in processing block.
 ```
 
@@ -170,7 +170,7 @@ This warning usually comes with an http error code. Some examples are given belo
 
 1. The log shows:
 
-    ```
+    ```text
     WARN Error processing HTTP API request       method: GET, path: /eth/v1/validator/attestation_data, status: 500 Internal Server Error, elapsed: 305.65µs
     ```
 
@@ -178,13 +178,13 @@ This warning usually comes with an http error code. Some examples are given belo
 
 1. The log shows:
 
-    ```
+    ```text
     WARN Error processing HTTP API request       method: POST, path: /eth/v1/validator/duties/attester/199565, status: 503 Service Unavailable, elapsed: 96.787µs
     ```
 
     The error is `503 Service Unavailable`. This means that the beacon node is still syncing. When this happens, the validator client will log:
 
-    ```
+    ```text
     ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
     ```
 
@@ -194,7 +194,7 @@ This warning usually comes with an http error code. Some examples are given belo
 
 An example of the full log is shown below:
 
-```
+```text
 WARN Error signalling fork choice waiter slot: 6763073, error: ForkChoiceSignalOutOfOrder { current: Slot(6763074), latest: Slot(6763073) }, service: state_advance
 ```
 
@@ -204,7 +204,7 @@ This suggests that the computer resources are being overwhelmed. It could be due
 
 An example of the full log is shown below:
 
-```
+```text
 ERRO Aggregate attestation queue full, queue_len: 4096, msg: the system has insufficient resources for load, module: network::beacon_processor:1542
 ```
 
@@ -329,7 +329,7 @@ You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/
 
 Another cause for missing attestations is delays during block processing. When this happens, the debug logs will show (debug logs can be found under `$datadir/beacon/logs`):
 
-```
+```text
 DEBG Delayed head block                      set_as_head_delay: Some(93.579425ms), imported_delay: Some(1.460405278s), observed_delay: Some(2.540811921s), block_delay: 4.094796624s, slot: 6837344, proposer_index: 211108, block_root: 0x2c52231c0a5a117401f5231585de8aa5dd963bc7cbc00c544e681342eedd1700, service: beacon
 ```
 
@@ -486,7 +486,7 @@ The setting on the beacon node is the same for both cases below. In the beacon n
 
       If you have firewall setup, e.g., `ufw`, you will need to allow connections to port 5052 (assuming that the default port is used). Since the beacon node HTTP/HTTPS API is public-facing (i.e., the 5052 port is now exposed to the internet due to port forwarding), we strongly recommend users to apply IP-address filtering to the BN/VC connection from malicious actors. This can be done using the command:
 
-      ```
+      ```bash
       sudo ufw allow from vc_IP_address proto tcp to any port 5052
       ```
 
@@ -522,7 +522,7 @@ With `--metrics` enabled in the beacon node, you can find the number of peers co
 
 A response example is:
 
-```
+```text
 # HELP libp2p_quic_peers Count of libp2p peers currently connected via QUIC
 # TYPE libp2p_quic_peers gauge
 libp2p_quic_peers 4

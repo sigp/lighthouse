@@ -30,7 +30,7 @@ If you can see the latest [Lighthouse release](https://github.com/sigp/lighthous
 
 ### Example Version Output
 
-```
+```text
 Lighthouse vx.x.xx-xxxxxxxxx
 BLS Library: xxxx-xxxxxxx
 ```
@@ -49,13 +49,13 @@ compatibility (see [Portability](./installation-binaries.md#portability)).
 
 To install a specific tag (in this case `latest-modern`), add the tag name to your `docker` commands:
 
-```
+```bash
 docker pull sigp/lighthouse:latest-modern
 ```
 
 Image tags follow this format:
 
-```
+```text
 ${version}${arch}${stability}${modernity}${features}
 ```
 

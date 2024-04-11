@@ -11,7 +11,7 @@ Usage:
 
 The file should contain key value pairs corresponding to validator public keys and their associated graffiti. The file can also contain a `default` key for the default case.
 
-```
+```text
 default: default_graffiti
 public_key1: graffiti1
 public_key2: graffiti2
@@ -20,7 +20,7 @@ public_key2: graffiti2
 
 Below is an example of a graffiti file:
 
-```
+```text
 default: Lighthouse
 0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007: mr f was here
 0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477: mr v was here
@@ -36,7 +36,7 @@ You can also update the graffitis in the `validator_definitions.yml` file using 
 
 Below is an example of the validator_definitions.yml with validator specific graffitis:
 
-```
+```text
 ---
 - enabled: true
   voting_public_key: "0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007"
