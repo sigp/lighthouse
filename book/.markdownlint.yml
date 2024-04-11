@@ -23,3 +23,7 @@ MD040: false
 # MD033 in-line html: https://github.com/DavidAnson/markdownlint/blob/main/doc/md033.md
 # In-line html is fine in the markdown files, so this is set to false
 MD033: false
+
+#MD013 line length: https://github.com/DavidAnson/markdownlint/blob/main/doc/md013.md
+# Set to false as this will also interfere with help_x.md files, and it is not necessary to comply with the line length of 80
+MD013: false
