@@ -14,6 +14,7 @@ use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
 use types::Address;
+use types::attestation::AttestationBase;
 
 fn new_keystore(password: ZeroizeString) -> Keystore {
     let keypair = Keypair::random();
@@ -1094,7 +1095,7 @@ async fn generic_migration_test(
         // Sign attestations on VC1.
         for (validator_index, mut attestation) in first_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
-            let current_epoch = attestation.data.target.epoch;
+            let current_epoch = attestation.data().target.epoch;
             tester1
                 .validator_store
                 .sign_attestation(public_key, 0, &mut attestation, current_epoch)
@@ -1170,7 +1171,7 @@ async fn generic_migration_test(
         // Sign attestations on the second VC.
         for (validator_index, mut attestation, should_succeed) in second_vc_attestations {
             let public_key = keystore_pubkey(&keystores[validator_index]);
-            let current_epoch = attestation.data.target.epoch;
+            let current_epoch = attestation.data().target.epoch;
             match tester2
                 .validator_store
                 .sign_attestation(public_key, 0, &mut attestation, current_epoch)
@@ -1236,12 +1237,11 @@ async fn delete_nonexistent_keystores() {
 }
 
 fn make_attestation(source_epoch: u64, target_epoch: u64) -> Attestation<E> {
-    Attestation {
+    Attestation::Base(AttestationBase {
         aggregation_bits: BitList::with_capacity(
             <E as EthSpec>::MaxValidatorsPerCommittee::to_usize(),
         )
         .unwrap(),
-        index: <_>::default(),
         data: AttestationData {
             source: Checkpoint {
                 epoch: Epoch::new(source_epoch),
@@ -1254,7 +1254,7 @@ fn make_attestation(source_epoch: u64, target_epoch: u64) -> Attestation<E> {
             ..AttestationData::default()
         },
         signature: AggregateSignature::empty(),
-    }
+    })
 }
 
 #[tokio::test]

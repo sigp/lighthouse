@@ -20,7 +20,7 @@ pub type ObservedSyncContributions<E> = ObservedAggregates<
 pub type ObservedAggregateAttestations<E> = ObservedAggregates<
     Attestation<E>,
     E,
-    BitList<<E as types::EthSpec>::MaxValidatorsPerCommittee>,
+    BitList<<E as types::EthSpec>::MaxValidatorsPerCommitteePerSlot>,
 >;
 
 /// A trait use to associate capacity constants with the type being stored in `ObservedAggregates`.
@@ -104,25 +104,19 @@ pub trait SubsetItem {
 
 // TODO(eip7594) need to be able to handle different size bitlists
 impl<E: EthSpec> SubsetItem for Attestation<E> {
-    type Item = BitList<E::MaxValidatorsPerCommittee>;
+    type Item = BitList<E::MaxValidatorsPerCommitteePerSlot>;
 
     fn is_subset(&self, other: &Self::Item) -> bool {
-        // TODO(eip7594)
-        todo!()
-        //self.aggregation_bits().is_subset(other)
+        self.aggregation_bits().is_subset(other)
     }
 
     fn is_superset(&self, other: &Self::Item) -> bool {
-        // TODO(eip7594)
-        todo!()
-        // other.is_subset(&self.aggregation_bits)
+        other.is_subset(&self.aggregation_bits())
     }
 
     /// Returns the sync contribution aggregation bits.
     fn get_item(&self) -> Self::Item {
-        // TODO(eip7594)
-        todo!()
-        //self.aggregation_bits.clone()
+        self.aggregation_bits().clone()
     }
 
     /// Returns the hash tree root of the attestation data.

@@ -10,7 +10,7 @@ use state_processing::{
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
-            altair_deneb, base, electra, process_attester_slashings,
+            altair_electra, base, electra, process_attester_slashings,
             process_bls_to_execution_changes, process_deposits, process_exits,
             process_proposer_slashings,
         },
@@ -102,7 +102,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => {
                 initialize_progressive_balances_cache(state, None, spec)?;
-                altair_deneb::process_attestation(
+                altair_electra::process_attestation(
                     state,
                     self.as_base().unwrap(),
                     0,

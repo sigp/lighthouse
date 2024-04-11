@@ -773,7 +773,7 @@ mod release_tests {
     };
     use lazy_static::lazy_static;
     use maplit::hashset;
-    use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
+    use state_processing::{common::indexed_attestation_base::get_attesting_indices_from_state, VerifyOperation};
     use std::collections::BTreeSet;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
     use types::*;
@@ -884,13 +884,13 @@ mod release_tests {
                 })
                 .unwrap();
 
-            let att1_indices = get_attesting_indices_from_state(&state, &att1).unwrap();
-            let att2_indices = get_attesting_indices_from_state(&state, &att2).unwrap();
+            let att1_indices = get_attesting_indices_from_state(&state, &att1.as_base().unwrap()).unwrap();
+            let att2_indices = get_attesting_indices_from_state(&state, &att2.as_base().unwrap()).unwrap();
             let att1_split = SplitAttestation::new(att1.clone(), att1_indices);
             let att2_split = SplitAttestation::new(att2.clone(), att2_indices);
 
             assert_eq!(
-                att1.aggregation_bits.num_set_bits(),
+                att1.aggregation_bits().num_set_bits(),
                 earliest_attestation_validators(
                     &att1_split.as_ref(),
                     &state,
@@ -904,8 +904,8 @@ mod release_tests {
                 .unwrap()
                 .current_epoch_attestations
                 .push(PendingAttestation {
-                    aggregation_bits: att1.aggregation_bits.clone(),
-                    data: att1.data.clone(),
+                    aggregation_bits: att1.aggregation_bits().clone(),
+                    data: att1.data().clone(),
                     inclusion_delay: 0,
                     proposer_index: 0,
                 })
@@ -958,7 +958,7 @@ mod release_tests {
 
         for (atts, _) in attestations {
             for (att, _) in atts {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices = get_attesting_indices_from_state(&state, &att.as_base().unwrap()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
@@ -984,7 +984,7 @@ mod release_tests {
 
         let agg_att = &block_attestations[0];
         assert_eq!(
-            agg_att.aggregation_bits.num_set_bits(),
+            agg_att.aggregation_bits().num_set_bits(),
             spec.target_committee_size as usize
         );
 
@@ -1028,7 +1028,7 @@ mod release_tests {
 
         for (_, aggregate) in attestations {
             let att = aggregate.unwrap().message.aggregate;
-            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+            let attesting_indices = get_attesting_indices_from_state(&state, &att.as_base().unwrap()).unwrap();
             op_pool
                 .insert_attestation(att.clone(), attesting_indices.clone())
                 .unwrap();
@@ -1116,7 +1116,7 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs1.into_iter().chain(aggs2.into_iter()) {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices = get_attesting_indices_from_state(&state, &att.as_base().unwrap()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
@@ -1188,7 +1188,7 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices = get_attesting_indices_from_state(&state, &att.as_base().unwrap()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
@@ -1220,7 +1220,7 @@ mod release_tests {
 
         // All the best attestations should be signed by at least `big_step_size` (4) validators.
         for att in &best_attestations {
-            assert!(att.aggregation_bits.num_set_bits() >= big_step_size);
+            assert!(att.aggregation_bits().num_set_bits() >= big_step_size);
         }
     }
 
@@ -1283,7 +1283,7 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices = get_attesting_indices_from_state(&state, &att.as_base().unwrap()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
@@ -1326,7 +1326,7 @@ mod release_tests {
         reward_cache.update(&state).unwrap();
 
         for att in best_attestations {
-            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+            let attesting_indices = get_attesting_indices_from_state(&state, &att.as_base().unwrap()).unwrap();
             let split_attestation = SplitAttestation::new(att, attesting_indices);
             let mut fresh_validators_rewards = AttMaxCover::new(
                 split_attestation.as_ref(),

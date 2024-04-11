@@ -49,6 +49,7 @@ pub enum Error {
     Serialize,
     TreeHash,
     Encode,
+    Decode,
     Derivative,
     Deserialize,
     arbitrary::Arbitrary,

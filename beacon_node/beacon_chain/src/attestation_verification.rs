@@ -543,8 +543,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // TODO(eip7594) this fn should accept a list of committees for this slot
         let get_indexed_attestation_with_committee =
             |(committees, _): (Vec<BeaconCommittee>, CommitteesPerSlot)| {
-   
-
                 match attestation {
                     Attestation::Base(att) => {
                         let committee = committees
@@ -555,9 +553,8 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                                 slot: att.data.slot,
                                 index: att.data.index,
                             })?;
-                            
+
                         if let Some(committee) = committee {
-                            
                             // Note: this clones the signature which is known to be a relatively slow operation.
                             //
                             // Future optimizations should remove this clone.
