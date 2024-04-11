@@ -13,6 +13,7 @@ mod block_rewards;
 mod build_block_contents;
 mod builder_states;
 mod database;
+mod light_client;
 mod metrics;
 mod produce_block;
 mod proposer_duties;
@@ -2407,6 +2408,55 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET beacon/light_client/updates
+    let get_beacon_light_client_updates = beacon_light_client_path
+        .clone()
+        .and(task_spawner_filter.clone())
+        .and(warp::path("updates"))
+        .and(warp::path::end())
+        .and(warp::query::<api_types::LightClientUpdatesQuery>())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |chain: Arc<BeaconChain<T>>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             query: LightClientUpdatesQuery,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let updates = chain
+                        .light_client_server_cache
+                        .get_light_client_updates(query.start_period, count)
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(
+                                "No LightClientUpdates found".to_string(),
+                            )
+                        })?;
+
+                    let fork_name = chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(*update.signature_slot());
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .body(update.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
+                            version: Some(fork_name),
+                            metadata: EmptyMetadata {},
+                            data: update,
+                        })
+                        .into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
     /*
      * beacon/rewards
      */
@@ -4528,6 +4578,10 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(
                     enable(ctx.config.enable_light_client_server)
                         .and(get_beacon_light_client_bootstrap),
+                )
+                .uor(
+                    enable(ctx.config.enable_light_client_server)
+                        .and(get_beacon_light_client_updates)
                 )
                 .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_lighthouse_merge_readiness)

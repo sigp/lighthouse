@@ -1362,19 +1362,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
-    pub fn get_latest_light_client_finality_update(
-        &self,
-    ) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
-        self.light_client_server_cache.get_latest_finality_update()
-    }
-
-    pub fn get_latest_light_client_optimistic_update(
-        &self,
-    ) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
-        self.light_client_server_cache
-            .get_latest_optimistic_update()
-    }
-
     pub fn get_light_client_updates(
         &self,
         sync_committee_period: u64,

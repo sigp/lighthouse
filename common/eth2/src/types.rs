@@ -767,6 +767,12 @@ pub struct ValidatorAggregateAttestationQuery {
     pub slot: Slot,
 }
 
+#[derive(Clone, Deserialize)]
+pub struct LightClientUpdatesQuery {
+    pub start_period: u64,
+    pub count: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct BeaconCommitteeSubscription {
     #[serde(with = "serde_utils::quoted_u64")]
