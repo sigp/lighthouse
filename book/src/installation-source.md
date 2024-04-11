@@ -23,7 +23,7 @@ The rustup installer provides an easy way to update the Rust compiler, and works
 With Rust installed, follow the instructions below to install dependencies relevant to your
 operating system.
 
-#### Ubuntu
+### Ubuntu
 
 Install the following packages:
 
@@ -42,7 +42,7 @@ sudo apt update && sudo apt install -y git gcc g++ make cmake pkg-config llvm-de
 
 After this, you are ready to [build Lighthouse](#build-lighthouse).
 
-#### Fedora/RHEL/CentOS
+### Fedora/RHEL/CentOS
 
 Install the following packages:
 
@@ -52,7 +52,7 @@ yum -y install git make perl clang cmake
 
 After this, you are ready to [build Lighthouse](#build-lighthouse).
 
-#### macOS
+### macOS
 
 1. Install the [Homebrew][] package manager.
 1. Install CMake using Homebrew:
@@ -65,7 +65,7 @@ brew install cmake
 
 After this, you are ready to [build Lighthouse](#build-lighthouse).
 
-#### Windows
+### Windows
 
 1. Install [Git](https://git-scm.com/download/win).
 1. Install the [Chocolatey](https://chocolatey.org/install) package manager for Windows.

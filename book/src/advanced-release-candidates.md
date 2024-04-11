@@ -20,7 +20,7 @@ you're looking for stable Lighthouse**.
 From time to time, Lighthouse may use the terms "release candidate" and "pre release"
 interchangeably. A pre release is identical to a release candidate.
 
-### Examples
+## Examples
 
 [`v1.4.0-rc.0`] has `rc` in the version string and is therefore a release candidate. This release is
 *not* stable and is *not* intended for critical tasks on mainnet (e.g., staking).

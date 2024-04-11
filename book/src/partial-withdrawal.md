@@ -5,7 +5,7 @@ After the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>
 - if a validator has a withdrawal credential type `0x00`, the rewards will continue to accumulate and will be locked in the beacon chain.
 - if a validator has a withdrawal credential type `0x01`, any rewards above 32ETH will be periodically withdrawn to the withdrawal address. This is also known as the "validator sweep", i.e., once the "validator sweep" reaches your validator's index, your rewards will be withdrawn to the withdrawal address.  At the time of writing, with 560,000+ validators on the Ethereum mainnet, you shall expect to receive the rewards approximately every 5 days.
 
-### FAQ
+## FAQ
 
 1. How to know if I have the withdrawal credentials type `0x00` or `0x01`?
 

@@ -123,7 +123,7 @@ test src/lib.rs - (line 10) ... ok
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s$ cargo test -p eth2_ssz
 ```
 
-#### test_logger
+### test_logger
 
 The test_logger, located in `/common/logging/` can be used to create a `Logger` that by
 default returns a NullLogger. But if `--features 'logging/test_logger'` is passed while

@@ -15,7 +15,7 @@ lighthouse --network mainnet --datadir /var/lib/my-custom-dir vc
 The first step creates a `validators` directory under `/var/lib/my-custom-dir` which contains the imported keys and [`validator_definitions.yml`](./validator-management.md).
 After that, we simply run the beacon chain and validator client with the custom dir path.
 
-### Relative Paths
+## Relative Paths
 
 [#2682]: https://github.com/sigp/lighthouse/pull/2682
 [#2846]: https://github.com/sigp/lighthouse/pull/2846

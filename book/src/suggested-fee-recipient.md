@@ -95,7 +95,7 @@ client.
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 202, 404                                   |
 
-#### Example Request Body
+### Example Request Body
 
 ```json
 {

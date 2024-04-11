@@ -5,7 +5,7 @@ be adjusted to handle a variety of network situations. This section outlines
 some of these configuration parameters and their consequences at the networking
 level and their general intended use.
 
-### Target Peers
+## Target Peers
 
 The beacon node has a `--target-peers` CLI parameter. This allows you to
 instruct the beacon node how many peers it should try to find and maintain.
@@ -37,7 +37,7 @@ large peer count will not speed up sync.
 For these reasons, we recommend users do not modify the `--target-peers` count
 drastically and use the (recommended) default.
 
-### NAT Traversal (Port Forwarding)
+## NAT Traversal (Port Forwarding)
 
 Lighthouse, by default, uses port 9000 for both TCP and UDP. Since v4.5.0, Lighthouse will also attempt to make QUIC connections via UDP port 9001 by default. Lighthouse will
 still function if it is behind a NAT without any port mappings. Although
@@ -61,7 +61,7 @@ TCP and UDP ports (9000 TCP/UDP, and 9001 UDP by default).
 > explicitly specify them using the `--enr-tcp-port` and `--enr-udp-port` as
 > explained in the following section.
 
-### How to Open Ports
+## How to Open Ports
 
 The steps to do port forwarding depends on the router, but the general steps are given below:
 
@@ -93,7 +93,7 @@ Since V4.5.0 port 9001/UDP is also used for QUIC support.
 
 5. To check that you have successfully opened the ports, go to [yougetsignal](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. Note: this will only confirm if port 9000/TCP is open. You will need to ensure you have correctly setup port forwarding for the UDP ports (`9000` and `9001` by default).
 
-### ENR Configuration
+## ENR Configuration
 
 Lighthouse has a number of CLI parameters for constructing and modifying the
 local Ethereum Node Record (ENR). Examples are `--enr-address`,
@@ -115,7 +115,7 @@ harder for peers to find you or potentially making it harder for other peers to
 find each other. We recommend not touching these settings unless for a more
 advanced use case.
 
-### IPv6 support
+## IPv6 support
 
 As noted in the previous sections, two fundamental parts to ensure good
 connectivity are: The parameters that configure the sockets over which
@@ -123,7 +123,7 @@ Lighthouse listens for connections, and the parameters used to tell other peers
 how to connect to your node. This distinction is relevant and applies to most
 nodes that do not run directly on a public network.
 
-#### Configuring Lighthouse to listen over IPv4/IPv6/Dual stack
+### Configuring Lighthouse to listen over IPv4/IPv6/Dual stack
 
 To listen over only IPv6 use the same parameters as done when listening over
 IPv4 only:
@@ -151,7 +151,7 @@ To listen over both IPv4 and IPv6:
   UDP over IPv6. This will default to the value given to `--port6` + 1. This flag
   has no effect when listening over IPv6 only.
 
-##### Configuration Examples
+#### Configuration Examples
 
 > When using `--listen-address :: --listen-address 0.0.0.0 --port 9909`, listening will be set up as follows:
 >
@@ -177,7 +177,7 @@ To listen over both IPv4 and IPv6:
 > It listens on the default value of `--port6` (`9090`) for TCP, and port `9999` for UDP.
 > QUIC will use port `9091` for UDP, which is the default `--port6` value (`9090`) + 1.
 
-#### Configuring Lighthouse to advertise IPv6 reachable addresses
+### Configuring Lighthouse to advertise IPv6 reachable addresses
 
 Lighthouse supports IPv6 to connect to other nodes both over IPv6 exclusively,
 and dual stack using one socket for IPv4 and another socket for IPv6. In both
@@ -208,7 +208,7 @@ In the general case, a user will not require to set these explicitly. Update
 these options only if you can guarantee your node is reachable with these
 values.
 
-#### Known caveats
+### Known caveats
 
 IPv6 link local addresses are likely to have poor connectivity if used in
 topologies with more than one interface. Use global addresses for the general

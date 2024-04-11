@@ -16,7 +16,7 @@ Although we don't recommend that users rely on these endpoints, we
 document them briefly so they can be utilized by developers and
 researchers.
 
-### `/lighthouse/health`
+## `/lighthouse/health`
 
 *Note: This endpoint is presently only available on Linux.*
 
@@ -64,7 +64,7 @@ curl -X GET "http://localhost:5052/lighthouse/health" -H  "accept: application/j
 
 ```
 
-### `/lighthouse/ui/health`
+## `/lighthouse/ui/health`
 
 Returns information regarding the health of the host machine.
 
@@ -102,7 +102,7 @@ curl -X GET "http://localhost:5052/lighthouse/ui/health" -H  "accept: applicatio
 }
 ```
 
-### `/lighthouse/ui/validator_count`
+## `/lighthouse/ui/validator_count`
 
 Returns an overview of validators.
 
@@ -126,7 +126,7 @@ curl -X GET "http://localhost:5052/lighthouse/ui/validator_count" -H "accept: ap
 }
 ```
 
-### `/lighthouse/ui/validator_metrics`
+## `/lighthouse/ui/validator_metrics`
 
 Re-exposes certain metrics from the validator monitor to the HTTP API. This API requires that the beacon node to have the flag `--validator-monitor-auto`. This API will only return metrics for the validators currently being monitored and present in the POST data, or the validators running in the validator client.
 
@@ -165,7 +165,7 @@ Running this API without the flag `--validator-monitor-auto` in the beacon node 
 }
 ```
 
-### `/lighthouse/syncing`
+## `/lighthouse/syncing`
 
 Returns the sync status of the beacon node.
 
@@ -196,7 +196,7 @@ There are two possible outcomes, depending on whether the beacon node is syncing
    }
    ```
 
-### `/lighthouse/peers`
+## `/lighthouse/peers`
 
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/peers" -H  "accept: application/json" | jq
@@ -265,7 +265,7 @@ curl -X GET "http://localhost:5052/lighthouse/peers" -H  "accept: application/js
 ]
 ```
 
-### `/lighthouse/peers/connected`
+## `/lighthouse/peers/connected`
 
 Returns information about connected peers.
 
@@ -337,7 +337,7 @@ curl -X GET "http://localhost:5052/lighthouse/peers/connected" -H  "accept: appl
 ]
 ```
 
-### `/lighthouse/proto_array`
+## `/lighthouse/proto_array`
 
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/proto_array" -H  "accept: application/json" | jq
@@ -345,20 +345,20 @@ curl -X GET "http://localhost:5052/lighthouse/proto_array" -H  "accept: applicat
 
 *Example omitted for brevity.*
 
-### `/lighthouse/validator_inclusion/{epoch}/{validator_id}`
+## `/lighthouse/validator_inclusion/{epoch}/{validator_id}`
 
 See [Validator Inclusion APIs](./validator-inclusion.md).
 
-### `/lighthouse/validator_inclusion/{epoch}/global`
+## `/lighthouse/validator_inclusion/{epoch}/global`
 
 See [Validator Inclusion APIs](./validator-inclusion.md).
 
-### `/lighthouse/eth1/syncing`
+## `/lighthouse/eth1/syncing`
 
 Returns information regarding execution layer, as it is required for use in
 consensus layer
 
-#### Fields
+### Fields
 
 - `head_block_number`, `head_block_timestamp`: the block number and timestamp
 from the very head of the execution chain. Useful for understanding the immediate
@@ -383,7 +383,7 @@ number and timestamp of the latest block we have in our block cache.
  `eth1_node_sync_status_percentage < 100.0` since the cache only cares
  about blocks a certain distance behind the head.
 
-#### Example
+### Example
 
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/eth1/syncing" -H  "accept: application/json" | jq
@@ -403,11 +403,11 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/syncing" -H  "accept: applica
 }
 ```
 
-### `/lighthouse/eth1/block_cache`
+## `/lighthouse/eth1/block_cache`
 
 Returns a list of all the execution layer blocks in the execution client voting cache.
 
-#### Example
+### Example
 
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/eth1/block_cache" -H  "accept: application/json" | jq
@@ -434,11 +434,11 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/block_cache" -H  "accept: app
 }
 ```
 
-### `/lighthouse/eth1/deposit_cache`
+## `/lighthouse/eth1/deposit_cache`
 
 Returns a list of all cached logs from the deposit contract.
 
-#### Example
+### Example
 
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/eth1/deposit_cache" -H  "accept: application/json" | jq
@@ -473,7 +473,7 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/deposit_cache" -H  "accept: a
 }
 ```
 
-### `/lighthouse/liveness`
+## `/lighthouse/liveness`
 
 POST request that checks if any of the given validators have attested in the given epoch. Returns a list
 of objects, each including the validator index, epoch, and `is_live` status of a requested validator.
@@ -498,7 +498,7 @@ curl -X POST "http://localhost:5052/lighthouse/liveness" -d '{"indices":["0","1"
 }
 ```
 
-### `/lighthouse/database/info`
+## `/lighthouse/database/info`
 
 Information about the database's split point and anchor info.
 
@@ -548,7 +548,7 @@ reconstruction has yet to be completed. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
 Sync](./checkpoint-sync.md#reconstructing-states).
 
-### `/lighthouse/merge_readiness`
+## `/lighthouse/merge_readiness`
 
 Returns the current difficulty and terminal total difficulty of the network. Before [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> September 2022, you will see that the current difficulty is less than the terminal total difficulty, An example is shown below:
 
@@ -582,7 +582,7 @@ As all testnets and Mainnet have been merged, both values will be the same after
 }
 ```
 
-### `/lighthouse/analysis/attestation_performance/{index}`
+## `/lighthouse/analysis/attestation_performance/{index}`
 
 Fetch information about the attestation performance of a validator index or all validators for a
 range of consecutive epochs.
@@ -660,7 +660,7 @@ Caveats:
   This is because the state *prior* to the `start_epoch` needs to be loaded from the database,
   and loading a state on a boundary is most efficient.
 
-### `/lighthouse/analysis/block_rewards`
+## `/lighthouse/analysis/block_rewards`
 
 Fetch information about the block rewards paid to proposers for a range of consecutive blocks.
 
@@ -714,7 +714,7 @@ Caveats:
 [block_reward_src]:
 https://github.com/sigp/lighthouse/tree/unstable/common/eth2/src/lighthouse/block_rewards.rs
 
-### `/lighthouse/analysis/block_packing`
+## `/lighthouse/analysis/block_packing`
 
 Fetch information about the block packing efficiency of blocks for a range of consecutive
 epochs.
@@ -756,7 +756,7 @@ Caveats:
   This is because the state *prior* to the `start_epoch` needs to be loaded from the database, and
   loading a state on a boundary is most efficient.
 
-### `/lighthouse/logs`
+## `/lighthouse/logs`
 
 This is a Server Side Event subscription endpoint. This allows a user to read
 the Lighthouse logs directly from the HTTP API endpoint. This currently
@@ -785,7 +785,7 @@ Should provide an output that emits log events as they occur:
 }
 ```
 
-### `/lighthouse/nat`
+## `/lighthouse/nat`
 
 Checks if the ports are open.
 

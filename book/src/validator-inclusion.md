@@ -63,7 +63,7 @@ The following fields are returned:
 
 From this data you can calculate:
 
-#### Justification/Finalization Rate
+### Justification/Finalization Rate
 
 `previous_epoch_target_attesting_gwei / current_epoch_active_gwei`
 

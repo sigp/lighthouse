@@ -2,7 +2,7 @@
 
 Lighthouse provides four options for setting validator graffiti.
 
-### 1. Using the "--graffiti-file" flag on the validator client
+## 1. Using the "--graffiti-file" flag on the validator client
 
 Users can specify a file with the `--graffiti-file` flag. This option is useful for dynamically changing graffitis for various use cases (e.g. drawing on the beaconcha.in graffiti wall). This file is loaded once on startup and reloaded everytime a validator is chosen to propose a block.
 
@@ -28,7 +28,7 @@ default: Lighthouse
 
 Lighthouse will first search for the graffiti corresponding to the public key of the proposing validator, if there are no matches for the public key, then it uses the graffiti corresponding to the default key if present.
 
-### 2. Setting the graffiti in the `validator_definitions.yml`
+## 2. Setting the graffiti in the `validator_definitions.yml`
 
 Users can set validator specific graffitis in `validator_definitions.yml` with the `graffiti` key. This option is recommended for static setups where the graffitis won't change on every new block proposal.
 
@@ -52,13 +52,13 @@ Below is an example of the validator_definitions.yml with validator specific gra
   graffiti: "somethingprofound"
 ```
 
-### 3. Using the "--graffiti" flag on the validator client
+## 3. Using the "--graffiti" flag on the validator client
 
 Users can specify a common graffiti for all their validators using the `--graffiti` flag on the validator client.
 
 Usage: `lighthouse vc --graffiti example`
 
-### 4. Using the "--graffiti" flag on the beacon node
+## 4. Using the "--graffiti" flag on the beacon node
 
 Users can also specify a common graffiti using the `--graffiti` flag on the beacon node as a common  graffiti for all validators.
 
@@ -72,7 +72,7 @@ Usage: `lighthouse bn --graffiti fortytwo`
 > 4. If the `--graffiti` flag on the validator client is not passed, load the graffiti passed in the `--graffiti` flag on the beacon node.
 > 4. If the `--graffiti` flag is not passed, load the default Lighthouse graffiti.
 
-### Set Graffiti via HTTP
+## Set Graffiti via HTTP
 
 Use the [Lighthouse API](api-vc-endpoints.md) to set graffiti on a per-validator basis. This method updates the graffiti
 both in memory and in the `validator_definitions.yml` file. The new graffiti will be used in the next block proposal
@@ -80,7 +80,7 @@ without requiring a validator client restart.
 
 Refer to [Lighthouse API](api-vc-endpoints.html#patch-lighthousevalidatorsvoting_pubkey) for API specification.
 
-#### Example Command
+### Example Command
 
 ```bash
 DATADIR=/var/lib/lighthouse

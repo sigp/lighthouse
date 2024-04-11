@@ -11,14 +11,14 @@ Tested on:
 Raspberry Pi (`aarch64`). Compiling on a faster machine (i.e., `x86_64`
 desktop) may be convenient.*
 
-### 1. Install Ubuntu
+## 1. Install Ubuntu
 
 Follow the [Ubuntu Raspberry Pi installation instructions](https://ubuntu.com/download/raspberry-pi). **A 64-bit version is required**
 
 A graphical environment is not required in order to use Lighthouse.  Only the
 terminal and an Internet connection are necessary.
 
-### 2. Install Packages
+## 2. Install Packages
 
 Install the Ubuntu dependencies:
 
@@ -31,7 +31,7 @@ sudo apt update && sudo apt install -y git gcc g++ make cmake pkg-config llvm-de
 > - If there are difficulties, try updating the package manager with `sudo apt
 >   update`.
 
-### 3. Install Rust
+## 3. Install Rust
 
 Install Rust as per [rustup](https://rustup.rs/):
 
@@ -46,7 +46,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 >   be found, run `source $HOME/.cargo/env`. After that, running `cargo version` should return the version, for example `cargo 1.68.2`.
 > - It's generally advisable to append `source $HOME/.cargo/env` to `~/.bashrc`.
 
-### 4. Install Lighthouse
+## 4. Install Lighthouse
 
 ```bash
 git clone https://github.com/sigp/lighthouse.git
