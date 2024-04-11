@@ -10,9 +10,6 @@ use types::{
 
 pub const DEFAULT_ETH1_BLOCK_HASH: &[u8] = &[0x42; 32];
 
-pub const DEFAULT_EXECUTION_PAYLOAD_TRANSACTIONS_ROOT: &str =
-    "0x7ffe241ea60187fdb0187bfa22de35d1f9bed7ab061d9401fd47e34a54fbede1";
-
 pub fn bls_withdrawal_credentials(pubkey: &PublicKey, spec: &ChainSpec) -> Hash256 {
     let mut credentials = hash(&pubkey.as_ssz_bytes());
     credentials[0] = spec.bls_withdrawal_prefix_byte;

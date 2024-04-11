@@ -19,6 +19,7 @@ extern crate clap;
 mod basic_sim;
 mod checks;
 mod cli;
+mod fallback_sim;
 mod local_network;
 mod retry;
 
@@ -36,6 +37,13 @@ fn main() {
     let matches = cli_app().get_matches();
     match matches.subcommand() {
         ("basic-sim", Some(matches)) => match basic_sim::run_basic_sim(matches) {
+            Ok(()) => println!("Simulation exited successfully"),
+            Err(e) => {
+                eprintln!("Simulation exited with error: {}", e);
+                std::process::exit(1)
+            }
+        },
+        ("fallback-sim", Some(matches)) => match fallback_sim::run_fallback_sim(matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);

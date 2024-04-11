@@ -17,7 +17,6 @@ use types::{ChainSpec, Epoch, EthSpec};
 
 const BOOTNODE_PORT: u16 = 42424;
 const QUIC_PORT: u16 = 43424;
-pub const INVALID_ADDRESS: &str = "http://127.0.0.1:42423";
 
 pub const EXECUTION_PORT: u16 = 4000;
 
@@ -148,7 +147,6 @@ impl<E: EthSpec> LocalNetwork<E> {
             default_mock_execution_config::<E>(&context.eth2_config().spec, genesis_time)
         };
 
-        //let network = LocalNetwork::new(context, beacon_config.clone(), mock_execution_config).await?;
         let network = Self {
             inner: Arc::new(Inner {
                 context,
@@ -227,6 +225,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         &self,
         mut beacon_config: ClientConfig,
         mut mock_execution_config: MockExecutionConfig,
+        is_proposer: bool,
     ) -> Result<(LocalBeaconNode<E>, LocalExecutionNode<E>), String> {
         let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
 
@@ -242,7 +241,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_config.network.enr_udp4_port = Some(discv5_port.try_into().unwrap());
         beacon_config.network.enr_tcp4_port = Some(libp2p_tcp_port.try_into().unwrap());
         beacon_config.network.discv5_config.table_filter = |_| true;
-        //beacon_config.network.proposer_only = is_proposer;
+        beacon_config.network.proposer_only = is_proposer;
 
         mock_execution_config.server_config.listen_port = EXECUTION_PORT + count;
 
@@ -295,7 +294,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         }
         let (beacon_node, execution_node) = if first_bn_exists {
             // Network already exists. We construct a new node.
-            self.construct_beacon_node(beacon_config, mock_execution_config)
+            self.construct_beacon_node(beacon_config, mock_execution_config, is_proposer)
                 .await?
         } else {
             // Network does not exist. We construct a boot node.
@@ -319,7 +318,6 @@ impl<E: EthSpec> LocalNetwork<E> {
         mut validator_config: ValidatorConfig,
         beacon_node: usize,
         validator_files: ValidatorFiles,
-        invalid_first_beacon_node: bool, //to test beacon node fallbacks
     ) -> Result<(), String> {
         let context = self
             .context
@@ -350,11 +348,7 @@ impl<E: EthSpec> LocalNetwork<E> {
             format!("http://{}:{}", socket_addr.ip(), socket_addr.port()).as_str(),
         )
         .unwrap();
-        validator_config.beacon_nodes = if invalid_first_beacon_node {
-            vec![SensitiveUrl::parse(INVALID_ADDRESS).unwrap(), beacon_node]
-        } else {
-            vec![beacon_node]
-        };
+        validator_config.beacon_nodes = vec![beacon_node];
 
         // If we have a proposer node established, use it.
         if let Some(proposer_socket_addr) = proposer_socket_addr {
@@ -380,7 +374,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         Ok(())
     }
 
-    pub async fn _add_validator_client_with_fallbacks(
+    pub async fn add_validator_client_with_fallbacks(
         &self,
         mut validator_config: ValidatorConfig,
         validator_index: usize,
@@ -403,11 +397,11 @@ impl<E: EthSpec> LocalNetwork<E> {
                     .http_api_listen_addr()
                     .expect("Must have http started")
             };
-            let beacon_node = SensitiveUrl::parse(
+            let beacon_node_url = SensitiveUrl::parse(
                 format!("http://{}:{}", socket_addr.ip(), socket_addr.port()).as_str(),
             )
             .unwrap();
-            beacon_node_urls.push(beacon_node);
+            beacon_node_urls.push(beacon_node_url);
         }
 
         validator_config.beacon_nodes = beacon_node_urls;

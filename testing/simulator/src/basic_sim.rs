@@ -7,7 +7,7 @@ use crate::retry::with_retry;
 use futures::prelude::*;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_validator_config, ValidatorFiles,
+    testing_validator_config, ApiTopic, ValidatorFiles,
 };
 use rayon::prelude::*;
 use std::cmp::max;
@@ -27,21 +27,22 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
-    let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
-    let proposer_nodes = value_t!(matches, "proposer-nodes", usize).unwrap_or(0);
-    println!("PROPOSER-NODES: {}", proposer_nodes);
+    let node_count = value_t!(matches, "nodes", usize).expect("Missing nodes default");
+    let proposer_nodes =
+        value_t!(matches, "proposer-nodes", usize).expect("Missing proposer-nodes default");
     let validators_per_node = value_t!(matches, "validators-per-node", usize)
-        .expect("missing validators_per_node default");
+        .expect("Missing validators-per-node default");
     let speed_up_factor =
-        value_t!(matches, "speed-up-factor", u64).expect("missing speed-up-factor default");
-    let continue_after_checks = matches.is_present("continue-after-checks");
+        value_t!(matches, "speed-up-factor", u64).expect("Missing speed-up-factor default");
     let log_level = value_t!(matches, "debug-level", String).expect("Missing default log-level");
+    let continue_after_checks = matches.is_present("continue-after-checks");
 
-    println!("Beacon Chain Simulator:");
-    println!(" nodes:{}, proposer_nodes: {}", node_count, proposer_nodes);
-
-    println!(" validators-per-node:{}", validators_per_node);
-    println!(" continue-after-checks:{}", continue_after_checks);
+    println!("Basic Simulator:");
+    println!(" nodes: {}", node_count);
+    println!(" proposer-nodes: {}", proposer_nodes);
+    println!(" validators-per-node: {}", validators_per_node);
+    println!(" speed-up-factor: {}", speed_up_factor);
+    println!(" continue-after-checks: {}", continue_after_checks);
 
     // Generate the directories and keystores required for the validator clients.
     let validator_files = (0..node_count)
@@ -81,11 +82,9 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let total_validator_count = validators_per_node * node_count;
     let genesis_delay = GENESIS_DELAY;
-    let deneb_fork_version = spec.deneb_fork_version;
-    let _electra_fork_version = spec.electra_fork_version;
 
     // Convenience variables. Update these values when adding a newer fork.
-    let latest_fork_version = deneb_fork_version;
+    let latest_fork_version = spec.deneb_fork_version;
     let latest_fork_start_epoch = DENEB_FORK_EPOCH;
 
     spec.seconds_per_slot /= speed_up_factor;
@@ -134,10 +133,12 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         /*
          * One by one, add proposer nodes to the network.
          */
-        //for _ in 0..proposer_nodes - 1 {
-        //    println!("Adding a proposer node");
-        //    network.add_beacon_node(beacon_config.clone(), true).await?;
-        //}
+        for _ in 0..proposer_nodes {
+            println!("Adding a proposer node");
+            network
+                .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), true)
+                .await?;
+        }
 
         /*
          * One by one, add validators to the network.
@@ -153,23 +154,23 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                     println!("Adding validator client {}", i);
 
                     // Enable broadcast on every 4th node.
-                    //if i % 4 == 0 {
-                    //    validator_config.broadcast_topics = ApiTopic::all();
-                    //    let beacon_nodes = vec![i, (i + 1) % node_count];
-                    //    network_1
-                    //        .add_validator_client_with_fallbacks(
-                    //            validator_config,
-                    //            i,
-                    //            beacon_nodes,
-                    //            files,
-                    //        )
-                    //        .await
-                    //} else {
-                    network_1
-                        .add_validator_client(validator_config, i, files, false) //i % 2 == 0)
-                        .await
-                        //}
-                        .expect("should add validator");
+                    if i % 4 == 0 {
+                        validator_config.broadcast_topics = ApiTopic::all();
+                        let beacon_nodes = vec![i, (i + 1) % node_count];
+                        network_1
+                            .add_validator_client_with_fallbacks(
+                                validator_config,
+                                i,
+                                beacon_nodes,
+                                files,
+                            )
+                            .await
+                    } else {
+                        network_1
+                            .add_validator_client(validator_config, i, files)
+                            .await
+                    }
+                    .expect("should add validator");
                 },
                 "vc",
             );

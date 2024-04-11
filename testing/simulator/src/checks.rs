@@ -366,3 +366,105 @@ pub async fn verify_full_blob_production_up_to<E: EthSpec>(
 
     Ok(())
 }
+
+// Causes the beacon node at `node_index` to disconnect from the execution layer.
+pub async fn disconnect_from_execution_layer<E: EthSpec>(
+    network: LocalNetwork<E>,
+    node_index: usize,
+) -> Result<(), String> {
+    eprintln!("Disabling Execution Node {node_index}");
+
+    // Force the execution node to return the `syncing` status.
+    network.execution_nodes.read()[node_index]
+        .server
+        .all_payloads_syncing(false);
+    Ok(())
+}
+
+// Causes the beacon node at `node_index` to reconnect from the execution layer.
+pub async fn reconnect_to_execution_layer<E: EthSpec>(
+    network: LocalNetwork<E>,
+    node_index: usize,
+) -> Result<(), String> {
+    network.execution_nodes.read()[node_index]
+        .server
+        .all_payloads_valid();
+
+    eprintln!("Re-enabling Execution Node {node_index}");
+    Ok(())
+}
+
+/// Ensure all validators have attested correctly.
+pub async fn check_attestation_correctness<E: EthSpec>(
+    network: LocalNetwork<E>,
+    start_epoch: u64,
+    upto_epoch: u64,
+    slot_duration: Duration,
+    // Select which node to query. Will use this node to determine the global network performance.
+    node_index: usize,
+    acceptable_attestation_performance: f64,
+) -> Result<(), String> {
+    epoch_delay(Epoch::new(upto_epoch), slot_duration, E::slots_per_epoch()).await;
+
+    let remote_node = &network.remote_nodes()?[node_index];
+
+    let results = remote_node
+        .get_lighthouse_analysis_attestation_performance(
+            Epoch::new(start_epoch),
+            Epoch::new(upto_epoch - 2),
+            "global".to_string(),
+        )
+        .await
+        .map_err(|e| format!("Unable to get attestation performance: {e}"))?;
+
+    let mut active_successes: f64 = 0.0;
+    let mut head_successes: f64 = 0.0;
+    let mut target_successes: f64 = 0.0;
+    let mut source_successes: f64 = 0.0;
+
+    let mut total: f64 = 0.0;
+
+    for result in results {
+        for epochs in result.epochs.values() {
+            total += 1.0;
+
+            if epochs.active {
+                active_successes += 1.0;
+            }
+            if epochs.head {
+                head_successes += 1.0;
+            }
+            if epochs.target {
+                target_successes += 1.0;
+            }
+            if epochs.source {
+                source_successes += 1.0;
+            }
+        }
+    }
+    let active_percent = active_successes / total * 100.0;
+    let head_percent = head_successes / total * 100.0;
+    let target_percent = target_successes / total * 100.0;
+    let source_percent = source_successes / total * 100.0;
+
+    eprintln!("Total Attestations: {}", total);
+    eprintln!("Active: {}: {}%", active_successes, active_percent);
+    eprintln!("Head: {}: {}%", head_successes, head_percent);
+    eprintln!("Target: {}: {}%", target_successes, target_percent);
+    eprintln!("Source: {}: {}%", source_successes, source_percent);
+
+    if active_percent < acceptable_attestation_performance {
+        return Err("Active percent was below required level".to_string());
+    }
+    if head_percent < acceptable_attestation_performance {
+        return Err("Head percent was below required level".to_string());
+    }
+    if target_percent < acceptable_attestation_performance {
+        return Err("Target percent was below required level".to_string());
+    }
+    if source_percent < acceptable_attestation_performance {
+        return Err("Source percent was below required level".to_string());
+    }
+
+    Ok(())
+}

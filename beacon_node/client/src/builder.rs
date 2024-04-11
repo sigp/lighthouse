@@ -28,10 +28,7 @@ use eth2::{
 };
 use execution_layer::ExecutionLayer;
 use futures::channel::mpsc::Receiver;
-use genesis::{
-    interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH,
-    DEFAULT_EXECUTION_PAYLOAD_TRANSACTIONS_ROOT,
-};
+use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
@@ -41,15 +38,15 @@ use slog::{debug, info, warn, Logger};
 use ssz::Decode;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
+use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadHeaderMerge, Hash256, SignedBeaconBlock,
+    ExecutionBlockHash, ExecutionPayloadHeaderMerge, Hash256, SignedBeaconBlock, Transactions,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -276,10 +273,7 @@ where
                 genesis_time,
             } => {
                 let execution_payload_header = ExecutionPayloadHeaderMerge {
-                    transactions_root: Hash256::from_str(
-                        DEFAULT_EXECUTION_PAYLOAD_TRANSACTIONS_ROOT,
-                    )
-                    .unwrap(),
+                    transactions_root: Transactions::<E>::empty().tree_hash_root(),
                     ..Default::default()
                 };
                 let keypairs = generate_deterministic_keypairs(validator_count);
