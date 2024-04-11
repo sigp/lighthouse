@@ -3,7 +3,7 @@
 set -e
 
 # use markdownlint-cli to check for markdown files
-docker run -v ./book:/workdir ghcr.io/igorshubovych/markdownlint-cli:latest '**/*.md' --ignore node_modules
+docker run -v ./book:/workdir ghcr.io/igorshubovych/markdownlint-cli:latest '**/*.md' --ignore node_modules --fix
 
 # exit code
 exit_code=$(echo $?)
