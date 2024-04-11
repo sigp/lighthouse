@@ -13,8 +13,8 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
-use types::Address;
 use types::attestation::AttestationBase;
+use types::Address;
 
 fn new_keystore(password: ZeroizeString) -> Keystore {
     let keypair = Keypair::random();

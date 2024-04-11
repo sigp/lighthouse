@@ -39,8 +39,8 @@ mod tests {
     use tempfile::{tempdir, TempDir};
     use tokio::sync::OnceCell;
     use tokio::time::sleep;
-    use types::*;
     use types::attestation::AttestationBase;
+    use types::*;
     use url::Url;
     use validator_client::{
         initialized_validators::{

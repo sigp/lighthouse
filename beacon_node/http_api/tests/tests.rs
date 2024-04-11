@@ -34,11 +34,11 @@ use std::sync::Arc;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
+use types::attestation::AttestationBase;
 use types::{
     AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
     MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
-use types::attestation::AttestationBase;
 
 type E = MainnetEthSpec;
 
@@ -3170,8 +3170,7 @@ impl ApiTester {
                 .produce_unaggregated_attestation(slot, index)
                 .unwrap();
 
-            let expected_data = expected
-                .data();
+            let expected_data = expected.data();
 
             assert_eq!(result, expected_data.clone());
         }

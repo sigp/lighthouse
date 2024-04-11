@@ -506,7 +506,8 @@ async fn invalid_attestation_bad_signature() {
         .clone()
         .deconstruct()
         .0;
-    *head_block.to_mut().body_mut().attestations_mut()[0].signature_mut() = AggregateSignature::empty();
+    *head_block.to_mut().body_mut().attestations_mut()[0].signature_mut() =
+        AggregateSignature::empty();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
