@@ -62,11 +62,11 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use types::{Attestation, Hash256, SignedAggregateAndProof, SubnetId};
 use types::{EthSpec, Slot};
-use work_reprocessing_queue::IgnoredRpcBlock;
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
     QueuedUnaggregate, ReadyWork,
 };
+use work_reprocessing_queue::{IgnoredRpcBlock, QueuedSamplingRequest};
 
 mod metrics;
 pub mod work_reprocessing_queue;
@@ -140,6 +140,10 @@ const MAX_GOSSIP_OPTIMISTIC_UPDATE_QUEUE_LEN: usize = 1_024;
 /// The maximum number of queued `LightClientOptimisticUpdate` objects received on gossip that will be stored
 /// for reprocessing before we start dropping them.
 const MAX_GOSSIP_OPTIMISTIC_UPDATE_REPROCESS_QUEUE_LEN: usize = 128;
+
+/// The maximum number of queued retries of ReqResp sampling requests from the reprocess queue that
+/// will be stored before dropping them.
+const MAX_UNKNOWN_BLOCK_SAMPLING_REQUEST_QUEUE_LEN: usize = 16_384;
 
 /// The maximum number of queued `SyncCommitteeMessage` objects that will be stored before we start dropping
 /// them.
@@ -272,6 +276,7 @@ pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST: &str = "light_client_optimisti
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
 pub const UNKNOWN_LIGHT_CLIENT_UPDATE: &str = "unknown_light_client_update";
+pub const UNKNOWN_BLOCK_SAMPLING_REQUEST: &str = "unknown_block_sampling_request";
 pub const GOSSIP_BLS_TO_EXECUTION_CHANGE: &str = "gossip_bls_to_execution_change";
 pub const API_REQUEST_P0: &str = "api_request_p0";
 pub const API_REQUEST_P1: &str = "api_request_p1";
@@ -527,6 +532,10 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                     process_fn,
                 },
             },
+            ReadyWork::SamplingRequest(QueuedSamplingRequest { process_fn, .. }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownBlockSamplingRequest { process_fn },
+            },
             ReadyWork::BackfillSync(QueuedBackfillBatch(process_fn)) => Self {
                 drop_during_sync: false,
                 work: Work::ChainSegmentBackfill(process_fn),
@@ -608,6 +617,9 @@ pub enum Work<E: EthSpec> {
     },
     UnknownLightClientOptimisticUpdate {
         parent_root: Hash256,
+        process_fn: BlockingFn,
+    },
+    UnknownBlockSamplingRequest {
         process_fn: BlockingFn,
     },
     GossipAggregateBatch {
@@ -699,8 +711,9 @@ impl<E: EthSpec> Work<E> {
             Work::LightClientFinalityUpdateRequest(_) => LIGHT_CLIENT_FINALITY_UPDATE_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
-            Work::GossipBlsToExecutionChange(_) => GOSSIP_BLS_TO_EXECUTION_CHANGE,
             Work::UnknownLightClientOptimisticUpdate { .. } => UNKNOWN_LIGHT_CLIENT_UPDATE,
+            Work::UnknownBlockSamplingRequest { .. } => UNKNOWN_BLOCK_SAMPLING_REQUEST,
+            Work::GossipBlsToExecutionChange(_) => GOSSIP_BLS_TO_EXECUTION_CHANGE,
             Work::ApiRequestP0 { .. } => API_REQUEST_P0,
             Work::ApiRequestP1 { .. } => API_REQUEST_P1,
         }
@@ -839,6 +852,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut optimistic_update_queue = FifoQueue::new(MAX_GOSSIP_OPTIMISTIC_UPDATE_QUEUE_LEN);
         let mut unknown_light_client_update_queue =
             FifoQueue::new(MAX_GOSSIP_OPTIMISTIC_UPDATE_REPROCESS_QUEUE_LEN);
+        let mut unknown_block_sampling_request_queue =
+            FifoQueue::new(MAX_UNKNOWN_BLOCK_SAMPLING_REQUEST_QUEUE_LEN);
 
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
@@ -1158,15 +1173,21 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // and BlocksByRoot)
                         } else if let Some(item) = status_queue.pop() {
                             self.spawn_worker(item, idle_tx);
-                        } else if let Some(item) = bbrange_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                        // Prioritize by_root requests over by_range as the former are time
+                        // sensitive for recovery
                         } else if let Some(item) = bbroots_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
-                        } else if let Some(item) = blbrange_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = blbroots_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = dcbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        // Prioritize sampling requests after block syncing requests
+                        } else if let Some(item) = unknown_block_sampling_request_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        // by_range sync after sampling
+                        } else if let Some(item) = bbrange_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = blbrange_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
@@ -1343,6 +1364,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             Work::UnknownLightClientOptimisticUpdate { .. } => {
                                 unknown_light_client_update_queue.push(work, work_id, &self.log)
+                            }
+                            Work::UnknownBlockSamplingRequest { .. } => {
+                                unknown_block_sampling_request_queue.push(work, work_id, &self.log)
                             }
                             Work::ApiRequestP0 { .. } => {
                                 api_request_p0_queue.push(work, work_id, &self.log)
@@ -1530,12 +1554,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::ChainSegment(process_fn) => task_spawner.spawn_async(async move {
                 process_fn.await;
             }),
-            Work::UnknownBlockAttestation { process_fn } => task_spawner.spawn_blocking(process_fn),
-            Work::UnknownBlockAggregate { process_fn } => task_spawner.spawn_blocking(process_fn),
-            Work::UnknownLightClientOptimisticUpdate {
-                parent_root: _,
-                process_fn,
-            } => task_spawner.spawn_blocking(process_fn),
+            Work::UnknownBlockAttestation { process_fn }
+            | Work::UnknownBlockAggregate { process_fn }
+            | Work::UnknownLightClientOptimisticUpdate { process_fn, .. }
+            | Work::UnknownBlockSamplingRequest { process_fn } => {
+                task_spawner.spawn_blocking(process_fn)
+            }
             Work::DelayedImportBlock {
                 beacon_block_slot: _,
                 beacon_block_root: _,

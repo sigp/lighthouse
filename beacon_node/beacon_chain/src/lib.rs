@@ -73,6 +73,7 @@ pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
+pub use beacon_chain::BlockImportStatus;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{
     get_block_root, BlockError, ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock,

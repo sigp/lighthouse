@@ -122,7 +122,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::data_column_sidecar::DataColumnSidecarList;
+use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier, DataColumnSidecarList};
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -539,6 +539,12 @@ pub struct BeaconBlockResponse<E: EthSpec, Payload: AbstractExecPayload<E>> {
     pub execution_payload_value: Uint256,
     /// The consensus layer reward to the proposer
     pub consensus_block_value: u64,
+}
+
+pub enum BlockImportStatus<E: EthSpec> {
+    PendingImport(Arc<SignedBeaconBlock<E>>),
+    Imported,
+    Unknown,
 }
 
 impl FinalizationAndCanonicity {
@@ -1164,6 +1170,66 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.early_attester_cache
             .get_data_columns(*block_root)
             .map_or_else(|| self.get_data_columns(block_root), Ok)
+    }
+
+    pub fn get_selected_data_columns_checking_all_caches(
+        &self,
+        block_root: Hash256,
+        indices: &[ColumnIndex],
+    ) -> Result<Vec<Arc<DataColumnSidecar<T::EthSpec>>>, Error> {
+        let columns_from_availability_cache = indices
+            .iter()
+            .copied()
+            .filter_map(|index| {
+                self.data_availability_checker
+                    .get_data_column(&DataColumnIdentifier { block_root, index })
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        // Existance of a column in the data availability cache and downstream caches is exclusive.
+        // If there's a single match in the availability cache we can safely skip other sources.
+        if !columns_from_availability_cache.is_empty() {
+            return Ok(columns_from_availability_cache);
+        }
+
+        Ok(self
+            .early_attester_cache
+            .get_data_columns(block_root)
+            .map_or_else(|| self.get_data_columns(&block_root), Ok)?
+            .into_iter()
+            .filter(|dc| indices.contains(&dc.index))
+            .collect())
+    }
+
+    /// Returns the import status of block checking (in order) pre-import caches, fork-choice, db store
+    pub fn get_block_import_status(&self, block_root: &Hash256) -> BlockImportStatus<T::EthSpec> {
+        if let Some(block) = self
+            .reqresp_pre_import_cache
+            .read()
+            .get(block_root)
+            .map(|block| {
+                metrics::inc_counter(&metrics::BEACON_REQRESP_PRE_IMPORT_CACHE_HITS);
+                block.clone()
+            })
+        {
+            return BlockImportStatus::PendingImport(block);
+        }
+        // Check fork-choice before early_attester_cache as the latter is pruned lazily
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(block_root)
+        {
+            return BlockImportStatus::Imported;
+        }
+        if let Some(block) = self.early_attester_cache.get_block(*block_root) {
+            return BlockImportStatus::PendingImport(block);
+        }
+        if let Ok(true) = self.store.has_block(block_root) {
+            BlockImportStatus::Imported
+        } else {
+            BlockImportStatus::Unknown
+        }
     }
 
     /// Returns the block at the given root, if any.

@@ -164,6 +164,11 @@ lazy_static::lazy_static! {
         "beacon_processor_reprocessing_queue_matched_optimistic_updates",
         "Number of queued light client optimistic updates where as matching block has been imported."
     );
+    // TODO: This should be labeled instead of N single metrics
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_SAMPLING_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_matches_sampling_requests",
+        "Number of queued sampling requests where as matching block has been imported."
+    );
 
     /// Errors and Debugging Stats
     pub static ref BEACON_PROCESSOR_SEND_ERROR_PER_WORK_TYPE: Result<IntCounterVec> =

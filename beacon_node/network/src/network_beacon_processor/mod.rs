@@ -650,8 +650,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: DataColumnsByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn =
-            move || processor.handle_data_columns_by_root_request(peer_id, request_id, request);
+        let reprocess_tx = processor.reprocess_tx.clone();
+        let process_fn = move || {
+            processor.handle_data_columns_by_root_request(
+                peer_id,
+                request_id,
+                request,
+                Some(reprocess_tx),
+            )
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,

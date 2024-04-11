@@ -573,6 +573,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         })
     }
 
+    pub fn has_block(&self, block_root: &Hash256) -> Result<bool, Error> {
+        self.hot_db
+            .key_exists(DBColumn::BeaconBlock.into(), block_root.as_bytes())
+    }
+
     /// Fetch a block from the store, ignoring which fork variant it *should* be for.
     pub fn get_block_any_variant<Payload: AbstractExecPayload<E>>(
         &self,
