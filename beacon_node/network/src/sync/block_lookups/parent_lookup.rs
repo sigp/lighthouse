@@ -7,7 +7,6 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::{ChildComponents, DataAvailabilityChecker};
 use beacon_chain::BeaconChainTypes;
-use itertools::Itertools;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use store::Hash256;
@@ -175,11 +174,11 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request
             .block_request_state
             .state
-            .register_failure_processing();
+            .on_processing_failure();
         self.current_parent_request
             .blob_request_state
             .state
-            .register_failure_processing();
+            .on_processing_failure();
         if let Some(components) = self.current_parent_request.child_components.as_mut() {
             components.downloaded_block = None;
             components.downloaded_blobs = <_>::default();
@@ -190,12 +189,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     /// the processing result of the block.
     pub fn verify_response<R: RequestState<Parent, T>>(
         &mut self,
+        peer_id: PeerId,
         block: Option<R::ResponseType>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
     ) -> Result<Option<R::VerifiedResponseType>, ParentVerifyError> {
         let expected_block_root = self.current_parent_request.block_root();
         let request_state = R::request_state_mut(&mut self.current_parent_request);
-        let root_and_verified = request_state.verify_response(expected_block_root, block)?;
+        let root_and_verified =
+            request_state.verify_response(expected_block_root, peer_id, block)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should
         // be dropped and the peer downscored.
@@ -221,20 +222,8 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request.add_peers(peers)
     }
 
-    pub fn used_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
-        self.current_parent_request
-            .block_request_state
-            .state
-            .used_peers
-            .iter()
-            .chain(
-                self.current_parent_request
-                    .blob_request_state
-                    .state
-                    .used_peers
-                    .iter(),
-            )
-            .unique()
+    pub fn all_used_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
+        self.current_parent_request.all_used_peers()
     }
 }
 
