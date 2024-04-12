@@ -15,7 +15,7 @@ pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
     is_blocks_stream_terminated: bool,
     /// Whether the individual RPC request for sidecars is finished or not.
     is_sidecars_stream_terminated: bool,
-    /// True if this accumulator should wait for a sidecars stream termination
+    /// Used to determine if this accumulator should wait for a sidecars stream termination
     request_type: ByRangeRequestType,
 }
 
@@ -96,7 +96,10 @@ impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
     }
 
     pub fn is_finished(&self) -> bool {
-        let blobs_requested = matches!(self.request_type, ByRangeRequestType::BlocksAndBlobs);
+        let blobs_requested = match self.request_type {
+            ByRangeRequestType::Blocks => false,
+            ByRangeRequestType::BlocksAndBlobs => true,
+        };
         self.is_blocks_stream_terminated && (!blobs_requested || self.is_sidecars_stream_terminated)
     }
 }

@@ -181,7 +181,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(id)
     }
 
-    /// A blocks by range request sent by the backfill sync algorithm
+    /// A blocks by range request sent by the range sync algorithm
     pub fn blocks_and_blobs_by_range_request(
         &mut self,
         peer_id: PeerId,
@@ -203,13 +203,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         if let Some(sender_id) = sender_id {
             debug!(
                 self.log,
-                "Backfill sync request failed";
+                "Sync range request failed";
                 "request_id" => request_id,
                 "sender_id" => ?sender_id
             );
             Some(sender_id)
         } else {
-            debug!(self.log, "Backfill sync request failed"; "request_id" => request_id);
+            debug!(self.log, "Sync range request failed"; "request_id" => request_id);
             None
         }
     }
