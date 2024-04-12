@@ -224,7 +224,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             peer_id,
             request_id,
             self.handle_blobs_by_root_request_inner(peer_id, request_id, request),
-            Response::BlobsByRoot
+            Response::BlobsByRoot,
         );
     }
 
