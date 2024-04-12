@@ -308,23 +308,23 @@ pub struct BlockImportData<E: EthSpec> {
     pub consensus_context: ConsensusContext<E>,
 }
 
-pub type GossipVerifiedBlockContents<T> =
-    (GossipVerifiedBlock<T>, Option<GossipVerifiedBlobList<T>>);
+pub type GossipVerifiedBlockContents<E> =
+    (GossipVerifiedBlock<E>, Option<GossipVerifiedBlobList<E>>);
 
 // FIXME(sproul): delete?
 #[derive(Debug)]
-pub enum BlobVerificationError<T: EthSpec> {
-    BlobError(GossipBlobError<T>),
+pub enum BlobVerificationError<E: EthSpec> {
+    BlobError(GossipBlobError<E>),
     SidecarError(BlobSidecarError),
 }
 
-impl<T: EthSpec> From<GossipBlobError<T>> for BlobVerificationError<T> {
-    fn from(value: GossipBlobError<T>) -> Self {
+impl<E: EthSpec> From<GossipBlobError<E>> for BlobVerificationError<E> {
+    fn from(value: GossipBlobError<E>) -> Self {
         Self::BlobError(value)
     }
 }
 
-impl<T: EthSpec> std::fmt::Display for BlobVerificationError<T> {
+impl<E: EthSpec> std::fmt::Display for BlobVerificationError<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BlobVerificationError::BlobError(err) => {

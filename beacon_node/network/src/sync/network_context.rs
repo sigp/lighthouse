@@ -7,7 +7,6 @@ use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::common::LookupType;
 use crate::sync::manager::SingleLookupReqId;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
@@ -21,15 +20,15 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
-pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
+pub struct BlocksAndBlobsByRangeResponse<E: EthSpec> {
     pub batch_id: BatchId,
-    pub responses: Result<Vec<RpcBlock<T>>, String>,
+    pub responses: Result<Vec<RpcBlock<E>>, String>,
 }
 
-pub struct BlocksAndBlobsByRangeRequest<T: EthSpec> {
+pub struct BlocksAndBlobsByRangeRequest<E: EthSpec> {
     pub chain_id: ChainId,
     pub batch_id: BatchId,
-    pub block_blob_info: BlocksAndBlobsRequestInfo<T>,
+    pub block_blob_info: BlocksAndBlobsRequestInfo<E>,
 }
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
@@ -67,19 +66,19 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 }
 
 /// Small enumeration to make dealing with block and blob requests easier.
-pub enum BlockOrBlob<T: EthSpec> {
-    Block(Option<Arc<SignedBeaconBlock<T>>>),
-    Blob(Option<Arc<BlobSidecar<T>>>),
+pub enum BlockOrBlob<E: EthSpec> {
+    Block(Option<Arc<SignedBeaconBlock<E>>>),
+    Blob(Option<Arc<BlobSidecar<E>>>),
 }
 
-impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrBlob<T> {
-    fn from(block: Option<Arc<SignedBeaconBlock<T>>>) -> Self {
+impl<E: EthSpec> From<Option<Arc<SignedBeaconBlock<E>>>> for BlockOrBlob<E> {
+    fn from(block: Option<Arc<SignedBeaconBlock<E>>>) -> Self {
         BlockOrBlob::Block(block)
     }
 }
 
-impl<T: EthSpec> From<Option<Arc<BlobSidecar<T>>>> for BlockOrBlob<T> {
-    fn from(blob: Option<Arc<BlobSidecar<T>>>) -> Self {
+impl<E: EthSpec> From<Option<Arc<BlobSidecar<E>>>> for BlockOrBlob<E> {
+    fn from(blob: Option<Arc<BlobSidecar<E>>>) -> Self {
         BlockOrBlob::Blob(blob)
     }
 }
@@ -437,27 +436,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: SingleLookupReqId,
         peer_id: PeerId,
         request: BlocksByRootRequest,
-        lookup_type: LookupType,
     ) -> Result<(), &'static str> {
-        let sync_id = match lookup_type {
-            LookupType::Current => SyncRequestId::SingleBlock { id },
-            LookupType::Parent => SyncRequestId::ParentLookup { id },
-        };
-        let request_id = RequestId::Sync(sync_id);
-
         debug!(
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
             "block_roots" => ?request.block_roots().to_vec(),
             "peer" => %peer_id,
-            "lookup_type" => ?lookup_type
+            "id" => ?id
         );
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: Request::BlocksByRoot(request),
-            request_id,
+            request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
         })?;
         Ok(())
     }
@@ -467,14 +459,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: SingleLookupReqId,
         blob_peer_id: PeerId,
         blob_request: BlobsByRootRequest,
-        lookup_type: LookupType,
     ) -> Result<(), &'static str> {
-        let sync_id = match lookup_type {
-            LookupType::Current => SyncRequestId::SingleBlob { id },
-            LookupType::Parent => SyncRequestId::ParentLookupBlob { id },
-        };
-        let request_id = RequestId::Sync(sync_id);
-
         if let Some(block_root) = blob_request
             .blob_ids
             .as_slice()
@@ -494,13 +479,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "block_root" => ?block_root,
                 "blob_indices" => ?indices,
                 "peer" => %blob_peer_id,
-                "lookup_type" => ?lookup_type
+                "id" => ?id
             );
 
             self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id: blob_peer_id,
                 request: Request::BlobsByRoot(blob_request),
-                request_id,
+                request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
             })?;
         }
         Ok(())

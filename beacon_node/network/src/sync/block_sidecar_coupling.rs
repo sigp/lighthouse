@@ -4,33 +4,33 @@ use std::{collections::VecDeque, sync::Arc};
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 #[derive(Debug, Default)]
-pub struct BlocksAndBlobsRequestInfo<T: EthSpec> {
+pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
-    accumulated_blocks: VecDeque<Arc<SignedBeaconBlock<T>>>,
+    accumulated_blocks: VecDeque<Arc<SignedBeaconBlock<E>>>,
     /// Sidecars we have received awaiting for their corresponding block.
-    accumulated_sidecars: VecDeque<Arc<BlobSidecar<T>>>,
+    accumulated_sidecars: VecDeque<Arc<BlobSidecar<E>>>,
     /// Whether the individual RPC request for blocks is finished or not.
     is_blocks_stream_terminated: bool,
     /// Whether the individual RPC request for sidecars is finished or not.
     is_sidecars_stream_terminated: bool,
 }
 
-impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
-    pub fn add_block_response(&mut self, block_opt: Option<Arc<SignedBeaconBlock<T>>>) {
+impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
+    pub fn add_block_response(&mut self, block_opt: Option<Arc<SignedBeaconBlock<E>>>) {
         match block_opt {
             Some(block) => self.accumulated_blocks.push_back(block),
             None => self.is_blocks_stream_terminated = true,
         }
     }
 
-    pub fn add_sidecar_response(&mut self, sidecar_opt: Option<Arc<BlobSidecar<T>>>) {
+    pub fn add_sidecar_response(&mut self, sidecar_opt: Option<Arc<BlobSidecar<E>>>) {
         match sidecar_opt {
             Some(sidecar) => self.accumulated_sidecars.push_back(sidecar),
             None => self.is_sidecars_stream_terminated = true,
         }
     }
 
-    pub fn into_responses(self) -> Result<Vec<RpcBlock<T>>, String> {
+    pub fn into_responses(self) -> Result<Vec<RpcBlock<E>>, String> {
         let BlocksAndBlobsRequestInfo {
             accumulated_blocks,
             accumulated_sidecars,
@@ -42,7 +42,7 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
         let mut responses = Vec::with_capacity(accumulated_blocks.len());
         let mut blob_iter = accumulated_sidecars.into_iter().peekable();
         for block in accumulated_blocks.into_iter() {
-            let mut blob_list = Vec::with_capacity(T::max_blobs_per_block());
+            let mut blob_list = Vec::with_capacity(E::max_blobs_per_block());
             while {
                 let pair_next_blob = blob_iter
                     .peek()
@@ -53,7 +53,7 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
                 blob_list.push(blob_iter.next().ok_or("Missing next blob".to_string())?);
             }
 
-            let mut blobs_buffer = vec![None; T::max_blobs_per_block()];
+            let mut blobs_buffer = vec![None; E::max_blobs_per_block()];
             for blob in blob_list {
                 let blob_index = blob.index as usize;
                 let Some(blob_opt) = blobs_buffer.get_mut(blob_index) else {

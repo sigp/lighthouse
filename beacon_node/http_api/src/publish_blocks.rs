@@ -48,11 +48,7 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T> {
                     kzg_proofs,
                     blobs,
                 } = block_contents;
-                let blobs = blobs
-                    .into_iter()
-                    .zip(kzg_proofs)
-                    .map(|(blob, proof)| (blob, proof))
-                    .collect::<Vec<_>>();
+                let blobs = blobs.into_iter().zip(kzg_proofs).collect::<Vec<_>>();
                 Self::Local((signed_block, blobs))
             }
         }
@@ -107,7 +103,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block))
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
-            SignedBeaconBlock::Deneb(_) => {
+            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
                 let mut pubsub_messages = if should_publish {
                     vec![PubsubMessage::BeaconBlock(block)]
                 } else {
@@ -155,7 +151,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
         .iter_mut()
         .map(|blob_sidecar| {
             let gossip_verified_blob =
-                GossipVerifiedBlob::new(blob_sidecar.clone(), blob_sidecar.index as u64, &chain);
+                GossipVerifiedBlob::new(blob_sidecar.clone(), blob_sidecar.index, &chain);
 
             match gossip_verified_blob {
                 Ok(blob) => Ok(Some(blob)),

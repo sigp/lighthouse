@@ -42,12 +42,9 @@ CAPELLA_FORK_EPOCH: 648704
 # Deneb
 DENEB_FORK_VERSION: 0x04000064
 DENEB_FORK_EPOCH: 889856 # 2024-03-11T18:30:20.000Z
-# Sharding
-SHARDING_FORK_VERSION: 0x03000064
-SHARDING_FORK_EPOCH: 18446744073709551615
-
-# TBD, 2**32 is a placeholder. Merge transition approach is in active R&D.
-TRANSITION_TOTAL_DIFFICULTY: 4294967296
+# Electra
+ELECTRA_FORK_VERSION: 0x05000064
+ELECTRA_FORK_EPOCH: 18446744073709551615
 
 
 # Time parameters
@@ -84,6 +81,12 @@ CHURN_LIMIT_QUOTIENT: 4096
 # ---------------------------------------------------------------
 # 40%
 PROPOSER_SCORE_BOOST: 40
+# 20%
+REORG_HEAD_WEIGHT_THRESHOLD: 20
+# 160%
+REORG_PARENT_WEIGHT_THRESHOLD: 160
+# `2` epochs
+REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
 
 # Deposit contract
 # ---------------------------------------------------------------
