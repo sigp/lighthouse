@@ -12,7 +12,7 @@ if [[ $exit_code == 0 ]]; then
     echo "All markdown files are properly formatted."
     exit 0
 elif [[ $exit_code == 1 ]]; then
-    echo "Exiting with errors. Run 'make mdlint' locally and commit the changes."    
+    echo "Exiting with errors. Run 'make mdlint' locally and commit the changes. Note that not all errors can be fixed automatically, if there are still errors after running 'make mdlint', look for the errors and fix manually."    
     docker run -v ./book:/workdir ghcr.io/igorshubovych/markdownlint-cli:latest '**/*.md' --ignore node_modules --fix
     exit 1
 else
