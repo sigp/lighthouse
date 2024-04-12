@@ -8,7 +8,6 @@ docker run -v ./book:/workdir ghcr.io/igorshubovych/markdownlint-cli:latest '**/
 
 # exit code
 exit_code=$(echo $?)
-# echo $exit_code
 
 if [[ $exit_code == 0 ]]; then
     echo "All markdown files are properly formatted."
