@@ -220,6 +220,14 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.network_beacon_processor
                     .send_light_client_bootstrap_request(peer_id, request_id, request),
             ),
+            Request::LightClientOptimisticUpdate => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_light_client_optimistic_update_request(peer_id, request_id),
+            ),
+            Request::LightClientFinalityUpdate => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_light_client_finality_update_request(peer_id, request_id),
+            ),
         }
     }
 
@@ -250,7 +258,10 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::BlobsByRoot(blob) => {
                 self.on_blobs_by_root_response(peer_id, request_id, blob);
             }
-            Response::LightClientBootstrap(_) => unreachable!(),
+            // Light client responses should not be received
+            Response::LightClientBootstrap(_)
+            | Response::LightClientOptimisticUpdate(_)
+            | Response::LightClientFinalityUpdate(_) => unreachable!(),
         }
     }
 
@@ -482,17 +493,11 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                SyncId::SingleBlock { .. }
-                | SyncId::SingleBlob { .. }
-                | SyncId::ParentLookup { .. }
-                | SyncId::ParentLookupBlob { .. } => {
+                SyncId::SingleBlock { .. } | SyncId::SingleBlob { .. } => {
                     crit!(self.log, "Block lookups do not request BBRange requests"; "peer_id" => %peer_id);
                     return;
                 }
-                id @ (SyncId::BackFillBlocks { .. }
-                | SyncId::RangeBlocks { .. }
-                | SyncId::BackFillBlockAndBlobs { .. }
-                | SyncId::RangeBlockAndBlobs { .. }) => id,
+                id @ SyncId::RangeBlockAndBlobs { .. } => id,
             },
             RequestId::Router => {
                 crit!(self.log, "All BBRange requests belong to sync"; "peer_id" => %peer_id);
@@ -550,15 +555,12 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
-                SyncId::BackFillBlocks { .. }
-                | SyncId::RangeBlocks { .. }
-                | SyncId::RangeBlockAndBlobs { .. }
-                | SyncId::BackFillBlockAndBlobs { .. } => {
+                id @ SyncId::SingleBlock { .. } => id,
+                SyncId::RangeBlockAndBlobs { .. } => {
                     crit!(self.log, "Batch syncing do not request BBRoot requests"; "peer_id" => %peer_id);
                     return;
                 }
-                SyncId::SingleBlob { .. } | SyncId::ParentLookupBlob { .. } => {
+                SyncId::SingleBlob { .. } => {
                     crit!(self.log, "Blob response to block by roots request"; "peer_id" => %peer_id);
                     return;
                 }
@@ -591,15 +593,12 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                id @ (SyncId::SingleBlob { .. } | SyncId::ParentLookupBlob { .. }) => id,
-                SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. } => {
+                id @ SyncId::SingleBlob { .. } => id,
+                SyncId::SingleBlock { .. } => {
                     crit!(self.log, "Block response to blobs by roots request"; "peer_id" => %peer_id);
                     return;
                 }
-                SyncId::BackFillBlocks { .. }
-                | SyncId::RangeBlocks { .. }
-                | SyncId::RangeBlockAndBlobs { .. }
-                | SyncId::BackFillBlockAndBlobs { .. } => {
+                SyncId::RangeBlockAndBlobs { .. } => {
                     crit!(self.log, "Batch syncing does not request BBRoot requests"; "peer_id" => %peer_id);
                     return;
                 }

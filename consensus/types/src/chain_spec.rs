@@ -334,12 +334,12 @@ impl ChainSpec {
     }
 
     pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
-        match fork_name {
-            ForkName::Base => self.inactivity_penalty_quotient,
-            ForkName::Altair => self.inactivity_penalty_quotient_altair,
-            ForkName::Merge => self.inactivity_penalty_quotient_bellatrix,
-            ForkName::Capella => self.inactivity_penalty_quotient_bellatrix,
-            ForkName::Deneb | ForkName::Electra => self.inactivity_penalty_quotient_bellatrix,
+        if fork_name >= ForkName::Merge {
+            self.inactivity_penalty_quotient_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            self.inactivity_penalty_quotient_altair
+        } else {
+            self.inactivity_penalty_quotient
         }
     }
 
@@ -348,13 +348,13 @@ impl ChainSpec {
         &self,
         state: &BeaconState<E>,
     ) -> u64 {
-        match state {
-            BeaconState::Base(_) => self.proportional_slashing_multiplier,
-            BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
-            BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Deneb(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Electra(_) => self.proportional_slashing_multiplier_bellatrix,
+        let fork_name = state.fork_name_unchecked();
+        if fork_name >= ForkName::Merge {
+            self.proportional_slashing_multiplier_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            self.proportional_slashing_multiplier_altair
+        } else {
+            self.proportional_slashing_multiplier
         }
     }
 
@@ -363,13 +363,13 @@ impl ChainSpec {
         &self,
         state: &BeaconState<E>,
     ) -> u64 {
-        match state {
-            BeaconState::Base(_) => self.min_slashing_penalty_quotient,
-            BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Deneb(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Electra(_) => self.min_slashing_penalty_quotient_bellatrix,
+        let fork_name = state.fork_name_unchecked();
+        if fork_name >= ForkName::Merge {
+            self.min_slashing_penalty_quotient_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            self.min_slashing_penalty_quotient_altair
+        } else {
+            self.min_slashing_penalty_quotient
         }
     }
 
@@ -531,22 +531,19 @@ impl ChainSpec {
     }
 
     pub fn max_blocks_by_root_request(&self, fork_name: ForkName) -> usize {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                self.max_blocks_by_root_request
-            }
-            ForkName::Deneb | ForkName::Electra => self.max_blocks_by_root_request_deneb,
+        if fork_name >= ForkName::Deneb {
+            self.max_blocks_by_root_request_deneb
+        } else {
+            self.max_blocks_by_root_request
         }
     }
 
     pub fn max_request_blocks(&self, fork_name: ForkName) -> usize {
-        let max_request_blocks = match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                self.max_request_blocks
-            }
-            ForkName::Deneb | ForkName::Electra => self.max_request_blocks_deneb,
-        };
-        max_request_blocks as usize
+        if fork_name >= ForkName::Deneb {
+            self.max_request_blocks_deneb as usize
+        } else {
+            self.max_request_blocks as usize
+        }
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -1651,7 +1648,6 @@ where
 mod tests {
     use super::*;
     use itertools::Itertools;
-    use safe_arith::SafeArith;
 
     #[test]
     fn test_mainnet_spec_can_be_constructed() {

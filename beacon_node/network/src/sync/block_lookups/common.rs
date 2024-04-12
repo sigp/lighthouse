@@ -25,7 +25,7 @@ pub enum ResponseType {
     Blob,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum LookupType {
     Current,
     Parent,
@@ -119,6 +119,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         let id = SingleLookupReqId {
             id,
             req_counter: self.get_state().req_counter,
+            lookup_type: L::lookup_type(),
         };
         Self::make_request(id, peer_id, request, cx)
     }
@@ -265,7 +266,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
         request: Self::RequestType,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
-        cx.block_lookup_request(id, peer_id, request, L::lookup_type())
+        cx.block_lookup_request(id, peer_id, request)
             .map_err(LookupRequestError::SendFailed)
     }
 
@@ -365,7 +366,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         request: Self::RequestType,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
-        cx.blob_lookup_request(id, peer_id, request, L::lookup_type())
+        cx.blob_lookup_request(id, peer_id, request)
             .map_err(LookupRequestError::SendFailed)
     }
 

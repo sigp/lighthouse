@@ -4,7 +4,7 @@ use eth2::types::{
     self as api_types, ExecutionOptimisticFinalizedResponse, ValidatorBalanceData, ValidatorData,
     ValidatorId, ValidatorStatus,
 };
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 pub fn get_beacon_state_validators<T: BeaconChainTypes>(
     state_id: StateId,
@@ -18,6 +18,8 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
             |state, execution_optimistic, finalized| {
                 let epoch = state.current_epoch();
                 let far_future_epoch = chain.spec.far_future_epoch;
+                let ids_filter_set: Option<HashSet<&ValidatorId>> =
+                    query_ids.as_ref().map(HashSet::from_iter);
 
                 Ok((
                     state
@@ -27,13 +29,9 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                         .enumerate()
                         // filter by validator id(s) if provided
                         .filter(|(index, (validator, _))| {
-                            query_ids.as_ref().map_or(true, |ids| {
-                                ids.iter().any(|id| match id {
-                                    ValidatorId::PublicKey(pubkey) => &validator.pubkey == pubkey,
-                                    ValidatorId::Index(param_index) => {
-                                        *param_index == *index as u64
-                                    }
-                                })
+                            ids_filter_set.as_ref().map_or(true, |ids_set| {
+                                ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
+                                    || ids_set.contains(&ValidatorId::Index(*index as u64))
                             })
                         })
                         // filter by status(es) if provided and map the result
@@ -83,6 +81,9 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
         .map_state_and_execution_optimistic_and_finalized(
             &chain,
             |state, execution_optimistic, finalized| {
+                let ids_filter_set: Option<HashSet<&ValidatorId>> =
+                    optional_ids.map(|f| HashSet::from_iter(f.iter()));
+
                 Ok((
                     state
                         .validators()
@@ -91,13 +92,9 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
                         .enumerate()
                         // filter by validator id(s) if provided
                         .filter(|(index, (validator, _))| {
-                            optional_ids.map_or(true, |ids| {
-                                ids.iter().any(|id| match id {
-                                    ValidatorId::PublicKey(pubkey) => &validator.pubkey == pubkey,
-                                    ValidatorId::Index(param_index) => {
-                                        *param_index == *index as u64
-                                    }
-                                })
+                            ids_filter_set.as_ref().map_or(true, |ids_set| {
+                                ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
+                                    || ids_set.contains(&ValidatorId::Index(*index as u64))
                             })
                         })
                         .map(|(index, (_, balance))| ValidatorBalanceData {

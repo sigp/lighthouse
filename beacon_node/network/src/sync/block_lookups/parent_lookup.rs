@@ -127,14 +127,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .update_requested_parent_block(next_parent)
     }
 
-    pub fn block_processing_peer(&self) -> Result<PeerId, ()> {
+    pub fn block_processing_peer(&self) -> Result<PeerId, String> {
         self.current_parent_request
             .block_request_state
             .state
             .processing_peer()
     }
 
-    pub fn blob_processing_peer(&self) -> Result<PeerId, ()> {
+    pub fn blob_processing_peer(&self) -> Result<PeerId, String> {
         self.current_parent_request
             .blob_request_state
             .state

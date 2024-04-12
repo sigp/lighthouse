@@ -508,7 +508,6 @@ impl Decoder for GossipsubCodec {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::protocol::{BytesMut, GossipsubCodec, HandlerEvent};
     use crate::{Behaviour, ConfigBuilder, MessageAuthenticity};
     use crate::{IdentTopic as Topic, Version};
     use libp2p::identity::Keypair;
