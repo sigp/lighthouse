@@ -493,10 +493,7 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                SyncId::SingleBlock { .. }
-                | SyncId::SingleBlob { .. }
-                | SyncId::ParentLookup { .. }
-                | SyncId::ParentLookupBlob { .. } => {
+                SyncId::SingleBlock { .. } | SyncId::SingleBlob { .. } => {
                     crit!(self.log, "Block lookups do not request BBRange requests"; "peer_id" => %peer_id);
                     return;
                 }
@@ -558,12 +555,12 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
+                id @ SyncId::SingleBlock { .. } => id,
                 SyncId::RangeBlockAndBlobs { .. } => {
                     crit!(self.log, "Batch syncing do not request BBRoot requests"; "peer_id" => %peer_id);
                     return;
                 }
-                SyncId::SingleBlob { .. } | SyncId::ParentLookupBlob { .. } => {
+                SyncId::SingleBlob { .. } => {
                     crit!(self.log, "Blob response to block by roots request"; "peer_id" => %peer_id);
                     return;
                 }
@@ -596,8 +593,8 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                id @ (SyncId::SingleBlob { .. } | SyncId::ParentLookupBlob { .. }) => id,
-                SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. } => {
+                id @ SyncId::SingleBlob { .. } => id,
+                SyncId::SingleBlock { .. } => {
                     crit!(self.log, "Block response to blobs by roots request"; "peer_id" => %peer_id);
                     return;
                 }
