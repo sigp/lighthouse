@@ -192,4 +192,4 @@ Flags:
       --use-long-timeouts                       If present, the validator client will use longer timeouts for requests made to the
                                                 beacon node. This flag is generally not recommended, longer timeouts can cause missed
                                                 duties when fallbacks are used.
-```<style> .content main {max-width:88%;} </style>
+```
