@@ -16,9 +16,6 @@ pub const DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR: u32 = 3;
 /// Fraction of a slot lookahead for fork choice in the state advance timer (500ms on mainnet).
 pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
-/// Cache only a small number of states in the parallel cache by default.
-pub const DEFAULT_PARALLEL_STATE_CACHE_SIZE: usize = 2;
-
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
     /// Maximum number of slots to skip when importing an attestation.
@@ -87,8 +84,6 @@ pub struct ChainConfig {
     pub always_prepare_payload: bool,
     /// Number of epochs between each migration of data from the hot database to the freezer.
     pub epochs_per_migration: u64,
-    /// Size of the promise cache for de-duplicating parallel state requests.
-    pub parallel_state_cache_size: usize,
     /// When set to true Light client server computes and caches state proofs for serving updates
     pub enable_light_client_server: bool,
 }
@@ -122,7 +117,6 @@ impl Default for ChainConfig {
             genesis_backfill: false,
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
-            parallel_state_cache_size: DEFAULT_PARALLEL_STATE_CACHE_SIZE,
             enable_light_client_server: false,
         }
     }

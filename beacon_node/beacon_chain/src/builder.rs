@@ -27,7 +27,6 @@ use futures::channel::mpsc::Sender;
 use kzg::Kzg;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
-use promise_cache::PromiseCache;
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, debug, error, info, o, Logger};
@@ -866,7 +865,6 @@ where
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
-        let parallel_state_cache_size = self.chain_config.parallel_state_cache_size;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -951,11 +949,6 @@ where
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
-            parallel_state_cache: Arc::new(RwLock::new(PromiseCache::new(
-                parallel_state_cache_size,
-                Default::default(),
-                log.clone(),
-            ))),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),

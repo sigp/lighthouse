@@ -770,7 +770,6 @@ dependencies = [
  "oneshot_broadcast",
  "operation_pool",
  "parking_lot 0.12.1",
- "promise_cache",
  "proto_array",
  "rand",
  "rayon",
@@ -6366,16 +6365,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.52",
-]
-
-[[package]]
-name = "promise_cache"
-version = "0.1.0"
-dependencies = [
- "derivative",
- "itertools",
- "oneshot_broadcast",
- "slog",
 ]
 
 [[package]]

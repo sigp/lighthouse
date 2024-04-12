@@ -54,7 +54,6 @@ use crate::observed_blob_sidecars::ObservedBlobSidecars;
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
-use crate::parallel_state_cache::ParallelStateCache;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
@@ -466,10 +465,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
-    /// A cache used to de-duplicate HTTP state requests.
-    ///
-    /// The cache is keyed by `state_root`.
-    pub parallel_state_cache: Arc<RwLock<ParallelStateCache<T::EthSpec>>>,
     /// A cache used to produce light_client server messages
     pub light_client_server_cache: LightClientServerCache<T>,
     /// Sender to signal the light_client server to produce new updates
@@ -3939,7 +3934,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.shuffling_cache
                     .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
                     .ok_or(Error::AttestationCacheLockTimeout)?
-                    .insert_value(shuffling_id, committee_cache);
+                    .insert_committee_cache(shuffling_id, committee_cache);
             }
         }
         Ok(())
@@ -6174,7 +6169,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // access.
             drop(shuffling_cache);
 
-            let committee_cache = cache_item.wait().map_err(Error::ShufflingCacheError)?;
+            let committee_cache = cache_item.wait()?;
             map_fn(&committee_cache, shuffling_id.shuffling_decision_block)
         } else {
             // Create an entry in the cache that "promises" this value will eventually be computed.
@@ -6183,9 +6178,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             //
             // Creating the promise whilst we hold the `shuffling_cache` lock will prevent the same
             // promise from being created twice.
-            let sender = shuffling_cache
-                .create_promise(shuffling_id.clone())
-                .map_err(Error::ShufflingCacheError)?;
+            let sender = shuffling_cache.create_promise(shuffling_id.clone())?;
 
             // Drop the shuffling cache to avoid holding the lock for any longer than
             // required.
@@ -6279,7 +6272,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.shuffling_cache
                 .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
                 .ok_or(Error::AttestationCacheLockTimeout)?
-                .insert_value(shuffling_id, &committee_cache);
+                .insert_committee_cache(shuffling_id, &committee_cache);
 
             metrics::stop_timer(committee_building_timer);
 

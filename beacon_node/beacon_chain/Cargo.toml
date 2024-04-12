@@ -46,7 +46,6 @@ merkle_proof = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
-promise_cache = { path = "../../common/promise_cache" }
 proto_array = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }

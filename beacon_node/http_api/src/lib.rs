@@ -933,7 +933,7 @@ pub fn serve<T: BeaconChainTypes>(
                                                 .shuffling_cache
                                                 .try_write_for(std::time::Duration::from_secs(1))
                                             {
-                                                cache_write.insert_value(
+                                                cache_write.insert_committee_cache(
                                                     shuffling_id,
                                                     &possibly_built_cache,
                                                 );

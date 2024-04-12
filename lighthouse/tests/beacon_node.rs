@@ -1829,25 +1829,6 @@ fn historic_state_cache_size_default() {
         });
 }
 #[test]
-fn parallel_state_cache_size_flag() {
-    CommandLineTest::new()
-        .flag("parallel-state-cache-size", Some("4"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.parallel_state_cache_size, 4_usize));
-}
-#[test]
-fn parallel_state_cache_size_default() {
-    use beacon_node::beacon_chain::chain_config::DEFAULT_PARALLEL_STATE_CACHE_SIZE;
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.parallel_state_cache_size,
-                DEFAULT_PARALLEL_STATE_CACHE_SIZE
-            );
-        });
-}
-#[test]
 fn auto_compact_db_flag() {
     CommandLineTest::new()
         .flag("auto-compact-db", Some("false"))

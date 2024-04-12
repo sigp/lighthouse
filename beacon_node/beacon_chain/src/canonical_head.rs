@@ -820,7 +820,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(head_shuffling_ids) => {
                 self.shuffling_cache
                     .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                    .map(|mut shuffling_cache| shuffling_cache.update_protector(head_shuffling_ids))
+                    .map(|mut shuffling_cache| {
+                        shuffling_cache.update_head_shuffling_ids(head_shuffling_ids)
+                    })
                     .unwrap_or_else(|| {
                         error!(
                             self.log,

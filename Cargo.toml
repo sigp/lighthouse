@@ -38,7 +38,6 @@ members = [
     "common/malloc_utils",
     "common/oneshot_broadcast",
     "common/pretty_reqwest_error",
-    "common/promise_cache",
     "common/sensitive_url",
     "common/slot_clock",
     "common/system_health",
