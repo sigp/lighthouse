@@ -1,6 +1,8 @@
+use beacon_chain::blob_verification::GossipVerifiedBlob;
+use beacon_chain::test_utils::EphemeralHarnessType;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
-    GossipVerifiedBlock, IntoGossipVerifiedBlockContents,
+    GossipVerifiedBlock,
 };
 use eth2::reqwest::StatusCode;
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
@@ -8,6 +10,10 @@ use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
 use tree_hash::TreeHash;
+use types::BlobSidecar;
+use types::BlobsList;
+use types::KzgProofs;
+use types::SignedBeaconBlock;
 use types::{Epoch, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
 use warp::Rejection;
 use warp_utils::reject::CustomBadRequest;
@@ -362,8 +368,8 @@ pub async fn consensus_partial_pass_only_consensus() {
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let gossip_block_contents_b = PublishBlockRequest::new(block_b, blobs_b)
-        .into_gossip_verified_block(&tester.harness.chain);
+    let publish_block_req = PublishBlockRequest::new(block_b.clone(), blobs_b.clone());
+    let gossip_block_contents_b = parts_to_gossip_verified(block_b, blobs_b, &tester);
     assert!(gossip_block_contents_b.is_ok());
     let gossip_block_a = GossipVerifiedBlock::new(block_a.clone().into(), &tester.harness.chain);
     assert!(gossip_block_a.is_err());
@@ -373,7 +379,7 @@ pub async fn consensus_partial_pass_only_consensus() {
 
     let publication_result = publish_block(
         None,
-        ProvenancedBlock::local(gossip_block_contents_b.unwrap()),
+        ProvenancedBlock::local_from_publish_request(publish_block_req),
         tester.harness.chain.clone(),
         &channel.0,
         test_logger,
@@ -651,18 +657,21 @@ pub async fn equivocation_consensus_late_equivocation() {
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let gossip_block_contents_b = PublishBlockRequest::new(block_b, blobs_b)
-        .into_gossip_verified_block(&tester.harness.chain);
+    let publish_block_req = PublishBlockRequest::new(block_b.clone(), blobs_b.clone());
+    let gossip_block_contents_b = parts_to_gossip_verified(block_b, blobs_b, &tester);
     assert!(gossip_block_contents_b.is_ok());
-    let gossip_block_contents_a = PublishBlockRequest::new(block_a, blobs_a)
-        .into_gossip_verified_block(&tester.harness.chain);
+
+    let gossip_block_contents_a = parts_to_gossip_verified(block_a, blobs_a, &tester);
     assert!(gossip_block_contents_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
+    // Clear the equivocation cache to simulate a late equivocation.
+    tester.harness.chain.__clear_observed_slashable_cache();
+
     let publication_result = publish_block(
         None,
-        ProvenancedBlock::local(gossip_block_contents_b.unwrap()),
+        ProvenancedBlock::local_from_publish_request(publish_block_req),
         tester.harness.chain,
         &channel.0,
         test_logger,
@@ -1289,20 +1298,21 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     .unwrap();
 
     let inner_block_a = match unblinded_block_a {
-        ProvenancedBlock::Local(a, _) => a,
-        ProvenancedBlock::Builder(a, _) => a,
+        ProvenancedBlock::Local((a, _)) => a,
+        ProvenancedBlock::Builder((a, _)) => a,
     };
     let inner_block_b = match unblinded_block_b {
-        ProvenancedBlock::Local(b, _) => b,
-        ProvenancedBlock::Builder(b, _) => b,
+        ProvenancedBlock::Local((b, _)) => b,
+        ProvenancedBlock::Builder((b, _)) => b,
     };
 
-    let gossip_block_b =
-        GossipVerifiedBlock::new(inner_block_b.clone().deconstruct().0, &tester.harness.chain);
+    let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);
     assert!(gossip_block_b.is_ok());
-    let gossip_block_a =
-        GossipVerifiedBlock::new(inner_block_a.clone().deconstruct().0, &tester.harness.chain);
+    let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
     assert!(gossip_block_a.is_err());
+
+    // Clear the equivocation cache to simulate a late equivocation.
+    tester.harness.chain.__clear_observed_slashable_cache();
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
@@ -1364,4 +1374,42 @@ pub async fn blinded_equivocation_full_pass() {
         .harness
         .chain
         .block_is_known_to_fork_choice(&block.canonical_root()));
+}
+
+fn parts_to_gossip_verified<E: EthSpec>(
+    block: Arc<SignedBeaconBlock<E>>,
+    blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
+    tester: &InteractiveTester<E>,
+) -> Result<
+    (
+        GossipVerifiedBlock<EphemeralHarnessType<E>>,
+        Vec<GossipVerifiedBlob<EphemeralHarnessType<E>>>,
+    ),
+    String,
+> {
+    let blobs = blob_items
+        .map(|(proofs, blobs)| {
+            proofs
+                .into_iter()
+                .zip(blobs.into_iter())
+                .enumerate()
+                .map(|(i, (proof, blob))| {
+                    GossipVerifiedBlob::<EphemeralHarnessType<E>>::new(
+                        Arc::new(
+                            BlobSidecar::new(i, blob, &block, proof)
+                                .map_err(|e| format!("Failed to create BlobSidecar: {:?}", e))?,
+                        ),
+                        i as u64,
+                        tester.harness.chain.as_ref(),
+                    )
+                    .map_err(|e| format!("Failed to create GossipVerifiedBlob: {:?}", e))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let verified_block =
+        GossipVerifiedBlock::<EphemeralHarnessType<E>>::new(block, &tester.harness.chain)
+            .map_err(|e| format!("Failed to create GossipVerifiedBlock: {:?}", e))?;
+    Ok((verified_block, blobs))
 }

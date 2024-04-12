@@ -1799,43 +1799,6 @@ impl<T: EthSpec> PublishBlockRequest<T> {
     }
 }
 
-/// Converting from a `SignedBlindedBeaconBlock` into a full `SignedBlockContents`.
-pub fn into_full_block_and_blobs<T: EthSpec>(
-    blinded_block: SignedBlindedBeaconBlock<T>,
-    maybe_full_payload_contents: Option<FullPayloadContents<T>>,
-) -> Result<(Arc<SignedBeaconBlock<T>>, Option<(Vec<Blob<T>>, Vec<KzgProof)>)>, String> {
-    match maybe_full_payload_contents {
-        None => {
-            let signed_block = blinded_block
-                .try_into_full_block(None)
-                .ok_or("Failed to build full block with payload".to_string())?;
-
-            Ok(PublishBlockRequest::new(Arc::new(signed_block), None))
-        }
-        // This variant implies a pre-deneb block
-        Some(FullPayloadContents::Payload(execution_payload)) => {
-            let signed_block = blinded_block
-                .try_into_full_block(Some(execution_payload))
-                .ok_or("Failed to build full block with payload".to_string())?;
-            Ok(PublishBlockRequest::new(Arc::new(signed_block), None))
-        }
-        // This variant implies a post-deneb block
-        Some(FullPayloadContents::PayloadAndBlobs(payload_and_blobs)) => {
-            let signed_block = blinded_block
-                .try_into_full_block(Some(payload_and_blobs.execution_payload))
-                .ok_or("Failed to build full block with payload".to_string())?;
-
-            Ok(PublishBlockRequest::new(
-                Arc::new(signed_block),
-                Some((
-                    payload_and_blobs.blobs_bundle.proofs,
-                    payload_and_blobs.blobs_bundle.blobs,
-                )),
-            ))
-        }
-    }
-}
-
 impl<T: EthSpec> TryFrom<Arc<SignedBeaconBlock<T>>> for PublishBlockRequest<T> {
     type Error = &'static str;
     fn try_from(block: Arc<SignedBeaconBlock<T>>) -> Result<Self, Self::Error> {

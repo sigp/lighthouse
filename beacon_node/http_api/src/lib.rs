@@ -1278,7 +1278,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block_contents),
+                        ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1317,7 +1317,7 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block_contents),
+                        ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1349,7 +1349,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block_contents),
+                        ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1390,7 +1390,7 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block_contents),
+                        ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
                         log,

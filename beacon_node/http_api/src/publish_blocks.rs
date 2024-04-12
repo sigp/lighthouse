@@ -1,65 +1,72 @@
 use crate::metrics;
 
-use beacon_chain::blob_verification::GossipBlobError;
+use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
-    IntoBlobSidecar, IntoGossipVerifiedBlob, IntoGossipVerifiedBlock, NotifyExecutionLayer,
+    GossipVerifiedBlock, NotifyExecutionLayer, YetAnotherBlockType,
 };
-use eth2::types::FullPayloadContents;
-use eth2::types::{into_full_block_and_blobs, BroadcastValidation};
+use eth2::types::{BlobsBundle, BroadcastValidation, PublishBlockRequest, SignedBlockContents};
+use eth2::types::{ExecutionPayloadAndBlobs, FullPayloadContents};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, Blob, BlobSidecar, ExecPayload, ExecutionBlockHash,
-    ForkName, FullPayload, FullPayloadMerge, Hash256, KzgProof, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, Slot,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecar, EthSpec, ExecPayload, ExecutionBlockHash,
+    ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
 
-pub enum ProvenancedBlock<
-    T: BeaconChainTypes,
-    Block: IntoGossipVerifiedBlock<T>,
-    Blob: IntoBlobSidecar<T>,
-> {
+pub enum ProvenancedBlock<T: BeaconChainTypes> {
     /// The payload was built using a local EE.
-    Local(Block, Vec<Blob>, PhantomData<T>),
+    Local(YetAnotherBlockType<T>),
     /// The payload was build using a remote builder (e.g., via a mev-boost
     /// compatible relay).
-    Builder(Block, Vec<Blob>, PhantomData<T>),
+    Builder(YetAnotherBlockType<T>),
 }
 
-impl<T: BeaconChainTypes, Block: IntoGossipVerifiedBlock<T>, Blob: IntoBlobSidecar<T>>
-    ProvenancedBlock<T, Block, Blob>
-{
-    pub fn local(block: Block, blobs: Vec<Blob>) -> Self {
-        Self::Local(block, blobs, PhantomData)
+impl<T: BeaconChainTypes> ProvenancedBlock<T> {
+    pub fn local(contents: YetAnotherBlockType<T>) -> Self {
+        Self::Local(contents)
     }
 
-    pub fn builder(block: Block, blobs: Vec<Blob>) -> Self {
-        Self::Builder(block, blobs, PhantomData)
+    pub fn local_from_publish_request(request: PublishBlockRequest<T::EthSpec>) -> Self {
+        match request {
+            PublishBlockRequest::Block(block) => Self::Local((block, vec![])),
+            PublishBlockRequest::BlockContents(block_contents) => {
+                let SignedBlockContents {
+                    signed_block,
+                    kzg_proofs,
+                    blobs,
+                } = block_contents;
+                let blobs = blobs
+                    .into_iter()
+                    .zip(kzg_proofs)
+                    .map(|(blob, proof)| (blob, proof))
+                    .collect::<Vec<_>>();
+                Self::Local((signed_block, blobs))
+            }
+        }
+    }
+
+    pub fn builder(contents: YetAnotherBlockType<T>) -> Self {
+        Self::Builder(contents)
     }
 }
 
 /// Handles a request from the HTTP API for full blocks.
-pub async fn publish_block<
-    T: BeaconChainTypes,
-    Block: IntoGossipVerifiedBlock<T>,
-    Blob: IntoBlobSidecar<T>,
->(
+pub async fn publish_block<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
-    provenanced_block: ProvenancedBlock<T, Block, Blob>,
+    provenanced_block: ProvenancedBlock<T>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
@@ -69,18 +76,18 @@ pub async fn publish_block<
 ) -> Result<Response, Rejection> {
     let seen_timestamp = timestamp_now();
 
-    let (unverified_block, unverified_blobs, is_locally_built_block) = match provenanced_block {
-        ProvenancedBlock::Local(block, blobs, _) => (block, blobs, true),
-        ProvenancedBlock::Builder(block, blobs, _) => (block, blobs, false),
+    let ((unverified_block, unverified_blobs), is_locally_built_block) = match provenanced_block {
+        ProvenancedBlock::Local(contents) => (contents, true),
+        ProvenancedBlock::Builder(contents) => (contents, false),
     };
-    let block = Arc::new(unverified_block.inner_block().clone());
+    let block = unverified_block.clone();
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     debug!(log, "Signed block received in HTTP API"; "slot" => block.slot());
 
     /* actually publish a block */
     let publish_block = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
-                              publish_block: bool,
-                              blob_sidecars: Vec<(Arc<BlobSidecar<T::EthSpec>>, bool)>,
+                              should_publish: bool,
+                              blob_sidecars: Vec<Arc<BlobSidecar<T::EthSpec>>>,
                               sender,
                               log,
                               seen_timestamp|
@@ -101,18 +108,13 @@ pub async fn publish_block<
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
             SignedBeaconBlock::Deneb(_) => {
-                let mut pubsub_messages = if publish_block {
+                let mut pubsub_messages = if should_publish {
                     vec![PubsubMessage::BeaconBlock(block)]
                 } else {
                     vec![]
                 };
-                for (blob_index, (blob, should_publish)) in blob_sidecars.into_iter().enumerate() {
-                    if should_publish {
-                        pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((
-                            blob_index as u64,
-                            blob,
-                        ))));
-                    }
+                for blob in blob_sidecars.into_iter() {
+                    pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((blob.index, blob))));
                 }
                 crate::publish_pubsub_messages(&sender, pubsub_messages)
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
@@ -130,33 +132,32 @@ pub async fn publish_block<
     let mut blob_sidecars = unverified_blobs
         .into_iter()
         .enumerate()
-        .map(|(i, unverified_blob)| {
-            unverified_blob
-                .into_blob_sidecar(i, &block)
-                .map_err(|e| {
-                    error!(
-                        log,
-                        "Invalid blob - not publishing block";
-                        "error" => ?e,
-                        "blob_index" => i,
-                        "slot" => slot,
-                    );
-                    warp_utils::reject::custom_bad_request(format!("{e:?}"))
-                })
-                .map(|blob| {
-                    let should_publish = true;
-                    (blob, should_publish)
-                })
+        .map(|(i, (unverified_blob, proof))| {
+            //TODO(sean) restore metric
+            // let _timer = metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
+            let blob_sidecar = BlobSidecar::new(i, unverified_blob, &block, proof).map(Arc::new);
+            blob_sidecar.map_err(|e| {
+                error!(
+                    log,
+                    "Invalid blob - not publishing block";
+                    "error" => ?e,
+                    "blob_index" => i,
+                    "slot" => slot,
+                );
+                warp_utils::reject::custom_bad_request(format!("{e:?}"))
+            })
         })
         .collect::<Result<Vec<_>, Rejection>>()?;
 
     // Gossip verify the block and blobs separately.
-    let gossip_verified_block_result = unverified_block.into_gossip_verified_block(&chain);
+    let gossip_verified_block_result = GossipVerifiedBlock::new(unverified_block, &chain);
     let gossip_verified_blobs = blob_sidecars
         .iter_mut()
-        .enumerate()
-        .map(|(i, (blob_sidecar, should_publish))| {
-            match (blob_sidecar.clone(), i).into_gossip_verified_blob(&chain) {
+        .map(|blob_sidecar| {
+            let gossip_verified_blob =
+                GossipVerifiedBlob::new(blob_sidecar.clone(), blob_sidecar.index as u64, &chain);
+
+            match gossip_verified_blob {
                 Ok(blob) => Ok(Some(blob)),
                 Err(GossipBlobError::RepeatBlob { proposer, .. }) => {
                     // Log the error but do not abort publication, we may need to publish the block
@@ -165,19 +166,17 @@ pub async fn publish_block<
                     debug!(
                         log,
                         "Blob for publication already known";
-                        "blob_index" => i,
+                        "blob_index" => blob_sidecar.index,
                         "slot" => slot,
                         "proposer" => proposer,
                     );
-                    // Do not publish.
-                    *should_publish = false;
                     Ok(None)
                 }
                 Err(e) => {
                     error!(
                         log,
                         "Blob for publication is gossip-invalid";
-                        "blob_index" => i,
+                        "blob_index" => blob_sidecar.index,
                         "slot" => slot,
                         "error" => ?e,
                     );
@@ -186,6 +185,12 @@ pub async fn publish_block<
             }
         })
         .collect::<Result<Vec<_>, Rejection>>()?;
+
+    let publishable_blobs = gossip_verified_blobs
+        .iter()
+        .flatten()
+        .map(|b| b.clone_blob())
+        .collect::<Vec<_>>();
 
     let block_root = block_root.unwrap_or_else(|| {
         gossip_verified_block_result.as_ref().map_or_else(
@@ -199,7 +204,7 @@ pub async fn publish_block<
         publish_block(
             block.clone(),
             should_publish_block,
-            blob_sidecars.clone(),
+            publishable_blobs.clone(),
             sender_clone.clone(),
             log.clone(),
             seen_timestamp,
@@ -214,17 +219,17 @@ pub async fn publish_block<
             BroadcastValidation::Consensus => publish_block(
                 block.clone(),
                 should_publish_block,
-                blob_sidecars.clone(),
+                publishable_blobs.clone(),
                 sender_clone.clone(),
                 log.clone(),
                 seen_timestamp,
             )?,
             BroadcastValidation::ConsensusAndEquivocation => {
-                check_slashable(&chain, &blob_sidecars, block_root, &block, &log)?;
+                check_slashable(&chain, block_root, &block, &log)?;
                 publish_block(
                     block.clone(),
                     should_publish_block,
-                    blob_sidecars.clone(),
+                    publishable_blobs.clone(),
                     sender_clone.clone(),
                     log.clone(),
                     seen_timestamp,
@@ -235,23 +240,21 @@ pub async fn publish_block<
         Ok(())
     };
 
-    for opt_blob in gossip_verified_blobs {
-        if let Some(blob) = opt_blob {
-            // Importing the blobs could trigger block import and network publication in the case
-            // where the block was already seen on gossip.
-            if let Err(e) = Box::pin(chain.process_gossip_blob(blob, &publish_fn)).await {
-                let msg = format!("Invalid blob: {e}");
-                return if let BroadcastValidation::Gossip = validation_level {
-                    Err(warp_utils::reject::broadcast_without_import(msg))
-                } else {
-                    error!(
-                        log,
-                        "Invalid blob provided to HTTP API";
-                        "reason" => &msg
-                    );
-                    Err(warp_utils::reject::custom_bad_request(msg))
-                };
-            }
+    for blob in gossip_verified_blobs.into_iter().flatten() {
+        // Importing the blobs could trigger block import and network publication in the case
+        // where the block was already seen on gossip.
+        if let Err(e) = Box::pin(chain.process_gossip_blob(blob, &publish_fn)).await {
+            let msg = format!("Invalid blob: {e}");
+            return if let BroadcastValidation::Gossip = validation_level {
+                Err(warp_utils::reject::broadcast_without_import(msg))
+            } else {
+                error!(
+                    log,
+                    "Invalid blob provided to HTTP API";
+                    "reason" => &msg
+                );
+                Err(warp_utils::reject::custom_bad_request(msg))
+            };
         }
     }
 
@@ -283,46 +286,11 @@ pub async fn publish_block<
         }
     };
 
-    let chain_clone = chain.clone();
-    let block_clone = block.clone();
-    let log_clone = log.clone();
-    let movable_publish_fn = move || {
-        match validation_level {
-            BroadcastValidation::Gossip => (),
-            BroadcastValidation::Consensus => publish_block(
-                block_clone,
-                should_publish_block,
-                blob_sidecars.clone(),
-                sender_clone,
-                log_clone,
-                seen_timestamp,
-            )?,
-            BroadcastValidation::ConsensusAndEquivocation => {
-                check_slashable(
-                    &chain_clone,
-                    &blob_sidecars,
-                    block_root,
-                    &block_clone,
-                    &log_clone,
-                )?;
-                publish_block(
-                    block_clone,
-                    should_publish_block,
-                    blob_sidecars.clone(),
-                    sender_clone,
-                    log_clone,
-                    seen_timestamp,
-                )?;
-            }
-        };
-        published.store(true, Ordering::SeqCst);
-        Ok(())
-    };
     match Box::pin(chain.process_block(
         block_root,
         gossip_verified_block,
         NotifyExecutionLayer::Yes,
-        movable_publish_fn,
+        publish_fn,
     ))
     .await
     {
@@ -408,7 +376,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     let block_root = blinded_block.canonical_root();
     let full_block =
         reconstruct_block(chain.clone(), block_root, blinded_block, log.clone()).await?;
-    publish_block::<T, _>(
+    publish_block::<T>(
         Some(block_root),
         full_block,
         chain,
@@ -428,10 +396,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
     block_root: Hash256,
     block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
     log: Logger,
-) -> Result<
-    ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>, (Blob<T::EthSpec>, KzgProof)>,
-    Rejection,
-> {
+) -> Result<ProvenancedBlock<T>, Rejection> {
     let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {
             warp_utils::reject::custom_server_error("Missing execution layer".to_string())
@@ -439,9 +404,11 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
 
         // If the execution block hash is zero, use an empty payload.
         let full_payload_contents = if payload_header.block_hash() == ExecutionBlockHash::zero() {
-            let fork_name = chain
-                .spec
-                .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
+            let fork_name = chain.spec.fork_name_at_epoch(
+                block
+                    .slot()
+                    .epoch(<<T as BeaconChainTypes>::EthSpec as EthSpec>::slots_per_epoch()),
+            );
             if fork_name == ForkName::Merge {
                 let payload: FullPayload<T::EthSpec> = FullPayloadMerge::default().into();
                 ProvenancedPayload::Local(FullPayloadContents::Payload(payload.into()))
@@ -497,13 +464,16 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
     match full_payload_opt {
         // A block without a payload is pre-merge and we consider it locally
         // built.
-        None => into_full_block_and_blobs(block, None).map(ProvenancedBlock::local),
+        None => block
+            .try_into_full_block(None)
+            .ok_or("Failed to build full block with payload".to_string())
+            .map(|full_block| ProvenancedBlock::local((Arc::new(full_block), vec![]))),
         Some(ProvenancedPayload::Local(full_payload_contents)) => {
-            into_full_block_and_blobs(block, Some(full_payload_contents))
+            into_full_block_and_blobs::<T>(block, full_payload_contents)
                 .map(ProvenancedBlock::local)
         }
         Some(ProvenancedPayload::Builder(full_payload_contents)) => {
-            into_full_block_and_blobs(block, Some(full_payload_contents))
+            into_full_block_and_blobs::<T>(block, full_payload_contents)
                 .map(ProvenancedBlock::builder)
         }
     }
@@ -560,35 +530,14 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
     }
 }
 
-struct SlashInfo {
-    slot: Slot,
-    proposer_index: u64,
-    block_root: Hash256,
-}
-
 /// Check if any of the blobs or the block are slashable. Returns `BlockError::Slashable` if so.
 fn check_slashable<T: BeaconChainTypes>(
     chain_clone: &BeaconChain<T>,
-    blobs: &[(Arc<BlobSidecar<T::EthSpec>>, bool)],
     block_root: Hash256,
     block_clone: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     log_clone: &Logger,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let slashable_cache = chain_clone.observed_slashable.read();
-    blobs.iter().try_for_each(|(blob, _should_publish)| {
-        if slashable_cache
-            .is_slashable(blob.slot(), blob.block_proposer_index(), blob.block_root())
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?
-        {
-            warn!(
-                log_clone,
-                "Not publishing equivocating blob";
-                "slot" => block_clone.slot()
-            );
-            return Err(BlockError::Slashable);
-        }
-        Ok(())
-    })?;
     if slashable_cache
         .is_slashable(
             block_clone.slot(),
@@ -605,4 +554,43 @@ fn check_slashable<T: BeaconChainTypes>(
         return Err(BlockError::Slashable);
     }
     Ok(())
+}
+
+/// Converting from a `SignedBlindedBeaconBlock` into a full `SignedBlockContents`.
+pub fn into_full_block_and_blobs<T: BeaconChainTypes>(
+    blinded_block: SignedBlindedBeaconBlock<T::EthSpec>,
+    maybe_full_payload_contents: FullPayloadContents<T::EthSpec>,
+) -> Result<YetAnotherBlockType<T>, String> {
+    match maybe_full_payload_contents {
+        // This variant implies a pre-deneb block
+        FullPayloadContents::Payload(execution_payload) => {
+            let signed_block = blinded_block
+                .try_into_full_block(Some(execution_payload))
+                .ok_or("Failed to build full block with payload".to_string())?;
+            Ok((Arc::new(signed_block), vec![]))
+        }
+        // This variant implies a post-deneb block
+        FullPayloadContents::PayloadAndBlobs(payload_and_blobs) => {
+            let ExecutionPayloadAndBlobs {
+                execution_payload,
+                blobs_bundle,
+            } = payload_and_blobs;
+            let signed_block = blinded_block
+                .try_into_full_block(Some(execution_payload))
+                .ok_or("Failed to build full block with payload".to_string())?;
+
+            let BlobsBundle {
+                commitments: _,
+                proofs,
+                blobs,
+            } = blobs_bundle;
+            let blob_contents = proofs
+                .into_iter()
+                .zip(blobs)
+                .map(|(proof, blob)| (blob, proof))
+                .collect::<Vec<_>>();
+
+            Ok((Arc::new(signed_block), blob_contents))
+        }
+    }
 }
