@@ -249,22 +249,6 @@ jobs:
           cache-target: release
     - name: Run a beacon chain sim which tests VC fallback behaviour
       run: cargo run --release --bin simulator fallback-sim
-  merge-transition-ubuntu:
-    name: merge-transition-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the beacon chain sim and go through the merge transition
-      run: cargo run --release --bin simulator eth1-sim --post-merge
   doppelganger-protection-test:
     name: doppelganger-protection-test
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
@@ -422,10 +406,8 @@ jobs:
       'state-transition-vectors-ubuntu',
       'ef-tests-ubuntu',
       'dockerfile-ubuntu',
-      'eth1-simulator-ubuntu',
-      'merge-transition-ubuntu',
-      'no-eth1-simulator-ubuntu',
-      'syncing-simulator-ubuntu',
+      'basic-simulator-ubuntu',
+      'fallback-simulator-ubuntu',
       'doppelganger-protection-test',
       'execution-engine-integration-ubuntu',
       'check-code',

@@ -522,13 +522,6 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         let id = match payload_attributes {
             None => None,
             Some(attributes) => {
-                if !self.blocks.iter().any(|(_, block)| {
-                    block.block_hash() == self.terminal_block_hash
-                        || block.block_number() == self.terminal_block_number
-                }) {
-                    return Err("refusing to create payload id before terminal block".to_string());
-                }
-
                 let parent = self
                     .blocks
                     .get(&head_block_hash)

@@ -14,7 +14,6 @@ types = { workspace = true }
 parking_lot = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true }
-eth1_test_rig = { workspace = true }
 env_logger = { workspace = true }
 clap = { workspace = true }
 rayon = { workspace = true }

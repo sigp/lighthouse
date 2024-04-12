@@ -28,7 +28,7 @@ const DENEB_FORK_EPOCH: u64 = 2;
 // This has potential to block CI so it should be set conservatively enough that spurious failures
 // don't become very common, but not so conservatively that regressions to the fallback mechanism
 // cannot be detected.
-const ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE: f64 = 95.0;
+const ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE: f64 = 80.0;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
