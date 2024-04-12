@@ -685,7 +685,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 // Register the delay.
                 let delay_key = self
                     .sampling_requests_delay_queue
-                    .insert(id, QUEUED_LIGHT_CLIENT_UPDATE_DELAY);
+                    .insert(id, QUEUED_SAMPLING_REQUESTS_DELAY);
 
                 self.awaiting_sampling_requests_per_block_root
                     .entry(queued_sampling_request.beacon_block_root)
