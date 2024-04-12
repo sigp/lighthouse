@@ -45,6 +45,7 @@ use crate::StateProcessingStrategy;
 use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_metrics,
 };
+use crate::epoch_cache::initialize_epoch_cache;
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 
@@ -118,7 +119,10 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentStateFork)?;
 
-    initialize_progressive_balances_cache(state, None, spec)?;
+    // Build epoch cache if it hasn't already been built, or if it is no longer valid
+    initialize_epoch_cache(state, spec)?;
+    initialize_progressive_balances_cache(state, spec)?;
+    state.build_slashings_cache()?;
 
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
@@ -159,7 +163,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     } else {
         verify_signatures
     };
-    // Ensure the current and previous epoch caches are built.
+    // Ensure the current and previous epoch committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
@@ -240,6 +244,9 @@ pub fn process_block_header<E: EthSpec>(
         );
     }
 
+    state
+        .slashings_cache_mut()
+        .update_latest_block_slot(block_header.slot);
     *state.latest_block_header_mut() = block_header;
 
     // Verify proposer is not slashed

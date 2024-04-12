@@ -622,7 +622,12 @@ where
         };
 
         let beacon_chain_builder = if let Some(trusted_setup) = config.trusted_setup {
-            beacon_chain_builder.trusted_setup(trusted_setup)
+            let kzg = trusted_setup
+                .try_into()
+                .map(Arc::new)
+                .map(Some)
+                .map_err(|e| format!("Failed to load trusted setup: {:?}", e))?;
+            beacon_chain_builder.kzg(kzg)
         } else {
             beacon_chain_builder
         };

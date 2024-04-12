@@ -74,6 +74,7 @@ pub mod voluntary_exit;
 pub mod withdrawal_credentials;
 #[macro_use]
 pub mod slot_epoch_macros;
+pub mod activation_queue;
 pub mod config_and_preset;
 pub mod execution_block_header;
 pub mod fork_context;
@@ -94,6 +95,7 @@ mod tree_hash_impls;
 pub mod validator_registration_data;
 pub mod withdrawal;
 
+pub mod epoch_cache;
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
@@ -105,6 +107,7 @@ pub mod runtime_var_list;
 
 use ethereum_types::{H160, H256};
 
+pub use crate::activation_queue::ActivationQueue;
 pub use crate::aggregate_and_proof::AggregateAndProof;
 pub use crate::attestation::{Attestation, Error as AttestationError};
 pub use crate::attestation_data::AttestationData;
@@ -136,6 +139,7 @@ pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
 pub use crate::deposit_tree_snapshot::{DepositTreeSnapshot, FinalizedExecutionBlock};
 pub use crate::enr_fork_id::EnrForkId;
+pub use crate::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;

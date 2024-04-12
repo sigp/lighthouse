@@ -52,6 +52,7 @@ use eth2::{types::StateId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::state_advance::{complete_state_advance, partial_state_advance};
+use state_processing::AllCaches;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
@@ -115,7 +116,7 @@ pub fn run<E: EthSpec>(
     let target_slot = initial_slot + slots;
 
     state
-        .build_caches(spec)
+        .build_all_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
 
     let state_root = if let Some(root) = cli_state_root.or(state_root) {

@@ -1,3 +1,4 @@
+use crate::discovery::CombinedKey;
 use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, Gossipsub, PeerId};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
@@ -669,6 +670,20 @@ impl<E: EthSpec> PeerDB<E> {
                 direction: ConnectionDirection::Outgoing,
             },
         );
+    }
+
+    /// Updates the connection state. MUST ONLY BE USED IN TESTS.
+    pub fn __add_connected_peer_testing_only(&mut self, peer_id: &PeerId) -> Option<BanOperation> {
+        let enr_key = CombinedKey::generate_secp256k1();
+        let enr = Enr::builder().build(&enr_key).unwrap();
+        self.update_connection_state(
+            peer_id,
+            NewConnectionState::Connected {
+                enr: Some(enr),
+                seen_address: Multiaddr::empty(),
+                direction: ConnectionDirection::Outgoing,
+            },
+        )
     }
 
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all

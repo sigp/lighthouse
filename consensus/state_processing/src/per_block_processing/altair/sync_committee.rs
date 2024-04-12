@@ -4,7 +4,9 @@ use crate::{signature_sets::sync_aggregate_signature_set, VerifySignatures};
 use safe_arith::SafeArith;
 use std::borrow::Cow;
 use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
-use types::{BeaconState, ChainSpec, EthSpec, PublicKeyBytes, SyncAggregate, Unsigned};
+use types::{
+    BeaconState, BeaconStateError, ChainSpec, EthSpec, PublicKeyBytes, SyncAggregate, Unsigned,
+};
 
 pub fn process_sync_aggregate<E: EthSpec>(
     state: &mut BeaconState<E>,
@@ -47,17 +49,33 @@ pub fn process_sync_aggregate<E: EthSpec>(
     // Apply participant and proposer rewards
     let committee_indices = state.get_sync_committee_indices(&current_sync_committee)?;
 
+    let proposer_index = proposer_index as usize;
+    let mut proposer_balance = *state
+        .balances()
+        .get(proposer_index)
+        .ok_or(BeaconStateError::BalancesOutOfBounds(proposer_index))?;
+
     for (participant_index, participation_bit) in committee_indices
         .into_iter()
         .zip(aggregate.sync_committee_bits.iter())
     {
         if participation_bit {
-            increase_balance(state, participant_index, participant_reward)?;
-            increase_balance(state, proposer_index as usize, proposer_reward)?;
+            // Accumulate proposer rewards in a temp var in case the proposer has very low balance, is
+            // part of the sync committee, does not participate and its penalties saturate.
+            if participant_index == proposer_index {
+                proposer_balance.safe_add_assign(participant_reward)?;
+            } else {
+                increase_balance(state, participant_index, participant_reward)?;
+            }
+            proposer_balance.safe_add_assign(proposer_reward)?;
+        } else if participant_index == proposer_index {
+            proposer_balance = proposer_balance.saturating_sub(participant_reward);
         } else {
             decrease_balance(state, participant_index, participant_reward)?;
         }
     }
+
+    *state.get_balance_mut(proposer_index)? = proposer_balance;
 
     Ok(())
 }
