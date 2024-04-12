@@ -1098,10 +1098,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let state_from_disk = self.load_hot_state(state_root)?;
 
-        if let Some((state, block_root)) = state_from_disk {
-            self.state_cache
-                .lock()
-                .put_state(*state_root, block_root, &state)?;
+        if let Some((mut state, block_root)) = state_from_disk {
+            let mut state_cache = self.state_cache.lock();
+            state_cache.rebase_on_finalized(&mut state, &self.spec)?;
+            state_cache.put_state(*state_root, block_root, &state)?;
             Ok(Some(state))
         } else {
             Ok(None)
@@ -1111,6 +1111,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Load a post-finalization state from the hot database.
     ///
     /// Will replay blocks from the nearest epoch boundary.
+    ///
+    /// Return the `(state, latest_block_root)` where `latest_block_root` is the root of the last
+    /// block applied to `state`.
     pub fn load_hot_state(
         &self,
         state_root: &Hash256,
@@ -1136,7 +1139,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             // Optimization to avoid even *thinking* about replaying blocks if we're already
             // on an epoch boundary.
-            let state = if slot % E::slots_per_epoch() == 0 {
+            let mut state = if slot % E::slots_per_epoch() == 0 {
                 boundary_state
             } else {
                 let blocks =
@@ -1150,6 +1153,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     StateProcessingStrategy::Accurate,
                 )?
             };
+            state.apply_pending_mutations()?;
 
             Ok(Some((state, latest_block_root)))
         } else {
@@ -1250,7 +1254,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
         partial_state.load_historical_summaries(&self.cold_db, &self.spec)?;
 
-        partial_state.try_into()
+        let mut state: BeaconState<E> = partial_state.try_into()?;
+        state.apply_pending_mutations()?;
+        Ok(state)
     }
 
     /// Load a restore point state by its `restore_point_index`.
@@ -1316,7 +1322,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &self.spec,
         )?;
 
-        let state = self.replay_blocks(
+        let mut state = self.replay_blocks(
             low_state,
             blocks,
             slot,
@@ -1324,6 +1330,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             None,
             StateProcessingStrategy::Accurate,
         )?;
+        state.apply_pending_mutations()?;
 
         // If state is not error, put it in the cache.
         self.historic_state_cache.lock().put(slot, state.clone());
