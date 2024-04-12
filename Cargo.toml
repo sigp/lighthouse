@@ -178,10 +178,8 @@ tree_hash_derive = "0.5"
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 warp = { version = "0.3.6", default-features = false, features = ["tls"] }
-xdelta3 = { git = "http://github.com/michaelsproul/xdelta3-rs", rev="ae9a1d2585ef998f4656acdc35cf263ee88e6dfa" }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 zip = "0.6"
-zstd = "0.11.2"
 
 # Local crates.
 account_utils = { path = "common/account_utils" }
