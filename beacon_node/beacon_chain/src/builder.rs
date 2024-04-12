@@ -1274,8 +1274,7 @@ mod test {
         }
 
         for v in state.validators() {
-            let creds = v.withdrawal_credentials;
-            let creds = creds.as_bytes();
+            let creds = v.withdrawal_credentials.as_bytes();
             assert_eq!(
                 creds[0], spec.bls_withdrawal_prefix_byte,
                 "first byte of withdrawal creds should be bls prefix"

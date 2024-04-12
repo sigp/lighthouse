@@ -574,7 +574,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     }
 
     let (first_root, first_block) = chain_segment.remove(0);
-    let (mut parent, first_block) = load_parent(first_root, first_block, chain)?;
+    let (mut parent, first_block) = load_parent(first_block, chain)?;
     let slot = first_block.slot();
     chain_segment.insert(0, (first_root, first_block));
 
@@ -613,7 +613,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
     // verify signatures
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
-    let mut signature_verifier = get_signature_verifier::<T>(&state, &pubkey_cache, &chain.spec);
+    let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
     for svb in &mut signature_verified_blocks {
         signature_verifier
             .include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
@@ -890,7 +890,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         } else {
             // The proposer index was *not* cached and we must load the parent in order to determine
             // the proposer index.
-            let (mut parent, block) = load_parent(block_root, block, chain)?;
+            let (mut parent, block) = load_parent(block, chain)?;
 
             debug!(
                 chain.log,
@@ -1039,7 +1039,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         // Check the anchor slot before loading the parent, to avoid spurious lookups.
         check_block_against_anchor_slot(block.message(), chain)?;
 
-        let (mut parent, block) = load_parent(block_root, block, chain)?;
+        let (mut parent, block) = load_parent(block, chain)?;
 
         let state = cheap_state_advance_to_obtain_committees::<_, BlockError<T::EthSpec>>(
             &mut parent.pre_state,
@@ -1050,8 +1050,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let pubkey_cache = get_validator_pubkey_cache(chain)?;
 
-        let mut signature_verifier =
-            get_signature_verifier::<T>(&state, &pubkey_cache, &chain.spec);
+        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
         let mut consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
@@ -1090,7 +1089,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         let (mut parent, block) = if let Some(parent) = from.parent {
             (parent, from.block)
         } else {
-            load_parent(from.block_root, from.block, chain)?
+            load_parent(from.block, chain)?
         };
 
         let state = cheap_state_advance_to_obtain_committees::<_, BlockError<T::EthSpec>>(
@@ -1102,8 +1101,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let pubkey_cache = get_validator_pubkey_cache(chain)?;
 
-        let mut signature_verifier =
-            get_signature_verifier::<T>(&state, &pubkey_cache, &chain.spec);
+        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
         // Gossip verification has already checked the proposer index. Use it to check the RANDAO
         // signature.
@@ -1153,7 +1151,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
         let (parent, block) = if let Some(parent) = self.parent {
             (parent, self.block)
         } else {
-            load_parent(self.block_root, self.block, chain)
+            load_parent(self.block, chain)
                 .map_err(|e| BlockSlashInfo::SignatureValid(header.clone(), e))?
         };
 
@@ -1837,7 +1835,6 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
 /// whilst attempting the operation.
 #[allow(clippy::type_complexity)]
 fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
-    _block_root: Hash256,
     block: B,
     chain: &BeaconChain<T>,
 ) -> Result<(PreProcessingSnapshot<T::EthSpec>, B), BlockError<T::EthSpec>> {
@@ -1862,7 +1859,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
     let result = {
-        // Load the blocks parent block from the database, returning invalid if that block is not
+        // Load the block's parent block from the database, returning invalid if that block is not
         // found.
         //
         // We don't return a DBInconsistent error here since it's possible for a block to
@@ -1896,7 +1893,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             })?;
 
         if !state.all_caches_built() {
-            slog::warn!(
+            debug!(
                 chain.log,
                 "Parent state lacks built caches";
                 "block_slot" => block.slot(),
@@ -1905,7 +1902,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         }
 
         if block.slot() != state.slot() {
-            slog::warn!(
+            debug!(
                 chain.log,
                 "Parent state is not advanced";
                 "block_slot" => block.slot(),
