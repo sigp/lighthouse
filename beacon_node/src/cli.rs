@@ -481,8 +481,9 @@ pub fn cli_app() -> Command {
                 .long("http-spec-fork")
                 .requires("enable_http")
                 .value_name("FORK")
-                .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
-                       not be necessary to set this flag.")
+                .help("This flag is deprecated and has no effect.")
+                .takes_value(true)
+                .hidden(true)
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -521,9 +522,8 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .requires("enable_http")
-                .help("Forces the HTTP to indicate that the node is synced when sync is actually \
-                    stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
-                    MAINNET.")
+                .help("This flag is deprecated and has no effect.")
+                .hidden(true)
                 .display_order(0)
         )
         .arg(

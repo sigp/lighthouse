@@ -691,7 +691,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn parent_lookup_failed<R: RequestState<Parent, T>>(
         &mut self,
         id: SingleLookupReqId,
-        peer_id: PeerId,
+        peer_id: &PeerId,
         cx: &SyncNetworkContext<T>,
         error: RPCError,
     ) {

@@ -103,6 +103,7 @@ bitvec = "1"
 byteorder = "1"
 bytes = "1"
 clap = { version = "4.5.1", features = ["cargo", "wrap_help"] }
+c-kzg = "1"
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.3"
 delay_map = "0.3"

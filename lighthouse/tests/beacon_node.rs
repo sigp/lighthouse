@@ -19,7 +19,7 @@ use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -1583,14 +1583,15 @@ fn http_allow_origin_all_flag() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
+
 #[test]
 fn http_allow_sync_stalled_flag() {
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-allow-sync-stalled", None)
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.allow_sync_stalled, true));
+        .run_with_zero_port();
 }
+
 #[test]
 fn http_enable_beacon_processor() {
     CommandLineTest::new()
@@ -1642,8 +1643,7 @@ fn http_spec_fork_override() {
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-spec-fork", Some("altair"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, Some(ForkName::Altair)));
+        .run_with_zero_port();
 }
 
 // Tests for Metrics flags.
