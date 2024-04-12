@@ -636,11 +636,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Store a state in the store.
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
+        self.put_state_possibly_temporary(state_root, state, false)
+    }
+
+    /// Store a state in the store.
+    ///
+    /// The `temporary` flag indicates whether this state should be considered canonical.
+    pub fn put_state_possibly_temporary(
+        &self,
+        state_root: &Hash256,
+        state: &BeaconState<E>,
+        temporary: bool,
+    ) -> Result<(), Error> {
         let mut ops: Vec<KeyValueStoreOp> = Vec::new();
         if state.slot() < self.get_split_slot() {
             self.store_cold_state(state_root, state, &mut ops)?;
             self.cold_db.do_atomically(ops)
         } else {
+            if temporary {
+                ops.push(TemporaryFlag.as_kv_store_op(*state_root));
+            }
             self.store_hot_state(state_root, state, &mut ops)?;
             self.hot_db.do_atomically(ops)
         }

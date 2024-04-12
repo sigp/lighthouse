@@ -1383,8 +1383,18 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
         // Stage a batch of operations to be completed atomically if this block is imported
-        // successfully.
-        let mut confirmed_state_roots = vec![];
+        // successfully. We include the state root of the pre-state, which may be an advanced state
+        // that was stored in the DB with a `temporary` flag.
+        let mut state = parent.pre_state;
+
+        let mut confirmed_state_roots = if state.slot() > parent.beacon_block.slot() {
+            // Advanced pre-state. Delete its temporary flag.
+            let pre_state_root = state.update_tree_hash_cache()?;
+            vec![pre_state_root]
+        } else {
+            // Pre state is parent state. It is already stored in the DB without temporary status.
+            vec![]
+        };
 
         // The block must have a higher slot than its parent.
         if block.slot() <= parent.beacon_block.slot() {
@@ -1393,14 +1403,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 parent_slot: parent.beacon_block.slot(),
             });
         }
-
-        let mut summaries = vec![];
-
-        // Transition the parent state to the block slot.
-        //
-        // It is important to note that we're using a "pre-state" here, one that has potentially
-        // been advanced one slot forward from `parent.beacon_block.slot`.
-        let mut state = parent.pre_state;
 
         // Perform a sanity check on the pre-state.
         let parent_slot = parent.beacon_block.slot();
@@ -1419,6 +1421,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             eth1_data: state.eth1_data().clone(),
             eth1_deposit_index: state.eth1_deposit_index(),
         };
+
+        // Transition the parent state to the block slot.
+        //
+        // It is important to note that we're using a "pre-state" here, one that has potentially
+        // been advanced one slot forward from `parent.beacon_block.slot`.
+        let mut summaries = vec![];
 
         let distance = block.slot().as_u64().saturating_sub(state.slot().as_u64());
         for _ in 0..distance {

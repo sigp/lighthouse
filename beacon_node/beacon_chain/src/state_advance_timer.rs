@@ -25,6 +25,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use store::KeyValueStore;
 use task_executor::TaskExecutor;
 use tokio::time::{sleep, sleep_until, Instant};
 use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
@@ -48,7 +49,6 @@ enum Error {
     BeaconChain(BeaconChainError),
     // We don't use the inner value directly, but it's used in the Debug impl.
     HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
-    // We don't use the inner value directly, but it's used in the Debug impl.
     BeaconState(#[allow(dead_code)] BeaconStateError),
     Store(#[allow(dead_code)] store::Error),
     MaxDistanceExceeded {
@@ -253,12 +253,36 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                         );
                         None
                     });
+
+                // Use a blocking task to avoid blocking the core executor whilst waiting for locks
+                // in `ForkChoiceSignalTx`.
+                beacon_chain.task_executor.clone().spawn_blocking(
+                    move || {
+                        // Signal block proposal for the next slot (if it happens to be waiting).
+                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
+                            if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
+                                warn!(
+                                    log,
+                                    "Error signalling fork choice waiter";
+                                    "error" => ?e,
+                                    "slot" => next_slot,
+                                );
+                            }
+                        }
+                    },
+                    "fork_choice_advance_signal_tx",
+                );
             },
             "fork_choice_advance",
         );
     }
 }
 
+/// Reads the `state_cache` from the `beacon_chain` and attempts to take a clone of the
+/// `BeaconState` of the head block. If it obtains this clone, the state will be advanced a single
+/// slot then placed in the `state_cache` to be used for block verification.
+///
+/// See the module-level documentation for rationale.
 fn advance_head<T: BeaconChainTypes>(
     beacon_chain: &Arc<BeaconChain<T>>,
     log: &Logger,
@@ -435,9 +459,20 @@ fn advance_head<T: BeaconChainTypes>(
         );
     }
 
-    // Write the advanced state to the database.
+    // Write the advanced state to the database with a temporary flag that will be deleted when
+    // a block is imported on top of this state. We should delete this once we bring in the DB
+    // changes from tree-states that allow us to prune states without temporary flags.
     let advanced_state_root = state.update_tree_hash_cache()?;
-    beacon_chain.store.put_state(&advanced_state_root, &state)?;
+    let txn_lock = beacon_chain.store.hot_db.begin_rw_transaction();
+    let state_already_exists = beacon_chain
+        .store
+        .load_hot_state_summary(&advanced_state_root)?
+        .is_some();
+    let temporary = !state_already_exists;
+    beacon_chain
+        .store
+        .put_state_possibly_temporary(&advanced_state_root, &state, temporary)?;
+    drop(txn_lock);
 
     debug!(
         log,
