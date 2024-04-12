@@ -128,7 +128,7 @@ pub fn get_config<E: EthSpec>(
             client_config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
-        if cli_args.is_present("http-spec-fork") {
+        if cli_args.get_one::<String>("http-spec-fork").is_some() {
             warn!(
                 log,
                 "Ignoring --http-spec-fork";

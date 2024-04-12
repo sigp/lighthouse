@@ -482,8 +482,7 @@ pub fn cli_app() -> Command {
                 .requires("enable_http")
                 .value_name("FORK")
                 .help("This flag is deprecated and has no effect.")
-                .takes_value(true)
-                .hidden(true)
+                .hide(true)
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -523,7 +522,7 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .requires("enable_http")
                 .help("This flag is deprecated and has no effect.")
-                .hidden(true)
+                .hide(true)
                 .display_order(0)
         )
         .arg(
