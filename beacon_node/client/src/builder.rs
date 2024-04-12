@@ -272,10 +272,6 @@ where
                 validator_count,
                 genesis_time,
             } => {
-                //let execution_payload_header = ExecutionPayloadHeaderMerge {
-                //    transactions_root: Transactions::<E>::empty().tree_hash_root(),
-                //    ..Default::default()
-                //};
                 let execution_payload_header = generate_genesis_header(&spec, true);
                 let keypairs = generate_deterministic_keypairs(validator_count);
                 let genesis_state = interop_genesis_state(

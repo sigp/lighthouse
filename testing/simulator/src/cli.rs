@@ -8,12 +8,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(
             SubCommand::with_name("basic-sim")
             .about(
-                "Lighthouse Beacon Chain Simulator creates `n` beacon node and validator clients, \
-                    each with `v` validators. A deposit contract is deployed at the start of the \
-                    simulation using a local `anvil` instance (you must have `anvil` \
-                    installed and avaliable on your path). All beacon nodes independently listen \
-                    for genesis from the deposit contract, then start operating. \
-                    \
+                "Runs a Beacon Chain simulation with `n` beacon node and validator clients, \
+                    each with `v` validators. \
+                    The simulation runs with a post-Merge Genesis using `mock-el`. \
                     As the simulation runs, there are checks made to ensure that all components \
                     are running correctly. If any of these checks fail, the simulation will \
                     exit immediately.",
@@ -57,15 +54,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(
         SubCommand::with_name("fallback-sim")
             .about(
-                "Lighthouse Beacon Chain Simulator creates `n` beacon node and validator clients, \
-                    each with `v` validators. A deposit contract is deployed at the start of the \
-                    simulation using a local `anvil` instance (you must have `anvil` \
-                    installed and avaliable on your path). All beacon nodes independently listen \
-                    for genesis from the deposit contract, then start operating. \
-                    \
-                    As the simulation runs, there are checks made to ensure that all components \
-                    are running correctly. If any of these checks fail, the simulation will \
-                    exit immediately.",
+                "Runs a Beacon Chain simulation with `c` validator clients where each VC is \
+                    connected to `b` beacon nodes with `v` validators. \
+                    During the simulation, all but the last connected BN for each VC are \
+                    disconnected from the execution layer, which causes the VC to fallback to the \
+                    single remaining BN. \
+                    At the end of the simulation, there are checks made to ensure that all VCs  \
+                    efficiently performed this fallback, within a certain tolerance. \
+                    Otherwise, the simulation will exit and an error will be reported.",
                     )
                     .arg(Arg::with_name("vc-count")
                         .short("c")

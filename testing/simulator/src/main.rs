@@ -1,10 +1,8 @@
-//! This crate provides a simluation that creates `n` beacon node and validator clients, each with
-//! `v` validators. A deposit contract is deployed at the start of the simulation using a local
-//! `anvil` instance (you must have `anvil` installed and avaliable on your path). All
-//! beacon nodes independently listen for genesis from the deposit contract, then start operating.
+//! This crate provides various simulations that create both beacon nodes and validator clients,
+//! each with `v` validators.
 //!
-//! As the simulation runs, there are checks made to ensure that all components are running
-//! correctly. If any of these checks fail, the simulation will exit immediately.
+//! When a simulation runs, there are checks made to ensure that all components are operating
+//! as expected. If any of these checks fail, the simulation will exit immediately.
 //!
 //! ## Future works
 //!
