@@ -24,7 +24,7 @@ use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
-use kzg::{Kzg, TrustedSetup};
+use kzg::Kzg;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use promise_cache::PromiseCache;
@@ -101,7 +101,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
-    trusted_setup: Option<TrustedSetup>,
+    kzg: Option<Arc<Kzg>>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
 }
@@ -142,7 +142,7 @@ where
             graffiti: Graffiti::default(),
             slasher: None,
             pending_io_batch: vec![],
-            trusted_setup: None,
+            kzg: None,
             task_executor: None,
             validator_monitor_config: None,
         }
@@ -682,8 +682,8 @@ where
         self
     }
 
-    pub fn trusted_setup(mut self, trusted_setup: TrustedSetup) -> Self {
-        self.trusted_setup = Some(trusted_setup);
+    pub fn kzg(mut self, kzg: Option<Arc<Kzg>>) -> Self {
+        self.kzg = kzg;
         self
     }
 
@@ -729,15 +729,6 @@ where
             self.spec.genesis_slot
         } else {
             slot_clock.now().ok_or("Unable to read slot")?
-        };
-
-        let kzg = if let Some(trusted_setup) = self.trusted_setup {
-            let kzg = Kzg::new_from_trusted_setup(trusted_setup)
-                .map_err(|e| format!("Failed to load trusted setup: {:?}", e))?;
-            let kzg_arc = Arc::new(kzg);
-            Some(kzg_arc)
-        } else {
-            None
         };
 
         let initial_head_block_root = fork_choice
@@ -980,10 +971,10 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(slot_clock, kzg.clone(), store, &log, self.spec)
+                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, &log, self.spec)
                     .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
             ),
-            kzg,
+            kzg: self.kzg.clone(),
         };
 
         let head = beacon_chain.head_snapshot();

@@ -31,6 +31,7 @@ use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use kzg::{Kzg, TrustedSetup};
+use lazy_static::lazy_static;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::Mutex;
@@ -72,6 +73,16 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 // You should mutate the `ChainSpec` prior to initialising the harness if you would like to use
 // a different value.
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
+
+lazy_static! {
+    pub static ref KZG: Arc<Kzg> = {
+        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            .expect("should have trusted setup");
+        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+        Arc::new(kzg)
+    };
+}
 
 pub type BaseHarnessType<E, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>;
@@ -502,16 +513,14 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
-        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-            .unwrap();
+        let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
 
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 
         let chain_config = self.chain_config.unwrap_or_default();
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
             .logger(log.clone())
-            .custom_spec(spec)
+            .custom_spec(spec.clone())
             .store(self.store.expect("cannot build without store"))
             .store_migrator_config(
                 MigratorConfig::default()
@@ -529,7 +538,7 @@ where
                 5,
             )))
             .validator_monitor_config(validator_monitor_config)
-            .trusted_setup(trusted_setup);
+            .kzg(kzg);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
@@ -584,10 +593,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
 
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-        .expect("should have trusted setup");
-    let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+    let kzg_opt = spec.deneb_fork_epoch.map(|_| KZG.clone());
 
     MockExecutionLayer::new(
         task_executor,
@@ -597,7 +603,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         prague_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),
-        Some(kzg),
+        kzg_opt,
     )
 }
 
