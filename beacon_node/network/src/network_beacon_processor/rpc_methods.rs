@@ -375,7 +375,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .light_client_server_cache
                 .get_latest_finality_update()
             {
-                // TODO(lc): Arc cached update inside the light_client_server_cache
                 Some(update) => Ok(Arc::new(update)),
                 None => Err((
                     RPCResponseErrorCode::ResourceUnavailable,
