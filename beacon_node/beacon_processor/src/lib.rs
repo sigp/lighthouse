@@ -127,7 +127,7 @@ impl BeaconProcessorQueueLengths {
         let active_validator_count = state
             .get_active_validator_indices(state.slot().epoch(E::slots_per_epoch()), spec)
             .map_err(|e| format!("Error computing active indices: {:?}", e))?
-            .len() as usize;
+            .len();
         let slots_per_epoch = E::slots_per_epoch() as usize;
 
         Ok(Self {
@@ -736,6 +736,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
     ///
     /// The optional `work_journal_tx` allows for an outside process to receive a log of all work
     /// events processed by `self`. This should only be used during testing.
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn_manager<S: SlotClock + 'static>(
         mut self,
         event_rx: mpsc::Receiver<WorkEvent<E>>,
