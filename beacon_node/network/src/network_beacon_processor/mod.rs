@@ -102,14 +102,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAttestation {
-                attestation: GossipAttestationPackage {
+                attestation: Box::new(GossipAttestationPackage {
                     message_id,
                     peer_id,
                     attestation: Box::new(attestation),
                     subnet_id,
                     should_import,
                     seen_timestamp,
-                },
+                }),
                 process_individual: Box::new(process_individual),
                 process_batch: Box::new(process_batch),
             },
@@ -148,13 +148,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAggregate {
-                aggregate: GossipAggregatePackage {
+                aggregate: Box::new(GossipAggregatePackage {
                     message_id,
                     peer_id,
                     aggregate: Box::new(aggregate),
                     beacon_block_root,
                     seen_timestamp,
-                },
+                }),
                 process_individual: Box::new(process_individual),
                 process_batch: Box::new(process_batch),
             },

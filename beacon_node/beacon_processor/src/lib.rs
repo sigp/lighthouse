@@ -571,7 +571,7 @@ pub enum BlockingOrAsync {
 /// queuing specifics.
 pub enum Work<E: EthSpec> {
     GossipAttestation {
-        attestation: GossipAttestationPackage<E>,
+        attestation: Box<GossipAttestationPackage<E>>,
         process_individual: Box<dyn FnOnce(GossipAttestationPackage<E>) + Send + Sync>,
         process_batch: Box<dyn FnOnce(Vec<GossipAttestationPackage<E>>) + Send + Sync>,
     },
@@ -583,7 +583,7 @@ pub enum Work<E: EthSpec> {
         process_batch: Box<dyn FnOnce(Vec<GossipAttestationPackage<E>>) + Send + Sync>,
     },
     GossipAggregate {
-        aggregate: GossipAggregatePackage<E>,
+        aggregate: Box<GossipAggregatePackage<E>>,
         process_individual: Box<dyn FnOnce(GossipAggregatePackage<E>) + Send + Sync>,
         process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
@@ -1015,7 +1015,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_individual: _,
                                                 process_batch,
                                             } => {
-                                                aggregates.push(aggregate);
+                                                aggregates.push(*aggregate);
                                                 if process_batch_opt.is_none() {
                                                     process_batch_opt = Some(process_batch);
                                                 }
@@ -1075,7 +1075,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_individual: _,
                                                 process_batch,
                                             } => {
-                                                attestations.push(attestation);
+                                                attestations.push(*attestation);
                                                 if process_batch_opt.is_none() {
                                                     process_batch_opt = Some(process_batch);
                                                 }
@@ -1445,7 +1445,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_individual,
                 process_batch: _,
             } => task_spawner.spawn_blocking(move || {
-                process_individual(attestation);
+                process_individual(*attestation);
             }),
             Work::GossipAttestationBatch {
                 attestations,
@@ -1458,7 +1458,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_individual,
                 process_batch: _,
             } => task_spawner.spawn_blocking(move || {
-                process_individual(aggregate);
+                process_individual(*aggregate);
             }),
             Work::GossipAggregateBatch {
                 aggregates,
