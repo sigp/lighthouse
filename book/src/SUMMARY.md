@@ -1,6 +1,6 @@
 # Summary
 
-* [Introduction](./intro.md)
+* [Introduction](./intro.md) 
 * [Installation](./installation.md)
   * [Pre-Built Binaries](./installation-binaries.md)
   * [Docker](./docker.md)
