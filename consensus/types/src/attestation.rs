@@ -49,7 +49,6 @@ pub enum Error {
     Serialize,
     TreeHash,
     Encode,
-    Decode,
     Derivative,
     Deserialize,
     arbitrary::Arbitrary,
@@ -70,11 +69,19 @@ pub struct Attestation<E: EthSpec> {
 
 impl<E: EthSpec> Decode for Attestation<E> {
     fn is_ssz_fixed_len() -> bool {
-        todo!()
+        false
     }
 
-    fn from_ssz_bytes(_bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        todo!()
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        if let Ok(result) = AttestationBase::from_ssz_bytes(bytes) {
+            return Ok(Attestation::Base(result))
+        }
+
+        if let Ok(result) = AttestationElectra::from_ssz_bytes(bytes) {
+            return Ok(Attestation::Electra(result))
+        }
+
+        Err(ssz::DecodeError::BytesInvalid(String::from("bytes not valid for any fork variant")))
     }
 }
 
@@ -85,11 +92,14 @@ impl<E: EthSpec> TestRandom for Attestation<E> {
 }
 
 impl<E: EthSpec> Hash for Attestation<E> {
-    fn hash<H>(&self, _: &mut H)
+    fn hash<H>(&self, state: &mut H)
     where
         H: Hasher,
     {
-        todo!()
+        match self {
+            Attestation::Base(att) => att.hash(state),
+            Attestation::Electra(att) => att.hash(state),
+        }
     }
 }
 
