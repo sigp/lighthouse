@@ -36,7 +36,7 @@
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::common::LookupType;
 use super::block_lookups::BlockLookups;
-use super::network_context::{BlockOrBlob, RangeRequestId, SyncNetworkContext};
+use super::network_context::{BlockOrBlob, RangeRequestId, RpcEvent, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
@@ -320,42 +320,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn inject_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
         trace!(self.log, "Sync manager received a failed RPC");
         match request_id {
-            RequestId::SingleBlock { id } => match id.lookup_type {
-                LookupType::Current => self
-                    .block_lookups
-                    .single_block_lookup_failed::<BlockRequestState<Current>>(
-                        id,
-                        &peer_id,
-                        &self.network,
-                        error,
-                    ),
-                LookupType::Parent => self
-                    .block_lookups
-                    .parent_lookup_failed::<BlockRequestState<Parent>>(
-                        id,
-                        &peer_id,
-                        &self.network,
-                        error,
-                    ),
-            },
-            RequestId::SingleBlob { id } => match id.lookup_type {
-                LookupType::Current => self
-                    .block_lookups
-                    .single_block_lookup_failed::<BlobRequestState<Current, T::EthSpec>>(
-                        id,
-                        &peer_id,
-                        &self.network,
-                        error,
-                    ),
-                LookupType::Parent => self
-                    .block_lookups
-                    .parent_lookup_failed::<BlobRequestState<Parent, T::EthSpec>>(
-                        id,
-                        &peer_id,
-                        &self.network,
-                        error,
-                    ),
-            },
+            RequestId::SingleBlock { id } => {
+                self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
+            }
+            RequestId::SingleBlob { id } => {
+                self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
+            }
             RequestId::RangeBlockAndBlobs { id } => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
                     match sender_id {
@@ -694,7 +664,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 ChainSegmentProcessId::ParentLookup(chain_hash) => self
                     .block_lookups
-                    .parent_chain_processed(chain_hash, result, &self.network),
+                    .parent_chain_processed(chain_hash, result, &mut self.network),
             },
         }
     }
@@ -836,31 +806,69 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id } => match id.lookup_type {
-                LookupType::Current => self
-                    .block_lookups
-                    .single_lookup_response::<BlockRequestState<Current>>(
-                        id,
-                        peer_id,
-                        block,
-                        seen_timestamp,
-                        &self.network,
-                    ),
-                LookupType::Parent => self
-                    .block_lookups
-                    .parent_lookup_response::<BlockRequestState<Parent>>(
-                        id,
-                        peer_id,
-                        block,
-                        seen_timestamp,
-                        &self.network,
-                    ),
-            },
+            RequestId::SingleBlock { id } => self.on_single_block_response(
+                id,
+                peer_id,
+                match block {
+                    Some(block) => RpcEvent::Response(block, seen_timestamp),
+                    None => RpcEvent::StreamTermination,
+                },
+            ),
             RequestId::SingleBlob { .. } => {
                 crit!(self.log, "Block received during blob request"; "peer_id" => %peer_id  );
             }
             RequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, block.into())
+            }
+        }
+    }
+
+    fn on_single_block_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) {
+        if let Some(resp) = self.network.on_single_block_response(id, block) {
+            match resp {
+                Ok((block, seen_timestamp)) => match id.lookup_type {
+                    LookupType::Current => self
+                        .block_lookups
+                        .single_lookup_response::<BlockRequestState<Current>>(
+                            id,
+                            peer_id,
+                            block,
+                            seen_timestamp,
+                            &mut self.network,
+                        ),
+                    LookupType::Parent => self
+                        .block_lookups
+                        .parent_lookup_response::<BlockRequestState<Parent>>(
+                            id,
+                            peer_id,
+                            block,
+                            seen_timestamp,
+                            &mut self.network,
+                        ),
+                },
+                Err(error) => match id.lookup_type {
+                    LookupType::Current => self
+                        .block_lookups
+                        .single_block_lookup_failed::<BlockRequestState<Current>>(
+                            id,
+                            &peer_id,
+                            &mut self.network,
+                            error,
+                        ),
+                    LookupType::Parent => self
+                        .block_lookups
+                        .parent_lookup_failed::<BlockRequestState<Parent>>(
+                            id,
+                            &peer_id,
+                            &mut self.network,
+                            error,
+                        ),
+                },
             }
         }
     }
@@ -876,28 +884,67 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { .. } => {
                 crit!(self.log, "Single blob received during block request"; "peer_id" => %peer_id  );
             }
-            RequestId::SingleBlob { id } => match id.lookup_type {
-                LookupType::Current => self
-                    .block_lookups
-                    .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
-                        id,
-                        peer_id,
-                        blob,
-                        seen_timestamp,
-                        &self.network,
-                    ),
-                LookupType::Parent => self
-                    .block_lookups
-                    .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
-                        id,
-                        peer_id,
-                        blob,
-                        seen_timestamp,
-                        &self.network,
-                    ),
-            },
+            RequestId::SingleBlob { id } => self.on_single_blob_response(
+                id,
+                peer_id,
+                match blob {
+                    Some(blob) => RpcEvent::Response(blob, seen_timestamp),
+                    None => RpcEvent::StreamTermination,
+                },
+            ),
             RequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, blob.into())
+            }
+        }
+    }
+
+    fn on_single_blob_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+    ) {
+        if let Some(resp) = self.network.on_single_blob_response(id, blob) {
+            match resp {
+                Ok((blobs, seen_timestamp)) => match id.lookup_type {
+                    LookupType::Current => self
+                        .block_lookups
+                        .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
+                            id,
+                            peer_id,
+                            blobs,
+                            seen_timestamp,
+                            &mut self.network,
+                        ),
+                    LookupType::Parent => self
+                        .block_lookups
+                        .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
+                            id,
+                            peer_id,
+                            blobs,
+                            seen_timestamp,
+                            &mut self.network,
+                        ),
+                },
+
+                Err(error) => match id.lookup_type {
+                    LookupType::Current => self
+                        .block_lookups
+                        .single_block_lookup_failed::<BlobRequestState<Current, T::EthSpec>>(
+                            id,
+                            &peer_id,
+                            &mut self.network,
+                            error,
+                        ),
+                    LookupType::Parent => self
+                        .block_lookups
+                        .parent_lookup_failed::<BlobRequestState<Parent, T::EthSpec>>(
+                            id,
+                            &peer_id,
+                            &mut self.network,
+                            error,
+                        ),
+                },
             }
         }
     }

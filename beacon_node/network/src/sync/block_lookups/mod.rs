@@ -126,7 +126,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn trigger_single_lookup(
         &mut self,
         mut single_block_lookup: SingleBlockLookup<Current, T>,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         let block_root = single_block_lookup.block_root();
         match single_block_lookup.request_block_and_blobs(cx) {
@@ -312,36 +312,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         lookup_id: SingleLookupReqId,
         peer_id: PeerId,
-        response: Option<R::ResponseType>,
+        response: R::VerifiedResponseType,
         seen_timestamp: Duration,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         let id = lookup_id.id;
         let response_type = R::response_type();
 
         let Some(lookup) = self.get_single_lookup::<R>(lookup_id) else {
-            if response.is_some() {
-                // We don't have the ability to cancel in-flight RPC requests. So this can happen
-                // if we started this RPC request, and later saw the block/blobs via gossip.
-                debug!(
-                    self.log,
-                    "Block returned for single block lookup not present";
-                        "response_type" => ?response_type,
-                );
-            }
+            // We don't have the ability to cancel in-flight RPC requests. So this can happen
+            // if we started this RPC request, and later saw the block/blobs via gossip.
+            debug!(
+                self.log,
+                "Block returned for single block lookup not present";
+                    "response_type" => ?response_type,
+            );
             return;
         };
 
         let expected_block_root = lookup.block_root();
-        if response.is_some() {
-            debug!(self.log,
-                "Peer returned response for single lookup";
-                "peer_id" => %peer_id ,
-                "id" => ?id,
-                "block_root" => ?expected_block_root,
-                "response_type" => ?response_type,
-            );
-        }
+        debug!(self.log,
+            "Peer returned response for single lookup";
+            "peer_id" => %peer_id ,
+            "id" => ?id,
+            "block_root" => ?expected_block_root,
+            "response_type" => ?response_type,
+        );
 
         match self.single_lookup_response_inner::<R>(peer_id, response, seen_timestamp, cx, lookup)
         {
@@ -368,9 +364,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn single_lookup_response_inner<R: RequestState<Current, T>>(
         &self,
         peer_id: PeerId,
-        response: Option<R::ResponseType>,
+        response: R::VerifiedResponseType,
         seen_timestamp: Duration,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
         mut lookup: SingleBlockLookup<Current, T>,
     ) -> Result<SingleBlockLookup<Current, T>, LookupRequestError> {
         let response_type = R::response_type();
@@ -378,8 +374,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let expected_block_root = lookup.block_root();
         let request_state = R::request_state_mut(&mut lookup);
 
-        match request_state.verify_response(expected_block_root, peer_id, response) {
-            Ok(Some(verified_response)) => {
+        match request_state.verify_response(response) {
+            Ok(verified_response) => {
                 self.handle_verified_response::<Current, R>(
                     seen_timestamp,
                     cx,
@@ -388,7 +384,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     &mut lookup,
                 )?;
             }
-            Ok(None) => {}
             Err(e) => {
                 debug!(
                     log,
@@ -411,7 +406,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn handle_verified_response<L: Lookup, R: RequestState<L, T>>(
         &self,
         seen_timestamp: Duration,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
         process_type: BlockProcessType,
         verified_response: R::VerifiedResponseType,
         lookup: &mut SingleBlockLookup<L, T>,
@@ -504,26 +499,22 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        response: Option<R::ResponseType>,
+        response: R::VerifiedResponseType,
         seen_timestamp: Duration,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         let Some(mut parent_lookup) = self.get_parent_lookup::<R>(id) else {
-            if response.is_some() {
-                debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
-            }
+            debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
             return;
         };
 
-        if response.is_some() {
-            debug!(self.log,
-                "Peer returned response for parent lookup";
-                "peer_id" => %peer_id ,
-                "id" => ?id,
-                "block_root" => ?parent_lookup.current_parent_request.block_request_state.requested_block_root,
-                "response_type" => ?R::response_type(),
-            );
-        }
+        debug!(self.log,
+            "Peer returned response for parent lookup";
+            "peer_id" => %peer_id ,
+            "id" => ?id,
+            "block_root" => ?parent_lookup.current_parent_request.block_request_state.requested_block_root,
+            "response_type" => ?R::response_type(),
+        );
 
         match self.parent_lookup_response_inner::<R>(
             peer_id,
@@ -551,13 +542,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn parent_lookup_response_inner<R: RequestState<Parent, T>>(
         &mut self,
         peer_id: PeerId,
-        response: Option<R::ResponseType>,
+        response: R::VerifiedResponseType,
         seen_timestamp: Duration,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
         parent_lookup: &mut ParentLookup<T>,
     ) -> Result<(), RequestError> {
-        match parent_lookup.verify_response::<R>(peer_id, response, &mut self.failed_chains) {
-            Ok(Some(verified_response)) => {
+        match parent_lookup.verify_response::<R>(response, &mut self.failed_chains) {
+            Ok(verified_response) => {
                 self.handle_verified_response::<Parent, R>(
                     seen_timestamp,
                     cx,
@@ -568,7 +559,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     &mut parent_lookup.current_parent_request,
                 )?;
             }
-            Ok(None) => {}
             Err(e) => self.handle_parent_verify_error::<R>(peer_id, parent_lookup, e, cx)?,
         };
         Ok(())
@@ -580,7 +570,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_id: PeerId,
         parent_lookup: &mut ParentLookup<T>,
         e: ParentVerifyError,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), RequestError> {
         match e {
             ParentVerifyError::RootMismatch
@@ -695,7 +685,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: &PeerId,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
         error: RPCError,
     ) {
         let msg = error.as_static_str();
@@ -724,7 +714,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: &PeerId,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
         error: RPCError,
     ) {
         let msg = error.as_static_str();
@@ -842,7 +832,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// blobs peer because they did not provide all blobs on the initial request.
     fn handle_missing_components<R: RequestState<Current, T>>(
         &self,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
         lookup: &mut SingleBlockLookup<Current, T>,
     ) -> Result<(), LookupRequestError> {
         let request_state = R::request_state_mut(lookup);
@@ -1008,20 +998,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
             | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown(_)) => {
-                // Check if the beacon processor is available
-                let Some(beacon_processor) = cx.beacon_processor_if_enabled() else {
-                    return trace!(
-                        self.log,
-                        "Dropping parent chain segment that was ready for processing.";
-                        parent_lookup
-                    );
-                };
                 let (chain_hash, blocks, hashes, block_request) =
                     parent_lookup.parts_for_processing();
 
                 let blocks = self.add_child_block_to_chain(chain_hash, blocks, cx).into();
 
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
+
+                // Check if the beacon processor is available
+                let Some(beacon_processor) = cx.beacon_processor_if_enabled() else {
+                    return trace!(
+                        self.log,
+                        "Dropping parent chain segment that was ready for processing.";
+                        "chain_hash" => %chain_hash,
+                    );
+                };
 
                 match beacon_processor.send_chain_segment(process_id, blocks) {
                     Ok(_) => {
@@ -1075,7 +1066,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         chain_hash: Hash256,
         mut blocks: VecDeque<RpcBlock<T::EthSpec>>,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) -> VecDeque<RpcBlock<T::EthSpec>> {
         // Find the child block that spawned the parent lookup request and add it to the chain
         // to send for processing.
@@ -1128,7 +1119,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn handle_parent_block_error(
         &mut self,
         outcome: BlockError<<T as BeaconChainTypes>::EthSpec>,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
         mut parent_lookup: ParentLookup<T>,
     ) {
         // We should always have a block peer.
@@ -1180,7 +1171,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         chain_hash: Hash256,
         result: BatchProcessResult,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         let Some((_hashes, request)) = self.processing_parent_lookups.remove(&chain_hash) else {
             return debug!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash, "result" => ?result);
@@ -1341,7 +1332,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /// Attempts to request the next unknown parent. This method handles peer scoring and dropping
     /// the lookup in the event of failure.
-    fn request_parent(&mut self, mut parent_lookup: ParentLookup<T>, cx: &SyncNetworkContext<T>) {
+    fn request_parent(
+        &mut self,
+        mut parent_lookup: ParentLookup<T>,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
         let response = parent_lookup.request_parent(cx);
 
         match response {

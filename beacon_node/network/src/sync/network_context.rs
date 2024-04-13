@@ -9,16 +9,19 @@ use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use crate::sync::manager::SingleLookupReqId;
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
+use beacon_chain::validator_monitor::timestamp_now;
+use beacon_chain::{get_block_root, BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
-use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
+use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RPCError};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock};
 
 pub struct BlocksAndBlobsByRangeResponse<E: EthSpec> {
     pub sender_id: RangeRequestId,
@@ -37,6 +40,13 @@ pub enum RangeRequestId {
     },
 }
 
+#[derive(Debug)]
+pub enum RpcEvent<T> {
+    StreamTermination,
+    Response(T, Duration),
+    RPCError(RPCError),
+}
+
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
 pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// The network channel to relay messages to the Network service.
@@ -44,6 +54,9 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     /// A sequential ID for all RPC requests.
     request_id: Id,
+
+    blocks_by_root_requests: FnvHashMap<SingleLookupReqId, ActiveBlocksByRootRequest>,
+    blobs_by_root_requests: FnvHashMap<SingleLookupReqId, ActiveBlobsByRootRequest<T::EthSpec>>,
 
     /// BlocksByRange requests paired with BlobsByRange
     range_blocks_and_blobs_requests:
@@ -80,6 +93,91 @@ impl<E: EthSpec> From<Option<Arc<BlobSidecar<E>>>> for BlockOrBlob<E> {
     }
 }
 
+struct ActiveBlocksByRootRequest {
+    request: Hash256,
+    resolved: bool,
+}
+
+impl ActiveBlocksByRootRequest {
+    fn add_response<E: EthSpec>(
+        &mut self,
+        block: Arc<SignedBeaconBlock<E>>,
+    ) -> Result<Arc<SignedBeaconBlock<E>>, RPCError> {
+        if self.resolved {
+            return Err(RPCError::InvalidData("too many responses".to_string()));
+        }
+
+        if self.request != get_block_root(&block) {
+            return Err(RPCError::InvalidData("wrong block root".to_string()));
+        }
+
+        // Valid data, blocks by root expects a single response
+        self.resolved = true;
+        Ok(block)
+    }
+
+    fn terminate(self) -> Result<(), RPCError> {
+        if self.resolved {
+            Ok(())
+        } else {
+            Err(RPCError::InvalidData("no response returned".to_string()))
+        }
+    }
+}
+
+pub type BlocksByRootSingleRequest = Hash256;
+
+pub struct BlobsByRootSingleBlockRequest {
+    pub block_root: Hash256,
+    pub indices: Vec<u64>,
+}
+
+struct ActiveBlobsByRootRequest<E: EthSpec> {
+    request: BlobsByRootSingleBlockRequest,
+    blobs: Vec<Arc<BlobSidecar<E>>>,
+    resolved: bool,
+}
+
+impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
+    fn add_response(
+        &mut self,
+        blob: Arc<BlobSidecar<E>>,
+    ) -> Result<Option<Vec<Arc<BlobSidecar<E>>>>, RPCError> {
+        if self.resolved {
+            return Err(RPCError::InvalidData("too many responses".to_string()));
+        }
+
+        if self.request.block_root != blob.block_root() {
+            return Err(RPCError::InvalidData("un-requested block root".to_string()));
+        }
+        if !blob.verify_blob_sidecar_inclusion_proof().unwrap_or(false) {
+            return Err(RPCError::InvalidData("invalid inclusion proof".to_string()));
+        }
+        if !self.request.indices.contains(&blob.index) {
+            return Err(RPCError::InvalidData("un-requested blob index".to_string()));
+        }
+        if self.blobs.iter().any(|b| b.index == blob.index) {
+            return Err(RPCError::InvalidData("duplicated data".to_string()));
+        }
+
+        self.blobs.push(blob);
+        if self.blobs.len() >= self.request.indices.len() {
+            // All expected chunks received, return result early
+            Ok(Some(std::mem::take(&mut self.blobs)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn terminate(self) -> Option<Vec<Arc<BlobSidecar<E>>>> {
+        if self.resolved {
+            return None;
+        } else {
+            Some(self.blobs)
+        }
+    }
+}
+
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn new(
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -91,6 +189,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
             request_id: 1,
+            blocks_by_root_requests: <_>::default(),
+            blobs_by_root_requests: <_>::default(),
             range_blocks_and_blobs_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
@@ -245,62 +345,81 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     pub fn block_lookup_request(
-        &self,
+        &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        request: BlocksByRootRequest,
+        block_root: BlocksByRootSingleRequest,
     ) -> Result<(), &'static str> {
         debug!(
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "block_roots" => ?request.block_roots().to_vec(),
+            "block_root" => ?block_root,
             "peer" => %peer_id,
             "id" => ?id
         );
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request: Request::BlocksByRoot(request),
+            request: Request::BlocksByRoot(BlocksByRootRequest::new(
+                vec![block_root],
+                &self.chain.spec,
+            )),
             request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
         })?;
+
+        self.blocks_by_root_requests.insert(
+            id,
+            ActiveBlocksByRootRequest {
+                request: block_root,
+                resolved: false,
+            },
+        );
+
         Ok(())
     }
 
     pub fn blob_lookup_request(
-        &self,
+        &mut self,
         id: SingleLookupReqId,
-        blob_peer_id: PeerId,
-        blob_request: BlobsByRootRequest,
+        peer_id: PeerId,
+        request: BlobsByRootSingleBlockRequest,
     ) -> Result<(), &'static str> {
-        if let Some(block_root) = blob_request
-            .blob_ids
-            .as_slice()
-            .first()
-            .map(|id| id.block_root)
-        {
-            let indices = blob_request
-                .blob_ids
-                .as_slice()
-                .iter()
-                .map(|id| id.index)
-                .collect::<Vec<_>>();
-            debug!(
-                self.log,
-                "Sending BlobsByRoot Request";
-                "method" => "BlobsByRoot",
-                "block_root" => ?block_root,
-                "blob_indices" => ?indices,
-                "peer" => %blob_peer_id,
-                "id" => ?id
-            );
+        debug!(
+            self.log,
+            "Sending BlobsByRoot Request";
+            "method" => "BlobsByRoot",
+            "block_root" => ?request.block_root,
+            "blob_indices" => ?request.indices,
+            "peer" => %peer_id,
+            "id" => ?id
+        );
 
-            self.send_network_msg(NetworkMessage::SendRequest {
-                peer_id: blob_peer_id,
-                request: Request::BlobsByRoot(blob_request),
-                request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
-            })?;
-        }
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id: peer_id,
+            request: Request::BlobsByRoot(BlobsByRootRequest::new(
+                request
+                    .indices
+                    .iter()
+                    .map(|index| BlobIdentifier {
+                        block_root: request.block_root,
+                        index: *index,
+                    })
+                    .collect(),
+                &self.chain.spec,
+            )),
+            request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
+        })?;
+
+        self.blobs_by_root_requests.insert(
+            id,
+            ActiveBlobsByRootRequest {
+                request,
+                resolved: false,
+                blobs: vec![],
+            },
+        );
+
         Ok(())
     }
 
@@ -405,4 +524,84 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.range_blocks_and_blobs_requests
             .insert(id, (sender_id, info));
     }
+
+    // Request handlers
+
+    pub fn on_single_block_response(
+        &mut self,
+        request_id: SingleLookupReqId,
+        block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) -> Option<Result<(Arc<SignedBeaconBlock<T::EthSpec>>, Duration), RPCError>> {
+        let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
+            return None;
+        };
+
+        Some(match block {
+            RpcEvent::Response(block, seen_timestamp) => {
+                match request.get_mut().add_response(block) {
+                    Ok(block) => Ok((block, seen_timestamp)),
+                    Err(e) => Err(e),
+                }
+            }
+            RpcEvent::StreamTermination => match request.remove().terminate() {
+                Ok(_) => return None,
+                Err(e) => Err(e),
+            },
+            RpcEvent::RPCError(e) => {
+                request.remove();
+                Err(e)
+            }
+        })
+    }
+
+    pub fn on_single_blob_response(
+        &mut self,
+        request_id: SingleLookupReqId,
+        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+    ) -> Option<Result<(FixedBlobSidecarList<T::EthSpec>, Duration), RPCError>> {
+        let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
+            return None;
+        };
+
+        Some(match blob {
+            RpcEvent::Response(blob, _) => match request.get_mut().add_response(blob) {
+                // TODO: Should deal only with Vec<Arc<BlobSidecar>>
+                Ok(Some(blobs)) => to_fixed_blob_sidecar_list(blobs)
+                    .map(|blobs| (blobs, timestamp_now()))
+                    .map_err(RPCError::InvalidData),
+                Ok(None) => return None,
+                Err(e) => Err(e),
+            },
+            RpcEvent::StreamTermination => {
+                // Stream terminator
+                match request.remove().terminate() {
+                    // TODO: Should deal only with Vec<Arc<BlobSidecar>>
+                    Some(blobs) => to_fixed_blob_sidecar_list(blobs)
+                        // TODO: a seen_timestamp for an array of blobs doesn't make much sense
+                        // since each is received at different times. Should we track first, last or
+                        // average?
+                        .map(|blobs| (blobs, timestamp_now()))
+                        .map_err(RPCError::InvalidData),
+                    None => return None,
+                }
+            }
+            RpcEvent::RPCError(e) => {
+                request.remove();
+                Err(e)
+            }
+        })
+    }
+}
+
+fn to_fixed_blob_sidecar_list<E: EthSpec>(
+    blobs: Vec<Arc<BlobSidecar<E>>>,
+) -> Result<FixedBlobSidecarList<E>, String> {
+    let mut fixed_list = FixedBlobSidecarList::default();
+    for blob in blobs.into_iter() {
+        let index = blob.index as usize;
+        *fixed_list
+            .get_mut(index)
+            .ok_or("invalid index".to_string())? = Some(blob)
+    }
+    Ok(fixed_list)
 }

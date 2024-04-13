@@ -92,7 +92,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     }
 
     /// Attempts to request the next unknown parent. If the request fails, it should be removed.
-    pub fn request_parent(&mut self, cx: &SyncNetworkContext<T>) -> Result<(), RequestError> {
+    pub fn request_parent(&mut self, cx: &mut SyncNetworkContext<T>) -> Result<(), RequestError> {
         // check to make sure this request hasn't failed
         if self.downloaded_blocks.len() + 1 >= PARENT_DEPTH_TOLERANCE {
             return Err(RequestError::ChainTooLong);
@@ -190,21 +190,15 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     /// the processing result of the block.
     pub fn verify_response<R: RequestState<Parent, T>>(
         &mut self,
-        peer_id: PeerId,
-        block: Option<R::ResponseType>,
+        block: R::VerifiedResponseType,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
-    ) -> Result<Option<R::VerifiedResponseType>, ParentVerifyError> {
-        let expected_block_root = self.current_parent_request.block_root();
+    ) -> Result<R::VerifiedResponseType, ParentVerifyError> {
         let request_state = R::request_state_mut(&mut self.current_parent_request);
-        let root_and_verified =
-            request_state.verify_response(expected_block_root, peer_id, block)?;
+        let root_and_verified = request_state.verify_response(block)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should
         // be dropped and the peer downscored.
-        if let Some(parent_root) = root_and_verified
-            .as_ref()
-            .and_then(|block| R::get_parent_root(block))
-        {
+        if let Some(parent_root) = R::get_parent_root(&root_and_verified) {
             if failed_chains.contains(&parent_root) {
                 request_state.register_failure_downloading();
                 return Err(ParentVerifyError::PreviousFailure { parent_root });

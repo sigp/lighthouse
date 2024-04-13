@@ -108,7 +108,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// downloading the block and/or blobs.
     pub fn request_block_and_blobs(
         &mut self,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         let block_already_downloaded = self.block_already_downloaded();
         let blobs_already_downloaded = self.blobs_already_downloaded();
@@ -216,7 +216,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub fn should_drop_lookup_on_disconnected_peer(
         &mut self,
         peer_id: &PeerId,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
         log: &Logger,
     ) -> bool {
         let block_root = self.block_root();
@@ -318,6 +318,7 @@ pub struct BlobRequestState<L: Lookup, E: EthSpec> {
     /// from both block/blobs downloaded in the network layer and any blocks/blobs that exist in
     /// the data availability checker.
     pub requested_ids: MissingBlobs,
+    pub block_root: Hash256,
     /// Where we store blobs until we receive the stream terminator.
     pub blob_download_queue: FixedBlobSidecarList<E>,
     pub state: SingleLookupRequestState,
@@ -328,6 +329,7 @@ impl<L: Lookup, E: EthSpec> BlobRequestState<L, E> {
     pub fn new(block_root: Hash256, peer_source: &[PeerId], is_deneb: bool) -> Self {
         let default_ids = MissingBlobs::new_without_block(block_root, is_deneb);
         Self {
+            block_root,
             requested_ids: default_ids,
             blob_download_queue: <_>::default(),
             state: SingleLookupRequestState::new(peer_source),
@@ -669,18 +671,14 @@ mod tests {
         );
         <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::build_request(
             &mut sl.block_request_state,
-            &spec,
         )
         .unwrap();
         sl.block_request_state.state.state = State::Downloading { peer_id };
 
         <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::verify_response(
             &mut sl.block_request_state,
-            block.canonical_root(),
-            peer_id,
-            Some(block.into()),
+            block.into(),
         )
-        .unwrap()
         .unwrap();
     }
 
@@ -714,7 +712,6 @@ mod tests {
         for _ in 1..TestLookup2::MAX_ATTEMPTS {
             <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
                 &mut sl.block_request_state,
-                &spec,
             )
             .unwrap();
             sl.block_request_state.state.on_download_failure();
@@ -723,18 +720,14 @@ mod tests {
         // Now we receive the block and send it for processing
         <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
             &mut sl.block_request_state,
-            &spec,
         )
         .unwrap();
         sl.block_request_state.state.state = State::Downloading { peer_id };
 
         <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::verify_response(
             &mut sl.block_request_state,
-            block.canonical_root(),
-            peer_id,
-            Some(block.into()),
+            block.into(),
         )
-        .unwrap()
         .unwrap();
 
         // One processing failure maxes the available attempts
@@ -742,7 +735,6 @@ mod tests {
         assert_eq!(
             <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
                 &mut sl.block_request_state,
-                &spec
             ),
             Err(LookupRequestError::TooManyAttempts {
                 cannot_process: false
