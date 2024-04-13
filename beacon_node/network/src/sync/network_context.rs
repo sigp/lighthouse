@@ -1,6 +1,8 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
+use self::requests::{ActiveBlobsByRootRequest, ActiveBlocksByRootRequest};
+pub use self::requests::{BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest};
 use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
@@ -10,18 +12,20 @@ use crate::status::ToStatusMessage;
 use crate::sync::manager::SingleLookupReqId;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::validator_monitor::timestamp_now;
-use beacon_chain::{get_block_root, BeaconChain, BeaconChainTypes, EngineState};
+use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
-use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RPCError};
+use lighthouse_network::rpc::methods::BlobsByRangeRequest;
+use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
-use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock};
+use types::blob_sidecar::FixedBlobSidecarList;
+use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+
+mod requests;
 
 pub struct BlocksAndBlobsByRangeResponse<E: EthSpec> {
     pub sender_id: RangeRequestId,
@@ -90,91 +94,6 @@ impl<E: EthSpec> From<Option<Arc<SignedBeaconBlock<E>>>> for BlockOrBlob<E> {
 impl<E: EthSpec> From<Option<Arc<BlobSidecar<E>>>> for BlockOrBlob<E> {
     fn from(blob: Option<Arc<BlobSidecar<E>>>) -> Self {
         BlockOrBlob::Blob(blob)
-    }
-}
-
-struct ActiveBlocksByRootRequest {
-    request: Hash256,
-    resolved: bool,
-}
-
-impl ActiveBlocksByRootRequest {
-    fn add_response<E: EthSpec>(
-        &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
-    ) -> Result<Arc<SignedBeaconBlock<E>>, RPCError> {
-        if self.resolved {
-            return Err(RPCError::InvalidData("too many responses".to_string()));
-        }
-
-        if self.request != get_block_root(&block) {
-            return Err(RPCError::InvalidData("wrong block root".to_string()));
-        }
-
-        // Valid data, blocks by root expects a single response
-        self.resolved = true;
-        Ok(block)
-    }
-
-    fn terminate(self) -> Result<(), RPCError> {
-        if self.resolved {
-            Ok(())
-        } else {
-            Err(RPCError::InvalidData("no response returned".to_string()))
-        }
-    }
-}
-
-pub type BlocksByRootSingleRequest = Hash256;
-
-pub struct BlobsByRootSingleBlockRequest {
-    pub block_root: Hash256,
-    pub indices: Vec<u64>,
-}
-
-struct ActiveBlobsByRootRequest<E: EthSpec> {
-    request: BlobsByRootSingleBlockRequest,
-    blobs: Vec<Arc<BlobSidecar<E>>>,
-    resolved: bool,
-}
-
-impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
-    fn add_response(
-        &mut self,
-        blob: Arc<BlobSidecar<E>>,
-    ) -> Result<Option<Vec<Arc<BlobSidecar<E>>>>, RPCError> {
-        if self.resolved {
-            return Err(RPCError::InvalidData("too many responses".to_string()));
-        }
-
-        if self.request.block_root != blob.block_root() {
-            return Err(RPCError::InvalidData("un-requested block root".to_string()));
-        }
-        if !blob.verify_blob_sidecar_inclusion_proof().unwrap_or(false) {
-            return Err(RPCError::InvalidData("invalid inclusion proof".to_string()));
-        }
-        if !self.request.indices.contains(&blob.index) {
-            return Err(RPCError::InvalidData("un-requested blob index".to_string()));
-        }
-        if self.blobs.iter().any(|b| b.index == blob.index) {
-            return Err(RPCError::InvalidData("duplicated data".to_string()));
-        }
-
-        self.blobs.push(blob);
-        if self.blobs.len() >= self.request.indices.len() {
-            // All expected chunks received, return result early
-            Ok(Some(std::mem::take(&mut self.blobs)))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn terminate(self) -> Option<Vec<Arc<BlobSidecar<E>>>> {
-        if self.resolved {
-            return None;
-        } else {
-            Some(self.blobs)
-        }
     }
 }
 
@@ -348,33 +267,25 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        block_root: BlocksByRootSingleRequest,
+        request: BlocksByRootSingleRequest,
     ) -> Result<(), &'static str> {
         debug!(
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "block_root" => ?block_root,
+            "block_root" => ?request.0,
             "peer" => %peer_id,
             "id" => ?id
         );
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request: Request::BlocksByRoot(BlocksByRootRequest::new(
-                vec![block_root],
-                &self.chain.spec,
-            )),
+            request: Request::BlocksByRoot(request.into_request(&self.chain.spec)),
             request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
         })?;
 
-        self.blocks_by_root_requests.insert(
-            id,
-            ActiveBlocksByRootRequest {
-                request: block_root,
-                resolved: false,
-            },
-        );
+        self.blocks_by_root_requests
+            .insert(id, ActiveBlocksByRootRequest::new(request));
 
         Ok(())
     }
@@ -397,28 +308,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id: peer_id,
-            request: Request::BlobsByRoot(BlobsByRootRequest::new(
-                request
-                    .indices
-                    .iter()
-                    .map(|index| BlobIdentifier {
-                        block_root: request.block_root,
-                        index: *index,
-                    })
-                    .collect(),
-                &self.chain.spec,
-            )),
+            request: Request::BlobsByRoot(request.into_request(&self.chain.spec)),
             request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
         })?;
 
-        self.blobs_by_root_requests.insert(
-            id,
-            ActiveBlobsByRootRequest {
-                request,
-                resolved: false,
-                blobs: vec![],
-            },
-        );
+        self.blobs_by_root_requests
+            .insert(id, ActiveBlobsByRootRequest::new(request));
 
         Ok(())
     }
@@ -540,7 +435,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             RpcEvent::Response(block, seen_timestamp) => {
                 match request.get_mut().add_response(block) {
                     Ok(block) => Ok((block, seen_timestamp)),
-                    Err(e) => Err(e),
+                    Err(e) => {
+                        // The request must be dropped after receiving an error.
+                        // TODO: We could NOT drop the request here, and penalize the peer again if
+                        // sends multiple penalizable chunks after the first invalid.
+                        request.remove();
+                        Err(e)
+                    }
                 }
             }
             RpcEvent::StreamTermination => match request.remove().terminate() {
@@ -570,7 +471,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     .map(|blobs| (blobs, timestamp_now()))
                     .map_err(RPCError::InvalidData),
                 Ok(None) => return None,
-                Err(e) => Err(e),
+                Err(e) => {
+                    request.remove();
+                    Err(e)
+                }
             },
             RpcEvent::StreamTermination => {
                 // Stream terminator

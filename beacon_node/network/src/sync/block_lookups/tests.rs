@@ -18,6 +18,7 @@ use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RPCResponseErrorCode;
 use lighthouse_network::types::SyncState;
 use lighthouse_network::{NetworkGlobals, Request};
+use slog::info;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
@@ -67,6 +68,7 @@ struct TestRig {
     /// `rng` for generating test blocks and blobs.
     rng: XorShiftRng,
     fork_name: ForkName,
+    log: Logger,
 }
 
 const D: Duration = Duration::new(0, 0);
@@ -124,6 +126,7 @@ impl TestRig {
                 log.clone(),
             ),
             fork_name,
+            log,
         }
     }
 
@@ -134,6 +137,10 @@ impl TestRig {
         } else {
             None
         }
+    }
+
+    fn log(&self, msg: &str) {
+        info!(self.log, "TEST_RIG"; "msg" => msg);
     }
 
     fn after_deneb(&self) -> bool {
@@ -914,7 +921,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
 
-    // Fail downloading the block
+    rig.log("Fail downloading the block");
     for i in 0..(parent_lookup::PARENT_FAIL_TOLERANCE - PROCESSING_FAILURES) {
         let id = rig.expect_block_parent_request(parent_root);
         // Blobs are only requested in the first iteration as this test only retries blocks
@@ -925,7 +932,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         rig.parent_lookup_failed_unavailable(id, peer_id);
     }
 
-    // Now fail processing a block in the parent request
+    rig.log("Now fail processing a block in the parent request");
     for i in 0..PROCESSING_FAILURES {
         let id = rig.expect_block_parent_request(parent_root);
         // Blobs are only requested in the first iteration as this test only retries blocks

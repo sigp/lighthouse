@@ -18,21 +18,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::EthSpec;
-
-#[derive(Debug, PartialEq, Eq, IntoStaticStr)]
-pub enum LookupVerifyError {
-    RootMismatch,
-    NoBlockReturned,
-    ExtraBlocksReturned,
-    UnrequestedBlobId(BlobIdentifier),
-    InvalidInclusionProof,
-    UnrequestedHeader,
-    ExtraBlobsReturned,
-    NotEnoughBlobsReturned,
-    InvalidIndex(u64),
-}
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
@@ -42,6 +29,7 @@ pub enum LookupRequestError {
         cannot_process: bool,
     },
     NoPeers,
+    BadState(String),
     SendFailed(&'static str),
     BadState(String),
 }
@@ -532,6 +520,21 @@ impl SingleLookupRequestState {
         self.used_peers.insert(peer_id);
         Some(peer_id)
     }
+
+    pub fn into_processing(&mut self) -> Result<(), String> {
+        match self.state {
+            State::AwaitingDownload => {
+                return Err("request bad state, expected downloading got processing".to_owned())
+            }
+            State::Downloading { peer_id } => {
+                self.state = State::Processing { peer_id };
+                Ok(())
+            }
+            State::Processing { .. } => {
+                return Err("request bad state, expected downloading got processing".to_owned())
+            }
+        }
+    }
 }
 
 impl<L: Lookup, T: BeaconChainTypes> slog::Value for SingleBlockLookup<L, T> {
@@ -674,12 +677,6 @@ mod tests {
         )
         .unwrap();
         sl.block_request_state.state.state = State::Downloading { peer_id };
-
-        <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::verify_response(
-            &mut sl.block_request_state,
-            block.into(),
-        )
-        .unwrap();
     }
 
     #[test]
@@ -724,21 +721,16 @@ mod tests {
         .unwrap();
         sl.block_request_state.state.state = State::Downloading { peer_id };
 
-        <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::verify_response(
-            &mut sl.block_request_state,
-            block.into(),
-        )
-        .unwrap();
-
         // One processing failure maxes the available attempts
         sl.block_request_state.state.on_processing_failure();
         assert_eq!(
             <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
                 &mut sl.block_request_state,
-            ),
-            Err(LookupRequestError::TooManyAttempts {
+            )
+            .unwrap_err(),
+            LookupRequestError::TooManyAttempts {
                 cannot_process: false
-            })
+            }
         )
     }
 }

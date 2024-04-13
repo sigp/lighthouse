@@ -1,6 +1,6 @@
 use crate::sync::block_lookups::parent_lookup::PARENT_FAIL_TOLERANCE;
 use crate::sync::block_lookups::single_block_lookup::{
-    LookupRequestError, LookupVerifyError, SingleBlockLookup, SingleLookupRequestState, State,
+    LookupRequestError, SingleBlockLookup, SingleLookupRequestState, State,
 };
 use crate::sync::block_lookups::{
     BlobRequestState, BlockLookups, BlockRequestState, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
@@ -150,26 +150,6 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
 
     /* Response handling methods */
 
-    /// Verify the response is valid based on what we requested.
-    fn verify_response(
-        &mut self,
-        response: Self::VerifiedResponseType,
-    ) -> Result<Self::VerifiedResponseType, LookupVerifyError> {
-        let request_state = self.get_state_mut();
-        match request_state.state {
-            State::AwaitingDownload => {
-                request_state.register_failure_downloading();
-                Err(LookupVerifyError::ExtraBlocksReturned)
-            }
-            State::Downloading { peer_id } => Ok(response),
-            State::Processing { peer_id: _ } => {
-                // We sent the block for processing and received an extra block.
-                request_state.register_failure_downloading();
-                Err(LookupVerifyError::ExtraBlocksReturned)
-            }
-        }
-    }
-
     /// A getter for the parent root of the response. Returns an `Option` because we won't know
     /// the blob parent if we don't end up getting any blobs in the response.
     fn get_parent_root(verified_response: &Self::VerifiedResponseType) -> Option<Hash256>;
@@ -223,7 +203,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
     type ReconstructedResponseType = RpcBlock<T::EthSpec>;
 
     fn new_request(&self) -> Self::RequestType {
-        self.requested_block_root
+        BlocksByRootSingleRequest(self.requested_block_root)
     }
 
     fn make_request(
