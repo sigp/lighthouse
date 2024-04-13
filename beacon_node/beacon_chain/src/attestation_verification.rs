@@ -807,7 +807,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 
         // TODO(eip7549) progressive_balances_cache_proposer_slashing fails here
         let validator_index = *indexed_attestation
-            .attesting_indices
+            .7
             .first()
             .ok_or(Error::NotExactlyOneAggregationBitSet(0))?;
 

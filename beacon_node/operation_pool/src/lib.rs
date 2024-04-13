@@ -18,6 +18,8 @@ pub use persistence::{
     PersistedOperationPoolV15, PersistedOperationPoolV5,
 };
 pub use reward_cache::RewardCache;
+use state_processing::epoch_cache::is_epoch_cache_initialized;
+use types::EpochCacheError;
 
 use crate::attestation_storage::{AttestationMap, CheckpointKey};
 use crate::bls_to_execution_changes::BlsToExecutionChanges;
@@ -75,6 +77,8 @@ pub enum OpPoolError {
     RewardCacheValidatorUnknown(BeaconStateError),
     RewardCacheOutOfBounds,
     IncorrectOpPoolVariant,
+    EpochCacheNotInitialized,
+    EpochCacheError(EpochCacheError),
 }
 
 #[derive(Default)]
@@ -252,6 +256,15 @@ impl<E: EthSpec> OperationPool<E> {
         curr_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, E>) -> bool + Send,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<E>>, OpPoolError> {
+        if !matches!(state, BeaconState::Base(_)) {
+            // Epoch cache must be initialized to fetch base reward values in the max cover `score`
+            // function. Currently max cover ignores items on errors. If epoch cache is not
+            // initialized, this function returns an error.
+            if !is_epoch_cache_initialized(state).map_err(OpPoolError::EpochCacheError)? {
+                return Err(OpPoolError::EpochCacheNotInitialized);
+            }
+        }
+
         // Attestations for the current fork, which may be from the current or previous epoch.
         let (prev_epoch_key, curr_epoch_key) = CheckpointKey::keys_for_state(state);
         let all_attestations = self.attestations.read();
@@ -708,7 +721,7 @@ impl<E: EthSpec> OperationPool<E> {
 }
 
 /// Filter up to a maximum number of operations out of an iterator.
-fn filter_limit_operations<'a, T: 'a, V: 'a, I, F, G>(
+fn filter_limit_operations<'a, T, V: 'a, I, F, G>(
     operations: I,
     filter: F,
     mapping: G,
@@ -718,7 +731,7 @@ where
     I: IntoIterator<Item = &'a T>,
     F: Fn(&T) -> bool,
     G: Fn(&T) -> V,
-    T: Clone,
+    T: Clone + 'a,
 {
     operations
         .into_iter()
@@ -776,6 +789,7 @@ mod release_tests {
     use state_processing::{
         common::indexed_attestation_base::get_attesting_indices_from_state, VerifyOperation,
     };
+    use state_processing::epoch_cache::initialize_epoch_cache;
     use std::collections::BTreeSet;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
     use types::*;
@@ -816,6 +830,15 @@ mod release_tests {
         (harness, spec)
     }
 
+    fn get_current_state_initialize_epoch_cache<E: EthSpec>(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+        spec: &ChainSpec,
+    ) -> BeaconState<E> {
+        let mut state = harness.get_current_state();
+        initialize_epoch_cache(&mut state, spec).unwrap();
+        state
+    }
+
     /// Test state for sync contribution-related tests.
     async fn sync_contribution_test_state<E: EthSpec>(
         num_committees: usize,
@@ -849,7 +872,7 @@ mod release_tests {
             return;
         }
 
-        let mut state = harness.get_current_state();
+        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
         let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
@@ -933,7 +956,7 @@ mod release_tests {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        let mut state = harness.get_current_state();
+        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
 
         let slot = state.slot();
         let committees = state
@@ -1009,7 +1032,7 @@ mod release_tests {
     fn attestation_duplicate() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = harness.get_current_state();
+        let state = get_current_state_initialize_epoch_cache(&harness, &spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1050,7 +1073,7 @@ mod release_tests {
     fn attestation_pairwise_overlapping() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = harness.get_current_state();
+        let state = get_current_state_initialize_epoch_cache(&harness, &spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1149,7 +1172,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = harness.get_current_state();
+        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1240,7 +1263,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = harness.get_current_state();
+        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slot = state.slot();

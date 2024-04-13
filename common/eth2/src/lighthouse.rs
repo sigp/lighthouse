@@ -54,8 +54,6 @@ pub struct Peer<E: EthSpec> {
 pub struct GlobalValidatorInclusionData {
     /// The total effective balance of all active validators during the _current_ epoch.
     pub current_epoch_active_gwei: u64,
-    /// The total effective balance of all active validators during the _previous_ epoch.
-    pub previous_epoch_active_gwei: u64,
     /// The total effective balance of all validators who attested during the _current_ epoch and
     /// agreed with the state about the beacon block at the first slot of the _current_ epoch.
     pub current_epoch_target_attesting_gwei: u64,

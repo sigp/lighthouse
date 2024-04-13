@@ -1,13 +1,14 @@
 #![deny(clippy::wildcard_imports)]
 
-pub use epoch_processing_summary::EpochProcessingSummary;
+use crate::metrics;
+pub use epoch_processing_summary::{EpochProcessingSummary, ParticipationEpochSummary};
 use errors::EpochProcessingError as Error;
 pub use justification_and_finalization_state::JustificationAndFinalizationState;
 use safe_arith::SafeArith;
 use types::{BeaconState, ChainSpec, EthSpec};
 
-pub use registry_updates::process_registry_updates;
-pub use slashings::process_slashings;
+pub use registry_updates::{process_registry_updates, process_registry_updates_slow};
+pub use slashings::{process_slashings, process_slashings_slow};
 pub use weigh_justification_and_finalization::weigh_justification_and_finalization;
 
 pub mod altair;
@@ -20,6 +21,7 @@ pub mod historical_roots_update;
 pub mod justification_and_finalization_state;
 pub mod registry_updates;
 pub mod resets;
+pub mod single_pass;
 pub mod slashings;
 pub mod tests;
 pub mod weigh_justification_and_finalization;
@@ -32,6 +34,8 @@ pub fn process_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<EpochProcessingSummary<E>, Error> {
+    let _timer = metrics::start_timer(&metrics::PROCESS_EPOCH_TIME);
+
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
     state
         .fork_name(spec)
@@ -39,10 +43,11 @@ pub fn process_epoch<E: EthSpec>(
 
     match state {
         BeaconState::Base(_) => base::process_epoch(state, spec),
-        BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_epoch(state, spec),
-        BeaconState::Capella(_) | BeaconState::Deneb(_) | BeaconState::Electra(_) => {
-            capella::process_epoch(state, spec)
-        }
+        BeaconState::Altair(_)
+        | BeaconState::Merge(_)
+        | BeaconState::Capella(_)
+        | BeaconState::Deneb(_)
+        | BeaconState::Electra(_) => altair::process_epoch(state, spec),
     }
 }
 

@@ -19,7 +19,9 @@ use tokio_util::{
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
     BeaconBlockMerge, BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName,
-    MainnetEthSpec, Signature, SignedBeaconBlock,
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    LightClientOptimisticUpdateAltair, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -110,6 +112,16 @@ lazy_static! {
         ])
     .as_ssz_bytes()
     .len();
+
+    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_CAPELLA_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
+    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
+    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_CAPELLA_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
+    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
+    pub static ref LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
+    pub static ref LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
 }
 
 /// The protocol prefix the RPC protocol id.
@@ -161,6 +173,56 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
     }
 }
 
+fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientFinalityUpdateAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Merge => RpcLimits::new(altair_fixed_len, altair_fixed_len),
+        ForkName::Capella => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_CAPELLA_MAX)
+        }
+        ForkName::Deneb => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
+        }
+        ForkName::Electra => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
+        }
+    }
+}
+
+fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientOptimisticUpdateAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Merge => RpcLimits::new(altair_fixed_len, altair_fixed_len),
+        ForkName::Capella => RpcLimits::new(
+            altair_fixed_len,
+            *LIGHT_CLIENT_OPTIMISTIC_UPDATE_CAPELLA_MAX,
+        ),
+        ForkName::Deneb => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX)
+        }
+        ForkName::Electra => RpcLimits::new(
+            altair_fixed_len,
+            *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
+        ),
+    }
+}
+
+fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientBootstrapAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Merge => RpcLimits::new(altair_fixed_len, altair_fixed_len),
+        ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
+        ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
+        ForkName::Electra => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX),
+    }
+}
+
 /// Protocol names to be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, AsRefStr, Display)]
 #[strum(serialize_all = "snake_case")]
@@ -189,6 +251,12 @@ pub enum Protocol {
     /// The `LightClientBootstrap` protocol name.
     #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
+    /// The `LightClientOptimisticUpdate` protocol name.
+    #[strum(serialize = "light_client_optimistic_update")]
+    LightClientOptimisticUpdate,
+    /// The `LightClientFinalityUpdate` protocol name.
+    #[strum(serialize = "light_client_finality_update")]
+    LightClientFinalityUpdate,
 }
 
 impl Protocol {
@@ -203,6 +271,8 @@ impl Protocol {
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
+            Protocol::LightClientOptimisticUpdate => None,
+            Protocol::LightClientFinalityUpdate => None,
         }
     }
 }
@@ -228,6 +298,8 @@ pub enum SupportedProtocol {
     MetaDataV1,
     MetaDataV2,
     LightClientBootstrapV1,
+    LightClientOptimisticUpdateV1,
+    LightClientFinalityUpdateV1,
 }
 
 impl SupportedProtocol {
@@ -245,6 +317,8 @@ impl SupportedProtocol {
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
             SupportedProtocol::LightClientBootstrapV1 => "1",
+            SupportedProtocol::LightClientOptimisticUpdateV1 => "1",
+            SupportedProtocol::LightClientFinalityUpdateV1 => "1",
         }
     }
 
@@ -262,6 +336,10 @@ impl SupportedProtocol {
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
             SupportedProtocol::LightClientBootstrapV1 => Protocol::LightClientBootstrap,
+            SupportedProtocol::LightClientOptimisticUpdateV1 => {
+                Protocol::LightClientOptimisticUpdate
+            }
+            SupportedProtocol::LightClientFinalityUpdateV1 => Protocol::LightClientFinalityUpdate,
         }
     }
 
@@ -316,6 +394,14 @@ impl<E: EthSpec> UpgradeInfo for RPCProtocol<E> {
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
                 SupportedProtocol::LightClientBootstrapV1,
+                Encoding::SSZSnappy,
+            ));
+            supported_protocols.push(ProtocolId::new(
+                SupportedProtocol::LightClientOptimisticUpdateV1,
+                Encoding::SSZSnappy,
+            ));
+            supported_protocols.push(ProtocolId::new(
+                SupportedProtocol::LightClientFinalityUpdateV1,
                 Encoding::SSZSnappy,
             ));
         }
@@ -392,6 +478,8 @@ impl ProtocolId {
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
+            Protocol::LightClientOptimisticUpdate => RpcLimits::new(0, 0),
+            Protocol::LightClientFinalityUpdate => RpcLimits::new(0, 0),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
@@ -416,10 +504,15 @@ impl ProtocolId {
                 <MetaDataV1<E> as Encode>::ssz_fixed_len(),
                 <MetaDataV2<E> as Encode>::ssz_fixed_len(),
             ),
-            Protocol::LightClientBootstrap => RpcLimits::new(
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
-            ),
+            Protocol::LightClientBootstrap => {
+                rpc_light_client_bootstrap_limits_by_fork(fork_context.current_fork())
+            }
+            Protocol::LightClientOptimisticUpdate => {
+                rpc_light_client_optimistic_update_limits_by_fork(fork_context.current_fork())
+            }
+            Protocol::LightClientFinalityUpdate => {
+                rpc_light_client_finality_update_limits_by_fork(fork_context.current_fork())
+            }
         }
     }
 
@@ -431,7 +524,9 @@ impl ProtocolId {
             | SupportedProtocol::BlocksByRootV2
             | SupportedProtocol::BlobsByRangeV1
             | SupportedProtocol::BlobsByRootV1
-            | SupportedProtocol::LightClientBootstrapV1 => true,
+            | SupportedProtocol::LightClientBootstrapV1
+            | SupportedProtocol::LightClientOptimisticUpdateV1
+            | SupportedProtocol::LightClientFinalityUpdateV1 => true,
             SupportedProtocol::StatusV1
             | SupportedProtocol::BlocksByRootV1
             | SupportedProtocol::BlocksByRangeV1
@@ -515,6 +610,12 @@ where
                 SupportedProtocol::MetaDataV2 => {
                     Ok((InboundRequest::MetaData(MetadataRequest::new_v2()), socket))
                 }
+                SupportedProtocol::LightClientOptimisticUpdateV1 => {
+                    Ok((InboundRequest::LightClientOptimisticUpdate, socket))
+                }
+                SupportedProtocol::LightClientFinalityUpdateV1 => {
+                    Ok((InboundRequest::LightClientFinalityUpdate, socket))
+                }
                 _ => {
                     match tokio::time::timeout(
                         Duration::from_secs(REQUEST_TIMEOUT),
@@ -543,6 +644,8 @@ pub enum InboundRequest<E: EthSpec> {
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
+    LightClientOptimisticUpdate,
+    LightClientFinalityUpdate,
     Ping(Ping),
     MetaData(MetadataRequest<E>),
 }
@@ -551,8 +654,8 @@ pub enum InboundRequest<E: EthSpec> {
 impl<E: EthSpec> InboundRequest<E> {
     /* These functions are used in the handler for stream management */
 
-    /// Number of responses expected for this request.
-    pub fn expected_responses(&self) -> u64 {
+    /// Maximum number of responses expected for this request.
+    pub fn max_responses(&self) -> u64 {
         match self {
             InboundRequest::Status(_) => 1,
             InboundRequest::Goodbye(_) => 0,
@@ -563,6 +666,8 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
+            InboundRequest::LightClientOptimisticUpdate => 1,
+            InboundRequest::LightClientFinalityUpdate => 1,
         }
     }
 
@@ -587,6 +692,12 @@ impl<E: EthSpec> InboundRequest<E> {
                 MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
             },
             InboundRequest::LightClientBootstrap(_) => SupportedProtocol::LightClientBootstrapV1,
+            InboundRequest::LightClientOptimisticUpdate => {
+                SupportedProtocol::LightClientOptimisticUpdateV1
+            }
+            InboundRequest::LightClientFinalityUpdate => {
+                SupportedProtocol::LightClientFinalityUpdateV1
+            }
         }
     }
 
@@ -605,6 +716,8 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::Ping(_) => unreachable!(),
             InboundRequest::MetaData(_) => unreachable!(),
             InboundRequest::LightClientBootstrap(_) => unreachable!(),
+            InboundRequest::LightClientFinalityUpdate => unreachable!(),
+            InboundRequest::LightClientOptimisticUpdate => unreachable!(),
         }
     }
 }
@@ -711,7 +824,13 @@ impl<E: EthSpec> std::fmt::Display for InboundRequest<E> {
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {
-                write!(f, "LightClientBootstrap: {}", bootstrap.root)
+                write!(f, "Light client boostrap: {}", bootstrap.root)
+            }
+            InboundRequest::LightClientOptimisticUpdate => {
+                write!(f, "Light client optimistic update request")
+            }
+            InboundRequest::LightClientFinalityUpdate => {
+                write!(f, "Light client finality update request")
             }
         }
     }

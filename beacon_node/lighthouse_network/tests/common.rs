@@ -7,7 +7,6 @@ use lighthouse_network::{NetworkConfig, NetworkEvent};
 use slog::{debug, error, o, Drain};
 use std::sync::Arc;
 use std::sync::Weak;
-use std::time::Duration;
 use tokio::runtime::Runtime;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Slot,
@@ -93,12 +92,6 @@ pub fn build_config(mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
-    // Reduce gossipsub heartbeat parameters
-    config.gs_config = gossipsub::ConfigBuilder::from(config.gs_config)
-        .heartbeat_initial_delay(Duration::from_millis(500))
-        .heartbeat_interval(Duration::from_millis(500))
-        .build()
-        .unwrap();
     config
 }
 

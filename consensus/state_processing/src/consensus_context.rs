@@ -3,6 +3,7 @@ use crate::{
     common::indexed_attestation_electra,
     per_block_processing::errors::{AttestationInvalid, BlockOperationError},
 };
+use crate::EpochCacheError;
 use ssz_derive::{Decode, Encode};
 use std::collections::{hash_map::Entry, HashMap};
 use tree_hash::TreeHash;
@@ -15,6 +16,10 @@ use types::{
 pub struct ConsensusContext<E: EthSpec> {
     /// Slot to act as an identifier/safeguard
     slot: Slot,
+    /// Previous epoch of the `slot` precomputed for optimization purpose.
+    pub(crate) previous_epoch: Epoch,
+    /// Current epoch of the `slot` precomputed for optimization purpose.
+    pub(crate) current_epoch: Epoch,
     /// Proposer index of the block at `slot`.
     proposer_index: Option<u64>,
     /// Block root of the block at `slot`.
@@ -34,6 +39,7 @@ pub struct ConsensusContext<E: EthSpec> {
 #[derive(Debug, PartialEq, Clone)]
 pub enum ContextError {
     BeaconState(BeaconStateError),
+    EpochCache(EpochCacheError),
     SlotMismatch { slot: Slot, expected: Slot },
     EpochMismatch { epoch: Epoch, expected: Epoch },
 }
@@ -44,10 +50,20 @@ impl From<BeaconStateError> for ContextError {
     }
 }
 
+impl From<EpochCacheError> for ContextError {
+    fn from(e: EpochCacheError) -> Self {
+        Self::EpochCache(e)
+    }
+}
+
 impl<E: EthSpec> ConsensusContext<E> {
     pub fn new(slot: Slot) -> Self {
+        let current_epoch = slot.epoch(E::slots_per_epoch());
+        let previous_epoch = current_epoch.saturating_sub(1u64);
         Self {
             slot,
+            previous_epoch,
+            current_epoch,
             proposer_index: None,
             current_block_root: None,
             indexed_attestations: HashMap::new(),

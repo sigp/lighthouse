@@ -30,7 +30,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         if let BeaconState::Base(ref base_state) = state {
             Self::new_for_base(att, state, base_state, total_active_balance, spec)
         } else {
-            Self::new_for_altair_deneb(att, state, reward_cache, total_active_balance, spec)
+            Self::new_for_altair_deneb(att, state, reward_cache, spec)
         }
     }
 
@@ -51,18 +51,17 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
             &fresh_validators,
         )
         .ok()?;
+        let sqrt_total_active_balance = base::SqrtTotalActiveBalance::new(total_active_balance);
         let fresh_validators_rewards: HashMap<u64, u64> = indices
             .iter()
             .copied()
             .flat_map(|validator_index| {
-                let reward = base::get_base_reward(
-                    state,
-                    validator_index as usize,
-                    total_active_balance,
-                    spec,
-                )
-                .ok()?
-                .checked_div(spec.proposer_reward_quotient)?;
+                let effective_balance =
+                    state.get_effective_balance(validator_index as usize).ok()?;
+                let reward =
+                    base::get_base_reward(effective_balance, sqrt_total_active_balance, spec)
+                        .ok()?
+                        .checked_div(spec.proposer_reward_quotient)?;
                 Some((validator_index, reward))
             })
             .collect();
@@ -77,7 +76,6 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         att: AttestationRef<'a, E>,
         state: &BeaconState<E>,
         reward_cache: &'a RewardCache,
-        total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
         let att_data = att.attestation_data();
@@ -86,8 +84,6 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         let att_participation_flags =
             get_attestation_participation_flag_indices(state, &att_data, inclusion_delay, spec)
                 .ok()?;
-        let base_reward_per_increment =
-            altair::BaseRewardPerIncrement::new(total_active_balance, spec).ok()?;
 
         let fresh_validators_rewards = att
             .indexed
@@ -103,9 +99,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
 
                 let mut proposer_reward_numerator = 0;
 
-                let base_reward =
-                    altair::get_base_reward(state, index as usize, base_reward_per_increment, spec)
-                        .ok()?;
+                let base_reward = state.get_base_reward(index as usize).ok()?;
 
                 for (flag_index, weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                     if att_participation_flags.contains(&flag_index) {

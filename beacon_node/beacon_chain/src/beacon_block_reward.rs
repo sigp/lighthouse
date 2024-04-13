@@ -8,6 +8,7 @@ use state_processing::{
         altair, get_attestation_participation_flag_indices, indexed_attestation_base,
         indexed_attestation_electra,
     },
+    epoch_cache::initialize_epoch_cache,
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
     },
@@ -33,6 +34,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        initialize_epoch_cache(state, &self.spec)?;
 
         self.compute_beacon_block_reward_with_cache(block, block_root, state)
     }
@@ -192,10 +194,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
-        let total_active_balance = state.get_total_active_balance()?;
-        let base_reward_per_increment =
-            altair::BaseRewardPerIncrement::new(total_active_balance, &self.spec)?;
-
         let mut total_proposer_reward = 0;
 
         let proposer_reward_denominator = WEIGHT_DENOMINATOR
@@ -244,15 +242,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         && !validator_participation.has_flag(flag_index)?
                     {
                         validator_participation.add_flag(flag_index)?;
-                        proposer_reward_numerator.safe_add_assign(
-                            altair::get_base_reward(
-                                state,
-                                index,
-                                base_reward_per_increment,
-                                &self.spec,
-                            )?
-                            .safe_mul(weight)?,
-                        )?;
+                        proposer_reward_numerator
+                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
                     }
                 }
             }
