@@ -735,7 +735,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 // Get the reward indices for the unaggregated attestation or log an error
                 match get_attestation_participation_flag_indices(
                     state,
-                    &unaggregated_attestation.data(),
+                    unaggregated_attestation.data(),
                     inclusion_delay,
                     spec,
                 ) {

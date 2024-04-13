@@ -2,7 +2,7 @@ use crate::attestation_storage::AttestationRef;
 use crate::max_cover::MaxCover;
 use crate::reward_cache::RewardCache;
 use state_processing::common::{
-    altair, base, get_attestation_participation_flag_indices, indexed_attestation_base,
+    base, get_attestation_participation_flag_indices, indexed_attestation_base,
 };
 use std::collections::HashMap;
 use types::{
@@ -192,13 +192,13 @@ pub fn earliest_attestation_validators<E: EthSpec>(
     state_attestations
         .iter()
         // In a single epoch, an attester should only be attesting for one slot and index.
-        .filter(|existing_attestation| {
-            existing_attestation.data.slot == attestation.data.slot
-                && existing_attestation.data.index == attestation.data.index
+        .filter(|&existing_attestation| {
+            existing_attestation.data().slot == attestation.data.slot
+                && existing_attestation.data().index == attestation.data.index
         })
         .for_each(|existing_attestation| {
             // Remove the validators who have signed the existing attestation (they are not new)
-            new_validators.difference_inplace(&existing_attestation.aggregation_bits);
+            new_validators.difference_inplace(existing_attestation.aggregation_bits());
         });
 
     new_validators

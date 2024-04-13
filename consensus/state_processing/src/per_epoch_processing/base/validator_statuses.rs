@@ -1,4 +1,4 @@
-use crate::common::indexed_attestation_base;
+use crate::common::{indexed_attestation_base, indexed_attestation_electra};
 use safe_arith::SafeArith;
 use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, PendingAttestation};
 
@@ -248,24 +248,21 @@ impl ValidatorStatuses {
             .iter()
             .chain(base_state.current_epoch_attestations.iter())
         {
-            let committee = state.get_beacon_committee(a.data.slot, a.data.index)?;
-
-            let attesting_indices = match state
-                .fork_name(&E::default_spec())
-                .map_err(|_| BeaconStateError::EpochOutOfBounds)?
-            {
-                types::ForkName::Base
-                | types::ForkName::Altair
-                | types::ForkName::Merge
-                | types::ForkName::Capella
-                | types::ForkName::Deneb => indexed_attestation_base::get_attesting_indices::<E>(
-                    committee.committee,
-                    &a.aggregation_bits,
-                )?,
-                types::ForkName::Electra => {
-                    // TODO(eip7549) the pending attestation needs to be an electra attestation
-                    // indexed_attestation_electra::get_attesting_indices(state, a)?
-                    todo!()
+            let attesting_indices = match a {
+                PendingAttestation::Electra(att) => {
+                    let committees = state.get_beacon_committees_at_slot(att.data.slot)?;
+                    indexed_attestation_electra::get_attesting_indices::<E>(
+                        &committees,
+                        &att.aggregation_bits,
+                        &att.committee_bits,
+                    )?
+                }
+                PendingAttestation::Base(att) => {
+                    let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
+                    indexed_attestation_base::get_attesting_indices::<E>(
+                        committee.committee,
+                        &att.aggregation_bits,
+                    )?
                 }
             };
 
@@ -273,20 +270,20 @@ impl ValidatorStatuses {
 
             // Profile this attestation, updating the total balances and generating an
             // `ValidatorStatus` object that applies to all participants in the attestation.
-            if a.data.target.epoch == state.current_epoch() {
+            if a.data().target.epoch == state.current_epoch() {
                 status.is_current_epoch_attester = true;
 
                 if target_matches_epoch_start_block(a, state, state.current_epoch())? {
                     status.is_current_epoch_target_attester = true;
                 }
-            } else if a.data.target.epoch == state.previous_epoch() {
+            } else if a.data().target.epoch == state.previous_epoch() {
                 status.is_previous_epoch_attester = true;
 
                 // The inclusion delay and proposer index are only required for previous epoch
                 // attesters.
                 status.inclusion_info = Some(InclusionInfo {
-                    delay: a.inclusion_delay,
-                    proposer_index: a.proposer_index as usize,
+                    delay: *a.inclusion_delay(),
+                    proposer_index: *a.proposer_index() as usize,
                 });
 
                 if target_matches_epoch_start_block(a, state, state.previous_epoch())? {
@@ -357,7 +354,7 @@ fn target_matches_epoch_start_block<E: EthSpec>(
     let slot = epoch.start_slot(E::slots_per_epoch());
     let state_boundary_root = *state.get_block_root(slot)?;
 
-    Ok(a.data.target.root == state_boundary_root)
+    Ok(a.data().target.root == state_boundary_root)
 }
 
 /// Returns `true` if a `PendingAttestation` and `BeaconState` share the same beacon block hash for
@@ -368,7 +365,7 @@ fn has_common_beacon_block_root<E: EthSpec>(
     a: &PendingAttestation<E>,
     state: &BeaconState<E>,
 ) -> Result<bool, BeaconStateError> {
-    let state_block_root = *state.get_block_root(a.data.slot)?;
+    let state_block_root = *state.get_block_root(a.data().slot)?;
 
-    Ok(a.data.beacon_block_root == state_block_root)
+    Ok(a.data().beacon_block_root == state_block_root)
 }

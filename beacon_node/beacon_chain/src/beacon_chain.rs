@@ -72,7 +72,6 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use bitvec::field::BitField;
 use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
@@ -96,7 +95,6 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::common::{indexed_attestation_base, indexed_attestation_electra};
 use state_processing::{
-    common::indexed_attestation_base::get_attesting_indices_from_state,
     epoch_cache::initialize_epoch_cache,
     per_block_processing,
     per_block_processing::{
@@ -1959,19 +1957,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
                 signature: AggregateSignature::empty(),
             })),
-            ForkName::Electra => Ok(Attestation::Electra(AttestationElectra {
-                // TODO(eip7594) need to make sure bitlists are of the correct length
-                aggregation_bits: BitList::with_capacity(committee_len)?,
-                data: AttestationData {
-                    slot: request_slot,
-                    index: 0u64,
-                    beacon_block_root,
-                    source: justified_checkpoint,
-                    target,
-                },
-                committee_bits: BitList::with_capacity(committee_len)?,
-                signature: AggregateSignature::empty(),
-            })),
+            ForkName::Electra => {
+                let mut committee_bits = BitList::with_capacity(committee_len)?;
+                committee_bits.set(request_index as usize, true)?;
+                println!("test");
+                Ok(Attestation::Electra(AttestationElectra {
+                    // TODO(eip7594) need to make sure bitlists are of the correct length
+                    aggregation_bits: BitList::with_capacity(committee_len)?,
+                    data: AttestationData {
+                        slot: request_slot,
+                        index: 0u64,
+                        beacon_block_root,
+                        source: justified_checkpoint,
+                        target,
+                    },
+                    committee_bits,
+                    signature: AggregateSignature::empty(),
+                }))
+            }
         }
     }
 

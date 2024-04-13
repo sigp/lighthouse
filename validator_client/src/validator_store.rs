@@ -666,7 +666,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         {
             self.slashing_protection.check_and_insert_attestation(
                 &validator_pubkey,
-                &attestation.data(),
+                attestation.data(),
                 domain_hash,
             )
         } else {

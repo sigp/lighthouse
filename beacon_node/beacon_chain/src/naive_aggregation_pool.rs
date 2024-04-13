@@ -553,19 +553,11 @@ mod tests {
     }
 
     fn mutate_attestation_block_root(a: &mut Attestation<E>, block_root: Hash256) {
-        // TODO(eip7594) fix this
-        // match a {
-        //     Attestation::Base(mut att) => att.data.beacon_block_root = block_root,
-        //     Attestation::Electra(mut att) => att.data.beacon_block_root = block_root,
-        // };
+        a.data_mut().beacon_block_root = block_root;
     }
 
     fn mutate_attestation_slot(a: &mut Attestation<E>, slot: Slot) {
-        // TODO(eip7594) fix this
-        // match a {
-        //     Attestation::Base(att) => att.data.slot = slot,
-        //     Attestation::Electra(att) => att.data.slot = slot,
-        // };
+        a.data_mut().slot = slot;
     }
 
     fn attestation_block_root_comparator(a: &Attestation<E>, block_root: Hash256) -> bool {

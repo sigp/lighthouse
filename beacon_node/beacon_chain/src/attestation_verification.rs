@@ -586,11 +586,8 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                         }
                     }
                     Attestation::Electra(att) => {
-                        indexed_attestation_electra::get_indexed_attestation(
-                            &committees,
-                            att,
-                        )
-                        .map_err(|e| BeaconChainError::from(e).into())
+                        indexed_attestation_electra::get_indexed_attestation(&committees, att)
+                            .map_err(|e| BeaconChainError::from(e).into())
                     }
                 }
             };
@@ -807,7 +804,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 
         // TODO(eip7549) progressive_balances_cache_proposer_slashing fails here
         let validator_index = *indexed_attestation
-            .7
+            .attesting_indices
             .first()
             .ok_or(Error::NotExactlyOneAggregationBitSet(0))?;
 
@@ -1278,7 +1275,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     map_attestation_committee(chain, attestation, |(committees, committees_per_slot)| {
         match attestation {
             Attestation::Base(att) => {
-                // TODO(eip7549) unwrap
+                println!("BASE FAILURE");
                 let committee = committees
                     .iter()
                     .filter(|&committee| committee.index == att.data.index)

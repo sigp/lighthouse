@@ -53,6 +53,8 @@ impl ForkChoiceTest {
     /// Creates a new tester with a custom chain config.
     pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
         // Run fork choice tests against the latest fork.
+
+        // TODO(eip7549) use latest fork
         let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec)

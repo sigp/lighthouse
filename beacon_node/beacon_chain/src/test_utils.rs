@@ -1018,15 +1018,6 @@ where
     ) -> Result<Attestation<E>, BeaconChainError> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
-        let is_electra = match self.spec.fork_name_at_slot::<E>(slot) {
-            ForkName::Base
-            | ForkName::Altair
-            | ForkName::Merge
-            | ForkName::Capella
-            | ForkName::Deneb => false,
-            ForkName::Electra => true,
-        };
-
         if state.slot() > slot {
             return Err(BeaconChainError::CannotAttestToFutureState);
         } else if state.current_epoch() < epoch {
@@ -1051,11 +1042,13 @@ where
             *state.get_block_root(target_slot)?
         };
 
-        if is_electra {
+        if self.spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
+            let mut committee_bits = BitList::with_capacity(committee_len)?;
+            committee_bits.set(index as usize, true)?;
             Ok(Attestation::Electra(AttestationElectra {
                 // TODO(eip7594) fix size
                 aggregation_bits: BitList::with_capacity(committee_len)?,
-                committee_bits: BitList::with_capacity(committee_len)?,
+                committee_bits,
                 data: AttestationData {
                     slot,
                     index: 0u64,
@@ -1169,7 +1162,7 @@ where
                             }
                         };
 
-                        let signature = {
+                        *attestation.signature_mut() = {
                             let domain = self.spec.get_domain(
                                 attestation.data().target.epoch,
                                 Domain::BeaconAttester,
@@ -1188,19 +1181,8 @@ where
                             agg_sig
                         };
 
-                        attestation = match attestation {
-                            Attestation::Base(mut att) => {
-                                att.signature = signature;
-                                Attestation::Base(att)
-                            }
-                            Attestation::Electra(mut att) => {
-                                att.signature = signature;
-                                Attestation::Electra(att)
-                            }
-                        };
-
                         let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
-                            &attestation.data(),
+                            attestation.data(),
                             committee_count,
                             &self.chain.spec,
                         )
@@ -1405,7 +1387,7 @@ where
                         // aggregate locally.
                         let aggregate = self
                             .chain
-                            .get_aggregated_attestation(&attestation.data())
+                            .get_aggregated_attestation(attestation.data())
                             .unwrap()
                             .unwrap_or_else(|| {
                                 committee_attestations.iter().skip(1).fold(

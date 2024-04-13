@@ -31,7 +31,7 @@ pub type E = MainnetEthSpec;
 pub const VALIDATOR_COUNT: usize = 256;
 
 pub const CAPELLA_FORK_EPOCH: usize = 1;
-pub const ELECTRA_FORK_EPOCH: usize = 2;
+pub const ELECTRA_FORK_EPOCH: usize = 1000;
 
 lazy_static! {
     /// A cached set of keys.

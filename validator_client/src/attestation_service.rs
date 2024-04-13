@@ -15,6 +15,7 @@ use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
 use types::attestation::{AttestationBase, AttestationElectra};
+use types::ForkName;
 use types::{
     AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
     Slot,
@@ -337,15 +338,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     ) -> Result<Option<AttestationData>, String> {
         let log = self.context.log();
 
-        let is_electra = match self.spec.fork_name_at_slot::<E>(slot) {
-            types::ForkName::Base
-            | types::ForkName::Altair
-            | types::ForkName::Merge
-            | types::ForkName::Capella
-            | types::ForkName::Deneb => false,
-            types::ForkName::Electra => true,
-        };
-
         if validator_duties.is_empty() {
             return Ok(None);
         }
@@ -384,7 +376,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
             // Ensure that the attestation matches the duties.
             #[allow(clippy::suspicious_operation_groupings)]
-            let committee_index = if is_electra {
+            let committee_index = if self.spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
                 committee_index
             } else {
                 attestation_data.index
@@ -404,7 +396,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             }
 
             // TODO(attestation_data) populate index here for electra
-            let mut attestation = if is_electra {
+            let mut attestation = if self.spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
                 Attestation::Base(AttestationBase {
                     aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
                         .unwrap(),
@@ -413,10 +405,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 })
             } else {
                 // TODO(eip7594) committee_bits should be init with correct length
+                let mut committee_bits = BitList::with_capacity(duty.committee_length as usize).unwrap();
+                committee_bits.set(committee_index as usize, true).unwrap();
                 Attestation::Electra(AttestationElectra {
                     aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
                         .unwrap(),
-                    committee_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
+                    committee_bits,
                     data: attestation_data.clone(),
                     signature: AggregateSignature::infinity(),
                 })
@@ -536,15 +530,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     ) -> Result<(), String> {
         let log = self.context.log();
 
-        let is_electra = match self.spec.fork_name_at_slot::<E>(attestation_data.slot) {
-            types::ForkName::Base
-            | types::ForkName::Altair
-            | types::ForkName::Merge
-            | types::ForkName::Capella
-            | types::ForkName::Deneb => false,
-            types::ForkName::Electra => true,
-        };
-
         if !validator_duties
             .iter()
             .any(|duty_and_proof| duty_and_proof.selection_proof.is_some())
@@ -585,7 +570,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let selection_proof = duty_and_proof.selection_proof.as_ref()?;
 
             let slot = attestation_data.slot;
-            let committee_index = if is_electra {
+            let committee_index = if self.spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
                 duty.committee_index
             } else {
                 attestation_data.index

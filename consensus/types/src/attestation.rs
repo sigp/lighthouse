@@ -74,14 +74,16 @@ impl<E: EthSpec> Decode for Attestation<E> {
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
         if let Ok(result) = AttestationBase::from_ssz_bytes(bytes) {
-            return Ok(Attestation::Base(result))
+            return Ok(Attestation::Base(result));
         }
 
         if let Ok(result) = AttestationElectra::from_ssz_bytes(bytes) {
-            return Ok(Attestation::Electra(result))
+            return Ok(Attestation::Electra(result));
         }
 
-        Err(ssz::DecodeError::BytesInvalid(String::from("bytes not valid for any fork variant")))
+        Err(ssz::DecodeError::BytesInvalid(String::from(
+            "bytes not valid for any fork variant",
+        )))
     }
 }
 
@@ -138,14 +140,14 @@ impl<E: EthSpec> Attestation<E> {
     pub fn aggregate(&mut self, other: &Self) {
         match self {
             Attestation::Base(att) => {
-                debug_assert_eq!(other.as_base().is_ok(), true);
+                debug_assert!(other.as_base().is_ok());
 
                 if let Ok(other) = other.as_base() {
                     att.aggregate(other)
                 }
             }
             Attestation::Electra(att) => {
-                debug_assert_eq!(other.as_electra().is_ok(), true);
+                debug_assert!(other.as_electra().is_ok());
 
                 if let Ok(other) = other.as_electra() {
                     att.aggregate(other)

@@ -1,6 +1,6 @@
 use crate::common::get_attestation_participation_flag_indices;
-use crate::common::indexed_attestation_base::get_attesting_indices;
 use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
+use crate::common::{indexed_attestation_base, indexed_attestation_electra};
 use std::mem;
 use std::sync::Arc;
 use types::{
@@ -18,17 +18,32 @@ pub fn translate_participation<E: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
 
     for attestation in pending_attestations {
-        let data = &attestation.data;
-        let inclusion_delay = attestation.inclusion_delay;
+        let data = attestation.data();
+        let inclusion_delay = attestation.inclusion_delay();
 
         // Translate attestation inclusion info to flag indices.
         let participation_flag_indices =
-            get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
+            get_attestation_participation_flag_indices(state, data, *inclusion_delay, spec)?;
 
         // Apply flags to all attesting validators.
-        let committee = state.get_beacon_committee(data.slot, data.index)?;
-        let attesting_indices =
-            get_attesting_indices::<E>(committee.committee, &attestation.aggregation_bits)?;
+        let attesting_indices = match attestation {
+            PendingAttestation::Base(att) => {
+                let committee = state.get_beacon_committee(data.slot, data.index)?;
+                indexed_attestation_base::get_attesting_indices::<E>(
+                    committee.committee,
+                    &att.aggregation_bits,
+                )?
+            }
+            PendingAttestation::Electra(att) => {
+                let committees = state.get_beacon_committees_at_slot(att.data.slot)?;
+                indexed_attestation_electra::get_attesting_indices::<E>(
+                    &committees,
+                    &att.aggregation_bits,
+                    &att.committee_bits,
+                )?
+            }
+        };
+
         let epoch_participation = state.previous_epoch_participation_mut()?;
 
         for index in attesting_indices {

@@ -5,7 +5,7 @@ use safe_arith::SafeArith;
 use slog::error;
 use state_processing::{
     common::{
-        altair, get_attestation_participation_flag_indices, indexed_attestation_base,
+        get_attestation_participation_flag_indices, indexed_attestation_base,
         indexed_attestation_electra,
     },
     epoch_cache::initialize_epoch_cache,

@@ -41,6 +41,8 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
 pub mod base {
 
+    use types::pending_attestation::{PendingAttestationBase, PendingAttestationElectra};
+
     use super::*;
 
     /// Validates each `Attestation` and updates the state, short-circuiting on an invalid object.
@@ -74,11 +76,22 @@ pub mod base {
             )
             .map_err(|e| e.into_with_index(i))?;
 
-            let pending_attestation = PendingAttestation {
-                aggregation_bits: attestation.aggregation_bits().clone(),
-                data: attestation.data().clone(),
-                inclusion_delay: state.slot().safe_sub(attestation.data().slot)?.as_u64(),
-                proposer_index,
+            let pending_attestation = match attestation {
+                Attestation::Base(att) => PendingAttestation::Base(PendingAttestationBase {
+                    aggregation_bits: att.aggregation_bits.clone(),
+                    data: att.data.clone(),
+                    inclusion_delay: state.slot().safe_sub(att.data.slot)?.as_u64(),
+                    proposer_index,
+                }),
+                Attestation::Electra(att) => {
+                    PendingAttestation::Electra(PendingAttestationElectra {
+                        aggregation_bits: att.aggregation_bits.clone(),
+                        committee_bits: att.committee_bits.clone(),
+                        data: att.data.clone(),
+                        inclusion_delay: state.slot().safe_sub(att.data.slot)?.as_u64(),
+                        proposer_index,
+                    })
+                }
             };
 
             if attestation.data().target.epoch == state.current_epoch() {
@@ -98,10 +111,9 @@ pub mod base {
     }
 }
 
-pub mod altair_deneb {
+pub mod altair_electra {
     use super::*;
-    use crate::common::{altair::{get_base_reward, BaseRewardPerIncrement}, update_progressive_balances_cache::update_progressive_balances_on_attestation};
-    use types::{attestation::AttestationBase, consts::altair::TIMELY_TARGET_FLAG_INDEX};
+    use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
 
     pub fn process_attestations<E: EthSpec>(
         state: &mut BeaconState<E>,
@@ -113,21 +125,14 @@ pub mod altair_deneb {
         attestations
             .iter()
             .enumerate()
-            .try_for_each(|(i, attestation)| match attestation {
-                Attestation::Base(att) => {
-                    altair_deneb::process_attestation(state, att, i, ctxt, verify_signatures, spec)
-                }
-                Attestation::Electra(att) => {
-                    // TODO(eip7549) this should throw a error
-                    todo!()
-                    // electra::process_attestation(state, att, i, ctxt, verify_signatures, spec)
-                }
+            .try_for_each(|(i, attestation)| {
+                process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
             })
     }
 
     pub fn process_attestation<E: EthSpec>(
         state: &mut BeaconState<E>,
-        attestation: &AttestationBase<E>,
+        attestation: &Attestation<E>,
         att_index: usize,
         ctxt: &mut ConsensusContext<E>,
         verify_signatures: VerifySignatures,
@@ -139,7 +144,7 @@ pub mod altair_deneb {
 
         let attesting_indices = &verify_attestation_for_block_inclusion(
             state,
-            &Attestation::Base(attestation.clone()),
+            attestation,
             ctxt,
             verify_signatures,
             spec,
@@ -148,126 +153,7 @@ pub mod altair_deneb {
         .attesting_indices;
 
         // Matching roots, participation flag indices
-        let data = &attestation.data;
-        let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
-        let participation_flag_indices =
-            get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
-
-        // Update epoch participation flags.
-        let total_active_balance = state.get_total_active_balance()?;
-        let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
-        let mut proposer_reward_numerator = 0;
-        for index in attesting_indices {
-            let index = *index as usize;
-
-            for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let epoch_participation = state.get_epoch_participation_mut(
-                    data.target.epoch,
-                    previous_epoch,
-                    current_epoch
-                )?;
-                let validator_participation = epoch_participation
-                    .get_mut(index)
-                    .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
-
-                if participation_flag_indices.contains(&flag_index)
-                    && !validator_participation.has_flag(flag_index)?
-                {
-                    validator_participation.add_flag(flag_index)?;
-                    proposer_reward_numerator.safe_add_assign(
-                        get_base_reward(state, index, base_reward_per_increment, spec)?
-                            .safe_mul(weight)?,
-                    )?;
-
-                    if flag_index == TIMELY_TARGET_FLAG_INDEX {
-                        update_progressive_balances_on_attestation(
-                            state,
-                            data.target.epoch,
-                            index,
-                            validator_effective_balance,
-                            validator_slashed,
-                        )?;
-                    }
-                }
-            }
-        }
-
-        let proposer_reward_denominator = WEIGHT_DENOMINATOR
-            .safe_sub(PROPOSER_WEIGHT)?
-            .safe_mul(WEIGHT_DENOMINATOR)?
-            .safe_div(PROPOSER_WEIGHT)?;
-        let proposer_reward = proposer_reward_numerator.safe_div(proposer_reward_denominator)?;
-        increase_balance(state, proposer_index as usize, proposer_reward)?;
-        Ok(())
-    }
-}
-
-pub mod electra {
-    use super::*;
-    use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
-    use types::{attestation::AttestationElectra, consts::altair::TIMELY_TARGET_FLAG_INDEX};
-
-    pub fn process_attestations<E: EthSpec>(
-        state: &mut BeaconState<E>,
-        attestations: &[Attestation<E>],
-        verify_signatures: VerifySignatures,
-        ctxt: &mut ConsensusContext<E>,
-        spec: &ChainSpec,
-    ) -> Result<(), BlockProcessingError> {
-        attestations
-            .iter()
-            .enumerate()
-            .try_for_each(|(i, attestation)| match attestation {
-                Attestation::Base(att) => {
-                    altair_deneb::process_attestation(state, att, i, ctxt, verify_signatures, spec)
-                }
-                Attestation::Electra(att) => {
-                    electra::process_attestation(state, att, i, ctxt, verify_signatures, spec)
-                }
-            })
-    }
-
-    pub fn process_attestation<E: EthSpec>(
-        state: &mut BeaconState<E>,
-        attestation: &AttestationElectra<E>,
-        att_index: usize,
-        ctxt: &mut ConsensusContext<E>,
-        verify_signatures: VerifySignatures,
-        spec: &ChainSpec,
-    ) -> Result<(), BlockProcessingError> {
-        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-        state.build_committee_cache(RelativeEpoch::Current, spec)?;
-
-        let proposer_index = ctxt.get_proposer_index(state, spec)?;
-
-        let committee_indices: Vec<u64> = attestation
-            .committee_bits
-            .iter()
-            .enumerate()
-            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
-            .collect();
-
-        let mut participants_count = 0u64;
-        for index in committee_indices.iter() {
-            // TODO(eip7549) assert index < get_committee_count_per_slot(state, data.target.epoch)
-            let committee = state.get_beacon_committee(attestation.data.slot, *index)?;
-            participants_count = participants_count + committee.committee.len() as u64;
-        }
-
-        // TODO(eip7549) assert len(attestation.aggregation_bits) == participants_count
-
-        let attesting_indices = &verify_attestation_for_block_inclusion(
-            state,
-            &Attestation::Electra(attestation.clone()),
-            ctxt,
-            verify_signatures,
-            spec,
-        )
-        .map_err(|e| e.into_with_index(att_index))?
-        .attesting_indices;
-
-        // Matching roots, participation flag indices
-        let data = &attestation.data;
+        let data = attestation.data();
         let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
         let participation_flag_indices =
             get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
@@ -402,17 +288,9 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         BeaconBlockBodyRef::Altair(_)
         | BeaconBlockBodyRef::Merge(_)
         | BeaconBlockBodyRef::Capella(_)
-        | BeaconBlockBodyRef::Deneb(_) => {
-            altair_deneb::process_attestations(
-                state,
-                block_body.attestations(),
-                verify_signatures,
-                ctxt,
-                spec,
-            )?;
-        }
-        BeaconBlockBodyRef::Electra(_) => {
-            electra::process_attestations(
+        | BeaconBlockBodyRef::Deneb(_)
+        | BeaconBlockBodyRef::Electra(_) => {
+            altair_electra::process_attestations(
                 state,
                 block_body.attestations(),
                 verify_signatures,

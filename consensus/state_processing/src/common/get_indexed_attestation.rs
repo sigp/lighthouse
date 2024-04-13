@@ -58,14 +58,19 @@ pub mod indexed_attestation_electra {
 
     use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
     use itertools::Itertools;
+    use safe_arith::SafeArith;
     use types::{attestation::AttestationElectra, *};
     type IndexedAttestationResult<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 
     pub fn get_indexed_attestation<E: EthSpec>(
-        committees: &Vec<BeaconCommittee>,
+        committees: &[BeaconCommittee],
         attestation: &AttestationElectra<E>,
     ) -> IndexedAttestationResult<IndexedAttestation<E>> {
-        let attesting_indices = get_attesting_indices::<E>(committees, attestation)?;
+        let attesting_indices = get_attesting_indices::<E>(
+            committees,
+            &attestation.aggregation_bits,
+            &attestation.committee_bits,
+        )?;
 
         Ok(IndexedAttestation {
             attesting_indices: VariableList::new(attesting_indices)?,
@@ -79,7 +84,11 @@ pub mod indexed_attestation_electra {
         attestation: &AttestationElectra<E>,
     ) -> IndexedAttestationResult<IndexedAttestation<E>> {
         let committees = beacon_state.get_beacon_committees_at_slot(attestation.data.slot)?;
-        let attesting_indices = get_attesting_indices::<E>(&committees, attestation)?;
+        let attesting_indices = get_attesting_indices::<E>(
+            &committees,
+            &attestation.aggregation_bits,
+            &attestation.committee_bits,
+        )?;
 
         Ok(IndexedAttestation {
             attesting_indices: VariableList::new(attesting_indices)?,
@@ -94,18 +103,19 @@ pub mod indexed_attestation_electra {
         att: &AttestationElectra<E>,
     ) -> Result<Vec<u64>, BeaconStateError> {
         let committees = state.get_beacon_committees_at_slot(att.data.slot)?;
-        get_attesting_indices::<E>(&committees, &att)
+        get_attesting_indices::<E>(&committees, &att.aggregation_bits, &att.committee_bits)
     }
 
     /// Returns validator indices which participated in the attestation, sorted by increasing index.
     pub fn get_attesting_indices<E: EthSpec>(
-        committees: &Vec<BeaconCommittee>,
-        attestation: &AttestationElectra<E>,
+        committees: &[BeaconCommittee],
+        aggregation_bits: &BitList<E::MaxValidatorsPerCommitteePerSlot>,
+        committee_bits: &BitList<E::MaxCommitteesPerSlot>,
     ) -> Result<Vec<u64>, BeaconStateError> {
         let mut output: HashSet<u64> = HashSet::new();
 
-        let committee_indices = get_committee_indices::<E>(attestation.committee_bits.clone());
-        let mut committee_offset = 0;
+        let committee_indices = get_committee_indices::<E>(committee_bits.clone());
+        let committee_offset = 0;
 
         let committees_map: HashMap<u64, &BeaconCommittee> = committees
             .iter()
@@ -119,21 +129,18 @@ pub mod indexed_attestation_electra {
                     .iter()
                     .enumerate()
                     .filter_map(|(i, &index)| {
-                        if attestation
-                            .aggregation_bits
-                            .get(committee_offset + i)
-                            .unwrap_or(false)
-                        {
-                            Some(index as u64)
-                        } else {
-                            None
+                        if let Ok(aggregation_bit_index) = committee_offset.safe_add(i) {
+                            if aggregation_bits.get(aggregation_bit_index).unwrap_or(false) {
+                                return Some(index as u64)
+                            } 
                         }
+                        None
                     })
                     .collect::<HashSet<u64>>();
 
                 output.extend(committee_attesters);
 
-                committee_offset += beacon_committee.committee.len();
+                committee_offset.safe_add(beacon_committee.committee.len())?;
             }
 
             // TODO(eip7549) what should we do when theres no committee found for a given index?

@@ -786,12 +786,13 @@ mod release_tests {
     };
     use lazy_static::lazy_static;
     use maplit::hashset;
+    use state_processing::epoch_cache::initialize_epoch_cache;
     use state_processing::{
         common::indexed_attestation_base::get_attesting_indices_from_state, VerifyOperation,
     };
-    use state_processing::epoch_cache::initialize_epoch_cache;
     use std::collections::BTreeSet;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+    use types::pending_attestation::{PendingAttestationBase, PendingAttestationElectra};
     use types::*;
 
     pub const MAX_VALIDATOR_COUNT: usize = 4 * 32 * 128;
@@ -926,17 +927,35 @@ mod release_tests {
                 .num_set_bits()
             );
 
-            state
-                .as_base_mut()
-                .unwrap()
-                .current_epoch_attestations
-                .push(PendingAttestation {
-                    aggregation_bits: att1.aggregation_bits().clone(),
-                    data: att1.data().clone(),
-                    inclusion_delay: 0,
-                    proposer_index: 0,
-                })
-                .unwrap();
+            match att1 {
+                Attestation::Base(a) => {
+                    state
+                        .as_base_mut()
+                        .unwrap()
+                        .current_epoch_attestations
+                        .push(PendingAttestation::Base(PendingAttestationBase {
+                            aggregation_bits: a.aggregation_bits.clone(),
+                            data: a.data.clone(),
+                            inclusion_delay: 0,
+                            proposer_index: 0,
+                        }))
+                        .unwrap();
+                }
+                Attestation::Electra(a) => {
+                    state
+                        .as_base_mut()
+                        .unwrap()
+                        .current_epoch_attestations
+                        .push(PendingAttestation::Electra(PendingAttestationElectra {
+                            aggregation_bits: a.aggregation_bits.clone(),
+                            committee_bits: a.committee_bits.clone(),
+                            data: a.data.clone(),
+                            inclusion_delay: 0,
+                            proposer_index: 0,
+                        }))
+                        .unwrap();
+                }
+            }
 
             assert_eq!(
                 committees.get(0).unwrap().committee.len() - 2,

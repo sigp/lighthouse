@@ -111,7 +111,7 @@ impl<E: EthSpec> SubsetItem for Attestation<E> {
     }
 
     fn is_superset(&self, other: &Self::Item) -> bool {
-        other.is_subset(&self.aggregation_bits())
+        other.is_subset(self.aggregation_bits())
     }
 
     /// Returns the sync contribution aggregation bits.

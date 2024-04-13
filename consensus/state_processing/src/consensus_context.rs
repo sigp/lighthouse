@@ -1,9 +1,9 @@
 use crate::common::indexed_attestation_base;
+use crate::EpochCacheError;
 use crate::{
     common::indexed_attestation_electra,
     per_block_processing::errors::{AttestationInvalid, BlockOperationError},
 };
-use crate::EpochCacheError;
 use ssz_derive::{Decode, Encode};
 use std::collections::{hash_map::Entry, HashMap};
 use tree_hash::TreeHash;
@@ -194,10 +194,9 @@ impl<E: EthSpec> ConsensusContext<E> {
                     Entry::Vacant(vacant) => {
                         let indexed_attestation =
                             indexed_attestation_electra::get_indexed_attestation(
-                                // TODO(eip7549) UWNRAP
                                 &state
                                     .get_beacon_committees_at_slot(attestation.data.slot)
-                                    .unwrap(),
+                                    .map_err(|_| BlockOperationError::Invalid(AttestationInvalid::BadTargetEpoch))?,
                                 attestation,
                             )?;
                         Ok(vacant.insert(indexed_attestation))
