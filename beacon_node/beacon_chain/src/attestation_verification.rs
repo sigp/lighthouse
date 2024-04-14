@@ -1275,7 +1275,6 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     map_attestation_committee(chain, attestation, |(committees, committees_per_slot)| {
         match attestation {
             Attestation::Base(att) => {
-                println!("BASE FAILURE");
                 let committee = committees
                     .iter()
                     .filter(|&committee| committee.index == att.data.index)

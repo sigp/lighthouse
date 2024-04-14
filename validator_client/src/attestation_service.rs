@@ -405,7 +405,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 })
             } else {
                 // TODO(eip7594) committee_bits should be init with correct length
-                let mut committee_bits = BitList::with_capacity(duty.committee_length as usize).unwrap();
+                let mut committee_bits =
+                    BitList::with_capacity(duty.committee_length as usize).unwrap();
                 committee_bits.set(committee_index as usize, true).unwrap();
                 Attestation::Electra(AttestationElectra {
                     aggregation_bits: BitList::with_capacity(duty.committee_length as usize)

@@ -196,7 +196,11 @@ impl<E: EthSpec> ConsensusContext<E> {
                             indexed_attestation_electra::get_indexed_attestation(
                                 &state
                                     .get_beacon_committees_at_slot(attestation.data.slot)
-                                    .map_err(|_| BlockOperationError::Invalid(AttestationInvalid::BadTargetEpoch))?,
+                                    .map_err(|_| {
+                                        BlockOperationError::Invalid(
+                                            AttestationInvalid::BadTargetEpoch,
+                                        )
+                                    })?,
                                 attestation,
                             )?;
                         Ok(vacant.insert(indexed_attestation))

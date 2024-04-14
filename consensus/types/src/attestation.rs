@@ -106,34 +106,6 @@ impl<E: EthSpec> Hash for Attestation<E> {
 }
 
 impl<E: EthSpec> Attestation<E> {
-    // pub fn aggregation_bits(&self) -> Vec<u8> {
-    //     match self {
-    //         Attestation::Base(att) => att.aggregation_bits.as_slice().to_owned(),
-    //         Attestation::Electra(att) => att.aggregation_bits.as_slice().to_owned(),
-    //     }
-    // }
-
-    // pub fn get_aggregation_bit(&self, index: usize) -> Result<bool, ssz_types::Error> {
-    //     match self {
-    //         Attestation::Base(att) => att.aggregation_bits.get(index),
-    //         Attestation::Electra(att) => att.aggregation_bits.get(index),
-    //     }
-    // }
-
-    // pub fn is_empty_aggregation_bits(&self) -> bool {
-    //     match self {
-    //         Attestation::Base(att) => att.aggregation_bits.is_zero(),
-    //         Attestation::Electra(att) => att.aggregation_bits.is_zero(),
-    //     }
-    // }
-
-    // pub fn aggregation_num_set_bits(&self) -> usize {
-    //     match self {
-    //         Attestation::Base(att) => att.aggregation_bits.num_set_bits(),
-    //         Attestation::Electra(att) => att.aggregation_bits.num_set_bits(),
-    //     }
-    // }
-
     /// Aggregate another Attestation into this one.
     ///
     /// The aggregation bitfields must be disjoint, and the data must be the same.

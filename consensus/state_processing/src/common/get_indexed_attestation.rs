@@ -131,8 +131,8 @@ pub mod indexed_attestation_electra {
                     .filter_map(|(i, &index)| {
                         if let Ok(aggregation_bit_index) = committee_offset.safe_add(i) {
                             if aggregation_bits.get(aggregation_bit_index).unwrap_or(false) {
-                                return Some(index as u64)
-                            } 
+                                return Some(index as u64);
+                            }
                         }
                         None
                     })

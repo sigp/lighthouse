@@ -71,7 +71,7 @@ impl<E: EthSpec> SplitAttestation<E> {
                 aggregation_bits: att.aggregation_bits,
                 signature: att.signature,
             },
-           
+
             Attestation::Electra(att) => {
                 // TODO(eip7549) how should we handle an empty (or invalid?) committee bits
                 let index = att.committee_bits.highest_set_bit().unwrap_or(0);
@@ -82,7 +82,6 @@ impl<E: EthSpec> SplitAttestation<E> {
                     signature: att.signature,
                 }
             }
-            ,
         };
 
         Self {
