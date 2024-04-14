@@ -188,19 +188,19 @@ async fn produces_attestations() {
                 .produce_unaggregated_attestation(slot, index)
                 .expect("should produce attestation");
 
-            let data = &attestation.data;
+            let data = attestation.data();
 
             assert_eq!(
-                attestation.aggregation_bits.len(),
+                attestation.aggregation_bits().len(),
                 committee_len,
                 "bad committee len"
             );
             assert!(
-                attestation.aggregation_bits.is_zero(),
+                attestation.aggregation_bits().is_zero(),
                 "some committee bits are set"
             );
             assert_eq!(
-                attestation.signature,
+                *attestation.signature(),
                 AggregateSignature::empty(),
                 "bad signature"
             );
@@ -329,10 +329,10 @@ async fn early_attester_cache_old_request() {
         .produce_unaggregated_attestation(attest_slot, 0)
         .unwrap();
 
-    assert_eq!(attestation.data.slot, attest_slot);
+    assert_eq!(attestation.data().slot, attest_slot);
     let attested_block = harness
         .chain
-        .get_blinded_block(&attestation.data.beacon_block_root)
+        .get_blinded_block(&attestation.data().beacon_block_root)
         .unwrap()
         .unwrap();
     assert_eq!(attested_block.slot(), attest_slot);

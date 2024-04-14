@@ -726,7 +726,7 @@ async fn invalid_signature_attestation() {
             .clone()
             .deconstruct();
         if let Some(attestation) = block.body_mut().attestations_mut().get_mut(0) {
-            attestation.signature = junk_aggregate_signature();
+            *attestation.signature_mut() = junk_aggregate_signature();
             snapshots[block_index].beacon_block =
                 Arc::new(SignedBeaconBlock::from_block(block, signature));
             update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
@@ -1203,16 +1203,18 @@ async fn verify_block_for_gossip_doppelganger_detection() {
         .unwrap();
 
     for att in attestations.iter() {
-        let epoch = att.data.target.epoch;
-        let committee = state
-            .get_beacon_committee(att.data.slot, att.data.index)
-            .unwrap();
+        let epoch = att.data().target.epoch;
+
         let indexed_attestation = match att {
             Attestation::Base(att) => {
+                let committee = state
+                    .get_beacon_committee(att.data.slot, att.data.index)
+                    .unwrap();
                 indexed_attestation_base::get_indexed_attestation(committee.committee, att).unwrap()
             }
             Attestation::Electra(att) => {
-                indexed_attestation_electra::get_indexed_attestation(state, att)
+                indexed_attestation_electra::get_indexed_attestation_from_state(&state, att)
+                    .unwrap()
             }
         };
 

@@ -88,8 +88,19 @@ impl<E: EthSpec> Decode for Attestation<E> {
 }
 
 impl<E: EthSpec> TestRandom for Attestation<E> {
-    fn random_for_test(_rng: &mut impl RngCore) -> Self {
-        todo!()
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        let aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot> =
+            BitList::random_for_test(rng);
+        let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
+        let data = AttestationData::random_for_test(rng);
+        let signature = AggregateSignature::random_for_test(rng);
+
+        Self::Electra(AttestationElectra {
+            aggregation_bits,
+            committee_bits,
+            data,
+            signature,
+        })
     }
 }
 

@@ -1191,9 +1191,9 @@ async fn attesting_to_optimistic_head() {
             .produce_unaggregated_attestation(Slot::new(0), 0)
             .unwrap();
 
-        attestation.aggregation_bits.set(0, true).unwrap();
-        attestation.data.slot = slot;
-        attestation.data.beacon_block_root = root;
+        attestation.aggregation_bits_mut().set(0, true).unwrap();
+        attestation.data_mut().slot = slot;
+        attestation.data_mut().beacon_block_root = root;
 
         rig.harness
             .chain
@@ -1214,15 +1214,15 @@ async fn attesting_to_optimistic_head() {
     let get_aggregated = || {
         rig.harness
             .chain
-            .get_aggregated_attestation(&attestation.data)
+            .get_aggregated_attestation(&attestation.data())
     };
 
     let get_aggregated_by_slot_and_root = || {
         rig.harness
             .chain
             .get_aggregated_attestation_by_slot_and_root(
-                attestation.data.slot,
-                &attestation.data.tree_hash_root(),
+                attestation.data().slot,
+                &attestation.data().tree_hash_root(),
             )
     };
 

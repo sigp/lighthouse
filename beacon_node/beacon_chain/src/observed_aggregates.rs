@@ -407,8 +407,8 @@ mod tests {
 
     fn get_attestation(slot: Slot, beacon_block_root: u64) -> Attestation<E> {
         let mut a: Attestation<E> = test_random_instance();
-        a.data.slot = slot;
-        a.data.beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
+        a.data_mut().slot = slot;
+        a.data_mut().beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
         a
     }
 

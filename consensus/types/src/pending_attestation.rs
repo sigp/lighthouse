@@ -81,8 +81,21 @@ impl<E: EthSpec> Decode for PendingAttestation<E> {
 }
 
 impl<E: EthSpec> TestRandom for PendingAttestation<E> {
-    fn random_for_test(_rng: &mut impl RngCore) -> Self {
-        todo!()
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        let aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot> =
+            BitList::random_for_test(rng);
+        let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
+        let data = AttestationData::random_for_test(rng);
+        let proposer_index = u64::random_for_test(rng);
+        let inclusion_delay = u64::random_for_test(rng);
+
+        Self::Electra(PendingAttestationElectra {
+            aggregation_bits,
+            committee_bits,
+            data,
+            proposer_index,
+            inclusion_delay,
+        })
     }
 }
 
