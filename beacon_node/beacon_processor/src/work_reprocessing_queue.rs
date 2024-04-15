@@ -1084,6 +1084,9 @@ mod tests {
     async fn advance_time(slot_clock: &ManualSlotClock, duration: Duration) {
         slot_clock.advance_time(duration);
         tokio::time::advance(duration).await;
+        // NOTE: The `tokio::time::advance` fn actually calls `yield_now()` after advancing the
+        // clock. Why do we need an extra `yield_now`?
+        tokio::task::yield_now().await;
     }
 
     fn testing_slot_clock(slot_duration: u64) -> ManualSlotClock {
