@@ -43,7 +43,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         prague_time: Option<u64>,
         jwt_key: Option<JwtKey>,
         spec: ChainSpec,
-        kzg: Option<Kzg>,
+        kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let handle = executor.handle().unwrap();
 
