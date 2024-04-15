@@ -1,5 +1,9 @@
 #! /usr/bin/env bash
 
+# IMPORTANT
+# This script should NOT be run directly.
+# Run `make mdlint` from the root of the repository instead.
+
 # use markdownlint-cli to check for markdown files
 docker run --rm -v ./book:/workdir ghcr.io/igorshubovych/markdownlint-cli:latest '**/*.md' --ignore node_modules
 
