@@ -1,7 +1,7 @@
 use super::*;
 use state_processing::{
     per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError,
-    BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
 };
 use types::{BeaconBlock, Epoch};
 
@@ -68,7 +68,6 @@ impl ExitTest {
             state,
             block,
             BlockSignatureStrategy::VerifyIndividual,
-            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut ctxt,
             &E::default_spec(),

@@ -62,16 +62,6 @@ impl From<BlockProcessingError> for BlockReplayError {
     }
 }
 
-/// Defines how state roots should be computed and whether to perform all state transitions during block replay.
-#[derive(PartialEq, Clone, Copy)]
-pub enum StateProcessingStrategy {
-    /// Perform all transitions faithfully to the specification.
-    Accurate,
-    /// Don't compute state roots and process withdrawals, eventually computing an invalid beacon
-    /// state that can only be used for obtaining shuffling.
-    Inconsistent,
-}
-
 impl<'a, E, Error, StateRootIter> BlockReplayer<'a, E, Error, StateRootIter>
 where
     E: EthSpec,
@@ -99,18 +89,6 @@ where
             state_root_miss: false,
             _phantom: PhantomData,
         }
-    }
-
-    /// Set the replayer's state processing strategy different from the default.
-    pub fn state_processing_strategy(
-        mut self,
-        state_processing_strategy: StateProcessingStrategy,
-    ) -> Self {
-        // FIXME(sproul): no-op
-        if state_processing_strategy == StateProcessingStrategy::Inconsistent {
-            self.verify_block_root = None;
-        }
-        self
     }
 
     /// Set the replayer's block signature verification strategy.
@@ -259,7 +237,6 @@ where
                 &mut self.state,
                 block,
                 self.block_sig_strategy,
-                StateProcessingStrategy::Accurate,
                 verify_block_root,
                 &mut ctxt,
                 self.spec,

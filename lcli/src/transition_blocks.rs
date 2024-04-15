@@ -76,7 +76,7 @@ use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
     block_signature_verifier::BlockSignatureVerifier, per_block_processing, AllCaches,
-    BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -399,7 +399,6 @@ fn do_transition<E: EthSpec>(
         &mut pre_state,
         &block,
         BlockSignatureStrategy::NoVerification,
-        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         spec,

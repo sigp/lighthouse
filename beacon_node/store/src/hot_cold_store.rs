@@ -32,7 +32,6 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     block_replayer::PreSlotHook, BlockProcessingError, BlockReplayer, SlotProcessingError,
-    StateProcessingStrategy,
 };
 use std::cmp::min;
 use std::marker::PhantomData;
@@ -1159,14 +1158,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             } else {
                 let blocks =
                     self.load_blocks_to_replay(boundary_state.slot(), slot, latest_block_root)?;
-                self.replay_blocks(
-                    boundary_state,
-                    blocks,
-                    slot,
-                    no_state_root_iter(),
-                    None,
-                    StateProcessingStrategy::Accurate,
-                )?
+                self.replay_blocks(boundary_state, blocks, slot, no_state_root_iter(), None)?
             };
             state.apply_pending_mutations()?;
 
@@ -1337,14 +1329,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &self.spec,
         )?;
 
-        let mut state = self.replay_blocks(
-            low_state,
-            blocks,
-            slot,
-            Some(state_root_iter),
-            None,
-            StateProcessingStrategy::Accurate,
-        )?;
+        let mut state = self.replay_blocks(low_state, blocks, slot, Some(state_root_iter), None)?;
         state.apply_pending_mutations()?;
 
         // If state is not error, put it in the cache.
@@ -1437,12 +1422,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         target_slot: Slot,
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
         pre_slot_hook: Option<PreSlotHook<E, Error>>,
-        state_processing_strategy: StateProcessingStrategy,
     ) -> Result<BeaconState<E>, Error> {
         let mut block_replayer = BlockReplayer::new(state, &self.spec)
             .no_signature_verification()
-            .minimal_block_root_verification()
-            .state_processing_strategy(state_processing_strategy);
+            .minimal_block_root_verification();
 
         let have_state_root_iterator = state_root_iter.is_some();
         if let Some(state_root_iter) = state_root_iter {
