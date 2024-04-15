@@ -1084,7 +1084,6 @@ mod tests {
     async fn advance_time(slot_clock: &ManualSlotClock, duration: Duration) {
         slot_clock.advance_time(duration);
         tokio::time::advance(duration).await;
-        tokio::task::yield_now().await;
     }
 
     fn testing_slot_clock(slot_duration: u64) -> ManualSlotClock {
