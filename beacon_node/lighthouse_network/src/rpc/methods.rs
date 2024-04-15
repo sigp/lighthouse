@@ -497,28 +497,6 @@ impl<E: EthSpec> RPCCodedResponse<E> {
         RPCCodedResponse::Error(code, err)
     }
 
-    /// Specifies which response allows for multiple chunks for the stream handler.
-    pub fn multiple_responses(&self) -> bool {
-        match self {
-            RPCCodedResponse::Success(resp) => match resp {
-                RPCResponse::Status(_) => false,
-                RPCResponse::BlocksByRange(_) => true,
-                RPCResponse::BlocksByRoot(_) => true,
-                RPCResponse::BlobsByRange(_) => true,
-                RPCResponse::BlobsByRoot(_) => true,
-                RPCResponse::DataColumnsByRoot(_) => true,
-                RPCResponse::Pong(_) => false,
-                RPCResponse::MetaData(_) => false,
-                RPCResponse::LightClientBootstrap(_) => false,
-                RPCResponse::LightClientOptimisticUpdate(_) => false,
-                RPCResponse::LightClientFinalityUpdate(_) => false,
-            },
-            RPCCodedResponse::Error(_, _) => true,
-            // Stream terminations are part of responses that have chunks
-            RPCCodedResponse::StreamTermination(_) => true,
-        }
-    }
-
     /// Returns true if this response always terminates the stream.
     pub fn close_after(&self) -> bool {
         !matches!(self, RPCCodedResponse::Success(_))

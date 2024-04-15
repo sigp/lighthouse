@@ -16,4 +16,4 @@ serde = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 hex = { workspace = true }
 ethereum_hashing = { workspace = true }
-c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", branch = "das" }
+c-kzg = { workspace = true }

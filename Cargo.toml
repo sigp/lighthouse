@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "account_manager",
-
     "beacon_node",
     "beacon_node/beacon_chain",
     "beacon_node/beacon_processor",
@@ -16,9 +15,7 @@ members = [
     "beacon_node/network",
     "beacon_node/store",
     "beacon_node/timer",
-
     "boot_node",
-
     "common/account_utils",
     "common/clap_utils",
     "common/compare_fields",
@@ -48,9 +45,7 @@ members = [
     "common/validator_dir",
     "common/warp_utils",
     "common/monitoring_api",
-
     "database_manager",
-
     "consensus/cached_tree_hash",
     "consensus/int_to_bytes",
     "consensus/fork_choice",
@@ -58,21 +53,16 @@ members = [
     "consensus/safe_arith",
     "consensus/state_processing",
     "consensus/swap_or_not_shuffle",
-
     "crypto/bls",
     "crypto/kzg",
     "crypto/eth2_key_derivation",
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
-
     "lcli",
-
     "lighthouse",
     "lighthouse/environment",
-
     "slasher",
     "slasher/service",
-
     "testing/ef_tests",
     "testing/eth1_test_rig",
     "testing/execution_engine_integration",
@@ -81,12 +71,9 @@ members = [
     "testing/test-test_logger",
     "testing/state_transition_vectors",
     "testing/web3signer_tests",
-
     "validator_client",
     "validator_client/slashing_protection",
-
     "validator_manager",
-
     "watch",
 ]
 resolver = "2"
@@ -102,6 +89,7 @@ bincode = "1"
 bitvec = "1"
 byteorder = "1"
 bytes = "1"
+c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", branch = "das" }
 clap = "2"
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.3"
@@ -181,7 +169,7 @@ zip = "0.6"
 account_utils = { path = "common/account_utils" }
 beacon_chain = { path = "beacon_node/beacon_chain" }
 beacon_node = { path = "beacon_node" }
-beacon_processor =  { path = "beacon_node/beacon_processor" }
+beacon_processor = { path = "beacon_node/beacon_processor" }
 bls = { path = "crypto/bls" }
 cached_tree_hash = { path = "consensus/cached_tree_hash" }
 clap_utils = { path = "common/clap_utils" }
@@ -218,7 +206,7 @@ network = { path = "beacon_node/network" }
 operation_pool = { path = "beacon_node/operation_pool" }
 pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 proto_array = { path = "consensus/proto_array" }
-safe_arith = {path = "consensus/safe_arith"}
+safe_arith = { path = "consensus/safe_arith" }
 sensitive_url = { path = "common/sensitive_url" }
 slasher = { path = "slasher" }
 slashing_protection = { path = "validator_client/slashing_protection" }

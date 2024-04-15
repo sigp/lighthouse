@@ -361,6 +361,9 @@ pub type BeaconStore<T> = Arc<
     >,
 >;
 
+/// Cache gossip verified blocks to serve over ReqResp before they are imported
+type ReqRespPreImportCache<E> = HashMap<Hash256, Arc<SignedBeaconBlock<E>>>;
+
 /// Represents the "Beacon Chain" component of Ethereum 2.0. Allows import of blocks and block
 /// operations and chooses a canonical head.
 pub struct BeaconChain<T: BeaconChainTypes> {
@@ -463,6 +466,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) attester_cache: Arc<AttesterCache>,
     /// A cache used when producing attestations whilst the head block is still being imported.
     pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
+    /// Cache gossip verified blocks to serve over ReqResp before they are imported
+    pub reqresp_pre_import_cache: Arc<RwLock<ReqRespPreImportCache<T::EthSpec>>>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
@@ -2936,8 +2941,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        self.data_availability_checker
-            .notify_gossip_blob(block_root, &blob);
         let r = self.check_gossip_blob_availability_and_import(blob).await;
         self.remove_notified(&block_root, r)
     }
@@ -2994,8 +2997,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        self.data_availability_checker
-            .notify_rpc_blobs(block_root, &blobs);
         let r = self
             .check_rpc_blob_availability_and_import(slot, block_root, blobs)
             .await;
@@ -3012,7 +3013,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let has_missing_components =
             matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
         if !has_missing_components {
-            self.data_availability_checker.remove_notified(block_root);
+            self.reqresp_pre_import_cache.write().remove(block_root);
         }
         r
     }
@@ -3025,8 +3026,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        self.data_availability_checker
-            .notify_block(block_root, unverified_block.block_cloned());
+        self.reqresp_pre_import_cache
+            .write()
+            .insert(block_root, unverified_block.block_cloned());
+
         let r = self
             .process_block(block_root, unverified_block, notify_execution_layer, || {
                 Ok(())

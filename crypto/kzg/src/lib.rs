@@ -190,3 +190,11 @@ impl Kzg {
         }
     }
 }
+
+impl TryFrom<TrustedSetup> for Kzg {
+    type Error = Error;
+
+    fn try_from(trusted_setup: TrustedSetup) -> Result<Self, Self::Error> {
+        Kzg::new_from_trusted_setup(trusted_setup)
+    }
+}

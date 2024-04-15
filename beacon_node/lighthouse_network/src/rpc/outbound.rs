@@ -96,8 +96,8 @@ impl<E: EthSpec> OutboundRequest<E> {
     }
     /* These functions are used in the handler for stream management */
 
-    /// Number of responses expected for this request.
-    pub fn expected_responses(&self) -> u64 {
+    /// Maximum number of responses expected for this request.
+    pub fn max_responses(&self) -> u64 {
         match self {
             OutboundRequest::Status(_) => 1,
             OutboundRequest::Goodbye(_) => 0,
@@ -108,6 +108,20 @@ impl<E: EthSpec> OutboundRequest<E> {
             OutboundRequest::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
+        }
+    }
+
+    pub fn expect_exactly_one_response(&self) -> bool {
+        match self {
+            OutboundRequest::Status(_) => true,
+            OutboundRequest::Goodbye(_) => false,
+            OutboundRequest::BlocksByRange(_) => false,
+            OutboundRequest::BlocksByRoot(_) => false,
+            OutboundRequest::BlobsByRange(_) => false,
+            OutboundRequest::BlobsByRoot(_) => false,
+            OutboundRequest::DataColumnsByRoot(_) => false,
+            OutboundRequest::Ping(_) => true,
+            OutboundRequest::MetaData(_) => true,
         }
     }
 
