@@ -47,12 +47,12 @@ pub fn cli_app() -> Command {
         )
         .arg(
             Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
+                .long("help")
+                .short('h')
+                .help("Prints help information")
+                .action(ArgAction::HelpLong)
+                .display_order(0)
+                .help_heading(FLAG_HEADER),
         )
         .arg(
             Arg::new(OUTPUT_PATH_FLAG)

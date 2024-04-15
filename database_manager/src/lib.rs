@@ -179,12 +179,12 @@ pub fn cli_app() -> Command {
         .about("Manage a beacon node database")
         .arg(
             Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
+                .long("help")
+                .short('h')
+                .help("Prints help information")
+                .action(ArgAction::HelpLong)
+                .display_order(0)
+                .help_heading(FLAG_HEADER),
         )
         .arg(
             Arg::new("slots-per-restore-point")

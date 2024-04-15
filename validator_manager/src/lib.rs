@@ -46,12 +46,12 @@ pub fn cli_app() -> Command {
         .about("Utilities for managing a Lighthouse validator client via the HTTP API.")
         .arg(
             Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
+                .long("help")
+                .short('h')
+                .help("Prints help information")
+                .action(ArgAction::HelpLong)
+                .display_order(0)
+                .help_heading(FLAG_HEADER),
         )
         .subcommand(create_validators::cli_app())
         .subcommand(import_validators::cli_app())

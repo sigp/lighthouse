@@ -22,12 +22,12 @@ pub fn cli_app() -> Command {
         .about("Provides commands for managing Eth2 validators.")
         .arg(
             Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
+                .long("help")
+                .short('h')
+                .help("Prints help information")
+                .action(ArgAction::HelpLong)
+                .display_order(0)
+                .help_heading(FLAG_HEADER),
         )
         .arg(
             Arg::new(VALIDATOR_DIR_FLAG)
