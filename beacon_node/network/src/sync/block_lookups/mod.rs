@@ -810,21 +810,27 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 _,
                 _block_root,
             )) => {
-                // Handles a `MissingComponents` block processing error. Handles peer scoring and retries.
+                // `on_processing_success` is called here to ensure the request state is updated prior to checking
+                // if both components have been processed.
+                if R::request_state_mut(&mut lookup)
+                    .get_state_mut()
+                    .on_processing_success()
+                    .is_err()
+                {
+                    warn!(
+                        self.log,
+                        "Single block processing state incorrect";
+                        "action" => "dropping single block request"
+                    );
+                    Action::Drop
                 // If this was the result of a block request, we can't determined if the block peer did anything
                 // wrong. If we already had both a block and blobs response processed, we should penalize the
                 // blobs peer because they did not provide all blobs on the initial request.
-                R::request_state_mut(&mut lookup)
-                    .get_state_mut()
-                    .component_processed = true;
-                if lookup.both_components_processed() {
+                } else if lookup.both_components_processed() {
                     lookup.penalize_blob_peer(cx);
 
                     // Try it again if possible.
-                    lookup
-                        .blob_request_state
-                        .state
-                        .register_failure_processing();
+                    lookup.blob_request_state.state.on_processing_failure();
                     Action::Retry
                 } else {
                     Action::Drop
