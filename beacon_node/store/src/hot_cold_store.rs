@@ -17,7 +17,7 @@ use crate::metadata::{
     PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN,
 };
 use crate::metrics;
-use crate::state_cache::StateCache;
+use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
     get_key_for_col, ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
     PartialBeaconState, StoreItem, StoreOp,
@@ -31,7 +31,8 @@ use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    block_replayer::PreSlotHook, BlockProcessingError, BlockReplayer, SlotProcessingError,
+    block_replayer::PreSlotHook, AllCaches, BlockProcessingError, BlockReplayer,
+    SlotProcessingError,
 };
 use std::cmp::min;
 use std::marker::PhantomData;
@@ -720,6 +721,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // state.
         let split = self.split.read_recursive();
 
+        if state_root != split.state_root {
+            warn!(
+                self.log,
+                "State cache missed";
+                "state_root"  => ?state_root,
+                "block_root" => ?block_root,
+            );
+        }
+
         // Sanity check max-slot against the split slot.
         if max_slot < split.slot {
             return Err(HotColdDBError::FinalizedStateNotInHotDatabase {
@@ -1067,6 +1077,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
+        // Put the state in the cache.
+        let block_root = state.get_latest_block_root(*state_root);
+
+        // Avoid storing states in the database if they already exist in the state cache.
+        // The exception to this is the finalized state, which must exist in the cache before it
+        // is stored on disk.
+        if let PutStateOutcome::Duplicate =
+            self.state_cache
+                .lock()
+                .put_state(*state_root, block_root, state)?
+        {
+            debug!(
+                self.log,
+                "Skipping storage of cached state";
+                "slot" => state.slot(),
+                "state_root" => ?state_root
+            );
+            return Ok(());
+        }
+
         // On the epoch boundary, store the full state.
         if state.slot() % E::slots_per_epoch() == 0 {
             trace!(
@@ -1093,18 +1123,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if let Some(state) = self.state_cache.lock().get_by_state_root(*state_root) {
             return Ok(Some(state));
         }
-        warn!(
-            self.log,
-            "State cache missed";
-            "state_root" => ?state_root,
-        );
+
+        if *state_root != self.get_split_info().state_root {
+            // Do not warn on start up when loading the split state.
+            warn!(
+                self.log,
+                "State cache missed";
+                "state_root" => ?state_root,
+            );
+        }
 
         let state_from_disk = self.load_hot_state(state_root)?;
 
-        if let Some((state, block_root)) = state_from_disk {
+        if let Some((mut state, block_root)) = state_from_disk {
+            state.update_tree_hash_cache()?;
+            state.build_all_caches(&self.spec)?;
             self.state_cache
                 .lock()
                 .put_state(*state_root, block_root, &state)?;
+            debug!(
+                self.log,
+                "Cached state";
+                "state_root" => ?state_root,
+                "slot" => state.slot(),
+            );
             Ok(Some(state))
         } else {
             Ok(None)
@@ -1151,9 +1193,40 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let mut state = if slot % E::slots_per_epoch() == 0 {
                 boundary_state
             } else {
+                // Cache ALL intermediate states that are reached during block replay. We may want
+                // to restrict this in future to only cache epoch boundary states. At worst we will
+                // cache up to 32 states for each state loaded, which should not flush out the cache
+                // entirely.
+                let state_cache_hook = |state_root, state: &mut BeaconState<E>| {
+                    // Ensure all caches are built before attempting to cache.
+                    state.update_tree_hash_cache()?;
+                    state.build_all_caches(&self.spec)?;
+
+                    let latest_block_root = state.get_latest_block_root(state_root);
+                    let state_slot = state.slot();
+                    if let PutStateOutcome::New =
+                        self.state_cache
+                            .lock()
+                            .put_state(state_root, latest_block_root, state)?
+                    {
+                        debug!(
+                            self.log,
+                            "Cached ancestor state";
+                            "state_root" => ?state_root,
+                            "slot" => state_slot,
+                        );
+                    }
+                    Ok(())
+                };
                 let blocks =
                     self.load_blocks_to_replay(boundary_state.slot(), slot, latest_block_root)?;
-                self.replay_blocks(boundary_state, blocks, slot, no_state_root_iter(), None)?
+                self.replay_blocks(
+                    boundary_state,
+                    blocks,
+                    slot,
+                    no_state_root_iter(),
+                    Some(Box::new(state_cache_hook)),
+                )?
             };
             state.apply_pending_mutations()?;
 
