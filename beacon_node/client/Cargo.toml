@@ -45,3 +45,4 @@ monitoring_api = { workspace = true }
 execution_layer = { workspace = true }
 beacon_processor = { workspace = true }
 num_cpus = { workspace = true }
+ethereum_ssz = { workspace = true }

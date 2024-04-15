@@ -35,7 +35,7 @@ pub trait Consts {
     fn max_per_slot_capacity() -> usize;
 }
 
-impl<T: EthSpec> Consts for Attestation<T> {
+impl<E: EthSpec> Consts for Attestation<E> {
     /// Use 128 as it's the target committee size for the mainnet spec. This is perhaps a little
     /// wasteful for the minimal spec, but considering it's approx. 128 * 32 bytes we're not wasting
     /// much.
@@ -43,7 +43,7 @@ impl<T: EthSpec> Consts for Attestation<T> {
 
     /// We need to keep attestations for each slot of the current epoch.
     fn max_slot_capacity() -> usize {
-        2 * T::slots_per_epoch() as usize
+        2 * E::slots_per_epoch() as usize
     }
 
     /// As a DoS protection measure, the maximum number of distinct `Attestations` or
@@ -62,7 +62,7 @@ impl<T: EthSpec> Consts for Attestation<T> {
     }
 }
 
-impl<T: EthSpec> Consts for SyncCommitteeContribution<T> {
+impl<E: EthSpec> Consts for SyncCommitteeContribution<E> {
     /// Set to `TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE * SYNC_COMMITTEE_SUBNET_COUNT`. This is the
     /// expected number of aggregators per slot across all subcommittees.
     const DEFAULT_PER_SLOT_CAPACITY: usize =
@@ -75,7 +75,7 @@ impl<T: EthSpec> Consts for SyncCommitteeContribution<T> {
 
     /// We should never receive more aggregates than there are sync committee participants.
     fn max_per_slot_capacity() -> usize {
-        T::sync_committee_size()
+        E::sync_committee_size()
     }
 }
 
@@ -102,8 +102,8 @@ pub trait SubsetItem {
     fn root(&self) -> Hash256;
 }
 
-impl<T: EthSpec> SubsetItem for Attestation<T> {
-    type Item = BitList<T::MaxValidatorsPerCommittee>;
+impl<E: EthSpec> SubsetItem for Attestation<E> {
+    type Item = BitList<E::MaxValidatorsPerCommittee>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         self.aggregation_bits.is_subset(other)
     }
@@ -123,8 +123,8 @@ impl<T: EthSpec> SubsetItem for Attestation<T> {
     }
 }
 
-impl<T: EthSpec> SubsetItem for SyncCommitteeContribution<T> {
-    type Item = BitVector<T::SyncSubcommitteeSize>;
+impl<E: EthSpec> SubsetItem for SyncCommitteeContribution<E> {
+    type Item = BitVector<E::SyncSubcommitteeSize>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         self.aggregation_bits.is_subset(other)
     }

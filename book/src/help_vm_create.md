@@ -135,3 +135,4 @@ OPTIONS:
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
 ```
+<style> .content main {max-width:88%;} </style>

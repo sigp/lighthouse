@@ -1,4 +1,3 @@
-use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::compute_light_client_updates::{
     compute_light_client_updates, LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
 };
@@ -36,6 +35,7 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
+use ssz::Decode;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -44,7 +44,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
+    test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
 };
 
@@ -92,19 +92,19 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
+impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<E> + 'static,
+    E: EthSpec + 'static,
+    THotStore: ItemStore<E> + 'static,
+    TColdStore: ItemStore<E> + 'static,
 {
     /// Instantiates a new, empty builder.
     ///
-    /// The `eth_spec_instance` parameter is used to concretize `TEthSpec`.
-    pub fn new(eth_spec_instance: TEthSpec) -> Self {
+    /// The `eth_spec_instance` parameter is used to concretize `E`.
+    pub fn new(eth_spec_instance: E) -> Self {
         Self {
             slot_clock: None,
             store: None,
@@ -129,7 +129,7 @@ where
     }
 
     /// Specifies the runtime context (tokio executor, logger, etc) for client services.
-    pub fn runtime_context(mut self, context: RuntimeContext<TEthSpec>) -> Self {
+    pub fn runtime_context(mut self, context: RuntimeContext<E>) -> Self {
         self.runtime_context = Some(context);
         self
     }
@@ -146,7 +146,7 @@ where
         self
     }
 
-    pub fn slasher(mut self, slasher: Arc<Slasher<TEthSpec>>) -> Self {
+    pub fn slasher(mut self, slasher: Arc<Slasher<E>>) -> Self {
         self.slasher = Some(slasher);
         self
     }
@@ -214,7 +214,7 @@ where
         };
 
         let builder = if config.network.enable_light_client_server {
-            let (tx, rv) = futures::channel::mpsc::channel::<LightClientProducerEvent<TEthSpec>>(
+            let (tx, rv) = futures::channel::mpsc::channel::<LightClientProducerEvent<E>>(
                 LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
             );
             self.light_client_server_rv = Some(rv);
@@ -299,7 +299,7 @@ where
                             .min_epochs_for_blob_sidecars_requests
                             .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
                         let blob_availability_window = reduced_p2p_availability_epochs
-                            * TEthSpec::slots_per_epoch()
+                            * E::slots_per_epoch()
                             * spec.seconds_per_slot;
 
                         if now > deneb_time + blob_availability_window {
@@ -319,6 +319,7 @@ where
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes,
                 anchor_block_bytes,
+                anchor_blobs_bytes,
             } => {
                 info!(context.log(), "Starting checkpoint sync");
                 if config.chain.genesis_backfill {
@@ -332,10 +333,25 @@ where
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
+                let anchor_blobs = if anchor_block.message().body().has_blobs() {
+                    let anchor_blobs_bytes = anchor_blobs_bytes
+                        .ok_or("Blobs for checkpoint must be provided using --checkpoint-blobs")?;
+                    Some(
+                        BlobSidecarList::from_ssz_bytes(&anchor_blobs_bytes)
+                            .map_err(|e| format!("Unable to parse weak subj blobs SSZ: {e:?}"))?,
+                    )
+                } else {
+                    None
+                };
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 builder
-                    .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
+                    .weak_subjectivity_state(
+                        anchor_state,
+                        anchor_block,
+                        anchor_blobs,
+                        genesis_state,
+                    )
                     .map(|v| (v, None))?
             }
             ClientGenesis::CheckpointSyncUrl { url } => {
@@ -408,7 +424,7 @@ where
                     "Downloading finalized state";
                 );
                 let state = remote
-                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Finalized, &spec)
+                    .get_debug_beacon_states_ssz::<E>(StateId::Finalized, &spec)
                     .await
                     .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
                     .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
@@ -419,7 +435,7 @@ where
 
                 debug!(context.log(), "Downloading finalized block"; "block_slot" => ?finalized_block_slot);
                 let block = remote
-                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(finalized_block_slot), &spec)
+                    .get_beacon_blocks_ssz::<E>(BlockId::Slot(finalized_block_slot), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -430,8 +446,32 @@ where
                         e => format!("Error fetching finalized block from remote: {:?}", e),
                     })?
                     .ok_or("Finalized block missing from remote, it returned 404")?;
+                let block_root = block.canonical_root();
 
                 debug!(context.log(), "Downloaded finalized block");
+
+                let blobs = if block.message().body().has_blobs() {
+                    debug!(context.log(), "Downloading finalized blobs");
+                    if let Some(response) = remote
+                        .get_blobs::<E>(BlockId::Root(block_root), None)
+                        .await
+                        .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
+                    {
+                        debug!(context.log(), "Downloaded finalized blobs");
+                        Some(response.data)
+                    } else {
+                        warn!(
+                            context.log(),
+                            "Checkpoint server is missing blobs";
+                            "block_root" => %block_root,
+                            "hint" => "use a different URL or ask the provider to update",
+                            "impact" => "db will be slightly corrupt until these blobs are pruned",
+                        );
+                        None
+                    }
+                } else {
+                    None
+                };
 
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
@@ -440,7 +480,7 @@ where
                     "Loaded checkpoint block and state";
                     "block_slot" => block.slot(),
                     "state_slot" => state.slot(),
-                    "block_root" => ?block.canonical_root(),
+                    "block_root" => ?block_root,
                 );
 
                 let service =
@@ -468,7 +508,7 @@ where
                     });
 
                 builder
-                    .weak_subjectivity_state(state, block, genesis_state)
+                    .weak_subjectivity_state(state, block, blobs, genesis_state)
                     .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {
@@ -497,7 +537,7 @@ where
                     #[allow(clippy::type_complexity)]
                     let ctx: Arc<
                         http_api::Context<
-                            Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
+                            Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
                         >,
                     > = Arc::new(http_api::Context {
                         config: self.http_api_config.clone(),
@@ -505,6 +545,7 @@ where
                         network_senders: None,
                         network_globals: None,
                         beacon_processor_send: None,
+                        beacon_processor_reprocess_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
                         sse_logging_components: runtime_context.sse_logging_components.clone(),
@@ -565,7 +606,12 @@ where
         };
 
         let beacon_chain_builder = if let Some(trusted_setup) = config.trusted_setup {
-            beacon_chain_builder.trusted_setup(trusted_setup)
+            let kzg = trusted_setup
+                .try_into()
+                .map(Arc::new)
+                .map(Some)
+                .map_err(|e| format!("Failed to load trusted setup: {:?}", e))?;
+            beacon_chain_builder.kzg(kzg)
         } else {
             beacon_chain_builder
         };
@@ -723,8 +769,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn build(
         mut self,
-    ) -> Result<Client<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>, String>
-    {
+    ) -> Result<Client<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>, String> {
         let runtime_context = self
             .runtime_context
             .as_ref()
@@ -747,6 +792,9 @@ where
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
+                beacon_processor_reprocess_send: Some(
+                    beacon_processor_channels.work_reprocessing_tx.clone(),
+                ),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
                 log: log.clone(),
             });
@@ -875,25 +923,6 @@ where
                         beacon_chain.slot_clock.clone(),
                     );
                 }
-
-                // Spawn a service to publish BLS to execution changes at the Capella fork.
-                if let Some(network_senders) = self.network_senders.clone() {
-                    let inner_chain = beacon_chain.clone();
-                    let broadcast_context =
-                        runtime_context.service_context("addr_bcast".to_string());
-                    let log = broadcast_context.log().clone();
-                    broadcast_context.executor.spawn(
-                        async move {
-                            broadcast_address_changes_at_capella(
-                                &inner_chain,
-                                network_senders.network_send(),
-                                &log,
-                            )
-                            .await
-                        },
-                        "addr_broadcast",
-                    );
-                }
             }
 
             // Spawn service to publish light_client updates at some interval into the slot.
@@ -937,14 +966,14 @@ where
     }
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
+impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<E> + 'static,
+    E: EthSpec + 'static,
+    THotStore: ItemStore<E> + 'static,
+    TColdStore: ItemStore<E> + 'static,
 {
     /// Consumes the internal `BeaconChainBuilder`, attaching the resulting `BeaconChain` to self.
     pub fn build_beacon_chain(mut self) -> Result<Self, String> {
@@ -974,12 +1003,12 @@ where
     }
 }
 
-impl<TSlotClock, TEth1Backend, TEthSpec>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, LevelDB<TEthSpec>, LevelDB<TEthSpec>>>
+impl<TSlotClock, TEth1Backend, E>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, E, LevelDB<E>, LevelDB<E>>>
 where
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
+    TEth1Backend: Eth1ChainBackend<E> + 'static,
+    E: EthSpec + 'static,
 {
     /// Specifies that the `Client` should use a `HotColdDB` database.
     pub fn disk_store(
@@ -1036,15 +1065,13 @@ where
     }
 }
 
-impl<TSlotClock, TEthSpec, THotStore, TColdStore>
-    ClientBuilder<
-        Witness<TSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>,
-    >
+impl<TSlotClock, E, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + 'static,
-    TEthSpec: EthSpec + 'static,
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
+    E: EthSpec + 'static,
+    THotStore: ItemStore<E> + 'static,
+    TColdStore: ItemStore<E> + 'static,
 {
     /// Specifies that the `BeaconChain` should cache eth1 blocks/logs from a remote eth1 node
     /// (e.g., Parity/Geth) and refer to that cache when collecting deposits or eth1 votes during
@@ -1137,13 +1164,13 @@ where
     }
 }
 
-impl<TEth1Backend, TEthSpec, THotStore, TColdStore>
-    ClientBuilder<Witness<SystemTimeSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
+impl<TEth1Backend, E, THotStore, TColdStore>
+    ClientBuilder<Witness<SystemTimeSlotClock, TEth1Backend, E, THotStore, TColdStore>>
 where
-    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-    TEthSpec: EthSpec + 'static,
-    THotStore: ItemStore<TEthSpec> + 'static,
-    TColdStore: ItemStore<TEthSpec> + 'static,
+    TEth1Backend: Eth1ChainBackend<E> + 'static,
+    E: EthSpec + 'static,
+    THotStore: ItemStore<E> + 'static,
+    TColdStore: ItemStore<E> + 'static,
 {
     /// Specifies that the slot clock should read the time from the computers system clock.
     pub fn system_time_slot_clock(mut self) -> Result<Self, String> {
@@ -1173,17 +1200,17 @@ where
 }
 
 /// Obtain the genesis state from the `eth2_network_config` in `context`.
-async fn genesis_state<T: EthSpec>(
-    context: &RuntimeContext<T>,
+async fn genesis_state<E: EthSpec>(
+    context: &RuntimeContext<E>,
     config: &ClientConfig,
     log: &Logger,
-) -> Result<BeaconState<T>, String> {
+) -> Result<BeaconState<E>, String> {
     let eth2_network_config = context
         .eth2_network_config
         .as_ref()
         .ok_or("An eth2_network_config is required to obtain the genesis state")?;
     eth2_network_config
-        .genesis_state::<T>(
+        .genesis_state::<E>(
             config.genesis_state_url.as_deref(),
             config.genesis_state_url_timeout,
             log,

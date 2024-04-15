@@ -687,7 +687,6 @@ mod test {
     use environment::null_logger;
     use futures::executor::block_on;
     use slot_clock::TestingSlotClock;
-    use std::collections::HashSet;
     use std::future;
     use std::time::Duration;
     use types::{

@@ -1,11 +1,10 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::cases::common::SszStaticType;
 use crate::decode::{snappy_decode_file, yaml_decode_file};
 use serde::Deserialize;
 use ssz::Decode;
 use tree_hash::TreeHash;
-use types::{BeaconBlock, BeaconState, ForkName, Hash256, SignedBeaconBlock};
+use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SszStaticRoots {

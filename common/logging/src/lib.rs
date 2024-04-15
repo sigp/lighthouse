@@ -223,7 +223,7 @@ impl TimeLatch {
     }
 }
 
-pub fn create_tracing_layer(base_tracing_log_path: PathBuf, turn_on_terminal_logs: bool) {
+pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
     let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
         .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
     {
@@ -268,11 +268,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf, turn_on_terminal_log
 
     if let Err(e) = tracing_subscriber::fmt()
         .with_env_filter(filter_layer)
-        .with_writer(move || {
-            tracing_subscriber::fmt::writer::OptionalWriter::<std::io::Stdout>::from(
-                turn_on_terminal_logs.then(std::io::stdout),
-            )
-        })
+        .with_writer(std::io::sink)
         .finish()
         .with(MetricsLayer)
         .with(custom_layer)

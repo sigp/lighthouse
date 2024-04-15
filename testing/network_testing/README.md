@@ -60,7 +60,7 @@ https://prater.checkpoint.sigp.io --execution-endpoint http://localhost:8551
 Mainnet:
 
 ```
-$ lighthouse --network prater bn --execution-jwt /tmp/mockel.jwt --checkpoint-sync-url
+$ lighthouse --network mainnet bn --execution-jwt /tmp/mockel.jwt --checkpoint-sync-url
 https://checkpoint.sigp.io --execution-endpoint http://localhost:8551
 ```
 

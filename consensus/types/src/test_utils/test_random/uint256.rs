@@ -1,5 +1,4 @@
 use super::*;
-use crate::Uint256;
 
 impl TestRandom for Uint256 {
     fn random_for_test(rng: &mut impl RngCore) -> Self {

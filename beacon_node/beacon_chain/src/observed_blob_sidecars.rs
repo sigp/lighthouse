@@ -27,11 +27,11 @@ pub enum Error {
 ///
 /// Note: To prevent DoS attacks, this cache must include only items that have received some DoS resistance
 /// like checking the proposer signature.
-pub struct ObservedBlobSidecars<T: EthSpec> {
+pub struct ObservedBlobSidecars<E: EthSpec> {
     finalized_slot: Slot,
     /// Stores all received blob indices for a given `(ValidatorIndex, Slot)` tuple.
     items: HashMap<ProposalKey, HashSet<u64>>,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> Default for ObservedBlobSidecars<E> {
@@ -45,12 +45,12 @@ impl<E: EthSpec> Default for ObservedBlobSidecars<E> {
     }
 }
 
-impl<T: EthSpec> ObservedBlobSidecars<T> {
+impl<E: EthSpec> ObservedBlobSidecars<E> {
     /// Observe the `blob_sidecar` at (`blob_sidecar.block_proposer_index, blob_sidecar.slot`).
     /// This will update `self` so future calls to it indicate that this `blob_sidecar` is known.
     ///
     /// The supplied `blob_sidecar` **MUST** have completed proposer signature verification.
-    pub fn observe_sidecar(&mut self, blob_sidecar: &BlobSidecar<T>) -> Result<bool, Error> {
+    pub fn observe_sidecar(&mut self, blob_sidecar: &BlobSidecar<E>) -> Result<bool, Error> {
         self.sanitize_blob_sidecar(blob_sidecar)?;
 
         let blob_indices = self
@@ -59,14 +59,14 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
                 slot: blob_sidecar.slot(),
                 proposer: blob_sidecar.block_proposer_index(),
             })
-            .or_insert_with(|| HashSet::with_capacity(T::max_blobs_per_block()));
+            .or_insert_with(|| HashSet::with_capacity(E::max_blobs_per_block()));
         let did_not_exist = blob_indices.insert(blob_sidecar.index);
 
         Ok(!did_not_exist)
     }
 
     /// Returns `true` if the `blob_sidecar` has already been observed in the cache within the prune window.
-    pub fn proposer_is_known(&self, blob_sidecar: &BlobSidecar<T>) -> Result<bool, Error> {
+    pub fn proposer_is_known(&self, blob_sidecar: &BlobSidecar<E>) -> Result<bool, Error> {
         self.sanitize_blob_sidecar(blob_sidecar)?;
         let is_known = self
             .items
@@ -80,8 +80,8 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
         Ok(is_known)
     }
 
-    fn sanitize_blob_sidecar(&self, blob_sidecar: &BlobSidecar<T>) -> Result<(), Error> {
-        if blob_sidecar.index >= T::max_blobs_per_block() as u64 {
+    fn sanitize_blob_sidecar(&self, blob_sidecar: &BlobSidecar<E>) -> Result<(), Error> {
+        if blob_sidecar.index >= E::max_blobs_per_block() as u64 {
             return Err(Error::InvalidBlobIndex(blob_sidecar.index));
         }
         let finalized_slot = self.finalized_slot;
@@ -111,7 +111,7 @@ mod tests {
     use super::*;
     use bls::Hash256;
     use std::sync::Arc;
-    use types::{BlobSidecar, MainnetEthSpec};
+    use types::MainnetEthSpec;
 
     type E = MainnetEthSpec;
 

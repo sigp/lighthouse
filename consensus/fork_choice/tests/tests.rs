@@ -16,8 +16,8 @@ use std::time::Duration;
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ForkName, Hash256, IndexedAttestation, MainnetEthSpec, ProgressiveBalancesMode,
-    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
+    Epoch, EthSpec, ForkName, Hash256, IndexedAttestation, MainnetEthSpec, RelativeEpoch,
+    SignedBeaconBlock, Slot, SubnetId,
 };
 
 pub type E = MainnetEthSpec;
@@ -47,37 +47,16 @@ impl fmt::Debug for ForkChoiceTest {
 impl ForkChoiceTest {
     /// Creates a new tester.
     pub fn new() -> Self {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .default_spec()
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .build();
-
-        Self { harness }
+        Self::new_with_chain_config(ChainConfig::default())
     }
 
     /// Creates a new tester with a custom chain config.
     pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .default_spec()
-            .chain_config(chain_config)
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .build();
-
-        Self { harness }
-    }
-
-    /// Creates a new tester with the specified `ProgressiveBalancesMode` and genesis from latest fork.
-    fn new_with_progressive_balances_mode(mode: ProgressiveBalancesMode) -> ForkChoiceTest {
-        // genesis with latest fork (at least altair required to test the cache)
+        // Run fork choice tests against the latest fork.
         let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec)
-            .chain_config(ChainConfig {
-                progressive_balances_mode: mode,
-                ..ChainConfig::default()
-            })
+            .chain_config(chain_config)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
@@ -338,9 +317,7 @@ impl ForkChoiceTest {
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
-                self.harness.chain.config.progressive_balances_mode,
                 &self.harness.chain.spec,
-                self.harness.logger(),
             )
             .unwrap();
         self
@@ -383,9 +360,7 @@ impl ForkChoiceTest {
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
-                self.harness.chain.config.progressive_balances_mode,
                 &self.harness.chain.spec,
-                self.harness.logger(),
             )
             .expect_err("on_block did not return an error");
         comparison_func(err);
@@ -1348,7 +1323,7 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
 /// where the slashed validator is a target attester in previous / current epoch.
 #[tokio::test]
 async fn progressive_balances_cache_attester_slashing() {
-    ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Strict)
+    ForkChoiceTest::new()
         // first two epochs
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
@@ -1379,18 +1354,18 @@ async fn progressive_balances_cache_attester_slashing() {
 /// where the slashed validator is a target attester in previous / current epoch.
 #[tokio::test]
 async fn progressive_balances_cache_proposer_slashing() {
-    ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Strict)
+    ForkChoiceTest::new()
         // first two epochs
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
         .unwrap()
         // Note: This test may fail if the shuffling used changes, right now it re-runs with
-        // deterministic shuffling. A shuffling change my cause the slashed proposer to propose
+        // deterministic shuffling. A shuffling change may cause the slashed proposer to propose
         // again in the next epoch, which results in a block processing failure
         // (`HeaderInvalid::ProposerSlashed`). The harness should be re-worked to successfully skip
         // the slot in this scenario rather than panic-ing. The same applies to
         // `progressive_balances_cache_attester_slashing`.
-        .apply_blocks(1)
+        .apply_blocks(2)
         .await
         .add_previous_epoch_proposer_slashing(MainnetEthSpec::slots_per_epoch())
         .await

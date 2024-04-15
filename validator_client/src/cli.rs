@@ -145,6 +145,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        future.")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("distributed")
+                .long("distributed")
+                .help("Enables functionality required for running the validator in a distributed validator cluster.")
+                .takes_value(false)
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")
@@ -391,5 +397,36 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     This ensures the primary beacon node is prioritised. \
                     [default: 8,8,48]")
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("disable-slashing-protection-web3signer")
+                .long("disable-slashing-protection-web3signer")
+                .help("Disable Lighthouse's slashing protection for all web3signer keys. This can \
+                       reduce the I/O burden on the VC but is only safe if slashing protection \
+                       is enabled on the remote signer and is implemented correctly. DO NOT ENABLE \
+                       THIS FLAG UNLESS YOU ARE CERTAIN THAT SLASHING PROTECTION IS ENABLED ON \
+                       THE REMOTE SIGNER. YOU WILL GET SLASHED IF YOU USE THIS FLAG WITHOUT \
+                       ENABLING WEB3SIGNER'S SLASHING PROTECTION.")
+                .takes_value(false)
+        )
+        /*
+         * Experimental/development options.
+         */
+        .arg(
+            Arg::with_name("web3-signer-keep-alive-timeout")
+                .long("web3-signer-keep-alive-timeout")
+                .value_name("MILLIS")
+                .default_value("90000")
+                .help("Keep-alive timeout for each web3signer connection. Set to 'null' to never \
+                       timeout")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("web3-signer-max-idle-connections")
+                .long("web3-signer-max-idle-connections")
+                .value_name("COUNT")
+                .help("Maximum number of idle connections to maintain per web3signer host. Default \
+                       is unlimited.")
+                .takes_value(true),
         )
 }

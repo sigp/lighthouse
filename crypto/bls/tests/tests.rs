@@ -509,8 +509,3 @@ macro_rules! test_suite {
 mod blst {
     test_suite!(blst_implementations);
 }
-
-#[cfg(all(feature = "milagro", not(debug_assertions)))]
-mod milagro {
-    test_suite!(milagro_implementations);
-}

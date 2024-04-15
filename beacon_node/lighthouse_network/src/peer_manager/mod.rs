@@ -10,7 +10,7 @@ use delay_map::HashSetDelay;
 use discv5::Enr;
 use libp2p::identify::Info as IdentifyInfo;
 use lru_cache::LRUTimeCache;
-use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
+use peerdb::{BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
 use slog::{debug, error, trace, warn};
 use smallvec::SmallVec;
@@ -18,7 +18,6 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use strum::IntoEnumIterator;
 use types::{EthSpec, SyncSubnetId};
 
 pub use libp2p::core::Multiaddr;
@@ -27,6 +26,8 @@ pub use libp2p::identity::Keypair;
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod peerdb;
 
+use crate::peer_manager::peerdb::client::ClientKind;
+use libp2p::multiaddr;
 pub use peerdb::peer_info::{
     ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo,
 };
@@ -34,6 +35,8 @@ use peerdb::score::{PeerAction, ReportSource};
 pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{hash_map::Entry, HashMap};
 use std::net::IpAddr;
+use strum::IntoEnumIterator;
+
 pub mod config;
 mod network_behaviour;
 
@@ -64,9 +67,9 @@ pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 pub const PRIORITY_PEER_EXCESS: f32 = 0.2;
 
 /// The main struct that handles peer's reputation and connection status.
-pub struct PeerManager<TSpec: EthSpec> {
+pub struct PeerManager<E: EthSpec> {
     /// Storage of network globals to access the `PeerDB`.
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    network_globals: Arc<NetworkGlobals<E>>,
     /// A queue of events that the `PeerManager` is waiting to produce.
     events: SmallVec<[PeerManagerEvent; 16]>,
     /// A collection of inbound-connected peers awaiting to be Ping'd.
@@ -104,6 +107,8 @@ pub struct PeerManager<TSpec: EthSpec> {
     discovery_enabled: bool,
     /// Keeps track if the current instance is reporting metrics or not.
     metrics_enabled: bool,
+    /// Keeps track of whether the QUIC protocol is enabled or not.
+    quic_enabled: bool,
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
 }
@@ -135,11 +140,11 @@ pub enum PeerManagerEvent {
     DiscoverSubnetPeers(Vec<SubnetDiscovery>),
 }
 
-impl<TSpec: EthSpec> PeerManager<TSpec> {
+impl<E: EthSpec> PeerManager<E> {
     // NOTE: Must be run inside a tokio executor.
     pub fn new(
         cfg: config::Config,
-        network_globals: Arc<NetworkGlobals<TSpec>>,
+        network_globals: Arc<NetworkGlobals<E>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let config::Config {
@@ -149,6 +154,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             status_interval,
             ping_interval_inbound,
             ping_interval_outbound,
+            quic_enabled,
         } = cfg;
 
         // Set up the peer manager heartbeat interval
@@ -167,6 +173,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             heartbeat,
             discovery_enabled,
             metrics_enabled,
+            quic_enabled,
             log: log.clone(),
         })
     }
@@ -461,19 +468,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     "observed_address" => ?info.observed_addr,
                     "protocols" => ?info.protocols
                 );
-
-                // update the peer client kind metric if the peer is connected
-                if matches!(
-                    peer_info.connection_status(),
-                    PeerConnectionStatus::Connected { .. }
-                        | PeerConnectionStatus::Disconnecting { .. }
-                ) {
-                    metrics::inc_gauge_vec(
-                        &metrics::PEERS_PER_CLIENT,
-                        &[peer_info.client().kind.as_ref()],
-                    );
-                    metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT, &[previous_kind.as_ref()]);
-                }
             }
         } else {
             error!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
@@ -559,7 +553,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
-                    Protocol::LightClientBootstrap => PeerAction::LowToleranceError,
+                    // Lighthouse does not currently make light client requests; therefore, this
+                    // is an unexpected scenario. We do not ban the peer for rate limiting.
+                    Protocol::LightClientBootstrap => return,
+                    Protocol::LightClientOptimisticUpdate => return,
+                    Protocol::LightClientFinalityUpdate => return,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
@@ -581,6 +579,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::BlobsByRoot => return,
                     Protocol::Goodbye => return,
                     Protocol::LightClientBootstrap => return,
+                    Protocol::LightClientOptimisticUpdate => return,
+                    Protocol::LightClientFinalityUpdate => return,
                     Protocol::MetaData => PeerAction::Fatal,
                     Protocol::Status => PeerAction::Fatal,
                 }
@@ -598,6 +598,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::LightClientBootstrap => return,
+                    Protocol::LightClientOptimisticUpdate => return,
+                    Protocol::LightClientFinalityUpdate => return,
                     Protocol::Goodbye => return,
                     Protocol::MetaData => return,
                     Protocol::Status => return,
@@ -678,7 +680,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Received a metadata response from a peer.
-    pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
+    pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<E>) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data() {
                 if *known_meta_data.seq_number() < *meta_data.seq_number() {
@@ -712,46 +714,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         for (peer_id, score_action) in actions {
             self.handle_score_action(&peer_id, score_action, None);
-        }
-    }
-
-    // This function updates metrics for all connected peers.
-    fn update_connected_peer_metrics(&self) {
-        // Do nothing if we don't have metrics enabled.
-        if !self.metrics_enabled {
-            return;
-        }
-
-        let mut connected_peer_count = 0;
-        let mut inbound_connected_peers = 0;
-        let mut outbound_connected_peers = 0;
-        let mut clients_per_peer = HashMap::new();
-
-        for (_peer, peer_info) in self.network_globals.peers.read().connected_peers() {
-            connected_peer_count += 1;
-            if let PeerConnectionStatus::Connected { n_in, .. } = peer_info.connection_status() {
-                if *n_in > 0 {
-                    inbound_connected_peers += 1;
-                } else {
-                    outbound_connected_peers += 1;
-                }
-            }
-            *clients_per_peer
-                .entry(peer_info.client().kind.to_string())
-                .or_default() += 1;
-        }
-
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peer_count);
-        metrics::set_gauge(&metrics::NETWORK_INBOUND_PEERS, inbound_connected_peers);
-        metrics::set_gauge(&metrics::NETWORK_OUTBOUND_PEERS, outbound_connected_peers);
-
-        for client_kind in ClientKind::iter() {
-            let value = clients_per_peer.get(&client_kind.to_string()).unwrap_or(&0);
-            metrics::set_gauge_vec(
-                &metrics::PEERS_PER_CLIENT,
-                &[client_kind.as_ref()],
-                *value as i64,
-            );
         }
     }
 
@@ -849,12 +811,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // start a ping and status timer for the peer
         self.status_peers.insert(*peer_id);
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
-
-        // increment prometheus metrics
-        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-
         true
     }
 
@@ -917,8 +873,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
             let wanted_peers = if peer_count < self.target_peers.saturating_sub(dialing_peers) {
                 // We need more peers in general.
-                // Note: The maximum discovery query is bounded by `Discovery`.
-                self.target_peers.saturating_sub(dialing_peers) - peer_count
+                self.max_peers().saturating_sub(dialing_peers) - peer_count
             } else if outbound_only_peer_count < self.min_outbound_only_peers()
                 && peer_count < self.max_outbound_dialing_peers()
             {
@@ -1026,20 +981,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
 
         // 1. Look through peers that have the worst score (ignoring non-penalized scored peers).
-        prune_peers!(|info: &PeerInfo<TSpec>| { info.score().score() < 0.0 });
+        prune_peers!(|info: &PeerInfo<E>| { info.score().score() < 0.0 });
 
         // 2. Attempt to remove peers that are not subscribed to a subnet, if we still need to
         //    prune more.
         if peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
-            prune_peers!(|info: &PeerInfo<TSpec>| { !info.has_long_lived_subnet() });
+            prune_peers!(|info: &PeerInfo<E>| { !info.has_long_lived_subnet() });
         }
 
         // 3. and 4. Remove peers that are too grouped on any given subnet. If all subnets are
         //    uniformly distributed, remove random peers.
         if peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
             // Of our connected peers, build a map from subnet_id -> Vec<(PeerId, PeerInfo)>
-            let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<TSpec>)>> =
-                HashMap::new();
+            let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<E>)>> = HashMap::new();
             // These variables are used to track if a peer is in a long-lived sync-committee as we
             // may wish to retain this peer over others when pruning.
             let mut sync_committee_peer_count: HashMap<SyncSubnetId, u64> = HashMap::new();
@@ -1303,6 +1257,70 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 &[&client.to_string()],
                 score / (peers as f64),
             );
+        }
+    }
+
+    // Update peer count related metrics.
+    fn update_peer_count_metrics(&self) {
+        let mut peers_connected = 0;
+        let mut clients_per_peer = HashMap::new();
+        let mut peers_connected_mutli: HashMap<(&str, &str), i32> = HashMap::new();
+
+        for (_, peer_info) in self.network_globals.peers.read().connected_peers() {
+            peers_connected += 1;
+
+            *clients_per_peer
+                .entry(peer_info.client().kind.to_string())
+                .or_default() += 1;
+
+            let direction = match peer_info.connection_direction() {
+                Some(ConnectionDirection::Incoming) => "inbound",
+                Some(ConnectionDirection::Outgoing) => "outbound",
+                None => "none",
+            };
+            // Note: the `transport` is set to `unknown` if the `listening_addresses` list is empty.
+            // This situation occurs when the peer is initially registered in PeerDB, but the peer
+            // info has not yet been updated at `PeerManager::identify`.
+            let transport = peer_info
+                .listening_addresses()
+                .iter()
+                .find_map(|addr| {
+                    addr.iter().find_map(|proto| match proto {
+                        multiaddr::Protocol::QuicV1 => Some("quic"),
+                        multiaddr::Protocol::Tcp(_) => Some("tcp"),
+                        _ => None,
+                    })
+                })
+                .unwrap_or("unknown");
+            *peers_connected_mutli
+                .entry((direction, transport))
+                .or_default() += 1;
+        }
+
+        // PEERS_CONNECTED
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, peers_connected);
+
+        // PEERS_PER_CLIENT
+        for client_kind in ClientKind::iter() {
+            let value = clients_per_peer.get(&client_kind.to_string()).unwrap_or(&0);
+            metrics::set_gauge_vec(
+                &metrics::PEERS_PER_CLIENT,
+                &[client_kind.as_ref()],
+                *value as i64,
+            );
+        }
+
+        // PEERS_CONNECTED_MULTI
+        for direction in ["inbound", "outbound", "none"] {
+            for transport in ["quic", "tcp", "unknown"] {
+                metrics::set_gauge_vec(
+                    &metrics::PEERS_CONNECTED_MULTI,
+                    &[direction, transport],
+                    *peers_connected_mutli
+                        .get(&(direction, transport))
+                        .unwrap_or(&0) as i64,
+                );
+            }
         }
     }
 }

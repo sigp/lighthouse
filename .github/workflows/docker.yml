@@ -71,7 +71,7 @@ jobs:
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
             FEATURE_SUFFIX: ${{ matrix.features.version_suffix }}
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
             - name: Update Rust
               if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
@@ -106,10 +106,10 @@ jobs:
 
             - name: Set up Docker Buildx
               if: env.SELF_HOSTED_RUNNERS == 'false'
-              uses: docker/setup-buildx-action@v2
+              uses: docker/setup-buildx-action@v3
 
             - name: Build and push
-              uses: docker/build-push-action@v4
+              uses: docker/build-push-action@v5
               with:
                 file: ./Dockerfile.cross
                 context: .
@@ -129,7 +129,7 @@ jobs:
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
+              uses: docker/setup-buildx-action@v3
 
             - name: Dockerhub login
               run: |
@@ -148,7 +148,7 @@ jobs:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin

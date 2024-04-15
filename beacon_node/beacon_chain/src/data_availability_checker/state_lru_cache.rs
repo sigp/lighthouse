@@ -10,6 +10,7 @@ use parking_lot::RwLock;
 use ssz_derive::{Decode, Encode};
 use state_processing::{BlockReplayer, ConsensusContext, StateProcessingStrategy};
 use std::sync::Arc;
+use types::beacon_block_body::KzgCommitments;
 use types::{ssz_tagged_signed_beacon_block, ssz_tagged_signed_beacon_block_arc};
 use types::{BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
@@ -41,6 +42,15 @@ impl<E: EthSpec> DietAvailabilityPendingExecutedBlock<E> {
             .body()
             .blob_kzg_commitments()
             .map_or(0, |commitments| commitments.len())
+    }
+
+    pub fn get_commitments(&self) -> KzgCommitments<E> {
+        self.as_block()
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -190,8 +200,7 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
             })
     }
 
-    /// returns the state cache for inspection in tests
-    #[cfg(test)]
+    /// returns the state cache for inspection
     pub fn lru_cache(&self) -> &RwLock<LruCache<Hash256, BeaconState<T::EthSpec>>> {
         &self.states
     }

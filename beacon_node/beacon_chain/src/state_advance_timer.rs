@@ -51,7 +51,8 @@ const MAX_BLOCK_PRODUCTION_CACHE_DISTANCE: u64 = 4;
 #[derive(Debug)]
 enum Error {
     BeaconChain(BeaconChainError),
-    HeadMissingFromSnapshotCache(Hash256),
+    // We don't use the inner value directly, but it's used in the Debug impl.
+    HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
     MaxDistanceExceeded {
         current_slot: Slot,
         head_slot: Slot,

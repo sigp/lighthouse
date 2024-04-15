@@ -1,10 +1,10 @@
 [package]
 name = "lighthouse"
-version = "4.6.0"
+version = "5.1.3"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
-rust-version = "1.73.0"
+rust-version = "1.75.0"
 
 [features]
 default = ["slasher-lmdb"]
@@ -14,8 +14,6 @@ write_ssz_files = ["beacon_node/write_ssz_files"]
 portable = ["bls/supranational-portable"]
 # Compiles BLST so that it always uses ADX instructions.
 modern = ["bls/supranational-force-adx"]
-# Uses the slower Milagro BLS library, which is written in native Rust.
-milagro = ["bls/milagro"]
 # Support minimal spec (used for testing only).
 spec-minimal = []
 # Support Gnosis spec and Gnosis Beacon Chain.

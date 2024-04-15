@@ -1,6 +1,5 @@
 use clap::{App, Arg, ArgGroup};
 use strum::VariantNames;
-use types::ProgressiveBalancesMode;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -393,9 +392,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("http-spec-fork")
                 .requires("enable_http")
                 .value_name("FORK")
-                .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
-                       not be necessary to set this flag.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
+                .hidden(true)
         )
         .arg(
             Arg::with_name("http-enable-tls")
@@ -426,9 +425,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("http-allow-sync-stalled")
                 .long("http-allow-sync-stalled")
                 .requires("enable_http")
-                .help("Forces the HTTP to indicate that the node is synced when sync is actually \
-                    stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
-                    MAINNET.")
+                .help("This flag is deprecated and has no effect.")
+                .hidden(true)
         )
         .arg(
             Arg::with_name("http-sse-capacity-multiplier")
@@ -620,6 +618,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("historic-state-cache-size")
                 .value_name("SIZE")
                 .help("Specifies how many states from the freezer database should cache in memory [default: 1]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("state-cache-size")
+                .long("state-cache-size")
+                .value_name("STATE_CACHE_SIZE")
+                .help("Specifies the size of the snapshot cache [default: 3]")
                 .takes_value(true)
         )
         /*
@@ -940,6 +945,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("checkpoint-state")
         )
         .arg(
+            Arg::with_name("checkpoint-blobs")
+                .long("checkpoint-blobs")
+                .help("Set the checkpoint blobs to start syncing from. Must be aligned and match \
+                       --checkpoint-block. Using --checkpoint-sync-url instead is recommended.")
+                .value_name("BLOBS_SSZ")
+                .takes_value(true)
+                .requires("checkpoint-block")
+        )
+        .arg(
             Arg::with_name("checkpoint-sync-url")
                 .long("checkpoint-sync-url")
                 .help("Set the remote beacon node HTTP endpoint to use for checkpoint sync.")
@@ -1025,8 +1039,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("proposer-reorg-threshold")
                 .long("proposer-reorg-threshold")
                 .value_name("PERCENT")
-                .help("Percentage of vote weight below which to attempt a proposer reorg. \
+                .help("Percentage of head vote weight below which to attempt a proposer reorg. \
                        Default: 20%")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-parent-threshold")
+                .long("proposer-reorg-parent-threshold")
+                .value_name("PERCENT")
+                .help("Percentage of parent vote weight above which to attempt a proposer reorg. \
+                       Default: 160%")
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
@@ -1208,14 +1230,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("progressive-balances")
                 .long("progressive-balances")
                 .value_name("MODE")
-                .help("Control the progressive balances cache mode. The default `fast` mode uses \
-                        the cache to speed up fork choice. A more conservative `checked` mode \
-                        compares the cache's results against results without the cache. If \
-                        there is a mismatch, it falls back to the cache-free result. Using the \
-                        default `fast` mode is recommended unless advised otherwise by the \
-                        Lighthouse team.")
+                .help("Deprecated. This optimisation is now the default and cannot be disabled.")
                 .takes_value(true)
-                .possible_values(ProgressiveBalancesMode::VARIANTS)
+                .possible_values(&["fast", "disabled", "checked", "strict"])
         )
         .arg(
             Arg::with_name("beacon-processor-max-workers")
@@ -1225,6 +1242,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         this value may increase resource consumption. Reducing the value \
                         may result in decreased resource usage and diminished performance. The \
                         default value is the number of logical CPU cores on the host.")
+                .hidden(true)
                 .takes_value(true)
         )
         .arg(
@@ -1235,6 +1253,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         Higher values may prevent messages from being dropped while lower values \
                         may help protect the node from becoming overwhelmed.")
                 .default_value("16384")
+                .hidden(true)
                 .takes_value(true)
         )
         .arg(
@@ -1244,6 +1263,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies the length of the queue for messages requiring delayed processing. \
                         Higher values may prevent messages from being dropped while lower values \
                         may help protect the node from becoming overwhelmed.")
+                .hidden(true)
                 .default_value("12288")
                 .takes_value(true)
         )
@@ -1254,6 +1274,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies the number of gossip attestations in a signature verification batch. \
                        Higher values may reduce CPU usage in a healthy network whilst lower values may \
                        increase CPU usage in an unhealthy or hostile network.")
+                .hidden(true)
                 .default_value("64")
                 .takes_value(true)
         )
@@ -1265,17 +1286,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        verification batch. \
                        Higher values may reduce CPU usage in a healthy network while lower values may \
                        increase CPU usage in an unhealthy or hostile network.")
+                .hidden(true)
                 .default_value("64")
                 .takes_value(true)
         )
         .arg(
             Arg::with_name("disable-duplicate-warn-logs")
                 .long("disable-duplicate-warn-logs")
-                .help("Disable warning logs for duplicate gossip messages. The WARN level log is \
-                    useful for detecting a duplicate validator key running elsewhere. However, this may \
-                    result in excessive warning logs if the validator is broadcasting messages to \
-                    multiple beacon nodes via the validator client --broadcast flag. In this case, \
-                    disabling these warn logs may be useful.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(false)
         )
         .group(ArgGroup::with_name("enable_http").args(&["http", "gui", "staking"]).multiple(true))

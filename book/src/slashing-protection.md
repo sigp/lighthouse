@@ -101,18 +101,6 @@ update the low watermarks for blocks and attestations. It will store only the ma
 for each validator, and the maximum source/target attestation. This is faster than importing
 all data while also being more resilient to repeated imports & stale data.
 
-### Minification
-
-The exporter can be configured to minify (shrink) the data it exports by keeping only the
-maximum-slot and maximum-epoch messages. Provide the `--minify=true` flag:
-
-```
-lighthouse account validator slashing-protection export --minify=true <lighthouse_interchange.json>
-```
-
-This may make the file faster to import into other clients, but is unnecessary for Lighthouse to
-Lighthouse transfers since v1.5.0.
-
 ## Troubleshooting
 
 ### Misplaced Slashing Database

@@ -33,13 +33,11 @@ use state_processing::{
     BlockProcessingError, BlockReplayer, SlotProcessingError, StateProcessingStrategy,
 };
 use std::cmp::min;
-use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::blob_sidecar::BlobSidecarList;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -1344,7 +1342,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         high_restore_point
             .get_block_root(slot)
             .or_else(|_| high_restore_point.get_oldest_block_root())
-            .map(|x| *x)
+            .copied()
             .map_err(HotColdDBError::RestorePointBlockHashError)
     }
 
@@ -2375,6 +2373,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
             self.cold_db.do_atomically(cold_ops)?;
         }
+
+        // In order to reclaim space, we need to compact the freezer DB as well.
+        self.cold_db.compact()?;
 
         Ok(())
     }

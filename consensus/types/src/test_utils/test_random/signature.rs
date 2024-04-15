@@ -1,5 +1,4 @@
 use super::*;
-use bls::{SecretKey, Signature};
 
 impl TestRandom for Signature {
     fn random_for_test(rng: &mut impl RngCore) -> Self {

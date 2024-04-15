@@ -12,6 +12,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
+use types::blob_sidecar::BlobIdentifier;
 
 /// How many attempts we try to find a parent of a block before we give up trying.
 pub(crate) const PARENT_FAIL_TOLERANCE: u8 = 5;
@@ -36,7 +37,9 @@ pub enum ParentVerifyError {
     NoBlockReturned,
     NotEnoughBlobsReturned,
     ExtraBlocksReturned,
-    UnrequestedBlobId,
+    UnrequestedBlobId(BlobIdentifier),
+    InvalidInclusionProof,
+    UnrequestedHeader,
     ExtraBlobsReturned,
     InvalidIndex(u64),
     PreviousFailure { parent_root: Hash256 },
@@ -124,14 +127,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .update_requested_parent_block(next_parent)
     }
 
-    pub fn block_processing_peer(&self) -> Result<PeerId, ()> {
+    pub fn block_processing_peer(&self) -> Result<PeerId, String> {
         self.current_parent_request
             .block_request_state
             .state
             .processing_peer()
     }
 
-    pub fn blob_processing_peer(&self) -> Result<PeerId, ()> {
+    pub fn blob_processing_peer(&self) -> Result<PeerId, String> {
         self.current_parent_request
             .blob_request_state
             .state
@@ -242,7 +245,9 @@ impl From<LookupVerifyError> for ParentVerifyError {
             E::RootMismatch => ParentVerifyError::RootMismatch,
             E::NoBlockReturned => ParentVerifyError::NoBlockReturned,
             E::ExtraBlocksReturned => ParentVerifyError::ExtraBlocksReturned,
-            E::UnrequestedBlobId => ParentVerifyError::UnrequestedBlobId,
+            E::UnrequestedBlobId(blob_id) => ParentVerifyError::UnrequestedBlobId(blob_id),
+            E::InvalidInclusionProof => ParentVerifyError::InvalidInclusionProof,
+            E::UnrequestedHeader => ParentVerifyError::UnrequestedHeader,
             E::ExtraBlobsReturned => ParentVerifyError::ExtraBlobsReturned,
             E::InvalidIndex(index) => ParentVerifyError::InvalidIndex(index),
             E::NotEnoughBlobsReturned => ParentVerifyError::NotEnoughBlobsReturned,

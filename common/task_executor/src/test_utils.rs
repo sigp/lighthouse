@@ -14,7 +14,7 @@ use tokio::runtime;
 /// This struct should never be used in production, only testing.
 pub struct TestRuntime {
     runtime: Option<Arc<tokio::runtime::Runtime>>,
-    _runtime_shutdown: exit_future::Signal,
+    _runtime_shutdown: async_channel::Sender<()>,
     pub task_executor: TaskExecutor,
     pub log: Logger,
 }
@@ -24,7 +24,7 @@ impl Default for TestRuntime {
     /// called *outside* any existing runtime, create a new `Runtime` and keep it alive until the
     /// `Self` is dropped.
     fn default() -> Self {
-        let (runtime_shutdown, exit) = exit_future::signal();
+        let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let log = null_logger().unwrap();
 

@@ -214,6 +214,7 @@ impl<'a> Builder<'a> {
                         .write(true)
                         .read(true)
                         .create(true)
+                        .truncate(true)
                         .open(path)
                         .map_err(Error::UnableToSaveDepositData)?
                         .write_all(hex.as_bytes())
@@ -231,6 +232,7 @@ impl<'a> Builder<'a> {
                         .write(true)
                         .read(true)
                         .create(true)
+                        .truncate(true)
                         .open(path)
                         .map_err(Error::UnableToSaveDepositAmount)?
                         .write_all(format!("{}", amount).as_bytes())

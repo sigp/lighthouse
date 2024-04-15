@@ -35,6 +35,7 @@ pub enum ClientGenesis {
     WeakSubjSszBytes {
         anchor_state_bytes: Vec<u8>,
         anchor_block_bytes: Vec<u8>,
+        anchor_blobs_bytes: Option<Vec<u8>>,
     },
     CheckpointSyncUrl {
         url: SensitiveUrl,
@@ -117,7 +118,7 @@ impl Default for Config {
 impl Config {
     /// Updates the data directory for the Client.
     pub fn set_data_dir(&mut self, data_dir: PathBuf) {
-        self.data_dir = data_dir.clone();
+        self.data_dir.clone_from(&data_dir);
         self.http_api.data_dir = data_dir;
     }
 

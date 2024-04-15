@@ -40,7 +40,7 @@ use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use duties_service::DutiesService;
+use duties_service::{sync::SyncDutiesMap, DutiesService};
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
@@ -89,27 +89,27 @@ const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
 #[derive(Clone)]
-pub struct ProductionValidatorClient<T: EthSpec> {
-    context: RuntimeContext<T>,
-    duties_service: Arc<DutiesService<SystemTimeSlotClock, T>>,
-    block_service: BlockService<SystemTimeSlotClock, T>,
-    attestation_service: AttestationService<SystemTimeSlotClock, T>,
-    sync_committee_service: SyncCommitteeService<SystemTimeSlotClock, T>,
+pub struct ProductionValidatorClient<E: EthSpec> {
+    context: RuntimeContext<E>,
+    duties_service: Arc<DutiesService<SystemTimeSlotClock, E>>,
+    block_service: BlockService<SystemTimeSlotClock, E>,
+    attestation_service: AttestationService<SystemTimeSlotClock, E>,
+    sync_committee_service: SyncCommitteeService<SystemTimeSlotClock, E>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
-    preparation_service: PreparationService<SystemTimeSlotClock, T>,
-    validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
+    preparation_service: PreparationService<SystemTimeSlotClock, E>,
+    validator_store: Arc<ValidatorStore<SystemTimeSlotClock, E>>,
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
-    beacon_nodes: Arc<BeaconNodeFallback<SystemTimeSlotClock, T>>,
+    beacon_nodes: Arc<BeaconNodeFallback<SystemTimeSlotClock, E>>,
     genesis_time: u64,
 }
 
-impl<T: EthSpec> ProductionValidatorClient<T> {
+impl<E: EthSpec> ProductionValidatorClient<E> {
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
     pub async fn new_from_cli(
-        context: RuntimeContext<T>,
+        context: RuntimeContext<E>,
         cli_args: &ArgMatches<'_>,
     ) -> Result<Self, String> {
         let config = Config::from_cli(cli_args, context.log())
@@ -119,7 +119,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
-    pub async fn new(context: RuntimeContext<T>, config: Config) -> Result<Self, String> {
+    pub async fn new(context: RuntimeContext<E>, config: Config) -> Result<Self, String> {
         let log = context.log().clone();
 
         info!(
@@ -137,7 +137,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 duties_service: None,
             };
 
-            let ctx: Arc<http_metrics::Context<T>> = Arc::new(http_metrics::Context {
+            let ctx: Arc<http_metrics::Context<E>> = Arc::new(http_metrics::Context {
                 config: config.http_metrics.clone(),
                 shared: RwLock::new(shared),
                 log: log.clone(),
@@ -193,6 +193,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
+            config.clone(),
             log.clone(),
         )
         .await
@@ -374,7 +375,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // Initialize the number of connected, avaliable beacon nodes to 0.
         set_gauge(&http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
-        let mut beacon_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
+        let mut beacon_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
             candidates,
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
@@ -382,7 +383,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             log.clone(),
         );
 
-        let mut proposer_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
+        let mut proposer_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
             proposer_candidates,
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
@@ -452,20 +453,21 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // oversized from having not been pruned (by a prior version) we don't want to prune
         // concurrently, as it will hog the lock and cause the attestation service to spew CRITs.
         if let Some(slot) = slot_clock.now() {
-            validator_store.prune_slashing_protection_db(slot.epoch(T::slots_per_epoch()), true);
+            validator_store.prune_slashing_protection_db(slot.epoch(E::slots_per_epoch()), true);
         }
 
         let duties_context = context.service_context("duties".into());
         let duties_service = Arc::new(DutiesService {
             attesters: <_>::default(),
             proposers: <_>::default(),
-            sync_duties: <_>::default(),
+            sync_duties: SyncDutiesMap::new(config.distributed),
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
             validator_store: validator_store.clone(),
             spec: context.eth2_config.spec.clone(),
             context: duties_context,
             enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,
+            distributed: config.distributed,
         });
 
         // Update the metrics server.
@@ -535,7 +537,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // We use `SLOTS_PER_EPOCH` as the capacity of the block notification channel, because
         // we don't expect notifications to be delayed by more than a single slot, let alone a
         // whole epoch!
-        let channel_capacity = T::slots_per_epoch() as usize;
+        let channel_capacity = E::slots_per_epoch() as usize;
         let (block_service_tx, block_service_rx) = mpsc::channel(channel_capacity);
         let log = self.context.log();
 

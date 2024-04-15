@@ -12,7 +12,6 @@ use slashing_protection::{
 };
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
@@ -20,13 +19,12 @@ use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, Keypair, PublicKeyBytes,
-    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
-    Slot, SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
+    Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, PublicKeyBytes, SelectionProof,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    ValidatorRegistrationData, VoluntaryExit,
 };
-use validator_dir::ValidatorDir;
 
 pub use crate::doppelganger_service::DoppelgangerStatus;
 use crate::preparation_service::ProposalData;
@@ -60,31 +58,6 @@ const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
 /// https://github.com/ethereum/builder-specs/issues/17
 pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
 
-struct LocalValidator {
-    validator_dir: ValidatorDir,
-    voting_keypair: Keypair,
-}
-
-/// We derive our own `PartialEq` to avoid doing equality checks between secret keys.
-///
-/// It's nice to avoid secret key comparisons from a security perspective, but it's also a little
-/// risky when it comes to `HashMap` integrity (that's why we need `PartialEq`).
-///
-/// Currently, we obtain keypairs from keystores where we derive the `PublicKey` from a `SecretKey`
-/// via a hash function. In order to have two equal `PublicKey` with different `SecretKey` we would
-/// need to have either:
-///
-/// - A serious upstream integrity error.
-/// - A hash collision.
-///
-/// It seems reasonable to make these two assumptions in order to avoid the equality checks.
-impl PartialEq for LocalValidator {
-    fn eq(&self, other: &Self) -> bool {
-        self.validator_dir == other.validator_dir
-            && self.voting_keypair.pk == other.voting_keypair.pk
-    }
-}
-
 pub struct ValidatorStore<T, E: EthSpec> {
     validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
@@ -97,6 +70,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     fee_recipient_process: Option<Address>,
     gas_limit: Option<u64>,
     builder_proposals: bool,
+    enable_web3signer_slashing_protection: bool,
     produce_block_v3: bool,
     prefer_builder_proposals: bool,
     builder_boost_factor: Option<u64>,
@@ -131,6 +105,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             fee_recipient_process: config.fee_recipient,
             gas_limit: config.gas_limit,
             builder_proposals: config.builder_proposals,
+            enable_web3signer_slashing_protection: config.enable_web3signer_slashing_protection,
             produce_block_v3: config.produce_block_v3,
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
@@ -394,7 +369,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     }
                 }
                 // EIP-7044
-                ForkName::Deneb => SigningContext {
+                ForkName::Deneb | ForkName::Electra => SigningContext {
                     domain,
                     epoch: signing_epoch,
                     fork: Fork {
@@ -604,19 +579,26 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_context = self.signing_context(Domain::BeaconProposer, signing_epoch);
         let domain_hash = signing_context.domain_hash(&self.spec);
 
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
         // Check for slashing conditions.
-        let slashing_status = self.slashing_protection.check_and_insert_block_proposal(
-            &validator_pubkey,
-            &block.block_header(),
-            domain_hash,
-        );
+        let slashing_status = if signing_method
+            .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
+        {
+            self.slashing_protection.check_and_insert_block_proposal(
+                &validator_pubkey,
+                &block.block_header(),
+                domain_hash,
+            )
+        } else {
+            Ok(Safe::Valid)
+        };
 
         match slashing_status {
             // We can safely sign this block without slashing.
             Ok(Safe::Valid) => {
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
 
-                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature::<E, Payload>(
                         SignableMessage::BeaconBlock(&block),
@@ -672,20 +654,28 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             });
         }
 
+        // Get the signing method and check doppelganger protection.
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
         // Checking for slashing conditions.
         let signing_epoch = attestation.data.target.epoch;
         let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
         let domain_hash = signing_context.domain_hash(&self.spec);
-        let slashing_status = self.slashing_protection.check_and_insert_attestation(
-            &validator_pubkey,
-            &attestation.data,
-            domain_hash,
-        );
+        let slashing_status = if signing_method
+            .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
+        {
+            self.slashing_protection.check_and_insert_attestation(
+                &validator_pubkey,
+                &attestation.data,
+                domain_hash,
+            )
+        } else {
+            Ok(Safe::Valid)
+        };
 
         match slashing_status {
             // We can safely sign this attestation.
             Ok(Safe::Valid) => {
-                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature::<E, BlindedPayload<E>>(
                         SignableMessage::AttestationData(&attestation.data),

@@ -11,6 +11,7 @@ use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info};
+use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
@@ -22,8 +23,6 @@ fn bls_library_name() -> &'static str {
         "blst-portable"
     } else if cfg!(feature = "modern") {
         "blst-modern"
-    } else if cfg!(feature = "milagro") {
-        "milagro"
     } else {
         "blst"
     }
@@ -528,6 +527,21 @@ fn run<E: EthSpec>(
 
     let log = environment.core_context().log().clone();
 
+    // Log panics properly.
+    {
+        let log = log.clone();
+        std::panic::set_hook(Box::new(move |info| {
+            crit!(
+                log,
+                "Task panic. This is a bug!";
+                "location" => info.location().map(ToString::to_string),
+                "message" => info.payload().downcast_ref::<String>(),
+                "backtrace" => %Backtrace::capture(),
+                "advice" => "Please check above for a backtrace and notify the developers",
+            );
+        }));
+    }
+
     let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
 
     if tracing_log_path.is_none() {
@@ -540,9 +554,7 @@ fn run<E: EthSpec>(
 
     let path = tracing_log_path.clone().unwrap();
 
-    let turn_on_terminal_logs = matches.is_present("env_log");
-
-    logging::create_tracing_layer(path, turn_on_terminal_logs);
+    logging::create_tracing_layer(path);
 
     // Allow Prometheus to export the time at which the process was started.
     metrics::expose_process_start_time(&log);

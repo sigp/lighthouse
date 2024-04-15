@@ -662,3 +662,20 @@ fn validator_registration_batch_size_zero_value() {
         .flag("validator-registration-batch-size", Some("0"))
         .run();
 }
+
+#[test]
+fn validator_disable_web3_signer_slashing_protection_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_web3signer_slashing_protection);
+    });
+}
+
+#[test]
+fn validator_disable_web3_signer_slashing_protection() {
+    CommandLineTest::new()
+        .flag("disable-slashing-protection-web3signer", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_web3signer_slashing_protection);
+        });
+}

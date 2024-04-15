@@ -1,6 +1,5 @@
 use super::SlotClock;
 use parking_lot::RwLock;
-use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
 use types::Slot;

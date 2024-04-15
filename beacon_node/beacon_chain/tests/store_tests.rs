@@ -7,15 +7,13 @@ use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
     mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
-    BlockStrategy, DiskHarnessType,
+    BlockStrategy, DiskHarnessType, KZG,
 };
 use beacon_chain::{
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use eth2_network_config::TRUSTED_SETUP_BYTES;
-use kzg::TrustedSetup;
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
@@ -2396,6 +2394,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .get_full_block(&wss_block_root)
         .unwrap()
         .unwrap();
+    let wss_blobs_opt = harness.chain.store.get_blobs(&wss_block_root).unwrap();
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot))
         .unwrap()
@@ -2417,9 +2416,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-        .map_err(|e| println!("Unable to read trusted setup file: {}", e))
-        .unwrap();
+    let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
 
     let mock =
         mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
@@ -2438,7 +2435,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .custom_spec(test_spec::<E>())
         .task_executor(harness.chain.task_executor.clone())
         .logger(log.clone())
-        .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
+        .weak_subjectivity_state(
+            wss_state,
+            wss_block.clone(),
+            wss_blobs_opt.clone(),
+            genesis_state,
+        )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
         .dummy_eth1_backend()
@@ -2451,11 +2453,22 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             1,
         )))
         .execution_layer(Some(mock.el))
-        .trusted_setup(trusted_setup)
+        .kzg(kzg)
         .build()
         .expect("should build");
 
     let beacon_chain = Arc::new(beacon_chain);
+    let wss_block_root = wss_block.canonical_root();
+    let store_wss_block = harness
+        .chain
+        .get_block(&wss_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+    let store_wss_blobs_opt = beacon_chain.store.get_blobs(&wss_block_root).unwrap();
+
+    assert_eq!(store_wss_block, wss_block);
+    assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
@@ -3518,13 +3531,12 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
         a_head.beacon_block, b_head.beacon_block,
         "head blocks should be equal"
     );
-    // Clone with committee caches only to prevent other caches from messing with the equality
-    // check.
-    assert_eq!(
-        a_head.beacon_state.clone_with_only_committee_caches(),
-        b_head.beacon_state.clone_with_only_committee_caches(),
-        "head states should be equal"
-    );
+    // Drop all caches to prevent them messing with the equality check.
+    let mut a_head_state = a_head.beacon_state.clone();
+    a_head_state.drop_all_caches().unwrap();
+    let mut b_head_state = b_head.beacon_state.clone();
+    b_head_state.drop_all_caches().unwrap();
+    assert_eq!(a_head_state, b_head_state, "head states should be equal");
     assert_eq!(a.heads(), b.heads(), "heads() should be equal");
     assert_eq!(
         a.genesis_block_root, b.genesis_block_root,
