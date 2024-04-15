@@ -17,7 +17,7 @@
 use self::UpdatePattern::*;
 use crate::*;
 use ssz::{Decode, Encode};
-use types::{historical_summary::HistoricalSummary, milhouse, List, Vector};
+use types::historical_summary::HistoricalSummary;
 
 /// Description of how a `BeaconState` field is updated during state processing.
 ///
