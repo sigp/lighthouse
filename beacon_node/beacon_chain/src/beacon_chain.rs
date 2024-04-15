@@ -4248,20 +4248,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok()?;
         drop(proposer_head_timer);
         let re_org_parent_block = proposer_head.parent_node.root;
-        let re_org_parent_state_root = proposer_head.parent_node.state_root;
 
-        // FIXME(sproul): consider not re-orging if we miss the cache
         let (state_root, state) = self
             .store
-            .get_advanced_hot_state(re_org_parent_block, slot, re_org_parent_state_root)
-            .map_err(|e| {
+            .get_advanced_hot_state_from_cache(re_org_parent_block, slot)
+            .or_else(|| {
                 warn!(
                     self.log,
-                    "Error loading block production state";
-                    "error" => ?e,
+                    "Not attempting re-org";
+                    "reason" => "no state in cache"
                 );
-            })
-            .ok()??;
+                None
+            })?;
 
         info!(
             self.log,

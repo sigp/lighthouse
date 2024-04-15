@@ -734,11 +734,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         max_slot: Slot,
         state_root: Hash256,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
-        if let Some(cached) = self
-            .state_cache
-            .lock()
-            .get_by_block_root(block_root, max_slot)
-        {
+        if let Some(cached) = self.get_advanced_hot_state_from_cache(block_root, max_slot) {
             return Ok(Some(cached));
         }
 
@@ -766,6 +762,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|(state, _block_root)| (state_root, state));
         drop(split);
         Ok(opt_state)
+    }
+
+    /// Same as `get_advanced_hot_state` but will return `None` if no compatible state is cached.
+    ///
+    /// If this function returns `Some(state)` then that `state` will always have
+    /// `latest_block_header` matching `block_root` but may not be advanced all the way through to
+    /// `max_slot`.
+    pub fn get_advanced_hot_state_from_cache(
+        &self,
+        block_root: Hash256,
+        max_slot: Slot,
+    ) -> Option<(Hash256, BeaconState<E>)> {
+        self.state_cache
+            .lock()
+            .get_by_block_root(block_root, max_slot)
     }
 
     /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
