@@ -284,6 +284,9 @@ impl<E: EthSpec> KzgVerifiedBlob<E> {
     pub fn as_blob(&self) -> &BlobSidecar<E> {
         &self.blob
     }
+    pub fn get_commitment(&self) -> &KzgCommitment {
+        &self.blob.kzg_commitment
+    }
     /// This is cheap as we're calling clone on an Arc
     pub fn clone_blob(&self) -> Arc<BlobSidecar<E>> {
         self.blob.clone()

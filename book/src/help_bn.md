@@ -70,9 +70,6 @@ FLAGS:
                                                enables --http and --validator-monitor-auto and enables SSE logging.
     -h, --help                                 Prints help information
         --http                                 Enable the RESTful HTTP API server. Disabled by default.
-        --http-allow-sync-stalled              Forces the HTTP to indicate that the node is synced when sync is actually
-                                               stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE
-                                               ON MAINNET.
         --http-enable-tls                      Serves the RESTful HTTP API server over TLS. This feature is currently
                                                experimental.
         --import-all-attestations              Import and aggregate all attestations, regardless of validator
@@ -279,9 +276,6 @@ OPTIONS:
             responses will be executed immediately.
         --http-port <PORT>
             Set the listen TCP port for the RESTful HTTP API server.
-
-        --http-spec-fork <FORK>
-            Serve the spec for a specific hard fork on /eth/v1/config/spec. It should not be necessary to set this flag.
 
         --http-sse-capacity-multiplier <N>
             Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. Increasing this value can

@@ -296,7 +296,7 @@ impl TestRig {
         beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
     ) {
         self.send_sync_message(SyncMessage::RpcBlock {
-            request_id: SyncRequestId::ParentLookup { id },
+            request_id: SyncRequestId::SingleBlock { id },
             peer_id,
             beacon_block,
             seen_timestamp: D,
@@ -324,7 +324,7 @@ impl TestRig {
         blob_sidecar: Option<Arc<BlobSidecar<E>>>,
     ) {
         self.send_sync_message(SyncMessage::RpcBlob {
-            request_id: SyncRequestId::ParentLookupBlob { id },
+            request_id: SyncRequestId::SingleBlob { id },
             peer_id,
             blob_sidecar,
             seen_timestamp: D,
@@ -348,7 +348,7 @@ impl TestRig {
     fn parent_lookup_failed(&mut self, id: SingleLookupReqId, peer_id: PeerId, error: RPCError) {
         self.send_sync_message(SyncMessage::RpcError {
             peer_id,
-            request_id: SyncRequestId::ParentLookup { id },
+            request_id: SyncRequestId::SingleBlock { id },
             error,
         })
     }
@@ -409,7 +409,11 @@ impl TestRig {
                 peer_id: _,
                 request: Request::BlocksByRoot(request),
                 request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
-            } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
+            } if id.lookup_type == LookupType::Current
+                && request.block_roots().to_vec().contains(&for_block) =>
+            {
+                Some(*id)
+            }
             _ => None,
         })
         .unwrap_or_else(|e| panic!("Expected block request for {for_block:?}: {e}"))
@@ -422,11 +426,12 @@ impl TestRig {
                 peer_id: _,
                 request: Request::BlobsByRoot(request),
                 request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
-            } if request
-                .blob_ids
-                .to_vec()
-                .iter()
-                .any(|r| r.block_root == for_block) =>
+            } if id.lookup_type == LookupType::Current
+                && request
+                    .blob_ids
+                    .to_vec()
+                    .iter()
+                    .any(|r| r.block_root == for_block) =>
             {
                 Some(*id)
             }
@@ -441,8 +446,12 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: Request::BlocksByRoot(request),
-                request_id: RequestId::Sync(SyncRequestId::ParentLookup { id }),
-            } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
+                request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
+            } if id.lookup_type == LookupType::Parent
+                && request.block_roots().to_vec().contains(&for_block) =>
+            {
+                Some(*id)
+            }
             _ => None,
         })
         .unwrap_or_else(|e| panic!("Expected block parent request for {for_block:?}: {e}"))
@@ -454,12 +463,13 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: Request::BlobsByRoot(request),
-                request_id: RequestId::Sync(SyncRequestId::ParentLookupBlob { id }),
-            } if request
-                .blob_ids
-                .to_vec()
-                .iter()
-                .all(|r| r.block_root == for_block) =>
+                request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
+            } if id.lookup_type == LookupType::Parent
+                && request
+                    .blob_ids
+                    .to_vec()
+                    .iter()
+                    .all(|r| r.block_root == for_block) =>
             {
                 Some(*id)
             }
@@ -1974,7 +1984,7 @@ mod deneb_only {
             return;
         };
         let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(2));
-        let parent_root = block.parent_root();
+        let block_root = block.canonical_root();
         let blob_0 = blobs[0].clone();
         let blob_1 = blobs[1].clone();
         let peer_a = r.new_connected_peer();
@@ -1982,7 +1992,7 @@ mod deneb_only {
         // Send unknown parent block lookup
         r.trigger_unknown_parent_block(peer_a, block.into());
         // Expect network request for blobs
-        let id = r.expect_blob_parent_request(parent_root);
+        let id = r.expect_blob_lookup_request(block_root);
         // Peer responses with blob 0
         r.single_lookup_blob_response(id, peer_a, Some(blob_0.into()));
         // Blob 1 is received via gossip unknown parent blob from a different peer

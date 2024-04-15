@@ -291,12 +291,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut lookup = self.single_block_lookups.remove(&id.id)?;
 
         let request_state = R::request_state_mut(&mut lookup);
-        if id.req_counter != request_state.get_state().req_counter {
+        if request_state
+            .get_state()
+            .is_current_req_counter(id.req_counter)
+        {
+            Some(lookup)
+        } else {
             // We don't want to drop the lookup, just ignore the old response.
             self.single_block_lookups.insert(id.id, lookup);
-            return None;
+            None
         }
-        Some(lookup)
     }
 
     /// Checks whether a single block lookup is waiting for a parent lookup to complete. This is
@@ -380,7 +384,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let expected_block_root = lookup.block_root();
         let request_state = R::request_state_mut(&mut lookup);
 
-        match request_state.verify_response(expected_block_root, response) {
+        match request_state.verify_response(expected_block_root, peer_id, response) {
             Ok(Some(verified_response)) => {
                 self.handle_verified_response::<Current, R>(
                     seen_timestamp,
@@ -421,10 +425,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let id = lookup.id;
         let block_root = lookup.block_root();
 
-        R::request_state_mut(lookup)
-            .get_state_mut()
-            .component_downloaded = true;
-
         let cached_child = lookup.add_response::<R>(verified_response.clone());
         match cached_child {
             CachedChild::Ok(block) => {
@@ -453,10 +453,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // initial request.
                 if lookup.both_components_downloaded() {
                     lookup.penalize_blob_peer(cx);
-                    lookup
-                        .blob_request_state
-                        .state
-                        .register_failure_downloading();
+                    lookup.blob_request_state.state.on_download_failure();
                 }
                 lookup.request_block_and_blobs(cx)?;
             }
@@ -499,13 +496,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         if R::request_state_mut(&mut parent_lookup.current_parent_request)
             .get_state()
-            .req_counter
-            != id.req_counter
+            .is_current_req_counter(id.req_counter)
         {
+            Some(parent_lookup)
+        } else {
             self.parent_lookups.push(parent_lookup);
-            return None;
+            None
         }
-        Some(parent_lookup)
     }
 
     /// Process a response received from a parent lookup request.
@@ -565,7 +562,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &SyncNetworkContext<T>,
         parent_lookup: &mut ParentLookup<T>,
     ) -> Result<(), RequestError> {
-        match parent_lookup.verify_response::<R>(response, &mut self.failed_chains) {
+        match parent_lookup.verify_response::<R>(peer_id, response, &mut self.failed_chains) {
             Ok(Some(verified_response)) => {
                 self.handle_verified_response::<Parent, R>(
                     seen_timestamp,
@@ -646,7 +643,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             RequestError::ChainTooLong => {
                 self.failed_chains.insert(parent_lookup.chain_hash());
                 // This indicates faulty peers.
-                for &peer_id in parent_lookup.used_peers() {
+                for &peer_id in parent_lookup.all_used_peers() {
                     cx.report_peer(peer_id, PeerAction::LowToleranceError, e.as_static())
                 }
             }
@@ -659,13 +656,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     self.failed_chains.insert(parent_lookup.chain_hash());
                 }
                 // This indicates faulty peers.
-                for &peer_id in parent_lookup.used_peers() {
+                for &peer_id in parent_lookup.all_used_peers() {
                     cx.report_peer(peer_id, PeerAction::LowToleranceError, e.as_static())
                 }
             }
             RequestError::NoPeers => {
                 // This happens if the peer disconnects while the block is being
                 // processed. Drop the request without extra penalty
+            }
+            RequestError::BadState(_) => {
+                // Should never happen
             }
         }
     }
@@ -674,9 +674,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T>) {
         /* Check disconnection for single lookups */
-        self.single_block_lookups.retain(|_, req| {
+        self.single_block_lookups.retain(|id, req| {
             let should_drop_lookup =
                 req.should_drop_lookup_on_disconnected_peer(peer_id, cx, &self.log);
+            if should_drop_lookup {
+                debug!(self.log, "Dropping lookup after peer disconnected"; "id" => id, "block_root" => %req.block_root());
+            }
 
             !should_drop_lookup
         });
@@ -697,7 +700,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn parent_lookup_failed<R: RequestState<Parent, T>>(
         &mut self,
         id: SingleLookupReqId,
-        peer_id: PeerId,
+        peer_id: &PeerId,
         cx: &SyncNetworkContext<T>,
         error: RPCError,
     ) {
@@ -866,14 +869,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     BlockError::AvailabilityCheck(e) => match e.category() {
                         AvailabilityCheckErrorCategory::Internal => {
                             warn!(self.log, "Internal availability check failure"; "root" => %root, "peer_id" => %peer_id, "error" => ?e);
-                            lookup
-                                .block_request_state
-                                .state
-                                .register_failure_downloading();
-                            lookup
-                                .blob_request_state
-                                .state
-                                .register_failure_downloading();
+                            lookup.block_request_state.state.on_download_failure();
+                            lookup.blob_request_state.state.on_download_failure();
                             Action::Retry
                         }
                         AvailabilityCheckErrorCategory::Malicious => {
@@ -891,10 +888,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                                 "single_block_failure",
                             );
 
-                            lookup
-                                .block_request_state
-                                .state
-                                .register_failure_processing();
+                            lookup.block_request_state.state.on_processing_failure();
                         }
                         Action::Retry
                     }
@@ -987,7 +981,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     .current_parent_request
                     .blob_request_state
                     .state
-                    .register_failure_processing();
+                    .on_processing_failure();
                 match parent_lookup
                     .current_parent_request
                     .request_block_and_blobs(cx)
@@ -1243,8 +1237,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 penalty,
             } => {
                 self.failed_chains.insert(chain_hash);
-                for peer_source in request.all_peers() {
-                    cx.report_peer(peer_source, penalty, "parent_chain_failure")
+                for peer_source in request.all_used_peers() {
+                    cx.report_peer(*peer_source, penalty, "parent_chain_failure")
                 }
             }
             BatchProcessResult::NonFaultyFailure => {
