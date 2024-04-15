@@ -49,6 +49,7 @@ enum Action {
     Retry,
     ParentUnknown { parent_root: Hash256, slot: Slot },
     Drop,
+    Continue,
 }
 
 pub struct BlockLookups<T: BeaconChainTypes> {
@@ -833,7 +834,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     lookup.blob_request_state.state.on_processing_failure();
                     Action::Retry
                 } else {
-                    Action::Drop
+                    Action::Continue
                 }
             }
             BlockProcessingResult::Ignored => {
@@ -921,6 +922,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Action::Drop => {
                 // drop with noop
                 self.update_metrics();
+            }
+            Action::Continue => {
+                self.single_block_lookups.insert(target_id, lookup);
             }
         }
     }
