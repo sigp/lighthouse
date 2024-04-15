@@ -334,6 +334,36 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
     Ok(())
 }
 
+/// Checks that a node is synced with the network.
+/// Useful for ensuring that a node which started after genesis is able to sync to the head.
+pub async fn ensure_node_synced_up_to_slot<E: EthSpec>(
+    network: LocalNetwork<E>,
+    node_index: usize,
+    upto_slot: Slot,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    slot_delay(upto_slot, slot_duration).await;
+    let node = &network.remote_nodes()?.get(node_index).expect("Should get node").clone();
+
+    let head = node
+        .get_beacon_blocks::<E>(BlockId::Head)
+        .await
+        .ok()
+        .flatten()
+        .ok_or(format!("No head block exists on node {node_index}"))?
+        .data;
+
+    // Check the head block is synced with the rest of the network.
+    if head.slot() >= upto_slot {
+        Ok(())
+    } else {
+        Err(format!(
+            "Head not synced for node {node_index}. Found {}; Should be {upto_slot}",
+            head.slot()
+        ))
+    }
+}
+
 /// Verifies that there's been a block produced at every slot up to and including `slot`.
 pub async fn verify_full_blob_production_up_to<E: EthSpec>(
     network: LocalNetwork<E>,
@@ -353,7 +383,7 @@ pub async fn verify_full_blob_production_up_to<E: EthSpec>(
             .ok()
             .flatten();
 
-        // Only check blobs if the blob exist. If you also want to ensure full block production, use
+        // Only check blobs if the block exists. If you also want to ensure full block production, use
         // the `verify_full_block_production_up_to` function.
         if block.is_some() {
             remote_node

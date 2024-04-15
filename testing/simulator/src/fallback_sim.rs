@@ -28,7 +28,7 @@ const DENEB_FORK_EPOCH: u64 = 2;
 // This has potential to block CI so it should be set conservatively enough that spurious failures
 // don't become very common, but not so conservatively that regressions to the fallback mechanism
 // cannot be detected.
-const ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE: f64 = 80.0;
+const ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE: f64 = 85.0;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
@@ -105,8 +105,8 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
-    let disconnection_epoch = 2;
-    let epochs_disconnected = 5;
+    let disconnection_epoch = 1;
+    let epochs_disconnected = 6;
 
     let context = env.core_context();
 

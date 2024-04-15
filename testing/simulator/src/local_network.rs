@@ -1,3 +1,4 @@
+use crate::checks::epoch_delay;
 use eth2_network_config::TRUSTED_SETUP_BYTES;
 use node_test_rig::{
     environment::RuntimeContext,
@@ -40,8 +41,10 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
         network_params.node_count + network_params.proposer_nodes - 1;
     beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
     beacon_config.network.enable_light_client_server = true;
+    beacon_config.network.discv5_config.enable_packet_filter = false;
     beacon_config.chain.enable_light_client_server = true;
     beacon_config.http_api.enable_light_client_server = true;
+    beacon_config.chain.optimistic_finalized_sync = false;
     beacon_config.trusted_setup =
         serde_json::from_reader(TRUSTED_SETUP_BYTES).expect("Trusted setup bytes should be valid");
 
@@ -308,6 +311,24 @@ impl<E: EthSpec> LocalNetwork<E> {
         } else {
             self.beacon_nodes.write().push(beacon_node);
         }
+        Ok(())
+    }
+
+    // Add a new node with a delay. This node will not have validators and is only used to test
+    // sync.
+    pub async fn add_beacon_node_with_delay(
+        &self,
+        beacon_config: ClientConfig,
+        mock_execution_config: MockExecutionConfig,
+        wait_until_epoch: u64,
+        slot_duration: Duration,
+        slots_per_epoch: u64,
+    ) -> Result<(), String> {
+        epoch_delay(Epoch::new(wait_until_epoch), slot_duration, slots_per_epoch).await;
+
+        self.add_beacon_node(beacon_config, mock_execution_config, false)
+            .await?;
+
         Ok(())
     }
 

@@ -99,6 +99,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     //spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
 
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
 
     let context = env.core_context();
@@ -193,6 +194,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
          * tests start at the right time. Whilst this is works well for now, it's subject to
          * breakage by changes to the VC.
          */
+        let network_1 = network.clone();
 
         let (
             finalization,
@@ -204,13 +206,15 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             transition,
             light_client_update,
             blobs,
+            start_node_with_delay,
+            sync,
         ) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.
             checks::verify_first_finalization(network.clone(), slot_duration),
             // Check that a block is produced at every slot.
             checks::verify_full_block_production_up_to(
                 network.clone(),
-                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
+                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
                 slot_duration,
             ),
             // Check that the chain starts with the expected validator count.
@@ -238,30 +242,45 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                 network.clone(),
                 // Start checking for sync_aggregates at `FORK_EPOCH + 1` to account for
                 // inefficiencies in finding subnet peers at the `fork_slot`.
-                Epoch::new(ALTAIR_FORK_EPOCH + 1).start_slot(MinimalEthSpec::slots_per_epoch()),
-                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
+                Epoch::new(ALTAIR_FORK_EPOCH + 1).start_slot(slots_per_epoch),
+                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
                 slot_duration,
             ),
             // Check that the transition block is finalized.
             checks::verify_transition_block_finalized(
                 network.clone(),
-                Epoch::new(TERMINAL_BLOCK / MinimalEthSpec::slots_per_epoch()),
+                Epoch::new(TERMINAL_BLOCK / slots_per_epoch),
                 slot_duration,
                 true,
             ),
             checks::verify_light_client_updates(
                 network.clone(),
                 // Sync aggregate available from slot 1 after Altair fork transition.
-                Epoch::new(ALTAIR_FORK_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()) + 1,
-                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
+                Epoch::new(ALTAIR_FORK_EPOCH).start_slot(slots_per_epoch) + 1,
+                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
                 slot_duration
             ),
             checks::verify_full_blob_production_up_to(
                 network.clone(),
                 // Blobs should be available from the first slot after the Deneb fork.
-                Epoch::new(DENEB_FORK_EPOCH + 1).start_slot(MinimalEthSpec::slots_per_epoch()) + 1,
-                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
+                Epoch::new(DENEB_FORK_EPOCH + 1).start_slot(slots_per_epoch) + 1,
+                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
                 slot_duration
+            ),
+            network_1.add_beacon_node_with_delay(
+                beacon_config.clone(),
+                mock_execution_config.clone(),
+                END_EPOCH - 1,
+                slot_duration,
+                slots_per_epoch
+            ),
+            checks::ensure_node_synced_up_to_slot(
+                network.clone(),
+                // This must be set to be the node which was just created. Should be equal to
+                // `node_count`.
+                node_count,
+                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
+                slot_duration,
             ),
         );
 
@@ -274,6 +293,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         transition?;
         light_client_update?;
         blobs?;
+        start_node_with_delay?;
+        sync?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.
