@@ -1101,10 +1101,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let state_from_disk = self.load_hot_state(state_root)?;
 
-        if let Some((mut state, block_root)) = state_from_disk {
-            let mut state_cache = self.state_cache.lock();
-            state_cache.rebase_on_finalized(&mut state, &self.spec)?;
-            state_cache.put_state(*state_root, block_root, &state)?;
+        if let Some((state, block_root)) = state_from_disk {
+            self.state_cache
+                .lock()
+                .put_state(*state_root, block_root, &state)?;
             Ok(Some(state))
         } else {
             Ok(None)
@@ -1135,10 +1135,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             epoch_boundary_state_root,
         }) = self.load_hot_state_summary(state_root)?
         {
-            let boundary_state =
+            let mut boundary_state =
                 get_full_state(&self.hot_db, &epoch_boundary_state_root, &self.spec)?.ok_or(
                     HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root),
                 )?;
+
+            // Immediately rebase the state from disk on the finalized state so that we can reuse
+            // parts of the tree for state root calculation in `replay_blocks`.
+            self.state_cache
+                .lock()
+                .rebase_on_finalized(&mut boundary_state, &self.spec)?;
 
             // Optimization to avoid even *thinking* about replaying blocks if we're already
             // on an epoch boundary.
