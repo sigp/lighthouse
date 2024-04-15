@@ -11,7 +11,6 @@ use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
-use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
 use types::{Epoch, EthSpec, ForkName, Hash256, Slot};
@@ -129,7 +128,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Handle a `BlocksByRoot` request from the peer.
     pub async fn handle_blocks_by_root_request(
         self: Arc<Self>,
-        executor: TaskExecutor,
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
@@ -147,7 +145,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let requested_blocks = request.block_roots().len();
         let mut block_stream = match self
             .chain
-            .get_blocks_checking_caches(request.block_roots().to_vec(), &executor)
+            .get_blocks_checking_caches(request.block_roots().to_vec())
         {
             Ok(block_stream) => block_stream,
             Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
@@ -381,7 +379,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Handle a `BlocksByRange` request from the peer.
     pub async fn handle_blocks_by_range_request(
         self: Arc<Self>,
-        executor: TaskExecutor,
         peer_id: PeerId,
         request_id: PeerRequestId,
         req: BlocksByRangeRequest,
@@ -515,7 +512,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        let mut block_stream = match self.chain.get_blocks(block_roots, &executor) {
+        let mut block_stream = match self.chain.get_blocks(block_roots) {
             Ok(block_stream) => block_stream,
             Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
         };
