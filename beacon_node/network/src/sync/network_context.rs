@@ -343,7 +343,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Reports to the scoring algorithm the behaviour of a peer.
     pub fn report_peer(&self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
-        debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action);
+        debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action, "msg" => %msg);
         self.network_send
             .send(NetworkMessage::ReportPeer {
                 peer_id,
