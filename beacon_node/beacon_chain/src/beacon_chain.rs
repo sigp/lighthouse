@@ -4397,7 +4397,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let parent_block_root = forkchoice_update_params.head_root;
 
-        // FIXME(sproul): optimise this for tree-states
         let (unadvanced_state, unadvanced_state_root) =
             if cached_head.head_block_root() == parent_block_root {
                 (Cow::Borrowed(head_state), cached_head.head_state_root())
@@ -4411,10 +4410,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let block = self
                     .get_blinded_block(&parent_block_root)?
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
-                let state = self
-                    .get_state(&block.state_root(), Some(block.slot()))?
+                let (state_root, state) = self
+                    .store
+                    .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
-                (Cow::Owned(state), block.state_root())
+                (Cow::Owned(state), state_root)
             };
 
         // Parent state epoch is the same as the proposal, we don't need to advance because the
