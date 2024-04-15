@@ -1,7 +1,5 @@
 #! /usr/bin/env bash
 
-# set -e
-
 # use markdownlint-cli to check for markdown files
 docker run --rm -v ./book:/workdir ghcr.io/igorshubovych/markdownlint-cli:latest '**/*.md' --ignore node_modules
 
