@@ -693,28 +693,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Get a state with `latest_block_root == block_root` advanced through to at most `slot`.
-    ///
-    /// See `Self::get_advanced_hot_state` for information about `max_slot`.
-    ///
-    /// ## Warning
-    ///
-    /// The returned state **is not a valid beacon state**, it can only be used for obtaining
-    /// shuffling to process attestations. At least the following components of the state will be
-    /// broken/invalid:
-    ///
-    /// - `state.state_roots`
-    /// - `state.block_roots`
-    pub fn get_inconsistent_state_for_attestation_verification_only(
-        &self,
-        block_root: &Hash256,
-        max_slot: Slot,
-        state_root: Hash256,
-    ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
-        metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
-        self.get_advanced_hot_state(*block_root, max_slot, state_root)
-    }
-
     /// Get a state with `latest_block_root == block_root` advanced through to at most `max_slot`.
     ///
     /// The `state_root` argument is used to look up the block's un-advanced state in case an
