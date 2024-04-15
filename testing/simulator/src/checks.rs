@@ -343,7 +343,11 @@ pub async fn ensure_node_synced_up_to_slot<E: EthSpec>(
     slot_duration: Duration,
 ) -> Result<(), String> {
     slot_delay(upto_slot, slot_duration).await;
-    let node = &network.remote_nodes()?.get(node_index).expect("Should get node").clone();
+    let node = &network
+        .remote_nodes()?
+        .get(node_index)
+        .expect("Should get node")
+        .clone();
 
     let head = node
         .get_beacon_blocks::<E>(BlockId::Head)
