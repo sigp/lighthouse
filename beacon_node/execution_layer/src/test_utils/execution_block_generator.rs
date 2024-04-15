@@ -155,7 +155,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
-        kzg: Option<Kzg>,
+        kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -172,7 +172,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             cancun_time,
             prague_time,
             blobs_bundles: <_>::default(),
-            kzg: kzg.map(Arc::new),
+            kzg,
             rng: make_rng(),
         };
 

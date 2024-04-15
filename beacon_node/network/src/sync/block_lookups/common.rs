@@ -12,7 +12,6 @@ use beacon_chain::data_availability_checker::ChildComponents;
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::rpc::BlocksByRootRequest;
-use rand::prelude::IteratorRandom;
 use std::ops::IndexMut;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +24,7 @@ pub enum ResponseType {
     Blob,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum LookupType {
     Current,
     Parent,
@@ -104,7 +103,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         // Check if request is necessary.
-        if !matches!(self.get_state().state, State::AwaitingDownload) {
+        if !self.get_state().is_awaiting_download() {
             return Ok(());
         }
 
@@ -112,13 +111,13 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         let (peer_id, request) = self.build_request(&cx.chain.spec)?;
 
         // Update request state.
-        self.get_state_mut().state = State::Downloading { peer_id };
-        self.get_state_mut().req_counter += 1;
+        let req_counter = self.get_state_mut().on_download_start(peer_id);
 
         // Make request
         let id = SingleLookupReqId {
             id,
-            req_counter: self.get_state().req_counter,
+            req_counter,
+            lookup_type: L::lookup_type(),
         };
         Self::make_request(id, peer_id, request, cx)
     }
@@ -129,8 +128,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         let request_state = self.get_state();
 
         if request_state.failed_attempts() >= max_attempts {
-            let cannot_process =
-                request_state.failed_processing >= request_state.failed_downloading;
+            let cannot_process = request_state.more_failed_processing_attempts();
             Err(LookupRequestError::TooManyAttempts { cannot_process })
         } else {
             Ok(())
@@ -140,15 +138,9 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /// Get the next peer to request. Draws from the set of peers we think should have both the
     /// block and blob first. If that fails, we draw from the set of peers that may have either.
     fn get_peer(&mut self) -> Result<PeerId, LookupRequestError> {
-        let request_state = self.get_state_mut();
-        let peer_id = request_state
-            .available_peers
-            .iter()
-            .choose(&mut rand::thread_rng())
-            .copied()
-            .ok_or(LookupRequestError::NoPeers)?;
-        request_state.used_peers.insert(peer_id);
-        Ok(peer_id)
+        self.get_state_mut()
+            .use_rand_available_peer()
+            .ok_or(LookupRequestError::NoPeers)
     }
 
     /// Initialize `Self::RequestType`.
@@ -168,29 +160,35 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     fn verify_response(
         &mut self,
         expected_block_root: Hash256,
+        peer_id: PeerId,
         response: Option<Self::ResponseType>,
     ) -> Result<Option<Self::VerifiedResponseType>, LookupVerifyError> {
-        let request_state = self.get_state_mut();
-        match request_state.state {
-            State::AwaitingDownload => {
-                request_state.register_failure_downloading();
-                Err(LookupVerifyError::ExtraBlocksReturned)
+        let result = match *self.get_state().get_state() {
+            State::AwaitingDownload => Err(LookupVerifyError::ExtraBlocksReturned),
+            State::Downloading { peer_id: _ } => {
+                // TODO: We requested a download from Downloading { peer_id }, but the network
+                // injects a response from a different peer_id. What should we do? The peer_id to
+                // track for scoring is the one that actually sent the response, not the state's
+                self.verify_response_inner(expected_block_root, response)
             }
-            State::Downloading { peer_id } => {
-                self.verify_response_inner(expected_block_root, response, peer_id)
-            }
-            State::Processing { peer_id: _ } => match response {
-                Some(_) => {
-                    // We sent the block for processing and received an extra block.
-                    request_state.register_failure_downloading();
-                    Err(LookupVerifyError::ExtraBlocksReturned)
-                }
-                None => {
-                    // This is simply the stream termination and we are already processing the
-                    // block
-                    Ok(None)
-                }
+            State::Processing { .. } | State::Processed { .. } => match response {
+                // We sent the block for processing and received an extra block.
+                Some(_) => Err(LookupVerifyError::ExtraBlocksReturned),
+                // This is simply the stream termination and we are already processing the block
+                None => Ok(None),
             },
+        };
+
+        match result {
+            Ok(Some(response)) => {
+                self.get_state_mut().on_download_success(peer_id);
+                Ok(Some(response))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => {
+                self.get_state_mut().on_download_failure();
+                Err(e)
+            }
         }
     }
 
@@ -199,7 +197,6 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         &mut self,
         expected_block_root: Hash256,
         response: Option<Self::ResponseType>,
-        peer_id: PeerId,
     ) -> Result<Option<Self::VerifiedResponseType>, LookupVerifyError>;
 
     /// A getter for the parent root of the response. Returns an `Option` because we won't know
@@ -231,7 +228,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
 
     /// Register a failure to process the block or blob.
     fn register_failure_downloading(&mut self) {
-        self.get_state_mut().register_failure_downloading()
+        self.get_state_mut().on_download_failure()
     }
 
     /* Utility methods */
@@ -265,7 +262,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
         request: Self::RequestType,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
-        cx.block_lookup_request(id, peer_id, request, L::lookup_type())
+        cx.block_lookup_request(id, peer_id, request)
             .map_err(LookupRequestError::SendFailed)
     }
 
@@ -273,7 +270,6 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
         &mut self,
         expected_block_root: Hash256,
         response: Option<Self::ResponseType>,
-        peer_id: PeerId,
     ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, LookupVerifyError> {
         match response {
             Some(block) => {
@@ -284,18 +280,13 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
                     // return an error and drop the block
                     // NOTE: we take this is as a download failure to prevent counting the
                     // attempt as a chain failure, but simply a peer failure.
-                    self.state.register_failure_downloading();
                     Err(LookupVerifyError::RootMismatch)
                 } else {
                     // Return the block for processing.
-                    self.state.state = State::Processing { peer_id };
                     Ok(Some(block))
                 }
             }
-            None => {
-                self.state.register_failure_downloading();
-                Err(LookupVerifyError::NoBlockReturned)
-            }
+            None => Err(LookupVerifyError::NoBlockReturned),
         }
     }
 
@@ -365,7 +356,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         request: Self::RequestType,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
-        cx.blob_lookup_request(id, peer_id, request, L::lookup_type())
+        cx.blob_lookup_request(id, peer_id, request)
             .map_err(LookupRequestError::SendFailed)
     }
 
@@ -373,25 +364,20 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
         &mut self,
         expected_block_root: Hash256,
         blob: Option<Self::ResponseType>,
-        peer_id: PeerId,
     ) -> Result<Option<FixedBlobSidecarList<T::EthSpec>>, LookupVerifyError> {
         match blob {
             Some(blob) => {
                 let received_id = blob.id();
 
                 if !self.requested_ids.contains(&received_id) {
-                    Err(LookupVerifyError::UnrequestedBlobId(received_id))
-                } else if !blob.verify_blob_sidecar_inclusion_proof().unwrap_or(false) {
-                    Err(LookupVerifyError::InvalidInclusionProof)
-                } else if blob.block_root() != expected_block_root {
-                    Err(LookupVerifyError::UnrequestedHeader)
-                } else {
-                    Ok(())
+                    return Err(LookupVerifyError::UnrequestedBlobId(received_id));
                 }
-                .map_err(|e| {
-                    self.state.register_failure_downloading();
-                    e
-                })?;
+                if !blob.verify_blob_sidecar_inclusion_proof().unwrap_or(false) {
+                    return Err(LookupVerifyError::InvalidInclusionProof);
+                }
+                if blob.block_root() != expected_block_root {
+                    return Err(LookupVerifyError::UnrequestedHeader);
+                }
 
                 // State should remain downloading until we receive the stream terminator.
                 self.requested_ids.remove(&received_id);
@@ -402,7 +388,6 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
                 Ok(None)
             }
             None => {
-                self.state.state = State::Processing { peer_id };
                 let blobs = std::mem::take(&mut self.blob_download_queue);
                 Ok(Some(blobs))
             }

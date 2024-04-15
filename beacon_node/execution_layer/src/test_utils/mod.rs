@@ -111,7 +111,7 @@ impl<E: EthSpec> MockServer<E> {
     pub fn new_with_config(
         handle: &runtime::Handle,
         config: MockExecutionConfig,
-        kzg: Option<Kzg>,
+        kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let MockExecutionConfig {
             jwt_key,
@@ -195,7 +195,7 @@ impl<E: EthSpec> MockServer<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
-        kzg: Option<Kzg>,
+        kzg: Option<Arc<Kzg>>,
     ) -> Self {
         Self::new_with_config(
             handle,

@@ -25,8 +25,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
-    EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
-    ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
+    ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof, ProposerPreparationData,
+    SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
