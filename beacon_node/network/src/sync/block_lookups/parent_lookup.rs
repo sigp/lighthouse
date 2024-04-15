@@ -55,6 +55,7 @@ pub enum RequestError {
         cannot_process: bool,
     },
     NoPeers,
+    BadState(String),
 }
 
 impl<T: BeaconChainTypes> ParentLookup<T> {
@@ -253,6 +254,7 @@ impl From<LookupRequestError> for RequestError {
             }
             E::NoPeers => RequestError::NoPeers,
             E::SendFailed(msg) => RequestError::SendFailed(msg),
+            E::BadState(msg) => RequestError::BadState(msg),
         }
     }
 }
@@ -280,6 +282,7 @@ impl RequestError {
             }
             RequestError::TooManyAttempts { cannot_process: _ } => "too_many_downloading_attempts",
             RequestError::NoPeers => "no_peers",
+            RequestError::BadState(_) => "bad_state",
         }
     }
 }

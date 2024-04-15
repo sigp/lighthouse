@@ -658,6 +658,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // This happens if the peer disconnects while the block is being
                 // processed. Drop the request without extra penalty
             }
+            RequestError::BadState(_) => {
+                // Should never happen
+            }
         }
     }
 
@@ -665,9 +668,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T>) {
         /* Check disconnection for single lookups */
-        self.single_block_lookups.retain(|_, req| {
+        self.single_block_lookups.retain(|id, req| {
             let should_drop_lookup =
                 req.should_drop_lookup_on_disconnected_peer(peer_id, cx, &self.log);
+            if should_drop_lookup {
+                debug!(self.log, "Dropping lookup after peer disconnected"; "id" => id, "block_root" => %req.block_root());
+            }
 
             !should_drop_lookup
         });
@@ -841,7 +847,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) -> Result<(), LookupRequestError> {
         let request_state = R::request_state_mut(lookup);
 
-        request_state.get_state_mut().on_processing_success();
+        request_state
+            .get_state_mut()
+            .on_processing_success()
+            .map_err(LookupRequestError::BadState)?;
         if lookup.both_components_processed() {
             lookup.penalize_blob_peer(cx);
 

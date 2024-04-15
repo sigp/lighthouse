@@ -637,6 +637,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.handle_unknown_block_root(peer_id, block_root);
             }
             SyncMessage::Disconnect(peer_id) => {
+                debug!(self.log, "Received disconnected message"; "peer_id" => %peer_id);
                 self.peer_disconnect(&peer_id);
             }
             SyncMessage::RpcError {

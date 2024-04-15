@@ -43,6 +43,7 @@ pub enum LookupRequestError {
     },
     NoPeers,
     SendFailed(&'static str),
+    BadState(String),
 }
 
 pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {
@@ -374,7 +375,7 @@ pub enum State {
     AwaitingDownload,
     Downloading { peer_id: PeerId },
     Processing { peer_id: PeerId },
-    Processed,
+    Processed { peer_id: PeerId },
 }
 
 /// Object representing the state of a single block or blob lookup request.
@@ -433,7 +434,7 @@ impl SingleLookupRequestState {
             State::AwaitingDownload => false,
             State::Downloading { .. } => false,
             State::Processing { .. } => true,
-            State::Processed => true,
+            State::Processed { .. } => true,
         }
     }
 
@@ -442,7 +443,7 @@ impl SingleLookupRequestState {
             State::AwaitingDownload => false,
             State::Downloading { .. } => false,
             State::Processing { .. } => false,
-            State::Processed => true,
+            State::Processed { .. } => true,
         }
     }
 
@@ -469,8 +470,14 @@ impl SingleLookupRequestState {
         self.state = State::AwaitingDownload;
     }
 
-    pub fn on_processing_success(&mut self) {
-        self.state = State::Processed;
+    pub fn on_processing_success(&mut self) -> Result<(), String> {
+        match &self.state {
+            State::Processing { peer_id } => {
+                self.state = State::Processed { peer_id: *peer_id };
+                Ok(())
+            }
+            other => Err(format!("not in processing state: {}", other).to_string()),
+        }
     }
 
     /// The total number of failures, whether it be processing or downloading.
@@ -504,7 +511,7 @@ impl SingleLookupRequestState {
     /// returns an error.
     pub fn processing_peer(&self) -> Result<PeerId, String> {
         match &self.state {
-            State::Processing { peer_id } => Ok(*peer_id),
+            State::Processing { peer_id } | State::Processed { peer_id } => Ok(*peer_id),
             other => Err(format!("not in processing state: {}", other).to_string()),
         }
     }
@@ -569,7 +576,7 @@ impl slog::Value for SingleLookupRequestState {
             State::Processing { peer_id } => {
                 serializer.emit_arguments("processing_peer", &format_args!("{}", peer_id))?
             }
-            State::Processed => "processed".serialize(record, "state", serializer)?,
+            State::Processed { .. } => "processed".serialize(record, "state", serializer)?,
         }
         serializer.emit_u8("failed_downloads", self.failed_downloading)?;
         serializer.emit_u8("failed_processing", self.failed_processing)?;
@@ -583,7 +590,7 @@ impl std::fmt::Display for State {
             State::AwaitingDownload => write!(f, "AwaitingDownload"),
             State::Downloading { .. } => write!(f, "Downloading"),
             State::Processing { .. } => write!(f, "Processing"),
-            State::Processed => write!(f, "Processed"),
+            State::Processed { .. } => write!(f, "Processed"),
         }
     }
 }

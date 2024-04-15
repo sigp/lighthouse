@@ -103,7 +103,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         // Check if request is necessary.
-        if self.get_state().is_awaiting_download() {
+        if !self.get_state().is_awaiting_download() {
             return Ok(());
         }
 
@@ -171,7 +171,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
                 // track for scoring is the one that actually sent the response, not the state's
                 self.verify_response_inner(expected_block_root, response)
             }
-            State::Processing { .. } | State::Processed => match response {
+            State::Processing { .. } | State::Processed { .. } => match response {
                 // We sent the block for processing and received an extra block.
                 Some(_) => Err(LookupVerifyError::ExtraBlocksReturned),
                 // This is simply the stream termination and we are already processing the block
