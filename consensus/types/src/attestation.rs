@@ -95,9 +95,9 @@ impl<E: EthSpec> TestRandom for Attestation<E> {
         let data = AttestationData::random_for_test(rng);
         let signature = AggregateSignature::random_for_test(rng);
 
-        Self::Electra(AttestationElectra {
+        Self::Base(AttestationBase {
             aggregation_bits,
-            committee_bits,
+            // committee_bits,
             data,
             signature,
         })

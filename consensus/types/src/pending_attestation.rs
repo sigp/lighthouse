@@ -89,9 +89,9 @@ impl<E: EthSpec> TestRandom for PendingAttestation<E> {
         let proposer_index = u64::random_for_test(rng);
         let inclusion_delay = u64::random_for_test(rng);
 
-        Self::Electra(PendingAttestationElectra {
+        Self::Base(PendingAttestationBase {
             aggregation_bits,
-            committee_bits,
+            // committee_bits,
             data,
             proposer_index,
             inclusion_delay,

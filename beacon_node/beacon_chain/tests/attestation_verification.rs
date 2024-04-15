@@ -717,6 +717,7 @@ async fn aggregated_gossip_verification() {
             "aggregate with unknown aggregator index",
             |_, a| a.message.aggregator_index = VALIDATOR_COUNT as u64,
             |_, err| {
+                println!("{:?}", err);
                 assert!(matches!(
                     err,
                     // Naively we should think this condition would trigger this error:
