@@ -59,7 +59,6 @@ pub fn process_sync_aggregate<E: EthSpec>(
         .into_iter()
         .zip(aggregate.sync_committee_bits.iter())
     {
-        // FIXME(sproul): double-check this for Capella, proposer shouldn't have 0 effective balance
         if participation_bit {
             // Accumulate proposer rewards in a temp var in case the proposer has very low balance, is
             // part of the sync committee, does not participate and its penalties saturate.
