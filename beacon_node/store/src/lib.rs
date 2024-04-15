@@ -267,6 +267,9 @@ pub enum DBColumn {
     BeaconHistoricalSummaries,
     #[strum(serialize = "olc")]
     OverflowLRUCache,
+    /// For persisting eagerly computed light client data
+    #[strum(serialize = "lcu")]
+    LightClientUpdate,
 }
 
 /// A block from the database, which might have an execution payload or not.
@@ -304,7 +307,8 @@ impl DBColumn {
             | Self::PubkeyCache
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
-            | Self::OptimisticTransitionBlock => 32,
+            | Self::OptimisticTransitionBlock
+            | Self::LightClientUpdate => 32,
             Self::BeaconBlockRoots
             | Self::BeaconStateRoots
             | Self::BeaconHistoricalRoots
