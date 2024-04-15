@@ -29,7 +29,6 @@ pub enum LookupRequestError {
         cannot_process: bool,
     },
     NoPeers,
-    BadState(String),
     SendFailed(&'static str),
     BadState(String),
 }
@@ -406,11 +405,6 @@ impl SingleLookupRequestState {
         }
     }
 
-    // TODO: Should not leak the enum state
-    pub fn get_state(&self) -> &State {
-        &self.state
-    }
-
     pub fn is_current_req_counter(&self, req_counter: u32) -> bool {
         self.req_counter == req_counter
     }
@@ -450,8 +444,18 @@ impl SingleLookupRequestState {
         self.state = State::AwaitingDownload;
     }
 
-    pub fn on_download_success(&mut self, peer_id: PeerId) {
-        self.state = State::Processing { peer_id };
+    pub fn on_download_success(&mut self) -> Result<(), String> {
+        match &self.state {
+            State::Downloading { peer_id } => {
+                self.state = State::Processing { peer_id: *peer_id };
+                Ok(())
+            }
+            other => {
+                return Err(format!(
+                    "request bad state, expected downloading got {other}"
+                ))
+            }
+        }
     }
 
     /// Registers a failure in processing a block.
@@ -519,21 +523,6 @@ impl SingleLookupRequestState {
             .copied()?;
         self.used_peers.insert(peer_id);
         Some(peer_id)
-    }
-
-    pub fn into_processing(&mut self) -> Result<(), String> {
-        match self.state {
-            State::AwaitingDownload => {
-                return Err("request bad state, expected downloading got processing".to_owned())
-            }
-            State::Downloading { peer_id } => {
-                self.state = State::Processing { peer_id };
-                Ok(())
-            }
-            State::Processing { .. } => {
-                return Err("request bad state, expected downloading got processing".to_owned())
-            }
-        }
     }
 }
 

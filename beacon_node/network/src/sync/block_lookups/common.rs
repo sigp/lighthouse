@@ -1,6 +1,6 @@
 use crate::sync::block_lookups::parent_lookup::PARENT_FAIL_TOLERANCE;
 use crate::sync::block_lookups::single_block_lookup::{
-    LookupRequestError, SingleBlockLookup, SingleLookupRequestState, State,
+    LookupRequestError, SingleBlockLookup, SingleLookupRequestState,
 };
 use crate::sync::block_lookups::{
     BlobRequestState, BlockLookups, BlockRequestState, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
@@ -12,7 +12,6 @@ use crate::sync::network_context::{
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::ChildComponents;
 use beacon_chain::BeaconChainTypes;
-use rand::prelude::IteratorRandom;
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::FixedBlobSidecarList;

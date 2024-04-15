@@ -388,6 +388,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 };
 
                 if !delay_send {
+                    R::request_state_mut(lookup)
+                        .get_state_mut()
+                        .on_download_success()
+                        .map_err(LookupRequestError::BadState)?;
+
                     self.send_block_for_processing(
                         block_root,
                         block,
@@ -411,7 +416,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             CachedChild::NotRequired => {
                 R::request_state_mut(lookup)
                     .get_state_mut()
-                    .into_processing()
+                    .on_download_success()
                     .map_err(LookupRequestError::BadState)?;
 
                 R::send_reconstructed_for_processing(
@@ -781,12 +786,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
         lookup: &mut SingleBlockLookup<Current, T>,
     ) -> Result<(), LookupRequestError> {
-        let request_state = R::request_state_mut(lookup);
-
-        request_state
+        R::request_state_mut(lookup)
             .get_state_mut()
             .on_processing_success()
             .map_err(LookupRequestError::BadState)?;
+
         if lookup.both_components_processed() {
             lookup.penalize_blob_peer(cx);
 
