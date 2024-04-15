@@ -945,8 +945,6 @@ pub fn parse_listening_addresses(
         .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?
         .unwrap_or(9090);
 
-    println!("{}", port);
-
     // parse the possible discovery ports.
     let maybe_disc_port = cli_args
         .get_one::<String>("discovery-port")

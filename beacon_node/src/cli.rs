@@ -4,6 +4,7 @@ use strum::VariantNames;
 
 pub fn cli_app() -> Command {
     Command::new("beacon_node")
+        .display_order(0)
         .visible_aliases(["b", "bn", "beacon"])
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
@@ -14,6 +15,15 @@ pub fn cli_app() -> Command {
         /*
          * Configuration directory locations.
          */
+        .arg(
+            Arg::new("help")
+            .long("help")
+            .short('h')
+            .help("Prints help information")
+            .action(ArgAction::HelpLong)
+            .display_order(0)
+            .help_heading(FLAG_HEADER)
+        )
         .arg(
             Arg::new("network-dir")
                 .long("network-dir")
@@ -271,7 +281,7 @@ pub fn cli_app() -> Command {
                       local node on this address. This will update the `ip4` or `ip6` ENR fields \
                       accordingly. To update both, set this flag twice with the different values.")
                 .action(ArgAction::Append)
-                .num_args(0..=2)
+                .num_args(1..=2)
                 .display_order(0)
         )
         .arg(

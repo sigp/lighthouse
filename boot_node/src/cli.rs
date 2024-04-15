@@ -12,6 +12,16 @@ pub fn cli_app() -> Command {
         This is the recommended way to provide a network boot-node since it has a reduced attack \
         surface compared to a full beacon node.")
         .styles(get_color_style())
+        .display_order(0)
+        .arg(
+            Arg::new("help")
+            .long("help")
+            .short('h')
+            .help("Prints help information")
+            .action(ArgAction::HelpLong)
+            .display_order(0)
+            .help_heading(FLAG_HEADER)
+        )
         .arg(
             Arg::new("enr-address")
                 .long("enr-address")
@@ -23,7 +33,7 @@ pub fn cli_app() -> Command {
                       local node on this address. This will update the `ip4` or `ip6` ENR fields \
                       accordingly. To update both, set this flag twice with the different values.")
                 .action(ArgAction::Append)
-                .num_args(0..=2)
+                .num_args(1..=2)
                 .required(true)
                 .conflicts_with("network-dir")
                 .display_order(0)

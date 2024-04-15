@@ -2,8 +2,11 @@ mod common;
 pub mod validator;
 pub mod wallet;
 
+use clap::Arg;
+use clap::ArgAction;
 use clap::ArgMatches;
 use clap::Command;
+use clap_utils::FLAG_HEADER;
 use environment::Environment;
 use types::EthSpec;
 
@@ -17,6 +20,16 @@ pub fn cli_app() -> Command {
     Command::new(CMD)
         .visible_aliases(["a", "am", "account", CMD])
         .about("Utilities for generating and managing Ethereum 2.0 accounts.")
+        .display_order(0)
+        .arg(
+            Arg::new("help")
+            .long("help")
+            .short('h')
+            .help("Prints help information")
+            .action(ArgAction::HelpLong)
+            .display_order(0)
+            .help_heading(FLAG_HEADER)
+        )
         .subcommand(wallet::cli_app())
         .subcommand(validator::cli_app())
 }

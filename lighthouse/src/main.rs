@@ -80,6 +80,9 @@ fn main() {
         .version(SHORT_VERSION.as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .styles(get_color_style())
+        .next_line_help(true)
+        .term_width(80)
+        .disable_help_flag(true)
         .about(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
@@ -381,6 +384,15 @@ fn main() {
                 .default_value("180")
                 .global(true)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("help")
+            .long("help")
+            .short('h')
+            .help("Prints help information")
+            .action(ArgAction::HelpLong)
+            .display_order(0)
+            .help_heading(FLAG_HEADER)
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())

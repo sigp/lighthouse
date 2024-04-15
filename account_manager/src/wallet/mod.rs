@@ -4,6 +4,7 @@ pub mod recover;
 
 use crate::WALLETS_DIR_FLAG;
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use directory::{ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
 use std::path::PathBuf;
 
@@ -13,6 +14,15 @@ pub fn cli_app() -> Command {
     Command::new(CMD)
         .about("Manage wallets, from which validator keys can be derived.")
         .display_order(0)
+        .arg(
+            Arg::new("help")
+            .long("help")
+            .short('h')
+            .help("Prints help information")
+            .action(ArgAction::HelpLong)
+            .display_order(0)
+            .help_heading(FLAG_HEADER)
+        )
         .arg(
             Arg::new(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)

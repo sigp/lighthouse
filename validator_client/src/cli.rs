@@ -5,9 +5,19 @@ pub fn cli_app() -> Command {
     Command::new("validator_client")
         .visible_aliases(["v", "vc", "validator"])
         .styles(get_color_style())
+        .display_order(0)
         .about(
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",
+        )
+        .arg(
+            Arg::new("help")
+            .long("help")
+            .short('h')
+            .help("Prints help information")
+            .action(ArgAction::HelpLong)
+            .display_order(0)
+            .help_heading(FLAG_HEADER)
         )
         .arg(
             Arg::new("beacon-nodes")
