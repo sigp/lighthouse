@@ -1,5 +1,5 @@
 use super::per_block_processing::{
-    errors::BlockProcessingError, process_operations::process_deposit,
+    errors::BlockProcessingError, process_operations::apply_deposit,
 };
 use crate::common::DepositDataTree;
 use crate::upgrade::{
@@ -37,7 +37,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
             .push_leaf(deposit.data.tree_hash_root())
             .map_err(BlockProcessingError::MerkleTreeError)?;
         state.eth1_data_mut().deposit_root = deposit_tree.root();
-        process_deposit(&mut state, deposit, spec, true)?;
+        apply_deposit(&mut state, deposit, spec, true)?;
     }
 
     process_activations(&mut state, spec)?;

@@ -371,14 +371,14 @@ pub fn process_deposits<E: EthSpec>(
 
     // Update the state in series.
     for deposit in deposits {
-        process_deposit(state, deposit, spec, false)?;
+        apply_deposit(state, deposit, spec, false)?;
     }
 
     Ok(())
 }
 
 /// Process a single deposit, optionally verifying its merkle proof.
-pub fn process_deposit<E: EthSpec>(
+pub fn apply_deposit<E: EthSpec>(
     state: &mut BeaconState<E>,
     deposit: &Deposit,
     spec: &ChainSpec,
