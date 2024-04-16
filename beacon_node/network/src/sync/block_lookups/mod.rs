@@ -606,12 +606,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T>) {
         /* Check disconnection for single lookups */
-        self.single_block_lookups.retain(|id, req| {
+        self.single_block_lookups.retain(|_, req| {
             let should_drop_lookup =
                 req.should_drop_lookup_on_disconnected_peer(peer_id, cx, &self.log);
-            if should_drop_lookup {
-                debug!(self.log, "Dropping lookup after peer disconnected"; "id" => id, "block_root" => %req.block_root());
-            }
 
             !should_drop_lookup
         });
@@ -695,7 +692,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 "error" => ?e,
                 "block_root" => ?block_root,
             );
-            self.single_block_lookups.remove(&id);
+        } else {
+            self.single_block_lookups.insert(id, lookup);
         }
 
         metrics::set_gauge(

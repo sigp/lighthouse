@@ -11,7 +11,7 @@ use beacon_chain::BeaconChainTypes;
 use itertools::Itertools;
 use lighthouse_network::PeerAction;
 use rand::seq::IteratorRandom;
-use slog::{trace, Logger};
+use slog::{debug, Logger};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -221,7 +221,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
 
         if block_peer_disconnected || blob_peer_disconnected {
             if let Err(e) = self.request_block_and_blobs(cx) {
-                trace!(log, "Single lookup failed on peer disconnection"; "block_root" => ?block_root, "error" => ?e);
+                debug!(log, "Single lookup failed on peer disconnection"; "block_root" => ?block_root, "error" => ?e);
                 return true;
             }
         }
