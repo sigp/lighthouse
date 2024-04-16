@@ -152,7 +152,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let log_results = |peer_id, requested_blocks, send_block_count| {
             debug!(
                 self.log,
-                "BlocksByRoot Outgoing Response Processed";
+                "BlocksByRoot outgoing response processed";
                 "peer" => %peer_id,
                 "requested" => requested_blocks,
                 "returned" => %send_block_count
@@ -304,7 +304,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
         debug!(
             self.log,
-            "Received BlobsByRoot Request";
+            "BlobsByRoot outgoing response processed";
             "peer" => %peer_id,
             "request_root" => %requested_root,
             "request_indices" => ?requested_indices,
@@ -515,7 +515,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             if blocks_sent < (*req.count() as usize) {
                 debug!(
                     self.log,
-                    "BlocksByRange Outgoing Response Processed";
+                    "BlocksByRange outgoing response processed";
                     "peer" => %peer_id,
                     "msg" => "Failed to return all requested blocks",
                     "start_slot" => req.start_slot(),
@@ -526,7 +526,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             } else {
                 debug!(
                     self.log,
-                    "BlocksByRange Outgoing Response Processed";
+                    "BlocksByRange outgoing response processed";
                     "peer" => %peer_id,
                     "start_slot" => req.start_slot(),
                     "current_slot" => current_slot,
@@ -766,7 +766,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let log_results = |peer_id, req: BlobsByRangeRequest, blobs_sent| {
             debug!(
                 self.log,
-                "BlobsByRange Outgoing Response processed";
+                "BlobsByRange outgoing response processed";
                 "peer" => %peer_id,
                 "start_slot" => req.start_slot,
                 "current_slot" => current_slot,
