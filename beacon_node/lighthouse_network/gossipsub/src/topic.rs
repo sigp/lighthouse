@@ -18,7 +18,7 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-use crate::gossipsub::rpc_proto::proto;
+use crate::rpc_proto::proto;
 use base64::prelude::*;
 use prometheus_client::encoding::EncodeLabelSet;
 use quick_protobuf::Writer;

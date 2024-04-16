@@ -18,13 +18,20 @@ pub trait Handler {
 
     fn handler_name(&self) -> String;
 
+    // Add forks here to exclude them from EF spec testing. Helpful for adding future or
+    // unspecified forks.
+    // TODO(electra): Enable Electra once spec tests are available.
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![ForkName::Electra]
+    }
+
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         Self::Case::is_enabled_for_fork(fork_name)
     }
 
     fn run(&self) {
         for fork_name in ForkName::list_all() {
-            if self.is_enabled_for_fork(fork_name) {
+            if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name)
             }
         }

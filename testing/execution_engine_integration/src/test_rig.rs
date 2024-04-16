@@ -24,23 +24,23 @@ const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
 
 const TEST_FORK: ForkName = ForkName::Capella;
 
-struct ExecutionPair<E, T: EthSpec> {
+struct ExecutionPair<Engine, E: EthSpec> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
-    execution_layer: ExecutionLayer<T>,
+    execution_layer: ExecutionLayer<E>,
     /// A handle to external EE process, once this is dropped the process will be killed.
     #[allow(dead_code)]
-    execution_engine: ExecutionEngine<E>,
+    execution_engine: ExecutionEngine<Engine>,
 }
 
 /// A rig that holds two EE processes for testing.
 ///
 /// There are two EEs held here so that we can test out-of-order application of payloads, and other
 /// edge-cases.
-pub struct TestRig<E, T: EthSpec = MainnetEthSpec> {
+pub struct TestRig<Engine, E: EthSpec = MainnetEthSpec> {
     #[allow(dead_code)]
     runtime: Arc<tokio::runtime::Runtime>,
-    ee_a: ExecutionPair<E, T>,
-    ee_b: ExecutionPair<E, T>,
+    ee_a: ExecutionPair<Engine, E>,
+    ee_b: ExecutionPair<Engine, E>,
     spec: ChainSpec,
     _runtime_shutdown: async_channel::Sender<()>,
 }
@@ -102,8 +102,8 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
     }
 }
 
-impl<E: GenericExecutionEngine> TestRig<E> {
-    pub fn new(generic_engine: E) -> Self {
+impl<Engine: GenericExecutionEngine> TestRig<Engine> {
+    pub fn new(generic_engine: Engine) -> Self {
         let log = logging::test_logger();
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()

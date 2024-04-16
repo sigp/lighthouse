@@ -57,8 +57,8 @@ use super::time_cache::DuplicateCache;
 use super::topic::{Hasher, Topic, TopicHash};
 use super::transform::{DataTransform, IdentityTransform};
 use super::types::{
-    ControlAction, Message, MessageAcceptance, MessageId, PeerInfo, RawMessage, Subscription,
-    SubscriptionAction,
+    ControlAction, FailedMessages, Message, MessageAcceptance, MessageId, PeerInfo, RawMessage,
+    Subscription, SubscriptionAction,
 };
 use super::types::{Graft, IHave, IWant, PeerConnections, PeerKind, Prune};
 use super::{backoff::BackoffStorage, types::RpcSender};
@@ -66,7 +66,7 @@ use super::{
     config::{Config, ValidationMode},
     types::RpcOut,
 };
-use super::{FailedMessages, PublishError, SubscriptionError, TopicScoreParams, ValidationError};
+use super::{PublishError, SubscriptionError, TopicScoreParams, ValidationError};
 use instant::SystemTime;
 use quick_protobuf::{MessageWrite, Writer};
 use std::{cmp::Ordering::Equal, fmt::Debug};

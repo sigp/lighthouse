@@ -11,6 +11,7 @@ matches = "0.1.8"
 slog-term = { workspace = true }
 slog-async = { workspace = true }
 eth2 = { workspace = true }
+gossipsub = { workspace = true }
 
 [dependencies]
 async-channel = { workspace = true }
@@ -57,3 +58,4 @@ environment = { workspace = true }
 disable-backfill = []
 fork_from_env = ["beacon_chain/fork_from_env"]
 portable = ["beacon_chain/portable"]
+test_logger = []

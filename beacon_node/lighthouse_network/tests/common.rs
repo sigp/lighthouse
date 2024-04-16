@@ -1,5 +1,4 @@
 #![cfg(test)]
-use lighthouse_network::gossipsub;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
@@ -8,7 +7,6 @@ use lighthouse_network::{NetworkConfig, NetworkEvent};
 use slog::{debug, error, o, Drain};
 use std::sync::Arc;
 use std::sync::Weak;
-use std::time::Duration;
 use tokio::runtime::Runtime;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Slot,
@@ -26,11 +24,13 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
     let merge_fork_epoch = Epoch::new(2);
     let capella_fork_epoch = Epoch::new(3);
     let deneb_fork_epoch = Epoch::new(4);
+    let electra_fork_epoch = Epoch::new(5);
 
     chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
     chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
     chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
     chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+    chain_spec.electra_fork_epoch = Some(electra_fork_epoch);
 
     let current_slot = match fork_name {
         ForkName::Base => Slot::new(0),
@@ -38,6 +38,7 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
         ForkName::Merge => merge_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Capella => capella_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Deneb => deneb_fork_epoch.start_slot(E::slots_per_epoch()),
+        ForkName::Electra => electra_fork_epoch.start_slot(E::slots_per_epoch()),
     };
     ForkContext::new::<E>(current_slot, Hash256::zero(), &chain_spec)
 }
@@ -91,12 +92,6 @@ pub fn build_config(mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
-    // Reduce gossipsub heartbeat parameters
-    config.gs_config = gossipsub::ConfigBuilder::from(config.gs_config)
-        .heartbeat_initial_delay(Duration::from_millis(500))
-        .heartbeat_interval(Duration::from_millis(500))
-        .build()
-        .unwrap();
     config
 }
 

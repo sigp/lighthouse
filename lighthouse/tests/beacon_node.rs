@@ -2,8 +2,8 @@ use beacon_node::ClientConfig as Config;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+    DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
 };
 use beacon_node::beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_processor::BeaconProcessorConfig;
@@ -21,10 +21,7 @@ use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
-use types::{
-    Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
-    ProgressiveBalancesMode,
-};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -1621,14 +1618,15 @@ fn http_allow_origin_all_flag() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
+
 #[test]
 fn http_allow_sync_stalled_flag() {
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-allow-sync-stalled", None)
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.allow_sync_stalled, true));
+        .run_with_zero_port();
 }
+
 #[test]
 fn http_enable_beacon_processor() {
     CommandLineTest::new()
@@ -1680,8 +1678,7 @@ fn http_spec_fork_override() {
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-spec-fork", Some("altair"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, Some(ForkName::Altair)));
+        .run_with_zero_port();
 }
 
 // Tests for Metrics flags.
@@ -2238,8 +2235,8 @@ fn enable_proposer_re_orgs_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.chain.re_org_threshold,
-                Some(DEFAULT_RE_ORG_THRESHOLD)
+                config.chain.re_org_head_threshold,
+                Some(DEFAULT_RE_ORG_HEAD_THRESHOLD)
             );
             assert_eq!(
                 config.chain.re_org_max_epochs_since_finalization,
@@ -2257,15 +2254,26 @@ fn disable_proposer_re_orgs() {
     CommandLineTest::new()
         .flag("disable-proposer-reorgs", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_threshold, None));
+        .with_config(|config| {
+            assert_eq!(config.chain.re_org_head_threshold, None);
+            assert_eq!(config.chain.re_org_parent_threshold, None)
+        });
 }
 
 #[test]
-fn proposer_re_org_threshold() {
+fn proposer_re_org_parent_threshold() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-parent-threshold", Some("90"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.re_org_parent_threshold.unwrap().0, 90));
+}
+
+#[test]
+fn proposer_re_org_head_threshold() {
     CommandLineTest::new()
         .flag("proposer-reorg-threshold", Some("90"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_threshold.unwrap().0, 90));
+        .with_config(|config| assert_eq!(config.chain.re_org_head_threshold.unwrap().0, 90));
 }
 
 #[test]
@@ -2538,28 +2546,11 @@ fn invalid_gossip_verified_blocks_path() {
 }
 
 #[test]
-fn progressive_balances_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Fast
-            )
-        });
-}
-
-#[test]
 fn progressive_balances_checked() {
+    // Flag is deprecated but supplying it should not crash until we remove it completely.
     CommandLineTest::new()
         .flag("progressive-balances", Some("checked"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Checked
-            )
-        });
+        .run_with_zero_port();
 }
 
 #[test]

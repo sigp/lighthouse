@@ -19,8 +19,8 @@
 // DEALINGS IN THE SOFTWARE.
 
 //! A collection of types using the Gossipsub system.
-use crate::gossipsub::metrics::Metrics;
-use crate::gossipsub::TopicHash;
+use crate::metrics::Metrics;
+use crate::TopicHash;
 use async_channel::{Receiver, Sender};
 use futures::stream::Peekable;
 use futures::{Future, Stream, StreamExt};
@@ -37,7 +37,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::{fmt, pin::Pin};
 
-use crate::gossipsub::rpc_proto::proto;
+use crate::rpc_proto::proto;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -190,7 +190,7 @@ impl From<RawMessage> for proto::Message {
 }
 
 /// The message sent to the user after a [`RawMessage`] has been transformed by a
-/// [`crate::gossipsub::DataTransform`].
+/// [`crate::DataTransform`].
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Message {
     /// Id of the peer that published this message.

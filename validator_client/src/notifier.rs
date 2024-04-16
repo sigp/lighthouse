@@ -7,7 +7,7 @@ use tokio::time::{sleep, Duration};
 use types::EthSpec;
 
 /// Spawns a notifier service which periodically logs information about the node.
-pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Result<(), String> {
+pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Result<(), String> {
     let context = client.context.service_context("notifier".into());
     let executor = context.executor.clone();
     let duties_service = client.duties_service.clone();

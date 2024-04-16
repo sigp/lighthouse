@@ -1,9 +1,6 @@
-use crate::gossipsub::{
-    Config as GossipsubConfig, IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds,
-    TopicScoreParams,
-};
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::{error, TopicHash};
+use gossipsub::{IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds, TopicScoreParams};
 use std::cmp::max;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -35,7 +32,7 @@ pub fn lighthouse_gossip_thresholds() -> PeerScoreThresholds {
     }
 }
 
-pub struct PeerScoreSettings<TSpec: EthSpec> {
+pub struct PeerScoreSettings<E: EthSpec> {
     slot: Duration,
     epoch: Duration,
 
@@ -50,11 +47,11 @@ pub struct PeerScoreSettings<TSpec: EthSpec> {
     target_committee_size: usize,
     target_aggregators_per_committee: usize,
     attestation_subnet_count: u64,
-    phantom: PhantomData<TSpec>,
+    phantom: PhantomData<E>,
 }
 
-impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
-    pub fn new(chain_spec: &ChainSpec, gs_config: &GossipsubConfig) -> PeerScoreSettings<TSpec> {
+impl<E: EthSpec> PeerScoreSettings<E> {
+    pub fn new(chain_spec: &ChainSpec, mesh_n: usize) -> PeerScoreSettings<E> {
         let slot = Duration::from_secs(chain_spec.seconds_per_slot);
         let beacon_attestation_subnet_weight = 1.0 / chain_spec.attestation_subnet_count as f64;
         let max_positive_score = (MAX_IN_MESH_SCORE + MAX_FIRST_MESSAGE_DELIVERIES_SCORE)
@@ -67,12 +64,12 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
 
         PeerScoreSettings {
             slot,
-            epoch: slot * TSpec::slots_per_epoch() as u32,
+            epoch: slot * E::slots_per_epoch() as u32,
             beacon_attestation_subnet_weight,
             max_positive_score,
             decay_interval: max(Duration::from_secs(1), slot),
             decay_to_zero: 0.01,
-            mesh_n: gs_config.mesh_n(),
+            mesh_n,
             max_committees_per_slot: chain_spec.max_committees_per_slot,
             target_committee_size: chain_spec.target_committee_size,
             target_aggregators_per_committee: chain_spec.target_aggregators_per_committee as usize,
@@ -104,7 +101,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
 
         let target_value = Self::decay_convergence(
             params.behaviour_penalty_decay,
-            10.0 / TSpec::slots_per_epoch() as f64,
+            10.0 / E::slots_per_epoch() as f64,
         ) - params.behaviour_penalty_threshold;
         params.behaviour_penalty_weight = thresholds.gossip_threshold / target_value.powi(2);
 
@@ -125,7 +122,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             Self::get_topic_params(
                 self,
                 VOLUNTARY_EXIT_WEIGHT,
-                4.0 / TSpec::slots_per_epoch() as f64,
+                4.0 / E::slots_per_epoch() as f64,
                 self.epoch * 100,
                 None,
             ),
@@ -135,7 +132,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             Self::get_topic_params(
                 self,
                 ATTESTER_SLASHING_WEIGHT,
-                1.0 / 5.0 / TSpec::slots_per_epoch() as f64,
+                1.0 / 5.0 / E::slots_per_epoch() as f64,
                 self.epoch * 100,
                 None,
             ),
@@ -145,7 +142,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             Self::get_topic_params(
                 self,
                 PROPOSER_SLASHING_WEIGHT,
-                1.0 / 5.0 / TSpec::slots_per_epoch() as f64,
+                1.0 / 5.0 / E::slots_per_epoch() as f64,
                 self.epoch * 100,
                 None,
             ),
@@ -181,15 +178,15 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
     ) -> error::Result<(TopicScoreParams, TopicScoreParams, TopicScoreParams)> {
         let (aggregators_per_slot, committees_per_slot) =
             self.expected_aggregator_count_per_slot(active_validators)?;
-        let multiple_bursts_per_subnet_per_epoch = committees_per_slot as u64
-            >= 2 * self.attestation_subnet_count / TSpec::slots_per_epoch();
+        let multiple_bursts_per_subnet_per_epoch =
+            committees_per_slot as u64 >= 2 * self.attestation_subnet_count / E::slots_per_epoch();
 
         let beacon_block_params = Self::get_topic_params(
             self,
             BEACON_BLOCK_WEIGHT,
             1.0,
             self.epoch * 20,
-            Some((TSpec::slots_per_epoch() * 5, 3.0, self.epoch, current_slot)),
+            Some((E::slots_per_epoch() * 5, 3.0, self.epoch, current_slot)),
         );
 
         let beacon_aggregate_proof_params = Self::get_topic_params(
@@ -197,14 +194,14 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             BEACON_AGGREGATE_PROOF_WEIGHT,
             aggregators_per_slot,
             self.epoch,
-            Some((TSpec::slots_per_epoch() * 2, 4.0, self.epoch, current_slot)),
+            Some((E::slots_per_epoch() * 2, 4.0, self.epoch, current_slot)),
         );
         let beacon_attestation_subnet_params = Self::get_topic_params(
             self,
             self.beacon_attestation_subnet_weight,
             active_validators as f64
                 / self.attestation_subnet_count as f64
-                / TSpec::slots_per_epoch() as f64,
+                / E::slots_per_epoch() as f64,
             self.epoch
                 * (if multiple_bursts_per_subnet_per_epoch {
                     1
@@ -212,7 +209,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
                     4
                 }),
             Some((
-                TSpec::slots_per_epoch()
+                E::slots_per_epoch()
                     * (if multiple_bursts_per_subnet_per_epoch {
                         4
                     } else {
@@ -220,7 +217,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
                     }),
                 16.0,
                 if multiple_bursts_per_subnet_per_epoch {
-                    self.slot * (TSpec::slots_per_epoch() as u32 / 2 + 1)
+                    self.slot * (E::slots_per_epoch() as u32 / 2 + 1)
                 } else {
                     self.epoch * 3
                 },
@@ -260,14 +257,14 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
         &self,
         active_validators: usize,
     ) -> error::Result<(f64, usize)> {
-        let committees_per_slot = TSpec::get_committee_count_per_slot_with(
+        let committees_per_slot = E::get_committee_count_per_slot_with(
             active_validators,
             self.max_committees_per_slot,
             self.target_committee_size,
         )
         .map_err(|e| format!("Could not get committee count from spec: {:?}", e))?;
 
-        let committees = committees_per_slot * TSpec::slots_per_epoch() as usize;
+        let committees = committees_per_slot * E::slots_per_epoch() as usize;
 
         let smaller_committee_size = active_validators / committees;
         let num_larger_committees = active_validators - smaller_committee_size * committees;
@@ -286,7 +283,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
                 / modulo_smaller as f64
                 + (num_larger_committees * (smaller_committee_size + 1)) as f64
                     / modulo_larger as f64)
-                / TSpec::slots_per_epoch() as f64,
+                / E::slots_per_epoch() as f64,
             committees_per_slot,
         ))
     }

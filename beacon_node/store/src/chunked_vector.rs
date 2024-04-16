@@ -286,9 +286,9 @@ macro_rules! field {
         #[derive(Clone, Copy)]
         pub struct $struct_name;
 
-        impl<T> Field<T> for $struct_name
+        impl<E> Field<E> for $struct_name
         where
-            T: EthSpec,
+            E: EthSpec,
         {
             type Value = $value_ty;
             type Length = $length_ty;
@@ -303,7 +303,7 @@ macro_rules! field {
             }
 
             fn get_value(
-                state: &BeaconState<T>,
+                state: &BeaconState<E>,
                 vindex: u64,
                 spec: &ChainSpec,
             ) -> Result<Self::Value, ChunkError> {
@@ -324,7 +324,7 @@ field!(
     BlockRoots,
     FixedLengthField,
     Hash256,
-    T::SlotsPerHistoricalRoot,
+    E::SlotsPerHistoricalRoot,
     DBColumn::BeaconBlockRoots,
     |_| OncePerNSlots {
         n: 1,
@@ -338,7 +338,7 @@ field!(
     StateRoots,
     FixedLengthField,
     Hash256,
-    T::SlotsPerHistoricalRoot,
+    E::SlotsPerHistoricalRoot,
     DBColumn::BeaconStateRoots,
     |_| OncePerNSlots {
         n: 1,
@@ -352,14 +352,14 @@ field!(
     HistoricalRoots,
     VariableLengthField,
     Hash256,
-    T::HistoricalRootsLimit,
+    E::HistoricalRootsLimit,
     DBColumn::BeaconHistoricalRoots,
     |spec: &ChainSpec| OncePerNSlots {
-        n: T::SlotsPerHistoricalRoot::to_u64(),
+        n: E::SlotsPerHistoricalRoot::to_u64(),
         activation_slot: Some(Slot::new(0)),
         deactivation_slot: spec
             .capella_fork_epoch
-            .map(|fork_epoch| fork_epoch.start_slot(T::slots_per_epoch())),
+            .map(|fork_epoch| fork_epoch.start_slot(E::slots_per_epoch())),
     },
     |state: &BeaconState<_>, index, _| safe_modulo_index(state.historical_roots(), index)
 );
@@ -368,7 +368,7 @@ field!(
     RandaoMixes,
     FixedLengthField,
     Hash256,
-    T::EpochsPerHistoricalVector,
+    E::EpochsPerHistoricalVector,
     DBColumn::BeaconRandaoMixes,
     |_| OncePerEpoch { lag: 1 },
     |state: &BeaconState<_>, index, _| safe_modulo_index(state.randao_mixes(), index)
@@ -378,13 +378,13 @@ field!(
     HistoricalSummaries,
     VariableLengthField,
     HistoricalSummary,
-    T::HistoricalRootsLimit,
+    E::HistoricalRootsLimit,
     DBColumn::BeaconHistoricalSummaries,
     |spec: &ChainSpec| OncePerNSlots {
-        n: T::SlotsPerHistoricalRoot::to_u64(),
+        n: E::SlotsPerHistoricalRoot::to_u64(),
         activation_slot: spec
             .capella_fork_epoch
-            .map(|fork_epoch| fork_epoch.start_slot(T::slots_per_epoch())),
+            .map(|fork_epoch| fork_epoch.start_slot(E::slots_per_epoch())),
         deactivation_slot: None,
     },
     |state: &BeaconState<_>, index, _| safe_modulo_index(

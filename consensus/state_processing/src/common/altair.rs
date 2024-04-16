@@ -24,14 +24,12 @@ impl BaseRewardPerIncrement {
 /// shown to be a significant optimisation.
 ///
 /// Spec v1.1.0
-pub fn get_base_reward<T: EthSpec>(
-    state: &BeaconState<T>,
-    index: usize,
+pub fn get_base_reward(
+    validator_effective_balance: u64,
     base_reward_per_increment: BaseRewardPerIncrement,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
-    state
-        .get_effective_balance(index)?
+    validator_effective_balance
         .safe_div(spec.effective_balance_increment)?
         .safe_mul(base_reward_per_increment.as_u64())
         .map_err(Into::into)

@@ -25,11 +25,11 @@
 //! algorithms that can be topic-specific. Once the raw data is transformed the message-id is then
 //! calculated, allowing for applications to employ message-id functions post compression.
 
-use crate::gossipsub::{Message, RawMessage, TopicHash};
+use crate::{Message, RawMessage, TopicHash};
 
 /// A general trait of transforming a [`RawMessage`] into a [`Message`]. The
 /// [`RawMessage`] is obtained from the wire and the [`Message`] is used to
-/// calculate the [`crate::gossipsub::MessageId`] of the message and is what is sent to the application.
+/// calculate the [`crate::MessageId`] of the message and is what is sent to the application.
 ///
 /// The inbound/outbound transforms must be inverses. Applying the inbound transform and then the
 /// outbound transform MUST leave the underlying data un-modified.
@@ -40,7 +40,7 @@ pub trait DataTransform {
     fn inbound_transform(&self, raw_message: RawMessage) -> Result<Message, std::io::Error>;
 
     /// Takes the data to be published (a topic and associated data) transforms the data. The
-    /// transformed data will then be used to create a [`crate::gossipsub::RawMessage`] to be sent to peers.
+    /// transformed data will then be used to create a [`crate::RawMessage`] to be sent to peers.
     fn outbound_transform(
         &self,
         topic: &TopicHash,

@@ -268,9 +268,9 @@ impl BlockShufflingIds {
         }
     }
 
-    pub fn try_from_head<T: EthSpec>(
+    pub fn try_from_head<E: EthSpec>(
         head_block_root: Hash256,
-        head_state: &BeaconState<T>,
+        head_state: &BeaconState<E>,
     ) -> Result<Self, String> {
         let get_shuffling_id = |relative_epoch| {
             AttestationShufflingId::new(head_block_root, head_state, relative_epoch).map_err(|e| {

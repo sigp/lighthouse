@@ -1,4 +1,3 @@
-use crate::gossipsub;
 use crate::multiaddr::Protocol;
 use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
 use crate::types::{
