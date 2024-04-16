@@ -4581,7 +4581,7 @@ pub fn serve<T: BeaconChainTypes>(
                 )
                 .uor(
                     enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_updates)
+                        .and(get_beacon_light_client_updates),
                 )
                 .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_lighthouse_merge_readiness)
