@@ -26,6 +26,7 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
+use types::graffiti::GraffitiString;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
 
 /// Gets the fully-initialized global client.
@@ -566,7 +567,15 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.genesis_backfill = true;
     }
 
-    let beacon_graffiti = GraffitiOrigin::new(cli_args)?;
+    let beacon_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
+        GraffitiOrigin::UserSpecified(GraffitiString::from_str(graffiti)?.into())
+    } else if cli_args.is_present("private") {
+        // When 'private' flag is present, use a zero-initialized bytes array.
+        GraffitiOrigin::UserSpecified(GraffitiString::empty().into())
+    } else {
+        // Use the default lighthouse graffiti if no user-specified graffiti flags are present
+        GraffitiOrigin::default()
+    };
     client_config.beacon_graffiti = beacon_graffiti;
 
     if let Some(wss_checkpoint) = cli_args.value_of("wss-checkpoint") {

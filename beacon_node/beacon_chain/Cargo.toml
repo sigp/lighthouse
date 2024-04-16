@@ -19,7 +19,6 @@ environment = { workspace = true }
 serde_json = { workspace = true }
 
 [dependencies]
-clap = { workspace = true }
 serde_json = { workspace = true }
 eth2_network_config = { workspace = true }
 merkle_proof = { workspace = true }

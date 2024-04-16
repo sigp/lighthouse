@@ -1,6 +1,5 @@
 use crate::BeaconChain;
 use crate::BeaconChainTypes;
-use clap::ArgMatches;
 use execution_layer::{http::ENGINE_GET_CLIENT_VERSION_V1, CommitPrefix, ExecutionLayer};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, warn, Logger};
@@ -24,27 +23,6 @@ pub enum GraffitiOrigin {
 }
 
 impl GraffitiOrigin {
-    pub fn new(cli_args: &ArgMatches) -> Result<Self, String> {
-        let mut bytes = [0u8; GRAFFITI_BYTES_LEN];
-
-        if let Some(graffiti) = cli_args.value_of("graffiti") {
-            if graffiti.len() > GRAFFITI_BYTES_LEN {
-                return Err(format!(
-                    "Your graffiti is too long! {} bytes maximum!",
-                    GRAFFITI_BYTES_LEN
-                ));
-            }
-            bytes[..graffiti.len()].copy_from_slice(graffiti.as_bytes());
-            Ok(Self::UserSpecified(Graffiti::from(bytes)))
-        } else if cli_args.is_present("private") {
-            // When 'private' flag is present, use a zero-initialized bytes array.
-            Ok(Self::UserSpecified(Graffiti::from(bytes)))
-        } else {
-            // Use the default lighthouse graffiti if no user-specified graffiti flags are present
-            Ok(Self::default())
-        }
-    }
-
     pub fn graffiti(&self) -> Graffiti {
         match self {
             GraffitiOrigin::UserSpecified(graffiti) => *graffiti,
