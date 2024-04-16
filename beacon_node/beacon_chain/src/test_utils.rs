@@ -408,7 +408,7 @@ where
         self
     }
 
-q    pub fn execution_layer_from_url(mut self, url: &str) -> Self {
+    pub fn execution_layer_from_url(mut self, url: &str) -> Self {
         assert!(
             self.execution_layer.is_none(),
             "execution layer already defined"
