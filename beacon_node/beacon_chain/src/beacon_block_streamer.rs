@@ -429,9 +429,8 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         block_roots: Vec<Hash256>,
     ) -> Result<Vec<(Hash256, LoadResult<T::EthSpec>)>, BeaconChainError> {
         let streamer = self.clone();
-        let chain = streamer.beacon_chain.clone();
         // Loading from the DB is slow -> spawn a blocking task
-        chain
+        self.beacon_chain
             .spawn_blocking_handle(
                 move || {
                     let mut db_blocks = Vec::new();
