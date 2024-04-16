@@ -78,10 +78,25 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot_clock: T::SlotClock,
         kzg: Option<Arc<Kzg>>,
         store: BeaconStore<T>,
+        import_all_data_columns: bool,
         log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
-        let overflow_cache = OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
+        let custody_subnet_count = if import_all_data_columns {
+            E::data_column_subnet_count()
+        } else {
+            E::min_custody_requirement()
+        };
+
+        let custody_column_count =
+            custody_subnet_count.saturating_mul(E::data_columns_per_subnet());
+        let overflow_cache = OverflowLRUCache::new(
+            OVERFLOW_LRU_CAPACITY,
+            store,
+            custody_column_count,
+            spec.clone(),
+        )?;
+
         Ok(Self {
             availability_cache: Arc::new(overflow_cache),
             slot_clock,

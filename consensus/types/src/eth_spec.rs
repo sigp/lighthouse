@@ -118,7 +118,7 @@ pub trait EthSpec:
     type MinCustodyRequirement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type DataColumnSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type DataColumnCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type MaxBytesPerColumn: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type DataColumnsPerSubnet: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type KzgCommitmentsInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
@@ -306,16 +306,16 @@ pub trait EthSpec:
         Self::DataColumnCount::to_usize()
     }
 
+    fn data_columns_per_subnet() -> usize {
+        Self::DataColumnsPerSubnet::to_usize()
+    }
+
     fn min_custody_requirement() -> usize {
         Self::MinCustodyRequirement::to_usize()
     }
 
     fn data_column_subnet_count() -> usize {
         Self::DataColumnSubnetCount::to_usize()
-    }
-
-    fn max_bytes_per_column() -> usize {
-        Self::MaxBytesPerColumn::to_usize()
     }
 
     fn kzg_commitments_inclusion_proof_depth() -> usize {
@@ -370,10 +370,7 @@ impl EthSpec for MainnetEthSpec {
     type MinCustodyRequirement = U1;
     type DataColumnSubnetCount = U32;
     type DataColumnCount = U128;
-    // Column samples are entire columns in 1D DAS.
-    // max data size = extended_blob_bytes * max_blobs_per_block / num_of_columns
-    // 256kb * 32 / 128 = 64kb
-    type MaxBytesPerColumn = U65536;
+    type DataColumnsPerSubnet = U4;
     type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
@@ -415,7 +412,7 @@ impl EthSpec for MinimalEthSpec {
     type MinCustodyRequirement = U1;
     type DataColumnSubnetCount = U32;
     type DataColumnCount = U128;
-    type MaxBytesPerColumn = U65536;
+    type DataColumnsPerSubnet = U4;
     type KzgCommitmentsInclusionProofDepth = U4;
 
     params_from_eth_spec!(MainnetEthSpec {
@@ -498,7 +495,7 @@ impl EthSpec for GnosisEthSpec {
     type MinCustodyRequirement = U1;
     type DataColumnSubnetCount = U32;
     type DataColumnCount = U128;
-    type MaxBytesPerColumn = U65536;
+    type DataColumnsPerSubnet = U4;
     type KzgCommitmentsInclusionProofDepth = U4;
 
     fn default_spec() -> ChainSpec {
@@ -507,5 +504,24 @@ impl EthSpec for GnosisEthSpec {
 
     fn spec_name() -> EthSpecId {
         EthSpecId::Gnosis
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_peerdas_config_all_specs() {
+        test_peerdas_config::<MainnetEthSpec>();
+        test_peerdas_config::<GnosisEthSpec>();
+        test_peerdas_config::<MinimalEthSpec>();
+    }
+
+    fn test_peerdas_config<E: EthSpec>() {
+        assert_eq!(
+            E::data_columns_per_subnet(),
+            E::number_of_columns() / E::data_column_subnet_count()
+        );
     }
 }

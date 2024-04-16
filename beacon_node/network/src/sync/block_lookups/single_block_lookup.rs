@@ -590,7 +590,7 @@ mod tests {
             HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
                 .expect("store");
         let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
+            DataAvailabilityChecker::new(slot_clock, None, store.into(), false, &log, spec.clone())
                 .expect("data availability checker"),
         );
         let mut sl = SingleBlockLookup::<TestLookup1, T>::new(
@@ -632,7 +632,7 @@ mod tests {
                 .expect("store");
 
         let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
+            DataAvailabilityChecker::new(slot_clock, None, store.into(), false, &log, spec.clone())
                 .expect("data availability checker"),
         );
 

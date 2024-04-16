@@ -693,6 +693,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     pub fn new(
         capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
+        _custody_column_count: usize,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
         let overflow_store = OverflowStore(beacon_store.clone());

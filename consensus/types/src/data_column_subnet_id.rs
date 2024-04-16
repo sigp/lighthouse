@@ -46,10 +46,10 @@ impl DataColumnSubnetId {
     }
 
     #[allow(clippy::arithmetic_side_effects)]
-    pub fn columns<E: EthSpec>(&self) -> impl Iterator<Item = u64> {
+    pub fn columns<E: EthSpec>(&self) -> impl Iterator<Item = ColumnIndex> {
         let subnet = self.0;
         let data_column_subnet_count = E::data_column_subnet_count() as u64;
-        let columns_per_subnet = (E::number_of_columns() as u64) / data_column_subnet_count;
+        let columns_per_subnet = E::data_columns_per_subnet() as u64;
         (0..columns_per_subnet).map(move |i| data_column_subnet_count * i + subnet)
     }
 
@@ -151,8 +151,10 @@ impl From<ArithError> for Error {
 #[cfg(test)]
 mod test {
     use crate::data_column_subnet_id::DataColumnSubnetId;
-    use crate::ChainSpec;
     use crate::EthSpec;
+    use crate::{ChainSpec, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
 
     #[test]
     fn test_compute_subnets_for_data_column() {
@@ -175,20 +177,18 @@ mod test {
         let spec = ChainSpec::mainnet();
 
         for node_id in node_ids {
-            let computed_subnets = DataColumnSubnetId::compute_custody_subnets::<
-                crate::MainnetEthSpec,
-            >(node_id, spec.custody_requirement);
+            let computed_subnets =
+                DataColumnSubnetId::compute_custody_subnets::<E>(node_id, spec.custody_requirement);
             let computed_subnets: Vec<_> = computed_subnets.collect();
 
             // the number of subnets is equal to the custody requirement
             assert_eq!(computed_subnets.len() as u64, spec.custody_requirement);
 
-            let subnet_count = crate::MainnetEthSpec::data_column_subnet_count();
-            let columns_per_subnet = crate::MainnetEthSpec::number_of_columns() / subnet_count;
+            let subnet_count = E::data_column_subnet_count();
             for subnet in computed_subnets {
-                let columns: Vec<_> = subnet.columns::<crate::MainnetEthSpec>().collect();
+                let columns: Vec<_> = subnet.columns::<E>().collect();
                 // the number of columns is equal to the specified number of columns per subnet
-                assert_eq!(columns.len(), columns_per_subnet);
+                assert_eq!(columns.len(), E::data_columns_per_subnet());
 
                 for pair in columns.windows(2) {
                     // each successive column index is offset by the number of subnets

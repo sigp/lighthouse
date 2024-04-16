@@ -238,9 +238,12 @@ pub fn build_enr<E: EthSpec>(
     builder.add_value(SYNC_COMMITTEE_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 
     // set the "custody_subnet_count" field on our ENR
-    let custody_subnet_count = E::min_custody_requirement() as u64;
+    let custody_subnet_count = if config.subscribe_all_data_column_subnets {
+        E::data_column_subnet_count() as u64
+    } else {
+        E::min_custody_requirement() as u64
+    };
 
-    // TODO(das) read from cli
     builder.add_value(
         PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
         &custody_subnet_count.as_ssz_bytes(),

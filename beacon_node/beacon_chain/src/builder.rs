@@ -104,6 +104,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     kzg: Option<Arc<Kzg>>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
+    import_all_data_columns: bool,
 }
 
 impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
@@ -145,6 +146,7 @@ where
             kzg: None,
             task_executor: None,
             validator_monitor_config: None,
+            import_all_data_columns: false,
         }
     }
 
@@ -968,8 +970,15 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, &log, self.spec)
-                    .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
+                DataAvailabilityChecker::new(
+                    slot_clock,
+                    self.kzg.clone(),
+                    store,
+                    self.import_all_data_columns,
+                    &log,
+                    self.spec,
+                )
+                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             block_production_state: Arc::new(Mutex::new(None)),

@@ -191,6 +191,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     next_fork_subscriptions: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to unsubscribe from old fork topics.
     next_unsubscribe: Pin<Box<OptionFuture<Sleep>>>,
+    /// Subscribe to all the data column subnets.
+    subscribe_all_data_column_subnets: bool,
     /// Subscribe to all the subnets once synced.
     subscribe_all_subnets: bool,
     /// Shutdown beacon node after sync is complete.
@@ -357,6 +359,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             next_fork_update,
             next_fork_subscriptions,
             next_unsubscribe,
+            subscribe_all_data_column_subnets: config.subscribe_all_data_column_subnets,
             subscribe_all_subnets: config.subscribe_all_subnets,
             shutdown_after_sync: config.shutdown_after_sync,
             metrics_enabled: config.metrics_enabled,
@@ -733,7 +736,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
-                if !self.subscribe_all_subnets {
+                if !self.subscribe_all_data_column_subnets {
                     for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
                         self.network_globals.local_enr().node_id().raw().into(),
                         self.network_globals
