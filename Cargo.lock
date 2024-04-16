@@ -2572,13 +2572,13 @@ dependencies = [
 
 [[package]]
 name = "ethereum_hashing"
-version = "1.0.0-beta.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "233dc6f434ce680dbabf4451ee3380cec46cb3c45d66660445a435619710dd35"
+checksum = "6ea7b408432c13f71af01197b1d3d0069c48a27bfcfbe72a81fc346e47f6defb"
 dependencies = [
  "cpufeatures",
  "lazy_static",
- "ring 0.16.20",
+ "ring 0.17.8",
  "sha2 0.10.8",
 ]
 
@@ -5230,7 +5230,8 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.1.0"
-source = "git+https://github.com/sigp/milhouse?branch=main#40a536490b14dc95834f9ece0001e8e04f7b38d7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3826d3602a3674b07e080ce1982350e454ec253d73f156bd927ac1b652293f4d"
 dependencies = [
  "arbitrary",
  "derivative",
@@ -5239,7 +5240,7 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.1",
  "rayon",
  "serde",
  "smallvec",
@@ -7808,9 +7809,9 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "0.5.4"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "382939886cb24ee8ac885d09116a60f6262d827c7a9e36012b4f6d3d0116d0b3"
+checksum = "625b20de2d4b3891e6972f4ce5061cb11bd52b3479270c4b177c134b571194a9"
 dependencies = [
  "arbitrary",
  "derivative",
@@ -8628,9 +8629,9 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c998ac5fe2b07c025444bdd522e6258110b63861c6698eedc610c071980238d"
+checksum = "134d6b24a5b829f30b5ee7de05ba7384557f5f6b00e29409cdf2392f93201bfa"
 dependencies = [
  "ethereum-types 0.14.1",
  "ethereum_hashing",
@@ -8639,9 +8640,9 @@ dependencies = [
 
 [[package]]
 name = "tree_hash_derive"
-version = "0.5.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84303a9c7cda5f085a3ed9cd241d1e95e04d88aab1d679b02f212e653537ba86"
+checksum = "9ce7bccc538359a213436af7bc95804bdbf1c2a21d80e22953cbe9e096837ff1"
 dependencies = [
  "darling",
  "quote",
