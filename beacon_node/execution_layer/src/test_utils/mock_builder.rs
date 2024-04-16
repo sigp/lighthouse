@@ -207,8 +207,8 @@ impl<E: EthSpec> MockBuilder<E> {
 
         // This EL should not talk to a builder
         let config = Config {
-            execution_endpoints: vec![mock_el_url],
-            secret_files: vec![path],
+            execution_endpoint: Some(mock_el_url),
+            secret_file: Some(path),
             suggested_fee_recipient: None,
             ..Default::default()
         };

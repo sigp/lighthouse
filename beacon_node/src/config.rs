@@ -339,8 +339,8 @@ pub fn get_config<E: EthSpec>(
         }
 
         // Set config values from parse values.
-        el_config.secret_files = vec![secret_file.clone()];
-        el_config.execution_endpoints = vec![execution_endpoint.clone()];
+        el_config.secret_file = Some(secret_file.clone());
+        el_config.execution_endpoint = Some(execution_endpoint.clone());
         el_config.suggested_fee_recipient =
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
