@@ -51,6 +51,8 @@ pub enum RpcEvent<T> {
     RPCError(RPCError),
 }
 
+pub type RpcProcessingResult<T> = Option<Result<(T, Duration), RPCError>>;
+
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
 pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// The network channel to relay messages to the Network service.
@@ -307,8 +309,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         );
 
         self.send_network_msg(NetworkMessage::SendRequest {
-            peer_id: peer_id,
-            request: Request::BlobsByRoot(request.into_request(&self.chain.spec)),
+            peer_id,
+            request: Request::BlobsByRoot(request.clone().into_request(&self.chain.spec)),
             request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
         })?;
 
@@ -426,7 +428,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         request_id: SingleLookupReqId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
-    ) -> Option<Result<(Arc<SignedBeaconBlock<T::EthSpec>>, Duration), RPCError>> {
+    ) -> RpcProcessingResult<Arc<SignedBeaconBlock<T::EthSpec>>> {
         let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
             return None;
         };
@@ -459,7 +461,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         request_id: SingleLookupReqId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
-    ) -> Option<Result<(FixedBlobSidecarList<T::EthSpec>, Duration), RPCError>> {
+    ) -> RpcProcessingResult<FixedBlobSidecarList<T::EthSpec>> {
         let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
             return None;
         };

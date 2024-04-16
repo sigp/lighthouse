@@ -392,7 +392,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         .get_state_mut()
                         .on_download_success()
                         .map_err(LookupRequestError::BadState)?;
-
                     self.send_block_for_processing(
                         block_root,
                         block,
@@ -403,6 +402,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
             CachedChild::DownloadIncomplete => {
+                R::request_state_mut(lookup)
+                    .get_state_mut()
+                    .on_download_success()
+                    .map_err(LookupRequestError::BadState)?;
                 // If this was the result of a block request, we can't determine if the block peer
                 // did anything wrong. If we already had both a block and blobs response processed,
                 // we should penalize the blobs peer because they did not provide all blobs on the

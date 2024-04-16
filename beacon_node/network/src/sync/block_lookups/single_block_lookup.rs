@@ -75,6 +75,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// the next parent.
     pub fn update_requested_parent_block(&mut self, block_root: Hash256) {
         self.block_request_state.requested_block_root = block_root;
+        self.blob_request_state.block_root = block_root;
         self.block_request_state.state.state = State::AwaitingDownload;
         self.blob_request_state.state.state = State::AwaitingDownload;
         self.child_components = Some(ChildComponents::empty(block_root));
@@ -450,11 +451,9 @@ impl SingleLookupRequestState {
                 self.state = State::Processing { peer_id: *peer_id };
                 Ok(())
             }
-            other => {
-                return Err(format!(
-                    "request bad state, expected downloading got {other}"
-                ))
-            }
+            other => Err(format!(
+                "request bad state, expected downloading got {other}"
+            )),
         }
     }
 

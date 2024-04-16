@@ -50,28 +50,29 @@ impl ActiveBlocksByRootRequest {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct BlocksByRootSingleRequest(pub Hash256);
 
 impl BlocksByRootSingleRequest {
-    pub fn into_request(&self, spec: &ChainSpec) -> BlocksByRootRequest {
+    pub fn into_request(self, spec: &ChainSpec) -> BlocksByRootRequest {
         BlocksByRootRequest::new(vec![self.0], spec)
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BlobsByRootSingleBlockRequest {
     pub block_root: Hash256,
     pub indices: Vec<u64>,
 }
 
 impl BlobsByRootSingleBlockRequest {
-    pub fn into_request(&self, spec: &ChainSpec) -> BlobsByRootRequest {
+    pub fn into_request(self, spec: &ChainSpec) -> BlobsByRootRequest {
         BlobsByRootRequest::new(
             self.indices
-                .iter()
+                .into_iter()
                 .map(|index| BlobIdentifier {
                     block_root: self.block_root,
-                    index: *index,
+                    index,
                 })
                 .collect(),
             spec,
@@ -136,7 +137,7 @@ impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
 
     pub fn terminate(self) -> Option<Vec<Arc<BlobSidecar<E>>>> {
         if self.resolved {
-            return None;
+            None
         } else {
             Some(self.blobs)
         }
