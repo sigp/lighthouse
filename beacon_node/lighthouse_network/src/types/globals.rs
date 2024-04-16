@@ -2,12 +2,13 @@
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV2};
 use crate::types::{BackFillState, SyncState};
-use crate::Client;
 use crate::EnrExt;
+use crate::{Client, Eth2Enr};
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
-use types::EthSpec;
+use types::data_column_sidecar::ColumnIndex;
+use types::{DataColumnSubnetId, Epoch, EthSpec};
 
 pub struct NetworkGlobals<E: EthSpec> {
     /// The current local ENR.
@@ -110,6 +111,17 @@ impl<E: EthSpec> NetworkGlobals<E> {
         std::mem::replace(&mut *self.sync_state.write(), new_state)
     }
 
+    /// Compute custody data columns the node is assigned to custody.
+    pub fn custody_columns(&self, _epoch: Epoch) -> Result<Vec<ColumnIndex>, &'static str> {
+        let enr = self.local_enr();
+        let node_id = enr.node_id().raw().into();
+        let custody_subnet_count = enr.custody_subnet_count::<E>()?;
+        Ok(
+            DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count)
+                .collect(),
+        )
+    }
+
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
     pub fn new_test_globals(trusted_peers: Vec<PeerId>, log: &slog::Logger) -> NetworkGlobals<E> {
         use crate::CombinedKeyExt;
@@ -127,5 +139,22 @@ impl<E: EthSpec> NetworkGlobals<E> {
             false,
             log,
         )
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::NetworkGlobals;
+    use types::{Epoch, EthSpec, MainnetEthSpec as E};
+
+    #[test]
+    fn test_custody_count_default() {
+        let log = logging::test_logger();
+        let default_custody_requirement_column_count =
+            E::number_of_columns() / E::data_column_subnet_count();
+        let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log);
+        let any_epoch = Epoch::new(0);
+        let columns = globals.custody_columns(any_epoch).unwrap();
+        assert_eq!(columns.len(), default_custody_requirement_column_count);
     }
 }

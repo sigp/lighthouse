@@ -1,4 +1,5 @@
 //! Identifies each data column subnet by an integer identifier.
+use crate::data_column_sidecar::ColumnIndex;
 use crate::EthSpec;
 use ethereum_types::U256;
 use safe_arith::{ArithError, SafeArith};
@@ -86,7 +87,7 @@ impl DataColumnSubnetId {
     pub fn compute_custody_columns<E: EthSpec>(
         node_id: U256,
         custody_subnet_count: u64,
-    ) -> impl Iterator<Item = u64> {
+    ) -> impl Iterator<Item = ColumnIndex> {
         Self::compute_custody_subnets::<E>(node_id, custody_subnet_count)
             .flat_map(|subnet| subnet.columns::<E>())
     }
