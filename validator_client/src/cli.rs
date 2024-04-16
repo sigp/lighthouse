@@ -71,8 +71,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     This flag has been hidden and will be deprecated in the future.",
                 )
                 .takes_value(true)
-                .conflicts_with("datadir")
-                .hidden(true)
         )
         .arg(
             Arg::with_name("init-slashing-protection")

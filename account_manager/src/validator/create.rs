@@ -62,7 +62,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The path where the validator keystore passwords will be stored. \
                     Defaults to ~/.lighthouse/{network}/secrets",
                 )
-                .conflicts_with("datadir")
                 .takes_value(true),
         )
         .arg(
