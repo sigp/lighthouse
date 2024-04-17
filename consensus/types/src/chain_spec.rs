@@ -182,6 +182,7 @@ pub struct ChainSpec {
     /*
      * DAS params
      */
+    pub peer_das_epoch: Option<Epoch>,
     pub custody_requirement: u64,
 
     /*
@@ -722,6 +723,7 @@ impl ChainSpec {
             /*
              * DAS params
              */
+            peer_das_epoch: None,
             custody_requirement: 1,
 
             /*
@@ -1004,6 +1006,7 @@ impl ChainSpec {
             /*
              * DAS params
              */
+            peer_das_epoch: None,
             custody_requirement: 1,
             /*
              * Network specific

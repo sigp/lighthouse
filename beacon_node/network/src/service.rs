@@ -737,6 +737,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 if !self.subscribe_all_data_column_subnets {
+                    // TODO(das): subscribe after `PEER_DAS_EPOCH`
                     for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
                         self.network_globals.local_enr().node_id().raw().into(),
                         self.network_globals

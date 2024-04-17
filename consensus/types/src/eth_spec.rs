@@ -512,13 +512,13 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_peerdas_config_all_specs() {
-        test_peerdas_config::<MainnetEthSpec>();
-        test_peerdas_config::<GnosisEthSpec>();
-        test_peerdas_config::<MinimalEthSpec>();
+    fn test_peer_das_config_all_specs() {
+        test_peer_das_config::<MainnetEthSpec>();
+        test_peer_das_config::<GnosisEthSpec>();
+        test_peer_das_config::<MinimalEthSpec>();
     }
 
-    fn test_peerdas_config<E: EthSpec>() {
+    fn test_peer_das_config<E: EthSpec>() {
         assert_eq!(
             E::data_columns_per_subnet(),
             E::number_of_columns() / E::data_column_subnet_count()

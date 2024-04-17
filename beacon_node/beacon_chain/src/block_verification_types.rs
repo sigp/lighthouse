@@ -84,8 +84,8 @@ enum RpcBlockInner<E: EthSpec> {
     /// This variant is used with parent lookups and by-range responses. It should have all blobs
     /// ordered, all block roots matching, and the correct number of blobs for this block.
     BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarList<E>),
-    /// This variant is used with parent lookups and by-range responses. It should have all data columns
-    /// ordered, all block roots matching, and the correct number of data columns for this block.
+    /// This variant is used with parent lookups and by-range responses. It should have all
+    /// requested data columns, all block roots matching for this block.
     BlockAndDataColumns(Arc<SignedBeaconBlock<E>>, DataColumnSidecarList<E>),
 }
 

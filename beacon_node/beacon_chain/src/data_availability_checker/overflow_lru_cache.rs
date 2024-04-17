@@ -691,10 +691,9 @@ pub struct OverflowLRUCache<T: BeaconChainTypes> {
     /// The capacity of the LRU cache
     capacity: NonZeroUsize,
     /// The number of data columns the node is custodying.
-    // FIXME(das): Using `Option` as temporary workaround to disable custody requirement checks in
-    // tests. To be removed once we implement proper fork / epoch transition.
     custody_column_count: Option<usize>,
     log: Logger,
+    spec: ChainSpec,
 }
 
 impl<T: BeaconChainTypes> OverflowLRUCache<T> {
@@ -711,11 +710,12 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         Ok(Self {
             critical: RwLock::new(critical),
             overflow_store,
-            state_cache: StateLRUCache::new(beacon_store, spec),
+            state_cache: StateLRUCache::new(beacon_store, spec.clone()),
             maintenance_lock: Mutex::new(()),
             capacity,
             custody_column_count,
             log,
+            spec,
         })
     }
 
@@ -1388,8 +1388,14 @@ mod test {
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
         let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity_non_zero, test_store, None, spec.clone())
-                .expect("should create cache"),
+            OverflowLRUCache::<T>::new(
+                capacity_non_zero,
+                test_store,
+                None,
+                harness.logger().clone(),
+                spec.clone(),
+            )
+            .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
     }
@@ -1894,6 +1900,7 @@ mod test {
             new_non_zero_usize(capacity),
             harness.chain.store.clone(),
             None,
+            harness.logger().clone(),
             harness.chain.spec.clone(),
         )
         .expect("should recover cache");
