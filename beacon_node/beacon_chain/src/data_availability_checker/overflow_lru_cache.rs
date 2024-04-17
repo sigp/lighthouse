@@ -39,6 +39,7 @@ use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
+use slog::{debug, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
@@ -227,7 +228,17 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// Returns `true` if both the block exists and the number of received blobs / custody columns
     /// matches the number of expected blobs / custody columns.
-    pub fn is_available(&self, custody_column_count: Option<usize>) -> bool {
+    pub fn is_available(&self, custody_column_count: Option<usize>, log: &Logger) -> bool {
+        debug!(
+            log,
+            "Checking block importability";
+            "block_root" => %self.block_root,
+            "num_expected_data_columns" => ?custody_column_count,
+            "num_received_data_columns" => self.num_received_data_columns(),
+            "num_expected_blobs" => ?self.num_expected_blobs(),
+            "num_received_blobs" => self.num_received_blobs(),
+        );
+
         if let Some(num_expected_blobs) = self.num_expected_blobs() {
             // We don't expect any data columns if there's no blobs
             let num_expected_data_columns = if num_expected_blobs > 0 {
@@ -683,6 +694,7 @@ pub struct OverflowLRUCache<T: BeaconChainTypes> {
     // FIXME(das): Using `Option` as temporary workaround to disable custody requirement checks in
     // tests. To be removed once we implement proper fork / epoch transition.
     custody_column_count: Option<usize>,
+    log: Logger,
 }
 
 impl<T: BeaconChainTypes> OverflowLRUCache<T> {
@@ -690,6 +702,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
         custody_column_count: Option<usize>,
+        log: Logger,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
         let overflow_store = OverflowStore(beacon_store.clone());
@@ -702,6 +715,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             maintenance_lock: Mutex::new(()),
             capacity,
             custody_column_count,
+            log,
         })
     }
 
@@ -767,7 +781,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // Merge in the data columns.
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
 
-        if pending_components.is_available(self.custody_column_count) {
+        if pending_components.is_available(self.custody_column_count, &self.log) {
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(|diet_block| {
@@ -806,7 +820,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
 
-        if pending_components.is_available(self.custody_column_count) {
+        if pending_components.is_available(self.custody_column_count, &self.log) {
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(|diet_block| {
@@ -845,7 +859,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         pending_components.merge_block(diet_executed_block);
 
         // Check if we have all components and entire set is consistent.
-        if pending_components.is_available(self.custody_column_count) {
+        if pending_components.is_available(self.custody_column_count, &self.log) {
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(|diet_block| {

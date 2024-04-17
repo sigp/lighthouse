@@ -7,7 +7,7 @@ use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
 use slasher::test_utils::E;
-use slog::{debug, error, Logger};
+use slog::{debug, error, o, Logger};
 use slot_clock::SlotClock;
 use ssz_types::FixedVector;
 use std::fmt;
@@ -94,6 +94,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             OVERFLOW_LRU_CAPACITY,
             store,
             Some(custody_column_count),
+            log.new(o!("service" => "availability_cache")),
             spec.clone(),
         )?;
 
