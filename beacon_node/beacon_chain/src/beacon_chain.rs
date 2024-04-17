@@ -2889,6 +2889,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::BlockIsAlreadyKnown(blob.block_root()));
         }
 
+        // Record the delay for receiving this blob
+        if let Some(seen_timestamp) = self.slot_clock.now_duration() {
+            self.block_times_cache.write().set_time_blob_observed(
+                block_root,
+                blob.slot(),
+                seen_timestamp,
+            );
+        }
+
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_blob_sidecar_subscribers() {
                 event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
@@ -2899,6 +2908,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.data_availability_checker
             .notify_gossip_blob(block_root, &blob);
+
         let r = self.check_gossip_blob_availability_and_import(blob).await;
         self.remove_notified(&block_root, r)
     }
@@ -3023,6 +3033,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )?;
             publish_fn()?;
             let executed_block = chain.into_executed_block(execution_pending).await?;
+            // Record the time it took to ask the execution layer.
+            if let Some(seen_timestamp) = self.slot_clock.now_duration() {
+                self.block_times_cache.write().set_execution_time(
+                    block_root,
+                    block_slot,
+                    seen_timestamp,
+                )
+            }
 
             match executed_block {
                 ExecutedBlock::Available(block) => {
@@ -3898,25 +3916,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 block_root,
                 current_slot,
                 block_time_imported,
-            );
-        }
-
-        // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
-        // sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 4 {
-            // Observe the delay between when we observed the block and when we imported it.
-            let block_delays = self.block_times_cache.read().get_block_delays(
-                block_root,
-                self.slot_clock
-                    .start_of(current_slot)
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-
-            metrics::observe_duration(
-                &metrics::BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME,
-                block_delays
-                    .imported
-                    .unwrap_or_else(|| Duration::from_secs(0)),
             );
         }
 

@@ -1405,12 +1405,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
     // sync.
     if !block_from_sync {
-        // Observe the total block delay. This is the delay between the time the slot started
-        // and when the block was set as head.
-        metrics::observe_duration(
-            &metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME,
-            block_delay_total,
-        );
 
         // Observe the delay between when we imported the block and when we set the block as
         // head.
@@ -1421,39 +1415,105 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
 
-        metrics::observe_duration(
-            &metrics::BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME,
-            block_delays
-                .observed
-                .unwrap_or_else(|| Duration::from_secs(0)),
+        // Update all the metrics
+
+        // Convention here is to use "Time" to indicate the duration of the event and "Delay"
+        // to indicate the time since the start of the slot.
+        //
+        // Observe the total block delay. This is the delay between the time the slot started
+        // and when the block was set as head.
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_TOTAL,
+            block_delay_total.as_millis() as i64,
         );
 
-        metrics::observe_duration(
-            &metrics::BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME,
+        // The time at which the beacon block was first observed to be processed
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_OBSERVED_SLOT_START,
+            block_delays
+                .observed
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time from the start of the slot when all blobs have been observed. Technically this
+        // is the time we last saw a blob related to this block/slot.
+        metrics::set_gauge(
+            &metrics::BEACON_BLOB_DELAY_ALL_OBSERVED_SLOT_START,
+            block_delays
+                .all_blobs_observed
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time it took to check the validity with the EL
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_EXECUTION_TIME,
+            block_delays
+                .execution_time
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time the block became available after the start of the slot. Available here means
+        // that all the blobs have arrived and the block has been verified by the execution layer.
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_AVAILABLE_SLOT_START,
+            block_delays
+                .available
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+
+        // The time the block became attestable after the start of the slot.
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_ATTESTABLE_SLOT_START,
+            block_delays
+                .attestable
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time the block was imported since becoming available.
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_IMPORTED_TIME,
+            block_delays
+                .imported
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time the block was imported and setting it as head
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_HEAD_IMPORTED_TIME,
             block_delays
                 .set_as_head
-                .unwrap_or_else(|| Duration::from_secs(0)),
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
         );
 
         // If the block was enshrined as head too late for attestations to be created for it,
         // log a debug warning and increment a metric.
         let format_delay = |delay: &Option<Duration>| {
-            delay.map_or("unknown".to_string(), |d| format!("{:?}", d))
+            delay.map_or("unknown".to_string(), |d| format!("{}", d.as_millis()))
         };
         if late_head {
-            metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
+            metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_HEAD_SLOT_START_EXCEEDED_TOTAL);
             debug!(
                 log,
                 "Delayed head block";
                 "block_root" => ?head_block_root,
                 "proposer_index" => head_block_proposer_index,
                 "slot" => head_block_slot,
-                "block_delay_ms" => block_delay_total.as_millis(),
+                "total_delay_ms" => block_delay_total.as_millis(),
                 "observed_delay_ms" => format_delay(&block_delays.observed),
+                "blob_delay_ms" => format_delay(&block_delays.all_blobs_observed),
+                "execution_time_ms" => format_delay(&block_delays.execution_time),
                 "available_delay_ms" => format_delay(&block_delays.available),
                 "attestable_delay_ms" => format_delay(&block_delays.attestable),
-                "imported_delay_ms" => format_delay(&block_delays.imported),
-                "set_as_head_delay_ms" => format_delay(&block_delays.set_as_head),
+                "imported_time_ms" => format_delay(&block_delays.imported),
+                "set_as_head_time_ms" => format_delay(&block_delays.set_as_head),
             );
         } else {
             debug!(
@@ -1462,12 +1522,14 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 "block_root" => ?head_block_root,
                 "proposer_index" => head_block_proposer_index,
                 "slot" => head_block_slot,
-                "block_delay_ms" => block_delay_total.as_millis(),
+                "total_delay_ms" => block_delay_total.as_millis(),
                 "observed_delay_ms" => format_delay(&block_delays.observed),
+                "blob_delay_ms" => format_delay(&block_delays.all_blobs_observed),
+                "execution_time_ms" => format_delay(&block_delays.execution_time),
                 "available_delay_ms" => format_delay(&block_delays.available),
                 "attestable_delay_ms" => format_delay(&block_delays.attestable),
-                "imported_delay_ms" => format_delay(&block_delays.imported),
-                "set_as_head_delay_ms" => format_delay(&block_delays.set_as_head),
+                "imported_time_ms" => format_delay(&block_delays.imported),
+                "set_as_head_time_ms" => format_delay(&block_delays.set_as_head),
             );
         }
     }

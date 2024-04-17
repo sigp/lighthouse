@@ -839,37 +839,55 @@ lazy_static! {
         "Number of attester slashings seen",
         &["src", "validator"]
     );
+}
+
+// Prevent recursion limit
+lazy_static! {
 
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_observed_slot_start_delay_time",
-        "Duration between the start of the block's slot and the time the block was observed.",
-        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-        decimal_buckets(-1,2)
-    );
-    pub static ref BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_imported_observed_delay_time",
-        "Duration between the time the block was observed and the time when it was imported.",
-        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
-        decimal_buckets(-2,0)
-    );
-    pub static ref BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_head_imported_delay_time",
-        "Duration between the time the block was imported and the time when it was set as head.",
-        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
-        decimal_buckets(-2,-1)
-        );
-    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_head_slot_start_delay_time",
+    pub static ref BEACON_BLOCK_DELAY_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_total",
         "Duration between the start of the block's slot and the time when it was set as head.",
-        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-        decimal_buckets(-1,2)
     );
-    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_block_head_slot_start_delay_exceeded_total",
-        "Triggered when the duration between the start of the block's slot and the current time \
+
+    pub static ref BEACON_BLOCK_DELAY_OBSERVED_SLOT_START: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_observed_slot_start",
+        "Duration between the start of the block's slot and the time the block was observed.",
+    );
+
+    pub static ref BEACON_BLOB_DELAY_ALL_OBSERVED_SLOT_START: Result<IntGauge> = try_create_int_gauge(
+        "beacon_blob_delay_all_observed_slot_start",
+        "Duration between the start of the block's slot and the time the block was observed.",
+    );
+
+    pub static ref BEACON_BLOCK_DELAY_EXECUTION_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_execution_time",
+        "The duration in verifying the block with the execution layer.",
+    );
+
+    pub static ref BEACON_BLOCK_DELAY_AVAILABLE_SLOT_START: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_available_slot_start",
+        "Duration between the time that block became available and the start of the slot.",
+    );
+    pub static ref BEACON_BLOCK_DELAY_ATTESTABLE_SLOT_START: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_attestable_slot_start",
+        "Duration between the time that block became attestable and the start of the slot.",
+    );
+
+    pub static ref BEACON_BLOCK_DELAY_IMPORTED_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_imported_time",
+        "Duration between the time the block became available and the time when it was imported.",
+    );
+
+    pub static ref BEACON_BLOCK_DELAY_HEAD_IMPORTED_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_head_imported_time",
+        "Duration between the time that block was imported and the time when it was set as head.",
+    );
+    pub static ref BEACON_BLOCK_DELAY_HEAD_SLOT_START_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_delay_head_slot_start_exceeded_total",
+        "A counter that is triggered when the duration between the start of the block's slot and the current time \
         will result in failed attestations.",
     );
 

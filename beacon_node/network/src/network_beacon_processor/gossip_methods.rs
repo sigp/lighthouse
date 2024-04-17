@@ -615,8 +615,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let commitment = blob_sidecar.kzg_commitment;
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
-        metrics::observe_duration(&metrics::BEACON_BLOB_GOSSIP_SLOT_START_DELAY_TIME, delay);
-        metrics::set_gauge(&metrics::BEACON_BLOB_LAST_DELAY, delay.as_millis() as i64);
+        metrics::set_gauge(
+            &metrics::BEACON_BLOB_DELAY_GOSSIP,
+            delay.as_millis() as i64,
+        );
         match self
             .chain
             .verify_blob_sidecar_for_gossip(blob_sidecar, blob_index)
@@ -655,7 +657,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .and_then(|now| now.checked_sub(seen_duration))
                 {
                     metrics::set_gauge(
-                        &metrics::BEACON_BLOB_LAST_GOSSIP_VERIFICATION_TIME,
+                        &metrics::BEACON_BLOB_DELAY_GOSSIP_VERIFICATION,
                         duration.as_millis() as i64,
                     );
                 }
@@ -766,7 +768,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
 
                 metrics::set_gauge(
-                    &metrics::BEACON_BLOB_LAST_FULL_VERIFICATION_TIME,
+                    &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
                     processing_start_time.elapsed().as_millis() as i64,
                 );
             }
@@ -870,12 +872,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_delay =
             get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
-        metrics::observe_duration(
-            &metrics::BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME,
-            block_delay,
-        );
+
         metrics::set_gauge(
-            &metrics::BEACON_BLOCK_LAST_DELAY,
+            &metrics::BEACON_BLOCK_DELAY_GOSSIP,
             block_delay.as_millis() as i64,
         );
 
@@ -903,7 +902,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verified_block = match verification_result {
             Ok(verified_block) => {
                 if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
-                    metrics::inc_counter(&metrics::BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL);
+                    metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL);
                     debug!(
                         self.log,
                         "Gossip block arrived late";
@@ -929,7 +928,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .and_then(|now| now.checked_sub(seen_duration))
                 {
                     metrics::set_gauge(
-                        &metrics::BEACON_BLOCK_LAST_GOSSIP_VERIFICATION_TIME,
+                        &metrics::BEACON_BLOCK_DELAY_GOSSIP_VERIFICATION,
                         duration.as_millis() as i64,
                     );
                 }
@@ -1175,7 +1174,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
 
                 metrics::set_gauge(
-                    &metrics::BEACON_BLOCK_LAST_FULL_VERIFICATION_TIME,
+                    &metrics::BEACON_BLOCK_DELAY_FULL_VERIFICATION,
                     processing_start_time.elapsed().as_millis() as i64,
                 );
             }
