@@ -182,7 +182,6 @@ impl<E: EthSpec> From<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadV3<E> {
     }
 }
 
-
 impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> {
     fn from(payload: ExecutionPayloadElectra<E>) -> Self {
         JsonExecutionPayloadV4 {
@@ -299,39 +298,6 @@ impl<E: EthSpec> From<JsonExecutionPayloadV3<E>> for ExecutionPayloadDeneb<E> {
         }
     }
 }
-impl<T: EthSpec> From<JsonExecutionPayloadV6110<T>> for ExecutionPayloadEip6110<T> {
-    fn from(payload: JsonExecutionPayloadV6110<T>) -> Self {
-        ExecutionPayloadEip6110 {
-            parent_hash: payload.parent_hash,
-            fee_recipient: payload.fee_recipient,
-            state_root: payload.state_root,
-            receipts_root: payload.receipts_root,
-            logs_bloom: payload.logs_bloom,
-            prev_randao: payload.prev_randao,
-            block_number: payload.block_number,
-            gas_limit: payload.gas_limit,
-            gas_used: payload.gas_used,
-            timestamp: payload.timestamp,
-            extra_data: payload.extra_data,
-            base_fee_per_gas: payload.base_fee_per_gas,
-            block_hash: payload.block_hash,
-            transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
-            excess_data_gas: payload.excess_data_gas,
-            deposit_receipts: payload
-                .deposit_receipts
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
-        }
-    }
-}
 
 impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> {
     fn from(payload: JsonExecutionPayloadV4<E>) -> Self {
@@ -430,13 +396,6 @@ impl<E: EthSpec> From<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
                     should_override_builder: response.should_override_builder,
-                })
-            }
-            JsonGetPayloadResponse::V6110(response) => {
-                GetPayloadResponse::Eip6110(GetPayloadResponseEip6110 {
-                    execution_payload: response.execution_payload.into(),
-                    block_value: response.block_value,
-                    blobs_bundle: response.blobs_bundle.into(),
                 })
             }
         }

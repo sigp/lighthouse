@@ -5347,39 +5347,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     execution_payload_value,
                 )
             }
-            BeaconState::Eip6110(_) => {
-                let (payload, kzg_commitments, blobs, proofs) = block_contents
-                    .ok_or(BlockProductionError::MissingExecutionPayload)?
-                    .deconstruct();
-                (
-                    BeaconBlock::Eip6110(BeaconBlockEip6110 {
-                        slot,
-                        proposer_index,
-                        parent_root,
-                        state_root: Hash256::zero(),
-                        body: BeaconBlockBodyEip6110 {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
-                            deposits: deposits.into(),
-                            voluntary_exits: voluntary_exits.into(),
-                            sync_aggregate: sync_aggregate
-                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                            execution_payload: payload
-                                .try_into()
-                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                            bls_to_execution_changes: bls_to_execution_changes.into(),
-                            blob_kzg_commitments: kzg_commitments
-                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
-                        },
-                    }),
-                    blobs,
-                    proofs,
-                )
-            }
         };
 
         let block = SignedBeaconBlock::from_block(

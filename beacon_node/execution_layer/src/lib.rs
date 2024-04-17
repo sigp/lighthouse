@@ -1976,45 +1976,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     excess_blob_gas: electra_block.excess_blob_gas,
                 })
             }
-            ExecutionBlockWithTransactions::Eip6110(eip6110_block) => {
-                let withdrawals = VariableList::new(
-                    eip6110_block
-                        .withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-                .map_err(ApiError::DeserializeWithdrawals)?;
-
-                let deposit_receipts = VariableList::new(
-                    eip6110_block
-                        .deposit_receipts
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-                .map_err(ApiError::DeserializeDepositReceipts)?;
-
-                ExecutionPayload::Eip6110(ExecutionPayloadEip6110 {
-                    parent_hash: eip6110_block.parent_hash,
-                    fee_recipient: eip6110_block.fee_recipient,
-                    state_root: eip6110_block.state_root,
-                    receipts_root: eip6110_block.receipts_root,
-                    logs_bloom: eip6110_block.logs_bloom,
-                    prev_randao: eip6110_block.prev_randao,
-                    block_number: eip6110_block.block_number,
-                    gas_limit: eip6110_block.gas_limit,
-                    gas_used: eip6110_block.gas_used,
-                    timestamp: eip6110_block.timestamp,
-                    extra_data: eip6110_block.extra_data,
-                    base_fee_per_gas: eip6110_block.base_fee_per_gas,
-                    block_hash: eip6110_block.block_hash,
-                    transactions: convert_transactions(eip6110_block.transactions)?,
-                    withdrawals,
-                    excess_data_gas: eip6110_block.excess_data_gas,
-                    deposit_receipts,
-                })
-            }
         };
 
         Ok(Some(payload))

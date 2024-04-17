@@ -3,7 +3,7 @@ use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
 use slog::{crit, debug, Logger};
 use std::collections::HashMap;
 use std::sync::Arc;
-use store::{DatabaseBlock, ExecutionPayloadDeneb, ExecutionPayloadEip6110};
+use store::{DatabaseBlock, ExecutionPayloadDeneb};
 use task_executor::TaskExecutor;
 use tokio::sync::{
     mpsc::{self, UnboundedSender},

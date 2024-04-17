@@ -14,8 +14,8 @@ pub type Transactions<E> = VariableList<
 
 pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
 
-pub type DepositReceipts<T> =
-    VariableList<DepositReceipt, <T as EthSpec>::MaxDepositReceiptsPerPayload>;
+pub type DepositReceipts<E> =
+    VariableList<DepositReceipt, <E as EthSpec>::MaxDepositReceiptsPerPayload>;
 
 #[superstruct(
     variants(Merge, Capella, Deneb, Electra),
