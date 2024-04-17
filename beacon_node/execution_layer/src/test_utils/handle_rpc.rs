@@ -123,16 +123,16 @@ pub async fn handle_rpc<E: EthSpec>(
                             })
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadV4<T>>(params, 0)
+                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadV4<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::V4(jep))
                     .or_else(|_| {
-                        get_param::<JsonExecutionPayloadV3<T>>(params, 0)
+                        get_param::<JsonExecutionPayloadV3<E>>(params, 0)
                             .map(|jep| JsonExecutionPayload::V3(jep))
                             .or_else(|_| {
-                                get_param::<JsonExecutionPayloadV2<T>>(params, 0)
+                                get_param::<JsonExecutionPayloadV2<E>>(params, 0)
                                     .map(|jep| JsonExecutionPayload::V2(jep))
                                     .or_else(|_| {
-                                        get_param::<JsonExecutionPayloadV1<T>>(params, 0)
+                                        get_param::<JsonExecutionPayloadV1<E>>(params, 0)
                                             .map(|jep| JsonExecutionPayload::V1(jep))
                                     })
                             })
@@ -410,6 +410,7 @@ pub async fn handle_rpc<E: EthSpec>(
                                     GENERIC_ERROR_CODE,
                                 ))?
                                 .into(),
+                            should_override_builder: false,
                         })
                         .unwrap()
                     }
@@ -423,6 +424,7 @@ pub async fn handle_rpc<E: EthSpec>(
                                     GENERIC_ERROR_CODE,
                                 ))?
                                 .into(),
+                            should_override_builder: false,
                         })
                         .unwrap()
                     }

@@ -6,7 +6,7 @@ use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
-use types::{FixedVector, Unsigned};
+use types::{DepositReceipt, DepositReceipts, FixedVector, Unsigned};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -104,7 +104,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
     #[superstruct(only(V4))]
-    pub deposit_receipts: VariableList<JsonDepositReceipt, T::MaxDepositReceiptsPerPayload>,
+    pub deposit_receipts: VariableList<JsonDepositReceipt, E::MaxDepositReceiptsPerPayload>,
 }
 
 impl<E: EthSpec> From<ExecutionPayloadMerge<E>> for JsonExecutionPayloadV1<E> {
@@ -207,7 +207,12 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
                 .into(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-            deposit_receipts: payload.deposit_receipts,
+            deposit_receipts: payload
+                .deposit_receipts
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
@@ -324,6 +329,12 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
                 .into(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
+            deposit_receipts: payload
+                .deposit_receipts
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }

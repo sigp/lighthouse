@@ -912,9 +912,14 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V3(response).into())
             }
-            ForkName::Base | ForkName::Altair | ForkName::Electra => Err(
-                Error::UnsupportedForkVariant(format!("called get_payload_v3 with {}", fork_name)),
-            ),
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Capella
+            | ForkName::Merge
+            | ForkName::Electra => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v3 with {}",
+                fork_name
+            ))),
         }
     }
 
@@ -966,7 +971,7 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V4(response).into())
             }
-            ForkName::Base | ForkName::Altair =p> Err(Error::UnsupportedForkVariant(format!(
+            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v4 with {}",
                 fork_name
             ))),

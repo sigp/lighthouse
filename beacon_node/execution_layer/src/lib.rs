@@ -1956,6 +1956,15 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
+                let deposit_receipts = VariableList::new(
+                    electra_block
+                        .deposit_receipts
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeDepositReceipts)?;
+
                 ExecutionPayload::Electra(ExecutionPayloadElectra {
                     parent_hash: electra_block.parent_hash,
                     fee_recipient: electra_block.fee_recipient,
@@ -1974,6 +1983,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     withdrawals,
                     blob_gas_used: electra_block.blob_gas_used,
                     excess_blob_gas: electra_block.excess_blob_gas,
+                    deposit_receipts,
                 })
             }
         };
