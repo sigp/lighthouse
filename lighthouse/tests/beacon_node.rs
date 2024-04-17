@@ -454,7 +454,10 @@ fn run_merge_execution_endpoints_flag_test(flag: &str) {
                 SensitiveUrl::parse(&urls[0]).unwrap()
             );
             // Only the first secret file should be used.
-            assert_eq!(config.secret_file.as_ref().unwrap().clone(), jwts[0].clone());
+            assert_eq!(
+                config.secret_file.as_ref().unwrap().clone(),
+                jwts[0].clone()
+            );
         });
 }
 #[test]
@@ -521,7 +524,10 @@ fn merge_jwt_secrets_flag() {
                 config.execution_endpoint.as_ref().unwrap().full.to_string(),
                 "http://localhost:8551/"
             );
-            assert_eq!(config.secret_file.as_ref().unwrap().clone(), dir.path().join("jwt-file"));
+            assert_eq!(
+                config.secret_file.as_ref().unwrap().clone(),
+                dir.path().join("jwt-file")
+            );
         });
 }
 #[test]
