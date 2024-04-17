@@ -414,10 +414,7 @@ where
             "execution layer already defined"
         );
 
-        let url = match SensitiveUrl::parse(url) {
-            Ok(s) => Some(s),
-            Err(_) => None,
-        };
+        let url = SensitiveUrl::parse(url).ok();
 
         let config = execution_layer::Config {
             execution_endpoint: url,
