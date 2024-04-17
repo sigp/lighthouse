@@ -736,7 +736,24 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
-                if !self.subscribe_all_data_column_subnets {
+                if self.subscribe_all_data_column_subnets {
+                    for column_subnet in 0..T::EthSpec::data_column_subnet_count() as u64 {
+                        for fork_digest in self.required_gossip_fork_digests() {
+                            let gossip_kind =
+                                Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
+                            let topic = GossipTopic::new(
+                                gossip_kind,
+                                GossipEncoding::default(),
+                                fork_digest,
+                            );
+                            if self.libp2p.subscribe(topic.clone()) {
+                                subscribed_topics.push(topic);
+                            } else {
+                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                            }
+                        }
+                    }
+                } else {
                     // TODO(das): subscribe after `PEER_DAS_EPOCH`
                     for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
                         self.network_globals.local_enr().node_id().raw().into(),
@@ -784,23 +801,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         for fork_digest in self.required_gossip_fork_digests() {
                             let topic = GossipTopic::new(
                                 subnet.into(),
-                                GossipEncoding::default(),
-                                fork_digest,
-                            );
-                            if self.libp2p.subscribe(topic.clone()) {
-                                subscribed_topics.push(topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                            }
-                        }
-                    }
-                    // Subscribe to all data column subnets
-                    for column_subnet in 0..T::EthSpec::data_column_subnet_count() as u64 {
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let gossip_kind =
-                                Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
-                            let topic = GossipTopic::new(
-                                gossip_kind,
                                 GossipEncoding::default(),
                                 fork_digest,
                             );
