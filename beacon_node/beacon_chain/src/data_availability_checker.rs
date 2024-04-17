@@ -315,11 +315,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
         let mut results = Vec::with_capacity(blocks.len());
-        let kzg = self
-            .kzg
-            .as_ref()
-            .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-
         let all_blobs: BlobSidecarList<T::EthSpec> = blocks
             .iter()
             .filter(|block| self.blobs_required_for_block(block.as_block()))
@@ -331,6 +326,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // verify kzg for all blobs at once
         if !all_blobs.is_empty() {
+            let kzg = self
+                .kzg
+                .as_ref()
+                .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
             verify_kzg_for_blob_list(all_blobs.iter(), kzg)?;
         }
 
