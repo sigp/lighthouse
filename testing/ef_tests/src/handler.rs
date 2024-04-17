@@ -229,8 +229,8 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Deneb])
     }
 
-    pub fn eip6110_only() -> Self {
-        Self::for_forks(vec![ForkName::Eip6110])
+    pub fn electra_only() -> Self {
+        Self::for_forks(vec![ForkName::Electra])
     }
 
     pub fn altair_and_later() -> Self {

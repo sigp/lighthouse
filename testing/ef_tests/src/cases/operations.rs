@@ -22,7 +22,7 @@ use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyCapella,
     BeaconBlockBodyDeneb, BeaconBlockBodyMerge, BeaconState, BlindedPayload, Deposit,
-    ExecutionPayload, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
+    DepositReceipt, ExecutionPayload, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
     SignedVoluntaryExit, SyncAggregate,
 };
 
@@ -412,7 +412,7 @@ impl<E: EthSpec> Operation<E> for DepositReceipt {
             && fork_name != ForkName::Merge
             && fork_name != ForkName::Capella
             && fork_name != ForkName::Deneb
-            && fork_name != ForkName::Eip6110
+            && fork_name != ForkName::Electra
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {

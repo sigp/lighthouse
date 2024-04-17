@@ -276,9 +276,9 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        SszStaticHandler::<BeaconBlockBodyEip6110<MinimalEthSpec>, MinimalEthSpec>::eip6110_only()
+        SszStaticHandler::<BeaconBlockBodyElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
             .run();
-        SszStaticHandler::<BeaconBlockBodyEip6110<MainnetEthSpec>, MainnetEthSpec>::eip6110_only()
+        SszStaticHandler::<BeaconBlockBodyElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
             .run();
     }
 
@@ -473,9 +473,9 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionPayloadDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        SszStaticHandler::<ExecutionPayloadEip6110<MinimalEthSpec>, MinimalEthSpec>::eip6110_only()
+        SszStaticHandler::<ExecutionPayloadElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
             .run();
-        SszStaticHandler::<ExecutionPayloadEip6110<MainnetEthSpec>, MainnetEthSpec>::eip6110_only()
+        SszStaticHandler::<ExecutionPayloadElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
             .run();
     }
 
@@ -493,10 +493,10 @@ mod ssz_static {
             ::deneb_only().run();
         SszStaticHandler::<ExecutionPayloadHeaderDeneb<MainnetEthSpec>, MainnetEthSpec>
             ::deneb_only().run();
-        SszStaticHandler::<ExecutionPayloadHeaderEip6110<MinimalEthSpec>, MinimalEthSpec>
-            ::eip6110_only().run();
-        SszStaticHandler::<ExecutionPayloadHeaderEip6110<MainnetEthSpec>, MainnetEthSpec>
-            ::eip6110_only().run();
+        SszStaticHandler::<ExecutionPayloadHeaderElectra<MinimalEthSpec>, MinimalEthSpec>
+            ::electra_only().run();
+        SszStaticHandler::<ExecutionPayloadHeaderElectra<MainnetEthSpec>, MainnetEthSpec>
+            ::electra_only().run();
     }
 
     #[test]
