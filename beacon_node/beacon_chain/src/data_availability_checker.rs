@@ -93,7 +93,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let overflow_cache = OverflowLRUCache::new(
             OVERFLOW_LRU_CAPACITY,
             store,
-            Some(custody_column_count),
+            custody_column_count,
             log.new(o!("service" => "availability_cache")),
             spec.clone(),
         )?;
