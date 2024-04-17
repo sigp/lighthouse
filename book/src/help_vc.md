@@ -185,6 +185,10 @@ OPTIONS:
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
             this parameter in the event of an attack at the PoS transition block. Incorrect use of this flag can cause
             your node to possibly accept an invalid chain or sync more slowly. Be extremely careful with this flag.
+        --secrets-dir <SECRETS_DIRECTORY>
+            The directory which contains the password to unlock the validator voting keypairs. Each password should be
+            contained in a file where the name is the 0x-prefixed hex representation of the validators voting public
+            key. Defaults to ~/.lighthouse/{network}/secrets.
         --suggested-fee-recipient <FEE-RECIPIENT>
             Once the merge has happened, this address will receive transaction fees from blocks proposed by this
             validator client. If a fee recipient is configured in the validator definitions it takes priority over this
