@@ -196,6 +196,19 @@ impl<E: EthSpec> AttestationElectra<E> {
             .intersection(&other.aggregation_bits)
             .is_zero()
     }
+    
+
+
+    pub fn get_committee_indices(
+        &self,
+    ) -> Vec<u64> {
+        self
+            .committee_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
+    }
 
     /// Aggregate another Attestation into this one.
     ///

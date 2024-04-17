@@ -630,8 +630,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
             body: BeaconBlockBodyElectra {
                 proposer_slashings: base_block.body.proposer_slashings,
                 attester_slashings: base_block.body.attester_slashings,
-                // TODO(eip7549) is setting to default ok here?
-                attestations: <_>::default(),
+                attestations: base_block.body.attestations,
                 deposits: base_block.body.deposits,
                 voluntary_exits: base_block.body.voluntary_exits,
                 bls_to_execution_changes,

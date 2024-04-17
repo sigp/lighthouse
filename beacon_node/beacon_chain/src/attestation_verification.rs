@@ -540,7 +540,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
         };
 
-        // TODO(eip7594) this fn should accept a list of committees for this slot
         let get_indexed_attestation_with_committee =
             |(committees, _): (Vec<BeaconCommittee>, CommitteesPerSlot)| {
                 match attestation {
@@ -803,7 +802,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             }
         };
 
-        // TODO(eip7549) progressive_balances_cache_proposer_slashing fails here
         let validator_index = *indexed_attestation
             .attesting_indices
             .first()
@@ -1272,7 +1270,6 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
-    // TODO(eip7549) return a list of committees/committee cache
     map_attestation_committee(chain, attestation, |(committees, committees_per_slot)| {
         match attestation {
             Attestation::Base(att) => {

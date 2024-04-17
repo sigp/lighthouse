@@ -62,22 +62,12 @@ pub struct PendingAttestation<E: EthSpec> {
 }
 
 impl<E: EthSpec> PendingAttestation<E> {
-    pub fn committee_index(&self) -> u64 {
+    pub fn committee_index(
+        &self
+    ) -> u64 {
         match self {
             PendingAttestation::Base(att) => att.data.index,
-            PendingAttestation::Electra(att) => {
-                let x = att
-                    .committee_bits
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
-                    .collect::<Vec<u64>>();
-
-                if let Some(x) = x.first() {
-                    return *x;
-                }
-                0u64
-            }
+            PendingAttestation::Electra(att) => att.committee_bits.highest_set_bit().unwrap_or(0) as u64
         }
     }
 }

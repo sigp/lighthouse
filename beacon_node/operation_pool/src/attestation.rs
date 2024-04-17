@@ -44,7 +44,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
     ) -> Option<Self> {
         let fresh_validators = earliest_attestation_validators(&att, state, base_state);
         let committee = state
-            .get_beacon_committee(att.data.slot, att.data.index)
+            .get_beacon_committee(att.data().slot, att.data().index)
             .ok()?;
         let indices = indexed_attestation_base::get_attesting_indices::<E>(
             committee.committee,
@@ -86,8 +86,8 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
                 .ok()?;
 
         let fresh_validators_rewards = att
-            .indexed
-            .attesting_indices
+            .indexed()
+            .attesting_indices()
             .iter()
             .filter_map(|&index| {
                 if reward_cache
@@ -153,7 +153,7 @@ impl<'a, E: EthSpec> MaxCover for AttMaxCover<'a, E> {
         best_att: &AttestationRef<'a, E>,
         covered_validators: &HashMap<u64, u64>,
     ) {
-        if self.att.data.slot == best_att.data.slot && self.att.data.index == best_att.data.index {
+        if self.att.data().slot == best_att.data().slot && self.att.data().index == best_att.data().index {
             self.fresh_validators_rewards
                 .retain(|k, _| !covered_validators.contains_key(k))
         }
@@ -179,11 +179,11 @@ pub fn earliest_attestation_validators<E: EthSpec>(
     base_state: &BeaconStateBase<E>,
 ) -> BitList<E::MaxValidatorsPerCommitteePerSlot> {
     // Bitfield of validators whose attestations are new/fresh.
-    let mut new_validators = attestation.indexed.aggregation_bits.clone();
+    let mut new_validators = attestation.indexed().aggregation_bits().clone();
 
-    let state_attestations = if attestation.checkpoint.target_epoch == state.current_epoch() {
+    let state_attestations = if attestation.checkpoint().target_epoch == state.current_epoch() {
         &base_state.current_epoch_attestations
-    } else if attestation.checkpoint.target_epoch == state.previous_epoch() {
+    } else if attestation.checkpoint().target_epoch == state.previous_epoch() {
         &base_state.previous_epoch_attestations
     } else {
         return BitList::with_capacity(0).unwrap();
@@ -193,8 +193,8 @@ pub fn earliest_attestation_validators<E: EthSpec>(
         .iter()
         // In a single epoch, an attester should only be attesting for one slot and index.
         .filter(|&existing_attestation| {
-            existing_attestation.data().slot == attestation.data.slot
-                && existing_attestation.committee_index() == attestation.data.index
+            existing_attestation.data().slot == attestation.data().slot
+                && existing_attestation.committee_index() == attestation.data().index
         })
         .for_each(|existing_attestation| {
             // Remove the validators who have signed the existing attestation (they are not new)

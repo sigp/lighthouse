@@ -114,7 +114,7 @@ pub mod indexed_attestation_electra {
     ) -> Result<Vec<u64>, BeaconStateError> {
         let mut output: HashSet<u64> = HashSet::new();
 
-        let committee_indices = get_committee_indices::<E>(committee_bits.clone());
+        let committee_indices = get_committee_indices::<E>(committee_bits);
         let committee_offset = 0;
 
         let committees_map: HashMap<u64, &BeaconCommittee> = committees
@@ -152,7 +152,7 @@ pub mod indexed_attestation_electra {
     }
 
     fn get_committee_indices<E: EthSpec>(
-        committee_bits: BitVector<E::MaxCommitteesPerSlot>,
+        committee_bits: &BitVector<E::MaxCommitteesPerSlot>,
     ) -> Vec<CommitteeIndex> {
         committee_bits
             .iter()

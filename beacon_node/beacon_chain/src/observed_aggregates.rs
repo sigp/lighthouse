@@ -102,7 +102,6 @@ pub trait SubsetItem {
     fn root(&self) -> Hash256;
 }
 
-// TODO(eip7549) need to be able to handle different size bitlists
 impl<E: EthSpec> SubsetItem for Attestation<E> {
     type Item = BitList<E::MaxValidatorsPerCommitteePerSlot>;
 

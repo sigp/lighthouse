@@ -1046,7 +1046,6 @@ where
             let mut committee_bits = BitVector::default();
             committee_bits.set(index as usize, true)?;
             Ok(Attestation::Electra(AttestationElectra {
-                // TODO(eip7549) fix size
                 aggregation_bits: BitList::with_capacity(committee_len)?,
                 committee_bits,
                 data: AttestationData {

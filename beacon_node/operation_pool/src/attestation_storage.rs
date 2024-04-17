@@ -2,8 +2,7 @@ use crate::AttestationStats;
 use itertools::Itertools;
 use std::collections::HashMap;
 use types::{
-    attestation::AttestationBase, AggregateSignature, Attestation, AttestationData, BeaconState,
-    BitList, Checkpoint, Epoch, EthSpec, Hash256, Slot,
+    attestation::{AttestationBase, AttestationElectra}, checkpoint, superstruct, AggregateSignature, Attestation, AttestationData, BeaconState, BitList, BitVector, Checkpoint, Epoch, EthSpec, Hash256, Slot
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -20,26 +19,68 @@ pub struct CompactAttestationData {
     pub target_root: Hash256,
 }
 
-#[derive(Debug, PartialEq)]
+#[superstruct(
+    variants(Base, Electra),
+    variant_attributes(
+        derive(
+            Debug,
+            PartialEq,
+        )
+    )
+)]
+#[derive(
+    Debug,
+    PartialEq,
+)]
 pub struct CompactIndexedAttestation<E: EthSpec> {
     pub attesting_indices: Vec<u64>,
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot>,
     pub signature: AggregateSignature,
     pub index: u64,
+    #[superstruct(only(Electra))]
+    pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
 }
 
-#[derive(Debug)]
+
+#[superstruct(
+    variants(Base, Electra),
+    variant_attributes(
+        derive(
+            Debug
+        )
+    )
+)]
+#[derive(
+    Debug
+)]
 pub struct SplitAttestation<E: EthSpec> {
     pub checkpoint: CheckpointKey,
     pub data: CompactAttestationData,
     pub indexed: CompactIndexedAttestation<E>,
+    #[superstruct(only(Electra))]
+    pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
 }
 
-#[derive(Debug, Clone)]
+
+#[superstruct(
+    variants(Base, Electra),
+    variant_attributes(
+        derive(
+            Debug,
+            Clone
+        )
+    )
+)]
+#[derive(
+    Debug,
+    Clone,
+)]
 pub struct AttestationRef<'a, E: EthSpec> {
     pub checkpoint: &'a CheckpointKey,
     pub data: &'a CompactAttestationData,
     pub indexed: &'a CompactIndexedAttestation<E>,
+    #[superstruct(only(Electra))]
+    pub committee_bits: &'a BitVector<E::MaxCommitteesPerSlot>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -64,38 +105,58 @@ impl<E: EthSpec> SplitAttestation<E> {
             beacon_block_root: attestation.data().beacon_block_root,
             target_root: attestation.data().target.root,
         };
-        let indexed = match attestation {
-            Attestation::Base(att) => CompactIndexedAttestation {
+
+
+        match attestation {
+            Attestation::Base(att) => {
+
+            let indexed = CompactIndexedAttestation::Base(CompactIndexedAttestationBase {
                 attesting_indices,
                 index: att.data.index,
                 aggregation_bits: att.aggregation_bits,
                 signature: att.signature,
+            });
+            Self::Base(SplitAttestationBase {
+                checkpoint,
+                data,
+                indexed,
+            })
             },
-
             Attestation::Electra(att) => {
-                // TODO(eip7549) how should we handle an empty (or invalid?) committee bits
-                let index = att.committee_bits.highest_set_bit().unwrap_or(0);
-                CompactIndexedAttestation {
+                let indexed = CompactIndexedAttestation::Electra(CompactIndexedAttestationElectra {
                     attesting_indices,
-                    index: index as u64,
+                    index: att.get_committee_indices()[0],
                     aggregation_bits: att.aggregation_bits,
                     signature: att.signature,
-                }
+                    committee_bits: att.committee_bits.clone()
+                });
+                Self::Electra(SplitAttestationElectra {
+                    checkpoint,
+                    data,
+                    indexed,
+                    committee_bits: att.committee_bits
+                })
             }
-        };
-
-        Self {
-            checkpoint,
-            data,
-            indexed,
         }
     }
 
     pub fn as_ref(&self) -> AttestationRef<E> {
-        AttestationRef {
-            checkpoint: &self.checkpoint,
-            data: &self.data,
-            indexed: &self.indexed,
+        match self {
+            SplitAttestation::Base(att) => {
+                AttestationRef::Base(AttestationRefBase {
+                    checkpoint: &att.checkpoint,
+                    data: &att.data,
+                    indexed: &att.indexed,
+                })
+            },
+            SplitAttestation::Electra(att) => {
+                AttestationRef::Electra(AttestationRefElectra {
+                    checkpoint: &att.checkpoint,
+                    data: &att.data,
+                    indexed: &att.indexed,
+                    committee_bits: &att.committee_bits,
+                })
+            },
         }
     }
 }
@@ -103,24 +164,32 @@ impl<E: EthSpec> SplitAttestation<E> {
 impl<'a, E: EthSpec> AttestationRef<'a, E> {
     pub fn attestation_data(&self) -> AttestationData {
         AttestationData {
-            slot: self.data.slot,
-            index: self.data.index,
-            beacon_block_root: self.data.beacon_block_root,
-            source: self.checkpoint.source,
+            slot: self.data().slot,
+            index: self.data().index,
+            beacon_block_root: self.data().beacon_block_root,
+            source: self.checkpoint().source,
             target: Checkpoint {
-                epoch: self.checkpoint.target_epoch,
-                root: self.data.target_root,
+                epoch: self.checkpoint().target_epoch,
+                root: self.data().target_root,
             },
         }
     }
 
     pub fn clone_as_attestation(&self) -> Attestation<E> {
-        // TODO(eip7549) handle electra case
-        Attestation::Base(AttestationBase {
-            aggregation_bits: self.indexed.aggregation_bits.clone(),
-            data: self.attestation_data(),
-            signature: self.indexed.signature.clone(),
-        })
+        match self {
+            AttestationRef::Base(att) => Attestation::Base(AttestationBase {
+                aggregation_bits: att.indexed.aggregation_bits().clone(),
+                data: self.attestation_data(),
+                signature: att.indexed.signature().clone(),
+            }),
+            AttestationRef::Electra(att) => Attestation::Electra(AttestationElectra {
+                aggregation_bits: att.indexed.aggregation_bits().clone(),
+                data: self.attestation_data(),
+                signature: att.indexed.signature().clone(),
+                committee_bits: att.committee_bits.clone()
+            }),
+        }
+
     }
 }
 
@@ -143,49 +212,45 @@ impl CheckpointKey {
 
 impl<E: EthSpec> CompactIndexedAttestation<E> {
     pub fn signers_disjoint_from(&self, other: &Self) -> bool {
-        self.aggregation_bits
-            .intersection(&other.aggregation_bits)
+        self.aggregation_bits()
+            .intersection(&other.aggregation_bits())
             .is_zero()
     }
 
     pub fn aggregate(&mut self, other: &Self) {
-        self.attesting_indices = self
-            .attesting_indices
+        *self.attesting_indices_mut() = self
+            .attesting_indices_mut()
             .drain(..)
-            .merge(other.attesting_indices.iter().copied())
+            .merge(other.attesting_indices().iter().copied())
             .dedup()
             .collect();
-        self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
-        self.signature.add_assign_aggregate(&other.signature);
+        *self.aggregation_bits_mut() = self.aggregation_bits().union(other.aggregation_bits());
+        self.signature_mut().add_assign_aggregate(other.signature());
     }
 }
 
 impl<E: EthSpec> AttestationMap<E> {
     pub fn insert(&mut self, attestation: Attestation<E>, attesting_indices: Vec<u64>) {
-        let SplitAttestation {
-            checkpoint,
-            data,
-            indexed,
-        } = SplitAttestation::new(attestation, attesting_indices);
+        let split_attestation = SplitAttestation::new(attestation, attesting_indices);
 
-        let attestation_map = self.checkpoint_map.entry(checkpoint).or_default();
-        let attestations = attestation_map.attestations.entry(data).or_default();
+        let attestation_map = self.checkpoint_map.entry(split_attestation.checkpoint().clone()).or_default();
+        let attestations = attestation_map.attestations.entry(split_attestation.data().clone()).or_default();
 
         // Greedily aggregate the attestation with all existing attestations.
         // NOTE: this is sub-optimal and in future we will remove this in favour of max-clique
         // aggregation.
         let mut aggregated = false;
         for existing_attestation in attestations.iter_mut() {
-            if existing_attestation.signers_disjoint_from(&indexed) {
-                existing_attestation.aggregate(&indexed);
+            if existing_attestation.signers_disjoint_from(split_attestation.indexed()) {
+                existing_attestation.aggregate(split_attestation.indexed());
                 aggregated = true;
-            } else if *existing_attestation == indexed {
+            } else if *existing_attestation == *split_attestation.indexed() {
                 aggregated = true;
             }
         }
 
         if !aggregated {
-            attestations.push(indexed);
+            attestations.push(*split_attestation.indexed());
         }
     }
 
@@ -234,10 +299,24 @@ impl<E: EthSpec> AttestationDataMap<E> {
         checkpoint_key: &'a CheckpointKey,
     ) -> impl Iterator<Item = AttestationRef<'a, E>> + 'a {
         self.attestations.iter().flat_map(|(data, vec_indexed)| {
-            vec_indexed.iter().map(|indexed| AttestationRef {
-                checkpoint: checkpoint_key,
-                data,
-                indexed,
+            vec_indexed.iter().map(|indexed| {
+                match indexed {
+                    CompactIndexedAttestation::Base(_) => {
+                        AttestationRef::Base(AttestationRefBase {
+                            checkpoint: checkpoint_key,
+                            data,
+                            indexed,
+                        })
+                    },
+                    CompactIndexedAttestation::Electra(att) => {
+                        AttestationRef::Electra(AttestationRefElectra {
+                            checkpoint: checkpoint_key,
+                            data,
+                            indexed,
+                            committee_bits: &att.committee_bits
+                        })
+                    }
+                }
             })
         })
     }

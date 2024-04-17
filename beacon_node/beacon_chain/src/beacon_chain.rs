@@ -1960,8 +1960,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ForkName::Electra => {
                 // TODO(eip7549) if # of committees is zero, dont try to set a bit
                 let mut committee_bits = BitVector::default();
-                committee_bits.set(request_index as usize, true)?;
-                println!("test");
+                if committee_len > 0 {
+                    committee_bits.set(request_index as usize, true)?;
+                }
                 Ok(Attestation::Electra(AttestationElectra {
                     // TODO(eip7549) need to make sure bitlists are of the correct length
                     aggregation_bits: BitList::with_capacity(committee_len)?,
@@ -5006,6 +5007,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let import = |attestation: &Attestation<T::EthSpec>| {
                 let attesting_indices = match attestation {
                     Attestation::Base(att) => {
+                        println!("why");
                         indexed_attestation_base::get_attesting_indices_from_state(&state, att)?
                     }
                     Attestation::Electra(att) => {
@@ -5152,6 +5154,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(sync_aggregate)
         };
 
+        attestations = match &state {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_) => attestations,
+            BeaconState::Electra(_) => Self::compute_on_chain_aggregate(&attestations).unwrap(),
+        };
+
         Ok(PartialBeaconBlock {
             state,
             slot,
@@ -5169,6 +5180,55 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             prepare_payload_handle,
             bls_to_execution_changes,
         })
+    }
+
+    fn compute_on_chain_aggregate(attestations: &Vec<Attestation<T::EthSpec>>) -> Result<Vec<Attestation<T::EthSpec>>, Error> {
+
+        let mut unaggregated_attestations: Vec<AttestationElectra<T::EthSpec>> = vec![];
+        println!("is electra?");
+        for attestation in attestations {
+            // TODO(eip7549) fix error type
+            if let Ok(_) = attestation.as_base() {
+                println!("not its deneb");
+            };
+            let electra_attestation = attestation.as_electra().map_err(|_| BeaconChainError::AttestationCacheLockTimeout)?.clone();
+            unaggregated_attestations.push(electra_attestation);
+        }
+        println!("yes electra?");
+        unaggregated_attestations
+            .sort_by_key(|a| a.get_committee_indices()[0]);
+
+        let committee_indices: Vec<u64> = unaggregated_attestations
+            .iter()
+            .map(|a| a.get_committee_indices()[0])
+            .collect();
+
+        let committee_flags: Vec<bool> = (0..10)
+            .map(|index| committee_indices.contains(&index))
+            .collect();
+
+        let mut committee_bits = BitVector::default();
+
+        for (i, &flag) in committee_flags.iter().enumerate() {
+            committee_bits.set(i, flag).map_err(|_| BeaconChainError::AttestationCacheLockTimeout)?;
+        }
+
+        if let Some(first_attestation) = unaggregated_attestations.first() {
+            let mut aggregate_attestation = AttestationElectra::<T::EthSpec> {
+                aggregation_bits: first_attestation.aggregation_bits.clone(),
+                signature: first_attestation.signature.clone(),
+                committee_bits: committee_bits,
+                data: first_attestation.data.clone()
+            };
+    
+            for attestation in unaggregated_attestations.iter().skip(1) {
+                aggregate_attestation.aggregate(attestation);
+            }
+    
+            return Ok(vec!(Attestation::Electra(aggregate_attestation)))
+        };
+
+        Ok(attestations.clone())
     }
 
     fn complete_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec>>(

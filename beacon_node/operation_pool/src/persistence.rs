@@ -76,7 +76,7 @@ impl<E: EthSpec> PersistedOperationPool<E> {
             .map(|att| {
                 (
                     att.clone_as_attestation(),
-                    att.indexed.attesting_indices.clone(),
+                    att.indexed().attesting_indices().clone(),
                 )
             })
             .collect();

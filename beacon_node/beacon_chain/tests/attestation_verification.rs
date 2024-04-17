@@ -714,25 +714,25 @@ async fn aggregated_gossip_verification() {
          * aggregate_and_proof.aggregator_index in get_beacon_committee(state, aggregate.data.slot,
          * aggregate.data.index).
          */
-        // .inspect_aggregate_err(
-        //     "aggregate with unknown aggregator index",
-        //     |_, a| a.message.aggregator_index = VALIDATOR_COUNT as u64,
-        //     |_, err| {
-        //         println!("{:?}", err);
-        //         assert!(matches!(
-        //             err,
-        //             // Naively we should think this condition would trigger this error:
-        //             //
-        //             // AttnError::AggregatorPubkeyUnknown(unknown_validator)
-        //             //
-        //             // However the following error is triggered first:
-        //             AttnError::AggregatorNotInCommittee {
-        //                 aggregator_index
-        //             }
-        //             if aggregator_index == VALIDATOR_COUNT as u64
-        //         ))
-        //     },
-        // )
+        .inspect_aggregate_err(
+            "aggregate with unknown aggregator index",
+            |_, a| a.message.aggregator_index = VALIDATOR_COUNT as u64,
+            |_, err| {
+                println!("{:?}", err);
+                assert!(matches!(
+                    err,
+                    // Naively we should think this condition would trigger this error:
+                    //
+                    // AttnError::AggregatorPubkeyUnknown(unknown_validator)
+                    //
+                    // However the following error is triggered first:
+                    AttnError::AggregatorNotInCommittee {
+                        aggregator_index
+                    }
+                    if aggregator_index == VALIDATOR_COUNT as u64
+                ))
+            },
+        )
         /*
          * The following test ensures:
          *
@@ -740,32 +740,32 @@ async fn aggregated_gossip_verification() {
          * i.e. is_aggregator(state, aggregate.data.slot, aggregate.data.index,
          * aggregate_and_proof.selection_proof) returns True.
          */
-        // .inspect_aggregate_err(
-        //     "aggregate from non-aggregator",
-        //     |tester, a| {
-        //         let chain = &tester.harness.chain;
-        //         let (index, sk) = tester.non_aggregator();
-        //         *a = SignedAggregateAndProof::from_aggregate(
-        //             index as u64,
-        //             tester.valid_aggregate.message.aggregate.clone(),
-        //             None,
-        //             &sk,
-        //             &chain.canonical_head.cached_head().head_fork(),
-        //             chain.genesis_validators_root,
-        //             &chain.spec,
-        //         )
-        //     },
-        //     |tester, err| {
-        //         let (val_index, _) = tester.non_aggregator();
-        //         assert!(matches!(
-        //             err,
-        //             AttnError::InvalidSelectionProof {
-        //                 aggregator_index: index
-        //             }
-        //             if index == val_index as u64
-        //         ))
-        //     },
-        // )
+        .inspect_aggregate_err(
+            "aggregate from non-aggregator",
+            |tester, a| {
+                let chain = &tester.harness.chain;
+                let (index, sk) = tester.non_aggregator();
+                *a = SignedAggregateAndProof::from_aggregate(
+                    index as u64,
+                    tester.valid_aggregate.message.aggregate.clone(),
+                    None,
+                    &sk,
+                    &chain.canonical_head.cached_head().head_fork(),
+                    chain.genesis_validators_root,
+                    &chain.spec,
+                )
+            },
+            |tester, err| {
+                let (val_index, _) = tester.non_aggregator();
+                assert!(matches!(
+                    err,
+                    AttnError::InvalidSelectionProof {
+                        aggregator_index: index
+                    }
+                    if index == val_index as u64
+                ))
+            },
+        )
         // NOTE: from here on, the tests are stateful, and rely on the valid attestation having
         // been seen.
         .import_valid_aggregate()
@@ -817,19 +817,19 @@ async fn unaggregated_gossip_verification() {
          * The committee index is within the expected range -- i.e. `data.index <
          * get_committee_count_per_slot(state, data.target.epoch)`.
          */
-        // .inspect_unaggregate_err(
-        //     "attestation with invalid committee index",
-        //     |tester, a, _| {
-        //         a.data_mut().index = tester
-        //             .harness
-        //             .chain
-        //             .head_snapshot()
-        //             .beacon_state
-        //             .get_committee_count_at_slot(a.data().slot)
-        //             .unwrap()
-        //     },
-        //     |_, err| assert!(matches!(err, AttnError::NoCommitteeForSlotAndIndex { .. })),
-        // )
+        .inspect_unaggregate_err(
+            "attestation with invalid committee index",
+            |tester, a, _| {
+                a.data_mut().index = tester
+                    .harness
+                    .chain
+                    .head_snapshot()
+                    .beacon_state
+                    .get_committee_count_at_slot(a.data().slot)
+                    .unwrap()
+            },
+            |_, err| assert!(matches!(err, AttnError::NoCommitteeForSlotAndIndex { .. })),
+        )
         /*
          * The following test ensures:
          *
@@ -955,25 +955,25 @@ async fn unaggregated_gossip_verification() {
          *   `len(attestation.aggregation_bits) == len(get_beacon_committee(state, data.slot,
          *   data.index))`.
          */
-        // .inspect_unaggregate_err(
-        //     "attestation with invalid bitfield",
-        //     |_, a, _| {
-        //         let bits = a.aggregation_bits().iter().collect::<Vec<_>>();
-        //         *a.aggregation_bits_mut() = BitList::with_capacity(bits.len() + 1).unwrap();
-        //         for (i, bit) in bits.into_iter().enumerate() {
-        //             a.aggregation_bits_mut().set(i, bit).unwrap();
-        //         }
-        //     },
-        //     |_, err| {
-        //         println!("error: {:?}", err);
-        //         assert!(matches!(
-        //             err,
-        //             AttnError::Invalid(AttestationValidationError::BeaconStateError(
-        //                 BeaconStateError::InvalidBitfield
-        //             ))
-        //         ))
-        //     },
-        // )
+        .inspect_unaggregate_err(
+            "attestation with invalid bitfield",
+            |_, a, _| {
+                let bits = a.aggregation_bits().iter().collect::<Vec<_>>();
+                *a.aggregation_bits_mut() = BitList::with_capacity(bits.len() + 1).unwrap();
+                for (i, bit) in bits.into_iter().enumerate() {
+                    a.aggregation_bits_mut().set(i, bit).unwrap();
+                }
+            },
+            |_, err| {
+                println!("error: {:?}", err);
+                assert!(matches!(
+                    err,
+                    AttnError::Invalid(AttestationValidationError::BeaconStateError(
+                        BeaconStateError::InvalidBitfield
+                    ))
+                ))
+            },
+        )
         /*
          * The following test ensures that:
          *

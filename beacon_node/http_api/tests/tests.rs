@@ -3270,12 +3270,20 @@ impl ApiTester {
             .await
             .unwrap()
             .data;
-
-        let mut attestation = Attestation::Base(AttestationBase {
-            aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
-            data: attestation_data,
-            signature: AggregateSignature::infinity(),
-        });
+        let mut attestation = if fork >= ForkName::Electra {
+            Attestation::Electra(AttestationElectra {
+                aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
+                committee_bits: BitVector::default(),
+                data: attestation_data,
+                signature: AggregateSignature::infinity(),
+            });
+        } else {
+            Attestation::Base(AttestationBase {
+                aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
+                data: attestation_data,
+                signature: AggregateSignature::infinity(),
+            });
+        };
 
         attestation
             .sign(
