@@ -6,6 +6,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
+use ssz_types::BitVector;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -57,7 +58,28 @@ pub struct PendingAttestation<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
     #[superstruct(only(Electra))]
-    pub committee_bits: BitList<E::MaxCommitteesPerSlot>,
+    pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
+}
+
+impl<E: EthSpec> PendingAttestation<E> {
+    pub fn committee_index(&self) -> u64 {
+        match self {
+            PendingAttestation::Base(att) => att.data.index,
+            PendingAttestation::Electra(att) => {
+                let x = att
+                    .committee_bits
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+                    .collect::<Vec<u64>>();
+
+                if let Some(x) = x.first() {
+                    return *x;
+                }
+                0u64
+            }
+        }
+    }
 }
 
 impl<E: EthSpec> Decode for PendingAttestation<E> {
@@ -84,7 +106,7 @@ impl<E: EthSpec> TestRandom for PendingAttestation<E> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         let aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot> =
             BitList::random_for_test(rng);
-        let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
+        // let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
         let data = AttestationData::random_for_test(rng);
         let proposer_index = u64::random_for_test(rng);
         let inclusion_delay = u64::random_for_test(rng);

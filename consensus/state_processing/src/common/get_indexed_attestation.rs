@@ -110,7 +110,7 @@ pub mod indexed_attestation_electra {
     pub fn get_attesting_indices<E: EthSpec>(
         committees: &[BeaconCommittee],
         aggregation_bits: &BitList<E::MaxValidatorsPerCommitteePerSlot>,
-        committee_bits: &BitList<E::MaxCommitteesPerSlot>,
+        committee_bits: &BitVector<E::MaxCommitteesPerSlot>,
     ) -> Result<Vec<u64>, BeaconStateError> {
         let mut output: HashSet<u64> = HashSet::new();
 
@@ -141,6 +141,8 @@ pub mod indexed_attestation_electra {
                 output.extend(committee_attesters);
 
                 committee_offset.safe_add(beacon_committee.committee.len())?;
+            } else {
+                return Err(Error::NoCommitteeFound);
             }
 
             // TODO(eip7549) what should we do when theres no committee found for a given index?
@@ -150,7 +152,7 @@ pub mod indexed_attestation_electra {
     }
 
     fn get_committee_indices<E: EthSpec>(
-        committee_bits: BitList<E::MaxCommitteesPerSlot>,
+        committee_bits: BitVector<E::MaxCommitteesPerSlot>,
     ) -> Vec<CommitteeIndex> {
         committee_bits
             .iter()

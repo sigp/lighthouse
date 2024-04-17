@@ -116,7 +116,7 @@ impl<E: EthSpec> PackingEfficiencyHandler<E> {
                 if voted {
                     let unique_attestation = UniqueAttestation {
                         slot: attestation.data().slot,
-                        committee_index: attestation.data().index,
+                        committee_index: attestation.committee_index(),
                         committee_position: position,
                     };
                     let inclusion_distance: u64 = block

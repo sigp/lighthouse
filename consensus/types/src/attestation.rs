@@ -6,6 +6,7 @@ use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
+use ssz_types::BitVector;
 use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -64,7 +65,7 @@ pub struct Attestation<E: EthSpec> {
     pub data: AttestationData,
     pub signature: AggregateSignature,
     #[superstruct(only(Electra))]
-    pub committee_bits: BitList<E::MaxCommitteesPerSlot>,
+    pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
 }
 
 impl<E: EthSpec> Decode for Attestation<E> {
@@ -91,7 +92,7 @@ impl<E: EthSpec> TestRandom for Attestation<E> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         let aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot> =
             BitList::random_for_test(rng);
-        let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
+        // let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
         let data = AttestationData::random_for_test(rng);
         let signature = AggregateSignature::random_for_test(rng);
 
@@ -177,6 +178,13 @@ impl<E: EthSpec> Attestation<E> {
         match self {
             Attestation::Base(att) => att.add_signature(signature, committee_position),
             Attestation::Electra(att) => att.add_signature(signature, committee_position),
+        }
+    }
+
+    pub fn committee_index(&self) -> u64 {
+        match self {
+            Attestation::Base(att) => att.data.index,
+            Attestation::Electra(att) => att.committee_bits.highest_set_bit().unwrap_or(0) as u64,
         }
     }
 }

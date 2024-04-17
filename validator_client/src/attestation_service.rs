@@ -15,6 +15,7 @@ use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
 use types::attestation::{AttestationBase, AttestationElectra};
+use types::BitVector;
 use types::ForkName;
 use types::{
     AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
@@ -404,9 +405,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     signature: AggregateSignature::infinity(),
                 })
             } else {
-                // TODO(eip7594) committee_bits should be init with correct length
-                let mut committee_bits =
-                    BitList::with_capacity(duty.committee_length as usize).unwrap();
+                // TODO(eip7549) committee_bits should be init with correct length
+                let mut committee_bits = BitVector::default();
                 committee_bits.set(committee_index as usize, true).unwrap();
                 Attestation::Electra(AttestationElectra {
                     aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
@@ -664,7 +664,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             "Failed to publish attestation";
                             "error" => %e,
                             "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
-                            "committee_index" => attestation.data().index,
+                            "committee_index" => attestation.committee_index(),
                             "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );

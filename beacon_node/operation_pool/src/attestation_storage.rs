@@ -60,7 +60,7 @@ impl<E: EthSpec> SplitAttestation<E> {
         };
         let data = CompactAttestationData {
             slot: attestation.data().slot,
-            index: attestation.data().index,
+            index: attestation.committee_index(),
             beacon_block_root: attestation.data().beacon_block_root,
             target_root: attestation.data().target.root,
         };

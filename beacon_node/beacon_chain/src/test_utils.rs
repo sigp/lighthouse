@@ -1043,10 +1043,10 @@ where
         };
 
         if self.spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
-            let mut committee_bits = BitList::with_capacity(committee_len)?;
+            let mut committee_bits = BitVector::default();
             committee_bits.set(index as usize, true)?;
             Ok(Attestation::Electra(AttestationElectra {
-                // TODO(eip7594) fix size
+                // TODO(eip7549) fix size
                 aggregation_bits: BitList::with_capacity(committee_len)?,
                 committee_bits,
                 data: AttestationData {
@@ -1181,8 +1181,9 @@ where
                             agg_sig
                         };
 
-                        let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
-                            attestation.data(),
+                        let subnet_id = SubnetId::compute_subnet::<E>(
+                            attestation.data().slot,
+                            attestation.committee_index(),
                             committee_count,
                             &self.chain.spec,
                         )
@@ -1356,7 +1357,10 @@ where
                     // If there are any attestations in this committee, create an aggregate.
                     if let Some((attestation, _)) = committee_attestations.first() {
                         let bc = state
-                            .get_beacon_committee(attestation.data().slot, attestation.data().index)
+                            .get_beacon_committee(
+                                attestation.data().slot,
+                                attestation.committee_index(),
+                            )
                             .unwrap();
 
                         // Find an aggregator if one exists. Return `None` if there are no

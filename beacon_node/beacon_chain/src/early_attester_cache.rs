@@ -142,10 +142,9 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
                 signature: AggregateSignature::empty(),
             }),
             types::ForkName::Electra => {
-                // TODO(eip7594) ensure bitlists are the correct size
+                // TODO(eip7549) ensure bitlists are the correct size
 
-                let mut committee_bits =
-                    BitList::with_capacity(committee_len).map_err(BeaconStateError::from)?;
+                let mut committee_bits = BitVector::default();
                 committee_bits
                     .set(request_index as usize, true)
                     .map_err(BeaconStateError::from)?;

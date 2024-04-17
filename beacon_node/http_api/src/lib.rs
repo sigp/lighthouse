@@ -3368,7 +3368,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     "error" => format!("{:?}", e),
                                     "request_index" => index,
                                     "aggregator_index" => aggregate.message.aggregator_index,
-                                    "attestation_index" => aggregate.message.aggregate.data().index,
+                                    "attestation_index" => aggregate.message.aggregate.committee_index(),
                                     "attestation_slot" => aggregate.message.aggregate.data().slot,
                                 );
                                 failures.push(api_types::Failure::new(index, format!("Verification: {:?}", e)));
@@ -3389,7 +3389,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     "error" => format!("{:?}", e),
                                     "request_index" => index,
                                     "aggregator_index" => verified_aggregate.aggregate().message.aggregator_index,
-                                    "attestation_index" => verified_aggregate.attestation().data().index,
+                                    "attestation_index" => verified_aggregate.attestation().committee_index(),
                                     "attestation_slot" => verified_aggregate.attestation().data().slot,
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));

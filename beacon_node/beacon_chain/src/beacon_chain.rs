@@ -1958,11 +1958,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 signature: AggregateSignature::empty(),
             })),
             ForkName::Electra => {
-                let mut committee_bits = BitList::with_capacity(committee_len)?;
+                // TODO(eip7549) if # of committees is zero, dont try to set a bit
+                let mut committee_bits = BitVector::default();
                 committee_bits.set(request_index as usize, true)?;
                 println!("test");
                 Ok(Attestation::Electra(AttestationElectra {
-                    // TODO(eip7594) need to make sure bitlists are of the correct length
+                    // TODO(eip7549) need to make sure bitlists are of the correct length
                     aggregation_bits: BitList::with_capacity(committee_len)?,
                     data: AttestationData {
                         slot: request_slot,
@@ -2187,7 +2188,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.log,
                 "Stored unaggregated attestation";
                 "outcome" => ?outcome,
-                "index" => attestation.data().index,
+                "index" => attestation.committee_index(),
                 "slot" => attestation.data().slot.as_u64(),
             ),
             Err(NaiveAggregationError::SlotTooLow {
@@ -2206,7 +2207,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to store unaggregated attestation";
                         "error" => ?e,
-                        "index" => attestation.data().index,
+                        "index" => attestation.committee_index(),
                         "slot" => attestation.data().slot.as_u64(),
                 );
                 return Err(Error::from(e).into());

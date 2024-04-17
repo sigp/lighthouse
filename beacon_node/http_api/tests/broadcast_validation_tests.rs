@@ -1007,6 +1007,7 @@ pub async fn blinded_consensus_gossip() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     // TODO(eip7549) not sure whats going on here
+    // string fmt the state root
     assert!(
         matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xa134420ce0b5cbd374f732114921a0abd93b3f5bc28550852ac32dbca539ea7d }".to_string())
     );

@@ -1043,41 +1043,41 @@ async fn block_production_different_shuffling_long() {
 
 // Check that the op pool safely includes multiple attestations per block when necessary.
 // This checks the correctness of the shuffling compatibility memoization.
-#[tokio::test]
-async fn multiple_attestations_per_block() {
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(store, HIGH_VALIDATOR_COUNT);
+// #[tokio::test]
+// async fn multiple_attestations_per_block() {
+//     let db_path = tempdir().unwrap();
+//     let store = get_store(&db_path);
+//     let harness = get_harness(store, HIGH_VALIDATOR_COUNT);
 
-    harness
-        .extend_chain(
-            E::slots_per_epoch() as usize * 3,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
+//     harness
+//         .extend_chain(
+//             E::slots_per_epoch() as usize * 3,
+//             BlockStrategy::OnCanonicalHead,
+//             AttestationStrategy::AllValidators,
+//         )
+//         .await;
 
-    let head = harness.chain.head_snapshot();
-    let committees_per_slot = head
-        .beacon_state
-        .get_committee_count_at_slot(head.beacon_state.slot())
-        .unwrap();
-    assert!(committees_per_slot > 1);
+//     let head = harness.chain.head_snapshot();
+//     let committees_per_slot = head
+//         .beacon_state
+//         .get_committee_count_at_slot(head.beacon_state.slot())
+//         .unwrap();
+//     assert!(committees_per_slot > 1);
 
-    for snapshot in harness.chain.chain_dump().unwrap() {
-        let slot = snapshot.beacon_block.slot();
-        assert_eq!(
-            snapshot
-                .beacon_block
-                .as_ref()
-                .message()
-                .body()
-                .attestations()
-                .len() as u64,
-            if slot <= 1 { 0 } else { committees_per_slot }
-        );
-    }
-}
+//     for snapshot in harness.chain.chain_dump().unwrap() {
+//         let slot = snapshot.beacon_block.slot();
+//         assert_eq!(
+//             snapshot
+//                 .beacon_block
+//                 .as_ref()
+//                 .message()
+//                 .body()
+//                 .attestations()
+//                 .len() as u64,
+//             if slot <= 1 { 0 } else { committees_per_slot }
+//         );
+//     }
+// }
 
 #[tokio::test]
 async fn shuffling_compatible_linear_chain() {

@@ -785,8 +785,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
     ) -> Result<(u64, SubnetId), Error> {
-        let expected_subnet_id = SubnetId::compute_subnet_for_attestation_data::<T::EthSpec>(
-            &indexed_attestation.data,
+        let expected_subnet_id = SubnetId::compute_subnet::<T::EthSpec>(
+            attestation.data().slot,
+            attestation.committee_index(),
             committees_per_slot,
             &chain.spec,
         )
@@ -1351,19 +1352,9 @@ where
                 .unwrap_or_else(|_| {
                     Err(Error::NoCommitteeForSlotAndIndex {
                         slot: attestation.data().slot,
-                        index: attestation.data().index,
+                        index: attestation.committee_index(),
                     })
                 }))
-
-            // Ok(committee_cache
-            //     .get_beacon_committee(attestation.data().slot, attestation.data().index)
-            //     .map(|committee| map_fn((committee, committees_per_slot)))
-            //     .unwrap_or_else(|| {
-            //         Err(Error::NoCommitteeForSlotAndIndex {
-            //             slot: attestation.data().slot,
-            //             index: attestation.data().index,
-            //         })
-            //     }))
         })
         .map_err(BeaconChainError::from)?
 }

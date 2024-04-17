@@ -194,7 +194,7 @@ pub fn earliest_attestation_validators<E: EthSpec>(
         // In a single epoch, an attester should only be attesting for one slot and index.
         .filter(|&existing_attestation| {
             existing_attestation.data().slot == attestation.data.slot
-                && existing_attestation.data().index == attestation.data.index
+                && existing_attestation.committee_index() == attestation.data.index
         })
         .for_each(|existing_attestation| {
             // Remove the validators who have signed the existing attestation (they are not new)
