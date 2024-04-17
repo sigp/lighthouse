@@ -60,7 +60,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     }
 
     if let Ok(payload) = block_body.execution_payload() {
-        if let Ok(deposit_receipts) = payload.deposit_receipts() {
+        if let Ok(Some(deposit_receipts)) = payload.deposit_receipts() {
             for deposit_receipt in deposit_receipts.iter() {
                 process_deposit_receipt(state, deposit_receipt, spec)?;
             }
