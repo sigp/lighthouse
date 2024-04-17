@@ -586,6 +586,9 @@ where
                                 if matches!(info.protocol, Protocol::BlobsByRange) {
                                     debug!(self.log, "BlobsByRange Response sent"; "duration" => Instant::now().duration_since(info.request_start_time).as_secs());
                                 }
+                                if matches!(info.protocol, Protocol::DataColumnsByRange) {
+                                    debug!(self.log, "DataColumnsByRange Response sent"; "duration" => Instant::now().duration_since(info.request_start_time).as_secs());
+                                }
 
                                 // There is nothing more to process on this substream as it has
                                 // been closed. Move on to the next one.

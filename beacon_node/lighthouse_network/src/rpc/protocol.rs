@@ -243,6 +243,9 @@ pub enum Protocol {
     /// The `BlobsByRoot` protocol name.
     #[strum(serialize = "blob_sidecars_by_root")]
     BlobsByRoot,
+    /// The `DataColumnsByRange` protocol name.
+    #[strum(serialize = "data_column_sidecars_by_range")]
+    DataColumnsByRange,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -268,6 +271,7 @@ impl Protocol {
             Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
             Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
             Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
+            Protocol::DataColumnsByRange => Some(ResponseTermination::DataColumnsByRange),
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
@@ -470,6 +474,7 @@ impl ProtocolId {
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
+            Protocol::DataColumnsByRange => RpcLimits::new(0, spec.max_data_columns_by_range_request),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -496,6 +501,8 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
+            // TODO(dcrange) check limit
+            Protocl::DataColumnsByRange => rpc_blob_limits::<E>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),

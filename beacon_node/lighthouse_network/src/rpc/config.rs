@@ -91,6 +91,7 @@ pub struct RateLimiterConfig {
     pub(super) blocks_by_root_quota: Quota,
     pub(super) blobs_by_range_quota: Quota,
     pub(super) blobs_by_root_quota: Quota,
+    pub(super) data_columns_by_range_quota: Quota,
     pub(super) light_client_bootstrap_quota: Quota,
     pub(super) light_client_optimistic_update_quota: Quota,
     pub(super) light_client_finality_update_quota: Quota,
@@ -105,6 +106,7 @@ impl RateLimiterConfig {
     pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
     pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota = Quota::n_every(768, 10);
     pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
+    pub const DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA: Quota = Quota::n_every(768, 10);
     pub const DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA: Quota = Quota::one_every(10);
@@ -121,6 +123,7 @@ impl Default for RateLimiterConfig {
             blocks_by_root_quota: Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA,
             blobs_by_range_quota: Self::DEFAULT_BLOBS_BY_RANGE_QUOTA,
             blobs_by_root_quota: Self::DEFAULT_BLOBS_BY_ROOT_QUOTA,
+            data_columns_by_range_quota: Self::DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA,
             light_client_bootstrap_quota: Self::DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA,
             light_client_optimistic_update_quota:
                 Self::DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA,
@@ -170,6 +173,7 @@ impl FromStr for RateLimiterConfig {
         let mut blocks_by_root_quota = None;
         let mut blobs_by_range_quota = None;
         let mut blobs_by_root_quota = None;
+        let mut data_columns_by_range_quota = None;
         let mut light_client_bootstrap_quota = None;
         let mut light_client_optimistic_update_quota = None;
         let mut light_client_finality_update_quota = None;
@@ -184,6 +188,7 @@ impl FromStr for RateLimiterConfig {
                 Protocol::BlocksByRoot => blocks_by_root_quota = blocks_by_root_quota.or(quota),
                 Protocol::BlobsByRange => blobs_by_range_quota = blobs_by_range_quota.or(quota),
                 Protocol::BlobsByRoot => blobs_by_root_quota = blobs_by_root_quota.or(quota),
+                Protocol::DataColumnsByRange => data_columns_by_range_quota = data_columns_by_range_quota.or(quota),
                 Protocol::Ping => ping_quota = ping_quota.or(quota),
                 Protocol::MetaData => meta_data_quota = meta_data_quota.or(quota),
                 Protocol::LightClientBootstrap => {
@@ -211,6 +216,7 @@ impl FromStr for RateLimiterConfig {
             blobs_by_range_quota: blobs_by_range_quota
                 .unwrap_or(Self::DEFAULT_BLOBS_BY_RANGE_QUOTA),
             blobs_by_root_quota: blobs_by_root_quota.unwrap_or(Self::DEFAULT_BLOBS_BY_ROOT_QUOTA),
+            data_columns_by_range_quota: data_columns_by_range_quota.unwrap_or(Self::DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA),
             light_client_bootstrap_quota: light_client_bootstrap_quota
                 .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA),
             light_client_optimistic_update_quota: light_client_optimistic_update_quota

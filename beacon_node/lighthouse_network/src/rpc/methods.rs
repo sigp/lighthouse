@@ -293,6 +293,22 @@ impl BlobsByRangeRequest {
     }
 }
 
+/// Request a number of data columns from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct DataColumnsByRangeRequest {
+    /// The starting slot to request data columns.
+    pub start_slot: u64,
+
+    /// The number of slots from the start slot.
+    pub count: u64
+}
+
+impl DataColumnsByRangeRequest {
+    pub fn max_data_columns_requested<E: EthSpec>(&self) -> u64 {
+        self.count.saturating_mul(E::max_data_columns_per_block() as u64)
+    }
+}
+
 /// Request a number of beacon block roots from a peer.
 #[superstruct(
     variants(V1, V2),
@@ -388,6 +404,9 @@ pub enum RPCResponse<E: EthSpec> {
     /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobSidecar<E>>),
 
+    /// A response to a get DATA_COLUMN_BY_RANGE request
+    DataColumnsByRange(Arc<DataColumnSidecar<E>>),
+
     /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(Arc<LightClientBootstrap<E>>),
 
@@ -421,6 +440,9 @@ pub enum ResponseTermination {
 
     /// Blobs by root stream termination.
     BlobsByRoot,
+
+    /// Data columns by range stream termination.
+    DataColumnsByRange,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -511,6 +533,7 @@ impl<E: EthSpec> RPCResponse<E> {
             RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
             RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
             RPCResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
+            RPCResponse::DataColumnsByRange(_) => Protocol::DataColumnsByRange,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -552,6 +575,9 @@ impl<E: EthSpec> std::fmt::Display for RPCResponse<E> {
             }
             RPCResponse::BlobsByRange(blob) => {
                 write!(f, "BlobsByRange: Blob slot: {}", blob.slot())
+            }
+            RPCResponse::DataColumnsByRange(data_column) => {
+                write!(f, "DataColumnsByRange: Data column slot: {}", data_column.slot())
             }
             RPCResponse::BlobsByRoot(sidecar) => {
                 write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot())

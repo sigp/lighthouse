@@ -135,6 +135,11 @@ pub trait EthSpec:
     type BytesPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     /*
+    * New for DAS
+    */
+    type MaxDataColumnsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
+
+    /*
      * New in Electra
      */
     type ElectraPlaceholder: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -264,6 +269,11 @@ pub trait EthSpec:
         Self::MaxBlobsPerBlock::to_usize()
     }
 
+    /// Returns the `MAX_DATA_COLUMNS_PER_BLOCK` constant for this specification.
+    fn max_data_columns_per_block() -> usize {
+        Self::MaxDataColumnsPerBlock::to_usize()
+    }
+
     /// Returns the `MAX_BLOB_COMMITMENTS_PER_BLOCK` constant for this specification.
     fn max_blob_commitments_per_block() -> usize {
         Self::MaxBlobCommitmentsPerBlock::to_usize()
@@ -327,6 +337,7 @@ impl EthSpec for MainnetEthSpec {
     type MinGasLimit = U5000;
     type MaxExtraDataBytes = U32;
     type MaxBlobsPerBlock = U6;
+    type MaxDataColumnsPerBlock = U64;
     type MaxBlobCommitmentsPerBlock = U4096;
     type BytesPerFieldElement = U32;
     type FieldElementsPerBlob = U4096;
@@ -389,6 +400,7 @@ impl EthSpec for MinimalEthSpec {
         MaxExtraDataBytes,
         MaxBlsToExecutionChanges,
         MaxBlobsPerBlock,
+        MaxDataColumnsPerBlock,
         BytesPerFieldElement,
         ElectraPlaceholder
     });
@@ -437,6 +449,7 @@ impl EthSpec for GnosisEthSpec {
     type MaxBlsToExecutionChanges = U16;
     type MaxWithdrawalsPerPayload = U8;
     type MaxBlobsPerBlock = U6;
+    type MaxDataColumnsPerBlock = U64;
     type MaxBlobCommitmentsPerBlock = U4096;
     type FieldElementsPerBlob = U4096;
     type BytesPerFieldElement = U32;
