@@ -260,39 +260,48 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
-            if let Some(blob_list) = blobs.as_ref() {
+            return if let Some(blob_list) = blobs.as_ref() {
                 let kzg = self
                     .kzg
                     .as_ref()
                     .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
                 verify_kzg_for_blob_list(blob_list.iter(), kzg)
                     .map_err(AvailabilityCheckError::Kzg)?;
-                return Ok(MaybeAvailableBlock::Available(AvailableBlock {
+                Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
                     blobs,
                     data_columns: None,
-                }));
-            }
+                }))
+            } else {
+                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+            };
         }
         if self.data_columns_required_for_block(&block) {
-            if let Some(data_column_list) = data_columns.as_ref() {
+            return if let Some(data_column_list) = data_columns.as_ref() {
                 let kzg = self
                     .kzg
                     .as_ref()
                     .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
                 verify_kzg_for_data_column_list(data_column_list.iter(), kzg)
                     .map_err(AvailabilityCheckError::Kzg)?;
-                return Ok(MaybeAvailableBlock::Available(AvailableBlock {
+                Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
                     blobs: None,
                     data_columns,
-                }));
-            }
+                }))
+            } else {
+                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+            };
         }
 
-        Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+        Ok(MaybeAvailableBlock::Available(AvailableBlock {
+            block_root,
+            block,
+            blobs: None,
+            data_columns: None,
+        }))
     }
 
     /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
@@ -329,23 +338,39 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         for block in blocks {
             let (block_root, block, blobs, data_columns) = block.deconstruct();
-            if self.blobs_required_for_block(&block) && blobs.is_some() {
-                results.push(MaybeAvailableBlock::Available(AvailableBlock {
-                    block_root,
-                    block,
-                    blobs,
-                    data_columns: None,
-                }))
-            } else if self.data_columns_required_for_block(&block) && data_columns.is_some() {
-                results.push(MaybeAvailableBlock::Available(AvailableBlock {
+
+            let maybe_available_block = if self.blobs_required_for_block(&block) {
+                if blobs.is_some() {
+                    MaybeAvailableBlock::Available(AvailableBlock {
+                        block_root,
+                        block,
+                        blobs,
+                        data_columns: None,
+                    })
+                } else {
+                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
+                }
+            } else if self.data_columns_required_for_block(&block) {
+                if data_columns.is_some() {
+                    MaybeAvailableBlock::Available(AvailableBlock {
+                        block_root,
+                        block,
+                        blobs: None,
+                        data_columns,
+                    })
+                } else {
+                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
+                }
+            } else {
+                MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
                     blobs: None,
-                    data_columns,
-                }))
-            } else {
-                results.push(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-            }
+                    data_columns: None,
+                })
+            };
+
+            results.push(maybe_available_block);
         }
 
         Ok(results)
