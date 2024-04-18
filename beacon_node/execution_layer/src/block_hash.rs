@@ -146,7 +146,7 @@ mod test {
     }
 
     #[test]
-    fn test_rlp_encode_merge_block() {
+    fn test_rlp_encode_bellatrix_block() {
         let header = ExecutionBlockHeader {
             parent_hash: Hash256::from_str("927ca537f06c783a3a2635b8805eef1c8c2124f7444ad4a3389898dd832f2dbe").unwrap(),
             ommers_hash: Hash256::from_str("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347").unwrap(),

@@ -4,13 +4,13 @@ use types::{
     Fork, List,
 };
 
-/// Transform a `Merge` state into an `Capella` state.
+/// Transform a `Bellatrix` state into an `Capella` state.
 pub fn upgrade_to_capella<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_merge_mut()?;
+    let pre = pre_state.as_bellatrix_mut()?;
 
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
