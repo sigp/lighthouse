@@ -14,6 +14,7 @@ mod chunk_writer;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
+pub mod consensus_context;
 pub mod errors;
 mod forwards_iter;
 mod garbage_collection;
@@ -31,6 +32,7 @@ pub mod iter;
 
 pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
+pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;

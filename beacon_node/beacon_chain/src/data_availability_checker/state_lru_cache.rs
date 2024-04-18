@@ -8,8 +8,9 @@ use crate::{
 use lru::LruCache;
 use parking_lot::RwLock;
 use ssz_derive::{Decode, Encode};
-use state_processing::{BlockReplayer, ConsensusContext};
+use state_processing::BlockReplayer;
 use std::sync::Arc;
+use store::OnDiskConsensusContext;
 use types::beacon_block_body::KzgCommitments;
 use types::{ssz_tagged_signed_beacon_block, ssz_tagged_signed_beacon_block_arc};
 use types::{BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
@@ -26,7 +27,7 @@ pub struct DietAvailabilityPendingExecutedBlock<E: EthSpec> {
     parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     parent_eth1_finalization_data: Eth1FinalizationData,
     confirmed_state_roots: Vec<Hash256>,
-    consensus_context: ConsensusContext<E>,
+    consensus_context: OnDiskConsensusContext,
     payload_verification_outcome: PayloadVerificationOutcome,
 }
 
@@ -94,7 +95,9 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
             parent_block: executed_block.import_data.parent_block,
             parent_eth1_finalization_data: executed_block.import_data.parent_eth1_finalization_data,
             confirmed_state_roots: executed_block.import_data.confirmed_state_roots,
-            consensus_context: executed_block.import_data.consensus_context,
+            consensus_context: OnDiskConsensusContext::from_consensus_context(
+                &executed_block.import_data.consensus_context,
+            ),
             payload_verification_outcome: executed_block.payload_verification_outcome,
         }
     }
@@ -119,7 +122,9 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
                     parent_eth1_finalization_data: diet_executed_block
                         .parent_eth1_finalization_data,
                     confirmed_state_roots: diet_executed_block.confirmed_state_roots,
-                    consensus_context: diet_executed_block.consensus_context,
+                    consensus_context: diet_executed_block
+                        .consensus_context
+                        .into_consensus_context(),
                 },
                 payload_verification_outcome: diet_executed_block.payload_verification_outcome,
             })
@@ -145,7 +150,9 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
                 parent_block: diet_executed_block.parent_block,
                 parent_eth1_finalization_data: diet_executed_block.parent_eth1_finalization_data,
                 confirmed_state_roots: diet_executed_block.confirmed_state_roots,
-                consensus_context: diet_executed_block.consensus_context,
+                consensus_context: diet_executed_block
+                    .consensus_context
+                    .into_consensus_context(),
             },
             payload_verification_outcome: diet_executed_block.payload_verification_outcome,
         })
@@ -231,7 +238,9 @@ impl<E: EthSpec> From<AvailabilityPendingExecutedBlock<E>>
             parent_block: value.import_data.parent_block,
             parent_eth1_finalization_data: value.import_data.parent_eth1_finalization_data,
             confirmed_state_roots: value.import_data.confirmed_state_roots,
-            consensus_context: value.import_data.consensus_context,
+            consensus_context: OnDiskConsensusContext::from_consensus_context(
+                &value.import_data.consensus_context,
+            ),
             payload_verification_outcome: value.payload_verification_outcome,
         }
     }
