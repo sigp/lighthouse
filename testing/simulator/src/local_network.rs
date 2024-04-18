@@ -49,11 +49,9 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
         serde_json::from_reader(TRUSTED_SETUP_BYTES).expect("Trusted setup bytes should be valid");
 
     let el_config = execution_layer::Config {
-        execution_endpoints: vec![SensitiveUrl::parse(&format!(
-            "http://localhost:{}",
-            EXECUTION_PORT
-        ))
-        .unwrap()],
+        execution_endpoint: Some(
+            SensitiveUrl::parse(&format!("http://localhost:{}", EXECUTION_PORT)).unwrap(),
+        ),
         ..Default::default()
     };
     beacon_config.execution_layer = Some(el_config);
@@ -209,9 +207,9 @@ impl<E: EthSpec> LocalNetwork<E> {
         );
 
         beacon_config.execution_layer = Some(execution_layer::Config {
-            execution_endpoints: vec![SensitiveUrl::parse(&execution_node.server.url()).unwrap()],
+            execution_endpoint: Some(SensitiveUrl::parse(&execution_node.server.url()).unwrap()),
             default_datadir: execution_node.datadir.path().to_path_buf(),
-            secret_files: vec![execution_node.datadir.path().join("jwt.hex")],
+            secret_file: Some(execution_node.datadir.path().join("jwt.hex")),
             ..Default::default()
         });
 
@@ -256,9 +254,9 @@ impl<E: EthSpec> LocalNetwork<E> {
 
         // Pair the beacon node and execution node.
         beacon_config.execution_layer = Some(execution_layer::Config {
-            execution_endpoints: vec![SensitiveUrl::parse(&execution_node.server.url()).unwrap()],
+            execution_endpoint: Some(SensitiveUrl::parse(&execution_node.server.url()).unwrap()),
             default_datadir: execution_node.datadir.path().to_path_buf(),
-            secret_files: vec![execution_node.datadir.path().join("jwt.hex")],
+            secret_file: Some(execution_node.datadir.path().join("jwt.hex")),
             ..Default::default()
         });
 
