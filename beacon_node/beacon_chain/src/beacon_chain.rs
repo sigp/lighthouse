@@ -1141,7 +1141,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blocks_checking_caches(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
-        executor: &TaskExecutor,
     ) -> Result<
         impl Stream<
             Item = (
@@ -1151,14 +1150,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?
-            .launch_stream(block_roots, executor))
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?.launch_stream(block_roots))
     }
 
     pub fn get_blocks(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
-        executor: &TaskExecutor,
     ) -> Result<
         impl Stream<
             Item = (
@@ -1168,8 +1165,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?
-            .launch_stream(block_roots, executor))
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?.launch_stream(block_roots))
     }
 
     pub fn get_blobs_checking_early_attester_cache(
