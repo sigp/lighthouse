@@ -289,6 +289,11 @@ pub trait EthSpec:
     fn electra_placeholder() -> usize {
         Self::ElectraPlaceholder::to_usize()
     }
+
+    /// Returns the `MAX_COMMITTEES_PER_SLOT` constant for this specification.
+    fn max_committees_per_slot() -> usize {
+        Self::MaxCommitteesPerSlot::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.

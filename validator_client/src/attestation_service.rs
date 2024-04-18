@@ -375,14 +375,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let duty = &duty_and_proof.duty;
             let attestation_data = attestation_data_ref;
 
-            // Ensure that the attestation matches the duties.
-            #[allow(clippy::suspicious_operation_groupings)]
             let committee_index = if self.spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
                 committee_index
             } else {
                 attestation_data.index
             };
 
+            // Ensure that the attestation matches the duties.
+            #[allow(clippy::suspicious_operation_groupings)]
             if duty.slot != attestation_data.slot || duty.committee_index != committee_index {
                 crit!(
                     log,
@@ -398,13 +398,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
             // TODO(attestation_data) populate index here for electra
             let mut attestation = if self.spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
-                Attestation::Base(AttestationBase {
-                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
-                        .unwrap(),
-                    data: attestation_data.clone(),
-                    signature: AggregateSignature::infinity(),
-                })
-            } else {
                 // TODO(eip7549) committee_bits should be init with correct length
                 let mut committee_bits = BitVector::default();
                 if duty.committee_length > 0 {
@@ -415,6 +408,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
                         .unwrap(),
                     committee_bits,
+                    data: attestation_data.clone(),
+                    signature: AggregateSignature::infinity(),
+                })
+            } else {
+                Attestation::Base(AttestationBase {
+                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
+                        .unwrap(),
                     data: attestation_data.clone(),
                     signature: AggregateSignature::infinity(),
                 })

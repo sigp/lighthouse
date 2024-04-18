@@ -148,7 +148,10 @@ pub mod indexed_attestation_electra {
             // TODO(eip7549) what should we do when theres no committee found for a given index?
         }
 
-        Ok(output.into_iter().collect_vec())
+        let mut indices = output.into_iter().collect_vec();
+        indices.sort_unstable();
+
+        Ok(indices)
     }
 
     fn get_committee_indices<E: EthSpec>(

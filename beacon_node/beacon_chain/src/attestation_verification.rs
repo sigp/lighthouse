@@ -1114,6 +1114,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     indexed_attestation: &IndexedAttestation<T::EthSpec>,
 ) -> Result<(), Error> {
+    println!("CHECK");
     let signature_setup_timer =
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
 

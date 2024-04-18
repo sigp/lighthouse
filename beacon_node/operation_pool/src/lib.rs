@@ -234,8 +234,8 @@ impl<E: EthSpec> OperationPool<E> {
         all_attestations
             .get_attestations(checkpoint_key)
             .filter(|att| {
-                att.data().slot + spec.min_attestation_inclusion_delay <= state.slot()
-                    && state.slot() <= att.data().slot + E::slots_per_epoch()
+                att.data.slot + spec.min_attestation_inclusion_delay <= state.slot()
+                    && state.slot() <= att.data.slot + E::slots_per_epoch()
             })
             .filter(validity_filter)
             .filter_map(move |att| {

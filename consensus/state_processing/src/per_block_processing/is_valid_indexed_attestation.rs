@@ -31,6 +31,8 @@ pub fn is_valid_indexed_attestation<E: EthSpec>(
                 if x < y {
                     Ok(())
                 } else {
+                    println!("{}", x);
+                    println!("{}", y);
                     Err(error(Invalid::BadValidatorIndicesOrdering(i)))
                 }
             })?;

@@ -184,7 +184,7 @@ impl<E: EthSpec> Attestation<E> {
     pub fn committee_index(&self) -> u64 {
         match self {
             Attestation::Base(att) => att.data.index,
-            Attestation::Electra(att) => att.committee_bits.highest_set_bit().unwrap_or(0) as u64,
+            Attestation::Electra(att) => *att.get_committee_indices().first().unwrap_or(&0u64),
         }
     }
 }
@@ -196,14 +196,9 @@ impl<E: EthSpec> AttestationElectra<E> {
             .intersection(&other.aggregation_bits)
             .is_zero()
     }
-    
 
-
-    pub fn get_committee_indices(
-        &self,
-    ) -> Vec<u64> {
-        self
-            .committee_bits
+    pub fn get_committee_indices(&self) -> Vec<u64> {
+        self.committee_bits
             .iter()
             .enumerate()
             .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
