@@ -368,7 +368,8 @@ pub async fn ensure_node_synced_up_to_slot<E: EthSpec>(
     }
 }
 
-/// Verifies that there's been a block produced at every slot up to and including `slot`.
+/// Verifies that there's been blobs produced at every slot with a block from `blob_start_slot` up
+/// to and including `upto_slot`.
 pub async fn verify_full_blob_production_up_to<E: EthSpec>(
     network: LocalNetwork<E>,
     blob_start_slot: Slot,
@@ -424,7 +425,7 @@ pub async fn reconnect_to_execution_layer<E: EthSpec>(
         .server
         .all_payloads_valid();
 
-    eprintln!("Re-enabling Execution Node {node_index}");
+    eprintln!("Enabling Execution Node {node_index}");
     Ok(())
 }
 

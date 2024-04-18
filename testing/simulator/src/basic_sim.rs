@@ -15,7 +15,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
-const END_EPOCH: u64 = 10;
+const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 32;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
@@ -262,8 +262,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             ),
             checks::verify_full_blob_production_up_to(
                 network.clone(),
-                // Blobs should be available from the first slot after the Deneb fork.
-                Epoch::new(DENEB_FORK_EPOCH + 1).start_slot(slots_per_epoch) + 1,
+                // Blobs should be available immediately after the Deneb fork.
+                Epoch::new(DENEB_FORK_EPOCH).start_slot(slots_per_epoch),
                 Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
                 slot_duration
             ),

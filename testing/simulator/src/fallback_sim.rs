@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
-const END_EPOCH: u64 = 10;
+const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 32;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
@@ -106,7 +106,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
     let disconnection_epoch = 1;
-    let epochs_disconnected = 6;
+    let epochs_disconnected = 14;
 
     let context = env.core_context();
 
@@ -209,7 +209,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
          * breakage by changes to the VC.
          */
 
-        let (sequence, check_attestations) = futures::join!(
+        let (sequence, check_attestations, block_production) = futures::join!(
             test_sequence,
             checks::check_attestation_correctness(
                 network.clone(),
@@ -220,8 +220,14 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
                 node_count - 1,
                 ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE,
             ),
+            checks::verify_full_block_production_up_to(
+                network.clone(),
+                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
+                slot_duration,
+            ),
         );
         sequence?;
+        block_production?;
         check_attestations?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
