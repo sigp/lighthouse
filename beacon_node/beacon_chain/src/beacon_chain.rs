@@ -5213,12 +5213,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             for attestation in unaggregated_attestations.iter().skip(1) {
-                aggregate_attestation
-                    .signature
-                    .add_assign_aggregate(&attestation.signature);
-                aggregate_attestation
-                    .aggregation_bits
-                    .union(&attestation.aggregation_bits);
+                aggregate_attestation.aggregate(&attestation);
             }
 
             return Ok(vec![Attestation::Electra(aggregate_attestation)]);
