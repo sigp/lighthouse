@@ -128,8 +128,12 @@ pub fn get_config<E: EthSpec>(
             client_config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
-        if let Some(fork_name) = clap_utils::parse_optional(cli_args, "http-spec-fork")? {
-            client_config.http_api.spec_fork_name = Some(fork_name);
+        if cli_args.is_present("http-spec-fork") {
+            warn!(
+                log,
+                "Ignoring --http-spec-fork";
+                "info" => "this flag is deprecated and will be removed"
+            );
         }
 
         if cli_args.is_present("http-enable-tls") {
@@ -148,7 +152,11 @@ pub fn get_config<E: EthSpec>(
         }
 
         if cli_args.is_present("http-allow-sync-stalled") {
-            client_config.http_api.allow_sync_stalled = true;
+            warn!(
+                log,
+                "Ignoring --http-allow-sync-stalled";
+                "info" => "this flag is deprecated and will be removed"
+            );
         }
 
         client_config.http_api.sse_capacity_multiplier =

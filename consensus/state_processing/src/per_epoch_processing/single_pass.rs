@@ -121,7 +121,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let next_epoch = state.next_epoch()?;
     let is_in_inactivity_leak = state.is_in_inactivity_leak(previous_epoch, spec)?;
     let total_active_balance = state.get_total_active_balance()?;
-    let churn_limit = state.get_churn_limit(spec)?;
+    let churn_limit = state.get_validator_churn_limit(spec)?;
     let activation_churn_limit = state.get_activation_churn_limit(spec)?;
     let finalized_checkpoint = state.finalized_checkpoint();
     let fork_name = state.fork_name_unchecked();

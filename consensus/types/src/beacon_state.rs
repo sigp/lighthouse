@@ -1547,7 +1547,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Return the churn limit for the current epoch (number of validators who can leave per epoch).
     ///
     /// Uses the current epoch committee cache, and will error if it isn't initialized.
-    pub fn get_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+    pub fn get_validator_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         Ok(std::cmp::max(
             spec.min_per_epoch_churn_limit,
             (self
@@ -1565,10 +1565,10 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Base(_)
             | BeaconState::Altair(_)
             | BeaconState::Merge(_)
-            | BeaconState::Capella(_) => self.get_churn_limit(spec)?,
+            | BeaconState::Capella(_) => self.get_validator_churn_limit(spec)?,
             BeaconState::Deneb(_) | BeaconState::Electra(_) => std::cmp::min(
                 spec.max_per_epoch_activation_churn_limit,
-                self.get_churn_limit(spec)?,
+                self.get_validator_churn_limit(spec)?,
             ),
         })
     }

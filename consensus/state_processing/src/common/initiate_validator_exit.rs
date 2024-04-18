@@ -26,7 +26,7 @@ pub fn initiate_validator_exit<E: EthSpec>(
         .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
     let exit_queue_churn = state.exit_cache().get_churn_at(exit_queue_epoch)?;
 
-    if exit_queue_churn >= state.get_churn_limit(spec)? {
+    if exit_queue_churn >= state.get_validator_churn_limit(spec)? {
         exit_queue_epoch.safe_add_assign(1)?;
     }
 

@@ -228,7 +228,7 @@ impl RPCRateLimiterBuilder {
 
 pub trait RateLimiterItem {
     fn protocol(&self) -> Protocol;
-    fn expected_responses(&self) -> u64;
+    fn max_responses(&self) -> u64;
 }
 
 impl<E: EthSpec> RateLimiterItem for super::InboundRequest<E> {
@@ -236,8 +236,8 @@ impl<E: EthSpec> RateLimiterItem for super::InboundRequest<E> {
         self.versioned_protocol().protocol()
     }
 
-    fn expected_responses(&self) -> u64 {
-        self.expected_responses()
+    fn max_responses(&self) -> u64 {
+        self.max_responses()
     }
 }
 
@@ -246,8 +246,8 @@ impl<E: EthSpec> RateLimiterItem for super::OutboundRequest<E> {
         self.versioned_protocol().protocol()
     }
 
-    fn expected_responses(&self) -> u64 {
-        self.expected_responses()
+    fn max_responses(&self) -> u64 {
+        self.max_responses()
     }
 }
 impl RPCRateLimiter {
@@ -299,7 +299,7 @@ impl RPCRateLimiter {
         request: &Item,
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
-        let tokens = request.expected_responses().max(1);
+        let tokens = request.max_responses().max(1);
 
         let check =
             |limiter: &mut Limiter<PeerId>| limiter.allows(time_since_start, peer_id, tokens);
