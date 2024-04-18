@@ -89,7 +89,7 @@ pub async fn gossip_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 }".to_string())
     );
 }
 
@@ -277,7 +277,7 @@ pub async fn consensus_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 }".to_string())
     );
 }
 
@@ -488,8 +488,12 @@ pub async fn equivocation_invalid() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
+    let eth2::Error::ServerMessage(err) = error_response else {
+        panic!("unexpected error: {error_response:?}");
+    };
+    assert_eq!(
+        err.message,
+        "BAD_REQUEST: NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 }".to_string()
     );
 }
 
@@ -560,7 +564,7 @@ pub async fn equivocation_consensus_early_equivocation() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: BlockError(Slashable)".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: Slashable".to_string())
     );
 }
 
@@ -786,7 +790,7 @@ pub async fn blinded_gossip_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 }".to_string())
     );
 }
 
@@ -967,7 +971,7 @@ pub async fn blinded_consensus_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 }".to_string())
     );
 }
 
@@ -1110,8 +1114,12 @@ pub async fn blinded_equivocation_invalid() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
+    let eth2::Error::ServerMessage(err) = error_response else {
+        panic!("unexpected error: {error_response:?}");
+    };
+    assert_eq!(
+        err.message,
+        "BAD_REQUEST: NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 }".to_string()
     );
 }
 
@@ -1178,7 +1186,7 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: BlockError(Slashable)".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: Slashable".to_string())
     );
 }
 

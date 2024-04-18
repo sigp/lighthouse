@@ -890,7 +890,7 @@ async fn block_gossip_verification() {
 
                 harness
                     .chain
-                    .process_gossip_blob(gossip_verified)
+                    .process_gossip_blob(gossip_verified, || Ok(()))
                     .await
                     .expect("should import valid gossip verified blob");
             }
@@ -1155,7 +1155,7 @@ async fn verify_block_for_gossip_slashing_detection() {
                 .unwrap();
             harness
                 .chain
-                .process_gossip_blob(verified_blob)
+                .process_gossip_blob(verified_blob, || Ok(()))
                 .await
                 .unwrap();
         }
