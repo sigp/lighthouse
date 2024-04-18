@@ -77,7 +77,6 @@ recap:
 
 ### Automatic validator discovery
 
-> Note: The description below only applies when the keystore files are created using the [`lighthouse account validator create`](./key-management.md) command, which has been deprecated. 
 
 When the `--disable-auto-discover` flag is **not** provided, the validator client will search the
 `validator-dir` for validators and add any *new* validators to the
