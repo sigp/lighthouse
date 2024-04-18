@@ -628,7 +628,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_beacon_blocks_finalized<T: EthSpec>(self) -> Self {
+    pub async fn test_beacon_blocks_finalized<E: EthSpec>(self) -> Self {
         for block_id in self.interesting_block_ids() {
             let block_root = block_id.root(&self.chain);
             let block = block_id.full_block(&self.chain).await;
@@ -665,7 +665,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_beacon_blinded_blocks_finalized<T: EthSpec>(self) -> Self {
+    pub async fn test_beacon_blinded_blocks_finalized<E: EthSpec>(self) -> Self {
         for block_id in self.interesting_block_ids() {
             let block_root = block_id.root(&self.chain);
             let block = block_id.full_block(&self.chain).await;
@@ -1931,9 +1931,9 @@ impl ApiTester {
     pub async fn test_get_config_spec(self) -> Self {
         let result = self
             .client
-            .get_config_spec::<ConfigAndPresetDeneb>()
+            .get_config_spec::<ConfigAndPresetElectra>()
             .await
-            .map(|res| ConfigAndPreset::Deneb(res.data))
+            .map(|res| ConfigAndPreset::Electra(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
 
@@ -5528,11 +5528,11 @@ impl ApiTester {
     }
 }
 
-async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin, T: EthSpec>(
+async fn poll_events<S: Stream<Item = Result<EventKind<E>, eth2::Error>> + Unpin, E: EthSpec>(
     stream: &mut S,
     num_events: usize,
     timeout: Duration,
-) -> Vec<EventKind<T>> {
+) -> Vec<EventKind<E>> {
     let mut events = Vec::new();
 
     let collect_stream_fut = async {

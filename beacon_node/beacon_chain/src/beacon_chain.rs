@@ -95,6 +95,7 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
     common::get_attesting_indices_from_state,
+    epoch_cache::initialize_epoch_cache,
     per_block_processing,
     per_block_processing::{
         errors::AttestationValidationError, get_expected_withdrawals,
@@ -215,14 +216,14 @@ impl TryInto<Hash256> for AvailabilityProcessingStatus {
 }
 
 /// The result of a chain segment processing.
-pub enum ChainSegmentResult<T: EthSpec> {
+pub enum ChainSegmentResult<E: EthSpec> {
     /// Processing this chain segment finished successfully.
     Successful { imported_blocks: usize },
     /// There was an error processing this chain segment. Before the error, some blocks could
     /// have been imported.
     Failed {
         imported_blocks: usize,
-        error: BlockError<T>,
+        error: BlockError<E>,
     },
 }
 
@@ -358,6 +359,9 @@ pub type BeaconStore<T> = Arc<
     >,
 >;
 
+/// Cache gossip verified blocks to serve over ReqResp before they are imported
+type ReqRespPreImportCache<E> = HashMap<Hash256, Arc<SignedBeaconBlock<E>>>;
+
 /// Represents the "Beacon Chain" component of Ethereum 2.0. Allows import of blocks and block
 /// operations and chooses a canonical head.
 pub struct BeaconChain<T: BeaconChainTypes> {
@@ -460,6 +464,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) attester_cache: Arc<AttesterCache>,
     /// A cache used when producing attestations whilst the head block is still being imported.
     pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
+    /// Cache gossip verified blocks to serve over ReqResp before they are imported
+    pub reqresp_pre_import_cache: Arc<RwLock<ReqRespPreImportCache<T::EthSpec>>>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
@@ -493,9 +499,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub block_production_state: Arc<Mutex<Option<(Hash256, BlockProductionPreState<T::EthSpec>)>>>,
 }
 
-pub enum BeaconBlockResponseWrapper<T: EthSpec> {
-    Full(BeaconBlockResponse<T, FullPayload<T>>),
-    Blinded(BeaconBlockResponse<T, BlindedPayload<T>>),
+pub enum BeaconBlockResponseWrapper<E: EthSpec> {
+    Full(BeaconBlockResponse<E, FullPayload<E>>),
+    Blinded(BeaconBlockResponse<E, BlindedPayload<E>>),
 }
 
 impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
@@ -530,13 +536,13 @@ impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
 }
 
 /// The components produced when the local beacon node creates a new block to extend the chain
-pub struct BeaconBlockResponse<T: EthSpec, Payload: AbstractExecPayload<T>> {
+pub struct BeaconBlockResponse<E: EthSpec, Payload: AbstractExecPayload<E>> {
     /// The newly produced beacon block
-    pub block: BeaconBlock<T, Payload>,
+    pub block: BeaconBlock<E, Payload>,
     /// The post-state after applying the new block
-    pub state: BeaconState<T>,
+    pub state: BeaconState<E>,
     /// The Blobs / Proofs associated with the new block
-    pub blob_items: Option<(KzgProofs<T>, BlobsList<T>)>,
+    pub blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     /// The execution layer reward for the block
     pub execution_payload_value: Uint256,
     /// The consensus layer reward to the proposer
@@ -1133,7 +1139,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blocks_checking_caches(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
-        executor: &TaskExecutor,
     ) -> Result<
         impl Stream<
             Item = (
@@ -1143,14 +1148,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?
-            .launch_stream(block_roots, executor))
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?.launch_stream(block_roots))
     }
 
     pub fn get_blocks(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
-        executor: &TaskExecutor,
     ) -> Result<
         impl Stream<
             Item = (
@@ -1160,8 +1163,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?
-            .launch_stream(block_roots, executor))
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?.launch_stream(block_roots))
     }
 
     pub fn get_blobs_checking_early_attester_cache(
@@ -2906,9 +2908,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        self.data_availability_checker
-            .notify_gossip_blob(block_root, &blob);
-
         let r = self.check_gossip_blob_availability_and_import(blob).await;
         self.remove_notified(&block_root, r)
     }
@@ -2941,8 +2940,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        self.data_availability_checker
-            .notify_rpc_blobs(block_root, &blobs);
         let r = self
             .check_rpc_blob_availability_and_import(slot, block_root, blobs)
             .await;
@@ -2959,7 +2956,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let has_missing_components =
             matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
         if !has_missing_components {
-            self.data_availability_checker.remove_notified(block_root);
+            self.reqresp_pre_import_cache.write().remove(block_root);
         }
         r
     }
@@ -2972,8 +2969,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        self.data_availability_checker
-            .notify_block(block_root, unverified_block.block_cloned());
+        self.reqresp_pre_import_cache
+            .write()
+            .insert(block_root, unverified_block.block_cloned());
+
         let r = self
             .process_block(block_root, unverified_block, notify_execution_layer, || {
                 Ok(())
@@ -3384,9 +3383,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_delay,
                     &state,
                     payload_verification_status,
-                    self.config.progressive_balances_mode,
                     &self.spec,
-                    &self.log,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
@@ -4276,7 +4273,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_slot: Slot,
         canonical_head: Hash256,
     ) -> Option<BlockProductionPreState<T::EthSpec>> {
-        let re_org_threshold = self.config.re_org_threshold?;
+        let re_org_head_threshold = self.config.re_org_head_threshold?;
+        let re_org_parent_threshold = self.config.re_org_parent_threshold?;
 
         if self.spec.proposer_score_boost.is_none() {
             warn!(
@@ -4333,7 +4331,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_proposer_head(
                 slot,
                 canonical_head,
-                re_org_threshold,
+                re_org_head_threshold,
+                re_org_parent_threshold,
                 &self.config.re_org_disallowed_offsets,
                 self.config.re_org_max_epochs_since_finalization,
             )
@@ -4387,7 +4386,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "weak_head" => ?canonical_head,
             "parent" => ?re_org_parent_block,
             "head_weight" => proposer_head.head_node.weight,
-            "threshold_weight" => proposer_head.re_org_weight_threshold
+            "threshold_weight" => proposer_head.re_org_head_weight_threshold
         );
 
         Some(pre_state)
@@ -4607,9 +4606,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_OVERRIDE_FCU_TIMES);
 
         // Never override if proposer re-orgs are disabled.
-        let re_org_threshold = self
+        let re_org_head_threshold = self
             .config
-            .re_org_threshold
+            .re_org_head_threshold
+            .ok_or(DoNotReOrg::ReOrgsDisabled)?;
+
+        let re_org_parent_threshold = self
+            .config
+            .re_org_parent_threshold
             .ok_or(DoNotReOrg::ReOrgsDisabled)?;
 
         let head_block_root = canonical_forkchoice_params.head_root;
@@ -4620,7 +4624,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .get_preliminary_proposer_head(
                 head_block_root,
-                re_org_threshold,
+                re_org_head_threshold,
+                re_org_parent_threshold,
                 &self.config.re_org_disallowed_offsets,
                 self.config.re_org_max_epochs_since_finalization,
             )
@@ -4688,16 +4693,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // If the current slot is already equal to the proposal slot (or we are in the tail end of
-        // the prior slot), then check the actual weight of the head against the re-org threshold.
-        let head_weak = if fork_choice_slot == re_org_block_slot {
-            info.head_node.weight < info.re_org_weight_threshold
+        // the prior slot), then check the actual weight of the head against the head re-org threshold
+        // and the actual weight of the parent against the parent re-org threshold.
+        let (head_weak, parent_strong) = if fork_choice_slot == re_org_block_slot {
+            (
+                info.head_node.weight < info.re_org_head_weight_threshold,
+                info.parent_node.weight > info.re_org_parent_weight_threshold,
+            )
         } else {
-            true
+            (true, true)
         };
         if !head_weak {
             return Err(DoNotReOrg::HeadNotWeak {
                 head_weight: info.head_node.weight,
-                re_org_weight_threshold: info.re_org_weight_threshold,
+                re_org_head_weight_threshold: info.re_org_head_weight_threshold,
+            }
+            .into());
+        }
+        if !parent_strong {
+            return Err(DoNotReOrg::ParentNotStrong {
+                parent_weight: info.parent_node.weight,
+                re_org_parent_weight_threshold: info.re_org_parent_weight_threshold,
             }
             .into());
         }
@@ -4936,7 +4952,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Deneb(_) => {
+            BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => {
                 let prepare_payload_handle = get_execution_payload(
                     self.clone(),
                     &state,
@@ -4990,6 +5009,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let attestation_packing_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
+
+        // Epoch cache and total balance cache are required for op pool packing.
+        state.build_total_active_balance_cache(&self.spec)?;
+        initialize_epoch_cache(&mut state, &self.spec)?;
 
         let mut prev_filter_cache = HashMap::new();
         let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
@@ -5291,6 +5314,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     "Kzg commitments missing from block contents".to_string(),
                                 ),
                             )?,
+                        },
+                    }),
+                    maybe_blobs_and_proofs,
+                    execution_payload_value,
+                )
+            }
+            BeaconState::Electra(_) => {
+                let (payload, kzg_commitments, maybe_blobs_and_proofs, execution_payload_value) =
+                    block_contents
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
+                        .deconstruct();
+
+                (
+                    BeaconBlock::Electra(BeaconBlockElectra {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root: Hash256::zero(),
+                        body: BeaconBlockBodyElectra {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings: proposer_slashings.into(),
+                            attester_slashings: attester_slashings.into(),
+                            attestations: attestations.into(),
+                            deposits: deposits.into(),
+                            voluntary_exits: voluntary_exits.into(),
+                            sync_aggregate: sync_aggregate
+                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                            execution_payload: payload
+                                .try_into()
+                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            blob_kzg_commitments: kzg_commitments
+                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
                         },
                     }),
                     maybe_blobs_and_proofs,
@@ -5620,7 +5678,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
             let withdrawals = match prepare_slot_fork {
                 ForkName::Base | ForkName::Altair | ForkName::Merge => None,
-                ForkName::Capella | ForkName::Deneb => {
+                ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                     let chain = self.clone();
                     self.spawn_blocking_handle(
                         move || {
@@ -5635,7 +5693,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let parent_beacon_block_root = match prepare_slot_fork {
                 ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => None,
-                ForkName::Deneb => Some(pre_payload_attributes.parent_beacon_block_root),
+                ForkName::Deneb | ForkName::Electra => {
+                    Some(pre_payload_attributes.parent_beacon_block_root)
+                }
             };
 
             let payload_attributes = PayloadAttributes::new(
@@ -6675,7 +6735,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Error::InconsistentFork)?;
 
         match fork_name {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
+            ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
                 LightClientBootstrap::from_beacon_state(&mut state, &block, &self.spec)
                     .map(|bootstrap| Some((bootstrap, fork_name)))
                     .map_err(Error::LightClientError)
@@ -6727,8 +6791,8 @@ impl From<BeaconStateError> for Error {
     }
 }
 
-impl<T: EthSpec> ChainSegmentResult<T> {
-    pub fn into_block_error(self) -> Result<(), BlockError<T>> {
+impl<E: EthSpec> ChainSegmentResult<E> {
+    pub fn into_block_error(self) -> Result<(), BlockError<E>> {
         match self {
             ChainSegmentResult::Failed { error, .. } => Err(error),
             ChainSegmentResult::Successful { .. } => Ok(()),
