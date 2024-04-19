@@ -27,7 +27,7 @@ pub struct DietAvailabilityPendingExecutedBlock<E: EthSpec> {
     parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     parent_eth1_finalization_data: Eth1FinalizationData,
     confirmed_state_roots: Vec<Hash256>,
-    consensus_context: OnDiskConsensusContext,
+    consensus_context: OnDiskConsensusContext<E>,
     payload_verification_outcome: PayloadVerificationOutcome,
 }
 
@@ -96,7 +96,7 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
             parent_eth1_finalization_data: executed_block.import_data.parent_eth1_finalization_data,
             confirmed_state_roots: executed_block.import_data.confirmed_state_roots,
             consensus_context: OnDiskConsensusContext::from_consensus_context(
-                &executed_block.import_data.consensus_context,
+                executed_block.import_data.consensus_context,
             ),
             payload_verification_outcome: executed_block.payload_verification_outcome,
         }
@@ -239,7 +239,7 @@ impl<E: EthSpec> From<AvailabilityPendingExecutedBlock<E>>
             parent_eth1_finalization_data: value.import_data.parent_eth1_finalization_data,
             confirmed_state_roots: value.import_data.confirmed_state_roots,
             consensus_context: OnDiskConsensusContext::from_consensus_context(
-                &value.import_data.consensus_context,
+                value.import_data.consensus_context,
             ),
             payload_verification_outcome: value.payload_verification_outcome,
         }

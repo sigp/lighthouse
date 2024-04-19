@@ -59,6 +59,7 @@ impl<E: EthSpec> ConsensusContext<E> {
         }
     }
 
+    #[must_use]
     pub fn set_proposer_index(mut self, proposer_index: u64) -> Self {
         self.proposer_index = Some(proposer_index);
         self
@@ -106,6 +107,7 @@ impl<E: EthSpec> ConsensusContext<E> {
         Ok(proposer_index)
     }
 
+    #[must_use]
     pub fn set_current_block_root(mut self, block_root: Hash256) -> Self {
         self.current_block_root = Some(block_root);
         self
@@ -170,5 +172,17 @@ impl<E: EthSpec> ConsensusContext<E> {
 
     pub fn num_cached_indexed_attestations(&self) -> usize {
         self.indexed_attestations.len()
+    }
+
+    #[must_use]
+    pub fn set_indexed_attestations(
+        mut self,
+        attestations: HashMap<
+            (AttestationData, BitList<E::MaxValidatorsPerCommittee>),
+            IndexedAttestation<E>,
+        >,
+    ) -> Self {
+        self.indexed_attestations = attestations;
+        self
     }
 }
