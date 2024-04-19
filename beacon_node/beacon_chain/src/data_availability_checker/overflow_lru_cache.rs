@@ -381,7 +381,7 @@ impl<E: EthSpec> PendingComponents<E> {
 enum OverflowKey {
     Block(Hash256),
     Blob(Hash256, u8),
-    DataColumn(Hash256, u8),
+    DataColumn(Hash256),
 }
 
 impl OverflowKey {
@@ -408,17 +408,14 @@ impl OverflowKey {
                 data_column_id.index,
             ));
         }
-        Ok(Self::DataColumn(
-            data_column_id.block_root,
-            data_column_id.index as u8,
-        ))
+        Ok(Self::DataColumn(data_column_id.block_root))
     }
 
     pub fn root(&self) -> &Hash256 {
         match self {
             Self::Block(root) => root,
             Self::Blob(root, _) => root,
-            Self::DataColumn(root, _) => root,
+            Self::DataColumn(root) => root,
         }
     }
 }
@@ -504,8 +501,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
                         .ok_or(AvailabilityCheckError::BlobIndexInvalid(index as u64))? =
                         Some(KzgVerifiedBlob::from_ssz_bytes(value_bytes.as_slice())?);
                 }
-                // TODO(das): Remove unused index
-                OverflowKey::DataColumn(_, _index) => {
+                OverflowKey::DataColumn(_) => {
                     let data_column =
                         KzgVerifiedDataColumn::from_ssz_bytes(value_bytes.as_slice())?;
                     maybe_pending_components
@@ -1075,7 +1071,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                                 .slot()
                                 .epoch(T::EthSpec::slots_per_epoch())
                         }
-                        OverflowKey::DataColumn(_, _) => {
+                        OverflowKey::DataColumn(_) => {
                             KzgVerifiedDataColumn::<T::EthSpec>::from_ssz_bytes(
                                 value_bytes.as_slice(),
                             )?
@@ -1136,9 +1132,9 @@ impl ssz::Encode for OverflowKey {
                 block_hash.ssz_append(buf);
                 buf.push(*index + 1)
             }
-            OverflowKey::DataColumn(block_hash, index) => {
+            OverflowKey::DataColumn(block_hash) => {
                 block_hash.ssz_append(buf);
-                buf.push(*index + 1)
+                buf.push(0u8)
             }
         }
     }
@@ -1151,7 +1147,7 @@ impl ssz::Encode for OverflowKey {
         match self {
             Self::Block(root) => root.ssz_bytes_len() + 1,
             Self::Blob(root, _) => root.ssz_bytes_len() + 1,
-            Self::DataColumn(root, _) => root.ssz_bytes_len() + 1,
+            Self::DataColumn(root) => root.ssz_bytes_len() + 1,
         }
     }
 }
@@ -1444,7 +1440,6 @@ mod test {
         (harness, cache, chain_db_path)
     }
 
-    // TODO(das): add test for custody columns.
     #[tokio::test]
     async fn overflow_cache_test_insert_components() {
         type E = MinimalEthSpec;
