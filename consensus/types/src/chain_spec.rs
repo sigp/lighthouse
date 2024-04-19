@@ -828,6 +828,8 @@ impl ChainSpec {
             // Electra
             electra_fork_version: [0x05, 0x00, 0x00, 0x01],
             electra_fork_epoch: None,
+            // PeerDAS
+            peer_das_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -1141,6 +1143,11 @@ pub struct Config {
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub electra_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub peer_das_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -1517,6 +1524,10 @@ impl Config {
                 .electra_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            peer_das_epoch: spec
+                .peer_das_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
@@ -1590,6 +1601,7 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch,
             electra_fork_version,
+            peer_das_epoch,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1648,6 +1660,7 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
             electra_fork_version,
+            peer_das_epoch: peer_das_epoch.map(|q| q.value),
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
