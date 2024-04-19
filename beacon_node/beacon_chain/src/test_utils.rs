@@ -416,21 +416,17 @@ where
         self
     }
 
-    pub fn execution_layer_from_urls(mut self, urls: &[&str]) -> Self {
+    pub fn execution_layer_from_url(mut self, url: &str) -> Self {
         assert!(
             self.execution_layer.is_none(),
             "execution layer already defined"
         );
 
-        let urls: Vec<SensitiveUrl> = urls
-            .iter()
-            .map(|s| SensitiveUrl::parse(s))
-            .collect::<Result<_, _>>()
-            .unwrap();
+        let url = SensitiveUrl::parse(url).ok();
 
         let config = execution_layer::Config {
-            execution_endpoints: urls,
-            secret_files: vec![],
+            execution_endpoint: url,
+            secret_file: None,
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };

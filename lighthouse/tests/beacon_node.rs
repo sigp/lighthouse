@@ -425,13 +425,16 @@ fn run_merge_execution_endpoints_flag_test(flag: &str) {
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.execution_endpoints.len(), 1);
+            assert_eq!(config.execution_endpoint.is_some(), true);
             assert_eq!(
-                config.execution_endpoints[0],
+                config.execution_endpoint.as_ref().unwrap().clone(),
                 SensitiveUrl::parse(&urls[0]).unwrap()
             );
             // Only the first secret file should be used.
-            assert_eq!(config.secret_files, vec![jwts[0].clone()]);
+            assert_eq!(
+                config.secret_file.as_ref().unwrap().clone(),
+                jwts[0].clone()
+            );
         });
 }
 #[test]
@@ -444,11 +447,11 @@ fn run_execution_jwt_secret_key_is_persisted() {
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoints[0].full.to_string(),
+                config.execution_endpoint.as_ref().unwrap().full.to_string(),
                 "http://localhost:8551/"
             );
             let mut file_jwt_secret_key = String::new();
-            File::open(config.secret_files[0].clone())
+            File::open(config.secret_file.as_ref().unwrap())
                 .expect("could not open jwt_secret_key file")
                 .read_to_string(&mut file_jwt_secret_key)
                 .expect("could not read from file");
@@ -495,10 +498,13 @@ fn merge_jwt_secrets_flag() {
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoints[0].full.to_string(),
+                config.execution_endpoint.as_ref().unwrap().full.to_string(),
                 "http://localhost:8551/"
             );
-            assert_eq!(config.secret_files[0], dir.path().join("jwt-file"));
+            assert_eq!(
+                config.secret_file.as_ref().unwrap().clone(),
+                dir.path().join("jwt-file")
+            );
         });
 }
 #[test]

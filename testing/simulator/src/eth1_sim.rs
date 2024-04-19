@@ -395,11 +395,9 @@ async fn create_local_network<E: EthSpec>(
 
     if post_merge_sim {
         let el_config = execution_layer::Config {
-            execution_endpoints: vec![SensitiveUrl::parse(&format!(
-                "http://localhost:{}",
-                EXECUTION_PORT
-            ))
-            .unwrap()],
+            execution_endpoint: Some(
+                SensitiveUrl::parse(&format!("http://localhost:{}", EXECUTION_PORT)).unwrap(),
+            ),
             ..Default::default()
         };
 
