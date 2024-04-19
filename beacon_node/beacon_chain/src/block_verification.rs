@@ -773,6 +773,8 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
     gossip_verified_blobs: Option<&GossipVerifiedBlobList<T>>,
 ) -> Result<Option<GossipVerifiedDataColumnList<T>>, BlockContentsError<T::EthSpec>> {
     gossip_verified_blobs
+        // Only attempt to build data columns if blobs is non empty to avoid skewing the metrics.
+        .filter(|b| !b.is_empty())
         .map(|blobs| {
             // NOTE: we expect KZG to be initialized if the blobs are present
             let kzg = chain
@@ -786,7 +788,7 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
             let blob_sidecar_list = BlobSidecarList::new(blob_sidecar_list)
                 .map_err(DataColumnSidecarError::SszError)?;
             let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
-            let sidecars = DataColumnSidecar::build_sidecars(&blob_sidecar_list, &block, kzg)?;
+            let sidecars = DataColumnSidecar::build_sidecars(&blob_sidecar_list, block, kzg)?;
             drop(timer);
             let mut gossip_verified_data_columns = vec![];
             for sidecar in sidecars {

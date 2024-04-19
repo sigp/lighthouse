@@ -60,6 +60,7 @@ eth2_network_config = { workspace = true }
 state_processing = { workspace = true }
 tokio = { workspace = true }
 paste = { workspace = true }
+mockall_double = { workspace = true }
 
 [features]
 default = ["sqlite", "legacy-arith"]
