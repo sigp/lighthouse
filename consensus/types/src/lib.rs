@@ -41,9 +41,11 @@ pub mod eth_spec;
 pub mod execution_block_hash;
 pub mod execution_payload;
 pub mod execution_payload_header;
+pub mod feature_name;
 pub mod fork;
 pub mod fork_data;
 pub mod fork_name;
+pub mod fork_order;
 pub mod fork_versioned_response;
 pub mod graffiti;
 pub mod historical_batch;
@@ -153,6 +155,7 @@ pub use crate::execution_payload_header::{
     ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef,
     ExecutionPayloadHeaderRefMut,
 };
+pub use crate::feature_name::FeatureName;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;

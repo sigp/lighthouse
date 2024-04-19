@@ -194,7 +194,8 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb, Electra),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
     variant_attributes(
         derive(
             Derivative,
@@ -268,15 +269,15 @@ where
     pub slashings: FixedVector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
-    #[superstruct(only(Base))]
+    #[superstruct(feature(not(SyncCommittees)))]
     pub previous_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
-    #[superstruct(only(Base))]
+    #[superstruct(feature(not(SyncCommittees)))]
     pub current_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(feature(SyncCommittees))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(feature(SyncCommittees))]
     pub current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
@@ -291,13 +292,13 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(feature(SyncCommittees))]
     pub inactivity_scores: VariableList<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(feature(SyncCommittees))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(feature(SyncCommittees))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
@@ -323,14 +324,14 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
 
     // Capella
-    #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
+    #[superstruct(feature(Withdrawals), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
+    #[superstruct(feature(Withdrawals), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Withdrawals))]
     pub historical_summaries: VariableList<HistoricalSummary, E::HistoricalRootsLimit>,
 
     // Caching (not in the spec)
