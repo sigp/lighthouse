@@ -193,7 +193,11 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// WARNING: This function can potentially take a lot of time if the state needs to be
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    pub fn make_available<R, Clock>(self, recover: R, slot_clock: &Clock) -> Result<Availability<E>, AvailabilityCheckError>
+    pub fn make_available<R, Clock>(
+        self,
+        recover: R,
+        slot_clock: &Clock,
+    ) -> Result<Availability<E>, AvailabilityCheckError>
     where
         R: FnOnce(
             DietAvailabilityPendingExecutedBlock<E>,

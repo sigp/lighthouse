@@ -1405,7 +1405,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
     // sync.
     if !block_from_sync {
-
         // Observe the delay between when we imported the block and when we set the block as
         // head.
         let block_delays = block_times_cache.get_block_delays(
@@ -1464,7 +1463,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 .unwrap_or_else(|| Duration::from_secs(0))
                 .as_millis() as i64,
         );
-
 
         // The time the block became attestable after the start of the slot.
         metrics::set_gauge(

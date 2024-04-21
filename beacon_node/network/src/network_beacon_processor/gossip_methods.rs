@@ -615,10 +615,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let commitment = blob_sidecar.kzg_commitment;
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
-        metrics::set_gauge(
-            &metrics::BEACON_BLOB_DELAY_GOSSIP,
-            delay.as_millis() as i64,
-        );
+        metrics::set_gauge(&metrics::BEACON_BLOB_DELAY_GOSSIP, delay.as_millis() as i64);
         match self
             .chain
             .verify_blob_sidecar_for_gossip(blob_sidecar, blob_index)
