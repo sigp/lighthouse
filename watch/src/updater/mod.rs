@@ -24,14 +24,14 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAINNET: &str = "mainnet";
 const GNOSIS: &str = "gnosis";
 
-pub struct WatchSpec<T: EthSpec> {
+pub struct WatchSpec<E: EthSpec> {
     network: String,
-    spec: PhantomData<T>,
+    spec: PhantomData<E>,
 }
 
-impl<T: EthSpec> WatchSpec<T> {
+impl<E: EthSpec> WatchSpec<E> {
     fn slots_per_epoch(&self) -> u64 {
-        T::slots_per_epoch()
+        E::slots_per_epoch()
     }
 }
 
@@ -87,9 +87,9 @@ pub async fn run_updater(config: FullConfig) -> Result<(), Error> {
     }
 }
 
-pub async fn run_once<T: EthSpec>(
+pub async fn run_once<E: EthSpec>(
     bn: BeaconNodeHttpClient,
-    spec: WatchSpec<T>,
+    spec: WatchSpec<E>,
     config: FullConfig,
 ) -> Result<(), Error> {
     let mut watch = UpdateHandler::new(bn, spec, config.clone()).await?;
@@ -190,10 +190,10 @@ pub async fn get_header(
     Ok(None)
 }
 
-pub async fn get_beacon_block<T: EthSpec>(
+pub async fn get_beacon_block<E: EthSpec>(
     bn: &BeaconNodeHttpClient,
     block_id: BlockId,
-) -> Result<Option<SignedBeaconBlock<T>>, Error> {
+) -> Result<Option<SignedBeaconBlock<E>>, Error> {
     let block = bn.get_beacon_blocks(block_id).await?.map(|resp| resp.data);
 
     Ok(block)

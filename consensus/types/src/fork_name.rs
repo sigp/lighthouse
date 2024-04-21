@@ -4,7 +4,9 @@ use ssz_derive::{Decode, Encode};
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, Decode, Encode, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Decode, Encode, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(try_from = "String")]
 #[serde(into = "String")]
 #[ssz(enum_behaviour = "tag")]
@@ -14,6 +16,7 @@ pub enum ForkName {
     Merge,
     Capella,
     Deneb,
+    Electra,
 }
 
 impl ForkName {
@@ -24,6 +27,7 @@ impl ForkName {
             ForkName::Merge,
             ForkName::Capella,
             ForkName::Deneb,
+            ForkName::Electra,
         ]
     }
 
@@ -42,6 +46,7 @@ impl ForkName {
                 spec.bellatrix_fork_epoch = None;
                 spec.capella_fork_epoch = None;
                 spec.deneb_fork_epoch = None;
+                spec.electra_fork_epoch = None;
                 spec
             }
             ForkName::Altair => {
@@ -49,6 +54,7 @@ impl ForkName {
                 spec.bellatrix_fork_epoch = None;
                 spec.capella_fork_epoch = None;
                 spec.deneb_fork_epoch = None;
+                spec.electra_fork_epoch = None;
                 spec
             }
             ForkName::Merge => {
@@ -56,6 +62,7 @@ impl ForkName {
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = None;
                 spec.deneb_fork_epoch = None;
+                spec.electra_fork_epoch = None;
                 spec
             }
             ForkName::Capella => {
@@ -63,6 +70,7 @@ impl ForkName {
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec.deneb_fork_epoch = None;
+                spec.electra_fork_epoch = None;
                 spec
             }
             ForkName::Deneb => {
@@ -70,6 +78,15 @@ impl ForkName {
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec.deneb_fork_epoch = Some(Epoch::new(0));
+                spec.electra_fork_epoch = None;
+                spec
+            }
+            ForkName::Electra => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
+                spec.electra_fork_epoch = Some(Epoch::new(0));
                 spec
             }
         }
@@ -85,6 +102,7 @@ impl ForkName {
             ForkName::Merge => Some(ForkName::Altair),
             ForkName::Capella => Some(ForkName::Merge),
             ForkName::Deneb => Some(ForkName::Capella),
+            ForkName::Electra => Some(ForkName::Deneb),
         }
     }
 
@@ -97,7 +115,8 @@ impl ForkName {
             ForkName::Altair => Some(ForkName::Merge),
             ForkName::Merge => Some(ForkName::Capella),
             ForkName::Capella => Some(ForkName::Deneb),
-            ForkName::Deneb => None,
+            ForkName::Deneb => Some(ForkName::Electra),
+            ForkName::Electra => None,
         }
     }
 }
@@ -147,6 +166,10 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Deneb(value), extra_data)
             }
+            ForkName::Electra => {
+                let (value, extra_data) = $body;
+                ($t::Electra(value), extra_data)
+            }
         }
     };
 }
@@ -161,6 +184,7 @@ impl FromStr for ForkName {
             "bellatrix" | "merge" => ForkName::Merge,
             "capella" => ForkName::Capella,
             "deneb" => ForkName::Deneb,
+            "electra" => ForkName::Electra,
             _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
     }
@@ -174,6 +198,7 @@ impl Display for ForkName {
             ForkName::Merge => "bellatrix".fmt(f),
             ForkName::Capella => "capella".fmt(f),
             ForkName::Deneb => "deneb".fmt(f),
+            ForkName::Electra => "electra".fmt(f),
         }
     }
 }
@@ -248,5 +273,14 @@ mod test {
             fork = next_fork;
         }
         assert_eq!(ForkName::latest(), fork);
+    }
+
+    #[test]
+    fn fork_ord_consistent() {
+        for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {
+            assert_eq!(prev_fork.next_fork(), Some(fork));
+            assert_eq!(fork.previous_fork(), Some(prev_fork));
+            assert!(prev_fork < fork);
+        }
     }
 }
