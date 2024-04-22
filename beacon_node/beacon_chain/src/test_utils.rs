@@ -2584,3 +2584,33 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     }
     (block, blob_sidecars)
 }
+
+pub fn generate_rand_block_and_data_columns<E: EthSpec>(
+    fork_name: ForkName,
+    num_blobs: NumBlobs,
+    rng: &mut impl Rng,
+) -> (
+    SignedBeaconBlock<E, FullPayload<E>>,
+    Vec<DataColumnSidecar<E>>,
+) {
+    let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
+    let blob = blobs.first().expect("should have at least 1 blob");
+
+    let data_columns = (0..E::number_of_columns())
+        .map(|index| DataColumnSidecar {
+            index: index as u64,
+            column: <_>::default(),
+            kzg_commitments: block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .unwrap()
+                .clone(),
+            kzg_proofs: (vec![]).into(),
+            signed_block_header: blob.signed_block_header.clone(),
+            kzg_commitments_inclusion_proof: <_>::default(),
+        })
+        .collect::<Vec<_>>();
+
+    (block, data_columns)
+}

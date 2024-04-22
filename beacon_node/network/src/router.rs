@@ -514,11 +514,11 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                SyncId::SingleBlock { .. } | SyncId::SingleBlob { .. } => {
-                    crit!(self.log, "Block lookups do not request BBRange requests"; "peer_id" => %peer_id);
+                id @ SyncId::RangeBlockAndBlobs { .. } => id,
+                other => {
+                    crit!(self.log, "BlocksByRange response on incorrect request"; "request" => ?other);
                     return;
                 }
-                id @ SyncId::RangeBlockAndBlobs { .. } => id,
             },
             RequestId::Router => {
                 crit!(self.log, "All BBRange requests belong to sync"; "peer_id" => %peer_id);
@@ -577,12 +577,8 @@ impl<T: BeaconChainTypes> Router<T> {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
                 id @ SyncId::SingleBlock { .. } => id,
-                SyncId::RangeBlockAndBlobs { .. } => {
-                    crit!(self.log, "Batch syncing do not request BBRoot requests"; "peer_id" => %peer_id);
-                    return;
-                }
-                SyncId::SingleBlob { .. } => {
-                    crit!(self.log, "Blob response to block by roots request"; "peer_id" => %peer_id);
+                other => {
+                    crit!(self.log, "BlocksByRoot response on incorrect request"; "request" => ?other);
                     return;
                 }
             },
@@ -615,12 +611,8 @@ impl<T: BeaconChainTypes> Router<T> {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
                 id @ SyncId::SingleBlob { .. } => id,
-                SyncId::SingleBlock { .. } => {
-                    crit!(self.log, "Block response to blobs by roots request"; "peer_id" => %peer_id);
-                    return;
-                }
-                SyncId::RangeBlockAndBlobs { .. } => {
-                    crit!(self.log, "Batch syncing does not request BBRoot requests"; "peer_id" => %peer_id);
+                other => {
+                    crit!(self.log, "BlobsByRoot response on incorrect request"; "request" => ?other);
                     return;
                 }
             },

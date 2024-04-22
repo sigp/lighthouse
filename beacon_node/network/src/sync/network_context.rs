@@ -1,10 +1,14 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
-use self::requests::{ActiveBlobsByRootRequest, ActiveBlocksByRootRequest};
-pub use self::requests::{BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest};
+use self::requests::{
+    ActiveBlobsByRootRequest, ActiveBlocksByRootRequest, ActiveDataColumnsByRootRequest,
+};
+pub use self::requests::{
+    BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest,
+};
 use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
-use super::manager::{Id, RequestId as SyncRequestId};
+use super::manager::{DataColumnsByRootRequester, Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
@@ -24,7 +28,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::data_column_sidecar::ColumnIndex;
+use types::{
+    BlobSidecar, DataColumnSidecar, DataColumnSubnetId, Epoch, EthSpec, SignedBeaconBlock,
+};
 
 mod requests;
 
@@ -52,7 +59,7 @@ pub enum RpcEvent<T> {
     RPCError(RPCError),
 }
 
-pub type RpcProcessingResult<T> = Option<Result<(T, Duration), LookupFailure>>;
+pub type RpcProcessingResult<T, ID> = Option<(ID, Result<(T, Duration), LookupFailure>)>;
 
 pub enum LookupFailure {
     RpcError(RPCError),
@@ -93,6 +100,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     /// A mapping of active BlobsByRoot requests, including both current slot and parent lookups.
     blobs_by_root_requests: FnvHashMap<SingleLookupReqId, ActiveBlobsByRootRequest<T::EthSpec>>,
+    data_columns_by_root_requests:
+        FnvHashMap<Id, ActiveDataColumnsByRootRequest<T::EthSpec, DataColumnsByRootRequester>>,
 
     /// BlocksByRange requests paired with BlobsByRange
     range_blocks_and_blobs_requests:
@@ -142,11 +151,39 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request_id: 1,
             blocks_by_root_requests: <_>::default(),
             blobs_by_root_requests: <_>::default(),
+            data_columns_by_root_requests: <_>::default(),
             range_blocks_and_blobs_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
             log,
         }
+    }
+
+    // TODO(das): epoch argument left here in case custody rotation is implemented
+    pub fn get_custodial_peers(&self, _epoch: Epoch, column_index: ColumnIndex) -> Vec<PeerId> {
+        let mut peer_ids = vec![];
+
+        for (peer_id, peer_info) in self.network_globals().peers.read().peers() {
+            if let Some(enr) = peer_info.enr() {
+                // TODO(das): do not hardcode `custody_subnet_count`
+                let custody_subnet_count = 2;
+                // TODO(das): consider caching a map of subnet -> Vec<PeerId> and invalidating
+                // whenever a peer connected or disconnect event in received
+                let mut subnets = DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
+                    enr.node_id().raw().into(),
+                    custody_subnet_count,
+                );
+                if subnets.any(|subnet| {
+                    subnet
+                        .columns::<T::EthSpec>()
+                        .any(|index| index == column_index)
+                }) {
+                    peer_ids.push(*peer_id)
+                }
+            }
+        }
+
+        peer_ids
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -350,6 +387,37 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(())
     }
 
+    pub fn data_column_lookup_request(
+        &mut self,
+        requester: DataColumnsByRootRequester,
+        peer_id: PeerId,
+        request: DataColumnsByRootSingleBlockRequest,
+    ) -> Result<(), &'static str> {
+        let id = self.next_id();
+
+        debug!(
+            self.log,
+            "Sending DataColumnsByRoot Request";
+            "method" => "DataColumnsByRoot",
+            "block_root" => ?request.block_root,
+            "indices" => ?request.indices,
+            "peer" => %peer_id,
+            "requester" => ?requester,
+            "id" => id,
+        );
+
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request: Request::DataColumnsByRoot(request.clone().into_request(&self.chain.spec)),
+            request_id: RequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
+        })?;
+
+        self.data_columns_by_root_requests
+            .insert(id, ActiveDataColumnsByRootRequest::new(request, requester));
+
+        Ok(())
+    }
+
     pub fn is_execution_engine_online(&self) -> bool {
         self.execution_engine_state == EngineState::Online
     }
@@ -386,6 +454,31 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .unwrap_or_else(|e| {
                 warn!(self.log, "Could not report peer: channel failed"; "error"=> %e);
             });
+    }
+
+    pub fn report_peer_on_rpc_error(&self, peer_id: &PeerId, error: &RPCError) {
+        // Note: logging the report event here with the full error display. The log inside
+        // `report_peer` only includes a smaller string, like "invalid_data"
+        debug!(self.log, "reporting peer for sync lookup error"; "error" => %error);
+        if let Some(action) = match error {
+            // Protocol errors are heavily penalized
+            RPCError::SSZDecodeError(..)
+            | RPCError::IoError(..)
+            | RPCError::ErrorResponse(..)
+            | RPCError::InvalidData(..)
+            | RPCError::HandlerRejected => Some(PeerAction::LowToleranceError),
+            // Timing / network errors are less penalized
+            // TODO: Is IoError a protocol error or network error?
+            RPCError::StreamTimeout | RPCError::IncompleteStream | RPCError::NegotiationTimeout => {
+                Some(PeerAction::MidToleranceError)
+            }
+            // Not supporting a specific protocol is tolerated. TODO: Are you sure?
+            RPCError::UnsupportedProtocol => None,
+            // Our fault, don't penalize peer
+            RPCError::InternalError(..) | RPCError::Disconnected => None,
+        } {
+            self.report_peer(*peer_id, action, error.into());
+        }
     }
 
     /// Subscribes to core topics.
@@ -458,12 +551,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         request_id: SingleLookupReqId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
-    ) -> RpcProcessingResult<Arc<SignedBeaconBlock<T::EthSpec>>> {
+    ) -> RpcProcessingResult<Arc<SignedBeaconBlock<T::EthSpec>>, ()> {
         let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
             return None;
         };
 
-        Some(match block {
+        let resp = match block {
             RpcEvent::Response(block, seen_timestamp) => {
                 match request.get_mut().add_response(block) {
                     Ok(block) => Ok((block, seen_timestamp)),
@@ -482,19 +575,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 request.remove();
                 Err(e.into())
             }
-        })
+        };
+        Some(((), resp))
     }
 
     pub fn on_single_blob_response(
         &mut self,
         request_id: SingleLookupReqId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
-    ) -> RpcProcessingResult<FixedBlobSidecarList<T::EthSpec>> {
+    ) -> RpcProcessingResult<FixedBlobSidecarList<T::EthSpec>, ()> {
         let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
             return None;
         };
 
-        Some(match blob {
+        let resp = match blob {
             RpcEvent::Response(blob, _) => match request.get_mut().add_response(blob) {
                 Ok(Some(blobs)) => to_fixed_blob_sidecar_list(blobs)
                     .map(|blobs| (blobs, timestamp_now()))
@@ -518,7 +612,45 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 request.remove();
                 Err(e.into())
             }
-        })
+        };
+        Some(((), resp))
+    }
+
+    pub fn on_data_columns_by_root_response(
+        &mut self,
+        id: Id,
+        item: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) -> RpcProcessingResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>, DataColumnsByRootRequester>
+    {
+        let Entry::Occupied(mut request) = self.data_columns_by_root_requests.entry(id) else {
+            return None;
+        };
+
+        let requester = request.get().requester;
+
+        let resp = match item {
+            RpcEvent::Response(item, _) => match request.get_mut().add_response(item) {
+                // TODO: Track last chunk timestamp
+                Ok(Some(items)) => Ok((items, timestamp_now())),
+                Ok(None) => return None,
+                Err(e) => {
+                    request.remove();
+                    Err(e.into())
+                }
+            },
+            RpcEvent::StreamTermination => {
+                // Stream terminator
+                match request.remove().terminate() {
+                    Some(items) => Ok((items, timestamp_now())),
+                    None => return None,
+                }
+            }
+            RpcEvent::RPCError(e) => {
+                request.remove();
+                Err(e.into())
+            }
+        };
+        Some((requester, resp))
     }
 }
 

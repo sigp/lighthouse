@@ -24,7 +24,7 @@ use store::KzgCommitment;
 use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{Epoch, Hash256};
+use types::{DataColumnSidecar, Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -303,6 +303,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             process_type,
             result: result.into(),
         });
+    }
+
+    /// Validate a list of data columns received from RPC requests
+    pub async fn validate_rpc_data_columns(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        _block_root: Hash256,
+        _data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
+        _seen_timestamp: Duration,
+    ) -> Result<(), String> {
+        // TODO(das): validate data column sidecar KZG commitment
+        Ok(())
+    }
+
+    /// Process a sampling completed event, inserting it into fork-choice
+    pub async fn process_sampling_completed(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        block_root: Hash256,
+    ) {
+        self.chain.process_sampling_completed(block_root).await;
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
