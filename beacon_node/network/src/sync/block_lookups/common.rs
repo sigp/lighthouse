@@ -53,9 +53,6 @@ pub trait RequestState<T: BeaconChainTypes> {
     /// The type created after validation.
     type VerifiedResponseType: Clone;
 
-    /// We convert a `VerifiedResponseType` to this type prior to sending it to the beacon processor.
-    type ReconstructedResponseType;
-
     /* Request building methods */
 
     /// Construct a new request.
@@ -141,18 +138,12 @@ pub trait RequestState<T: BeaconChainTypes> {
         components: &mut ChildComponents<T::EthSpec>,
     );
 
-    /// Convert a verified response to the type we send to the beacon processor.
-    fn verified_to_reconstructed(
-        block_root: Hash256,
-        verified: Self::VerifiedResponseType,
-    ) -> Self::ReconstructedResponseType;
-
     /// Send the response to the beacon processor.
-    fn send_reconstructed_for_processing(
+    fn send_for_processing(
         id: Id,
         bl: &BlockLookups<T>,
         block_root: Hash256,
-        verified: Self::ReconstructedResponseType,
+        verified: Self::VerifiedResponseType,
         duration: Duration,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError>;
@@ -180,7 +171,6 @@ pub trait RequestState<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState {
     type RequestType = BlocksByRootSingleRequest;
     type VerifiedResponseType = Arc<SignedBeaconBlock<T::EthSpec>>;
-    type ReconstructedResponseType = RpcBlock<T::EthSpec>;
 
     fn new_request(&self) -> Self::RequestType {
         BlocksByRootSingleRequest(self.requested_block_root)
@@ -207,24 +197,17 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState {
         components.merge_block(verified_response);
     }
 
-    fn verified_to_reconstructed(
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    ) -> RpcBlock<T::EthSpec> {
-        RpcBlock::new_without_blobs(Some(block_root), block)
-    }
-
-    fn send_reconstructed_for_processing(
+    fn send_for_processing(
         id: Id,
         bl: &BlockLookups<T>,
         block_root: Hash256,
-        constructed: RpcBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         duration: Duration,
         cx: &SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         bl.send_block_for_processing(
             block_root,
-            constructed,
+            RpcBlock::new_without_blobs(Some(block_root), block),
             duration,
             BlockProcessType::SingleBlock { id },
             cx,
@@ -248,7 +231,6 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState {
 impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
     type RequestType = BlobsByRootSingleBlockRequest;
     type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
-    type ReconstructedResponseType = FixedBlobSidecarList<T::EthSpec>;
 
     fn new_request(&self) -> Self::RequestType {
         BlobsByRootSingleBlockRequest {
@@ -282,14 +264,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
         components.merge_blobs(verified_response);
     }
 
-    fn verified_to_reconstructed(
-        _block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-    ) -> FixedBlobSidecarList<T::EthSpec> {
-        blobs
-    }
-
-    fn send_reconstructed_for_processing(
+    fn send_for_processing(
         id: Id,
         bl: &BlockLookups<T>,
         block_root: Hash256,

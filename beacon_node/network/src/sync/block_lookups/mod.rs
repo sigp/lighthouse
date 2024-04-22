@@ -427,14 +427,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     .on_download_success()
                     .map_err(LookupRequestError::BadState)?;
 
-                R::send_reconstructed_for_processing(
-                    id,
-                    self,
-                    block_root,
-                    R::verified_to_reconstructed(block_root, verified_response),
-                    seen_timestamp,
-                    cx,
-                )?
+                R::send_for_processing(id, self, block_root, verified_response, seen_timestamp, cx)?
             }
             CachedChild::Err(e) => {
                 warn!(self.log, "Consistency error in cached block";
