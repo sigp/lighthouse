@@ -3011,7 +3011,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
-        #[cfg(test)]
         if let Some(seen_timestamp) = self.slot_clock.now_duration() {
             self.block_times_cache.write().set_time_observed(
                 block_root,
@@ -3270,8 +3269,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } = import_data;
 
         // This is the time since start of the slot where all the components of the block have become available
-        let delay = get_slot_delay_ms(timestamp_now(), block.slot(), &self.slot_clock);
-        metrics::set_gauge(&metrics::BLOCK_AVAILABILITY_DELAY, delay.as_millis() as i64);
+        metrics::set_gauge(
+            &metrics::BLOCK_AVAILABILITY_DELAY,
+            block.available_timestamp().as_millis() as i64,
+        );
         // Record the time at which this block became available.
         self.block_times_cache.write().set_time_available(
             block_root,
