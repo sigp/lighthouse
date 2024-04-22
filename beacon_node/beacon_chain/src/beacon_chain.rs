@@ -2891,15 +2891,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::BlockIsAlreadyKnown(blob.block_root()));
         }
 
-        // Record the delay for receiving this blob
-        if let Some(seen_timestamp) = self.slot_clock.now_duration() {
-            self.block_times_cache.write().set_time_blob_observed(
-                block_root,
-                blob.slot(),
-                seen_timestamp,
-            );
-        }
-
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_blob_sidecar_subscribers() {
                 event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
@@ -3268,17 +3259,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             consensus_context,
         } = import_data;
 
-        // This is the time since start of the slot where all the components of the block have become available
-        metrics::set_gauge(
-            &metrics::BLOCK_AVAILABILITY_DELAY,
-            block.available_timestamp().as_millis() as i64,
-        );
-        // Record the time at which this block became available.
-        self.block_times_cache.write().set_time_available(
-            block_root,
-            block.slot(),
-            block.available_timestamp(),
-        );
+        // Record the time at which this block's blobs became available.
+        if let Some(blobs_available) = block.blobs_available_timestamp() {
+            self.block_times_cache.write().set_time_blob_observed(
+                block_root,
+                block.slot(),
+                blobs_available,
+            );
+        }
 
         // import
         let chain = self.clone();

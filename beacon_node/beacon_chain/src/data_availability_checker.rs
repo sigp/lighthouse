@@ -177,11 +177,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
 
-        let verified_blobs = KzgVerifiedBlobList::new(Vec::from(blobs).into_iter().flatten(), kzg)
-            .map_err(AvailabilityCheckError::Kzg)?;
+        let seen_timestamp = self
+            .slot_clock
+            .now_duration()
+            .ok_or(AvailabilityCheckError::SlotClockError)?;
+
+        let verified_blobs =
+            KzgVerifiedBlobList::new(Vec::from(blobs).into_iter().flatten(), kzg, seen_timestamp)
+                .map_err(AvailabilityCheckError::Kzg)?;
 
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs, &self.slot_clock)
+            .put_kzg_verified_blobs(block_root, verified_blobs)
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -193,11 +199,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache.put_kzg_verified_blobs(
-            gossip_blob.block_root(),
-            vec![gossip_blob.into_inner()],
-            &self.slot_clock,
-        )
+        self.availability_cache
+            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -207,7 +210,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
-            .put_pending_executed_block(executed_block, &self.slot_clock)
+            .put_pending_executed_block(executed_block)
     }
 
     /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
@@ -225,15 +228,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 if self.blobs_required_for_block(&block) {
                     Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
                 } else {
-                    let available_timestamp = self
-                        .slot_clock
-                        .now_duration()
-                        .ok_or(AvailabilityCheckError::SlotClockError)?;
                     Ok(MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
                         blobs: None,
-                        available_timestamp,
+                        blobs_available_timestamp: None,
                     }))
                 }
             }
@@ -249,15 +248,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 } else {
                     None
                 };
-                let available_timestamp = self
-                    .slot_clock
-                    .now_duration()
-                    .ok_or(AvailabilityCheckError::SlotClockError)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
                     blobs: verified_blobs,
-                    available_timestamp,
+                    blobs_available_timestamp: None,
                 }))
             }
         }
@@ -299,15 +294,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     if self.blobs_required_for_block(&block) {
                         results.push(MaybeAvailableBlock::AvailabilityPending { block_root, block })
                     } else {
-                        let available_timestamp = self
-                            .slot_clock
-                            .now_duration()
-                            .ok_or(AvailabilityCheckError::SlotClockError)?;
                         results.push(MaybeAvailableBlock::Available(AvailableBlock {
                             block_root,
                             block,
                             blobs: None,
-                            available_timestamp,
+                            blobs_available_timestamp: None,
                         }))
                     }
                 }
@@ -318,15 +309,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         None
                     };
                     // already verified kzg for all blobs
-                    let available_timestamp = self
-                        .slot_clock
-                        .now_duration()
-                        .ok_or(AvailabilityCheckError::SlotClockError)?;
                     results.push(MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
                         blobs: verified_blobs,
-                        available_timestamp,
+                        blobs_available_timestamp: None,
                     }))
                 }
             }
@@ -487,7 +474,7 @@ pub struct AvailableBlock<E: EthSpec> {
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
-    available_timestamp: Duration,
+    blobs_available_timestamp: Option<Duration>,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
@@ -500,7 +487,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             block_root,
             block,
             blobs,
-            available_timestamp: Duration::from_millis(0),
+            blobs_available_timestamp: None,
         }
     }
 
@@ -515,8 +502,8 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs.as_ref()
     }
 
-    pub fn available_timestamp(&self) -> Duration {
-        self.available_timestamp
+    pub fn blobs_available_timestamp(&self) -> Option<Duration> {
+        self.blobs_available_timestamp
     }
 
     pub fn deconstruct(
@@ -530,7 +517,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             block_root,
             block,
             blobs,
-            available_timestamp: _,
+            blobs_available_timestamp: _,
         } = self;
         (block_root, block, blobs)
     }

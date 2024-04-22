@@ -20,7 +20,6 @@ pub struct Timestamps {
     pub observed: Option<Duration>,
     pub all_blobs_observed: Option<Duration>,
     pub execution_time: Option<Duration>,
-    pub available: Option<Duration>,
     pub attestable: Option<Duration>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
@@ -35,7 +34,9 @@ pub struct BlockDelays {
     pub all_blobs_observed: Option<Duration>,
     /// The time it took to get verification from the EL for the block.
     pub execution_time: Option<Duration>,
-    /// Time after max(`observed + execution_time`, `all_blobs_observed`) the block became available.
+    /// The delay from the start of the slot before the block became available
+    ///
+    /// Equal to max(`observed + execution_time`, `all_blobs_observed`).
     pub available: Option<Duration>,
     /// Time after `available`.
     pub attestable: Option<Duration>,
@@ -60,15 +61,23 @@ impl BlockDelays {
         let execution_time = times
             .execution_time
             .and_then(|execution_time| execution_time.checked_sub(times.observed?));
-        let available = times
-            .available
-            .and_then(|available_time| available_time.checked_sub(slot_start_time));
+        // Duration since UNIX epoch at which block became available.
+        let available_time = times.execution_time.and_then(|execution_time| {
+            if let Some(all_blobs_observed) = times.all_blobs_observed {
+                Some(std::cmp::max(execution_time, all_blobs_observed))
+            } else {
+                Some(execution_time)
+            }
+        });
+        // Duration from the start of the slot until the block became available.
+        let available_delay =
+            available_time.and_then(|available_time| available_time.checked_sub(slot_start_time));
         let attestable = times
             .attestable
             .and_then(|attestable_time| attestable_time.checked_sub(slot_start_time));
         let imported = times
             .imported
-            .and_then(|imported_time| imported_time.checked_sub(times.available?));
+            .and_then(|imported_time| imported_time.checked_sub(available_time?));
         let set_as_head = times
             .set_as_head
             .and_then(|set_as_head_time| set_as_head_time.checked_sub(times.imported?));
@@ -76,7 +85,7 @@ impl BlockDelays {
             observed,
             all_blobs_observed,
             execution_time,
-            available,
+            available: available_delay,
             attestable,
             imported,
             set_as_head,
@@ -174,20 +183,6 @@ impl BlockTimesCache {
             .map_or(true, |prev| timestamp < prev)
         {
             block_times.timestamps.execution_time = Some(timestamp);
-        }
-    }
-
-    pub fn set_time_available(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
-        let block_times = self
-            .cache
-            .entry(block_root)
-            .or_insert_with(|| BlockTimesCacheValue::new(slot));
-        if block_times
-            .timestamps
-            .available
-            .map_or(true, |prev| timestamp < prev)
-        {
-            block_times.timestamps.available = Some(timestamp);
         }
     }
 

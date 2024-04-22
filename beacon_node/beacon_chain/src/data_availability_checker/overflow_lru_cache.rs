@@ -38,7 +38,6 @@ use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
-use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
@@ -193,29 +192,23 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// WARNING: This function can potentially take a lot of time if the state needs to be
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    pub fn make_available<R, Clock>(
-        self,
-        recover: R,
-        slot_clock: &Clock,
-    ) -> Result<Availability<E>, AvailabilityCheckError>
+    pub fn make_available<R>(self, recover: R) -> Result<Availability<E>, AvailabilityCheckError>
     where
         R: FnOnce(
             DietAvailabilityPendingExecutedBlock<E>,
         ) -> Result<AvailabilityPendingExecutedBlock<E>, AvailabilityCheckError>,
-        Clock: SlotClock,
     {
-        // Record the availability timestamp as soon as the block components are all available. We
-        // are mostly interested in how long availability takes from a network point-of-view, not
-        // how long availability processing takes.
-        let available_timestamp = slot_clock
-            .now_duration()
-            .ok_or(AvailabilityCheckError::SlotClockError)?;
-
         let Self {
             block_root,
             verified_blobs,
             executed_block,
         } = self;
+
+        let blobs_available_timestamp = verified_blobs
+            .iter()
+            .flatten()
+            .map(|blob| blob.seen_timestamp())
+            .max();
 
         let Some(diet_executed_block) = executed_block else {
             return Err(AvailabilityCheckError::Unexpected);
@@ -244,7 +237,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block_root,
             block,
             blobs: Some(verified_blobs),
-            available_timestamp,
+            blobs_available_timestamp,
         };
         Ok(Availability::Available(Box::new(
             AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome),
@@ -588,7 +581,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         &self,
         block_root: Hash256,
         kzg_verified_blobs: I,
-        slot_clock: &T::SlotClock,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut fixed_blobs = FixedVector::default();
 
@@ -611,10 +603,9 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         if pending_components.is_available() {
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(
-                |diet_block| self.state_cache.recover_pending_executed_block(diet_block),
-                slot_clock,
-            )
+            pending_components.make_available(|diet_block| {
+                self.state_cache.recover_pending_executed_block(diet_block)
+            })
         } else {
             write_lock.put_pending_components(
                 block_root,
@@ -630,7 +621,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     pub fn put_pending_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
-        slot_clock: &T::SlotClock,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
         let block_root = executed_block.import_data.block_root;
@@ -652,10 +642,9 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         if pending_components.is_available() {
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(
-                |diet_block| self.state_cache.recover_pending_executed_block(diet_block),
-                slot_clock,
-            )
+            pending_components.make_available(|diet_block| {
+                self.state_cache.recover_pending_executed_block(diet_block)
+            })
         } else {
             write_lock.put_pending_components(
                 block_root,
@@ -1193,7 +1182,7 @@ mod test {
             "cache should be empty"
         );
         let availability = cache
-            .put_pending_executed_block(pending_block, &harness.chain.slot_clock)
+            .put_pending_executed_block(pending_block)
             .expect("should put block");
         if blobs_expected == 0 {
             assert!(
@@ -1225,7 +1214,7 @@ mod test {
         for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
             kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone(), &harness.chain.slot_clock)
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
             if blob_index == blobs_expected - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
@@ -1251,7 +1240,7 @@ mod test {
         for gossip_blob in blobs {
             kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone(), &harness.chain.slot_clock)
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
             assert_eq!(
                 availability,
@@ -1261,7 +1250,7 @@ mod test {
             assert_eq!(cache.critical.read().in_memory.len(), 1);
         }
         let availability = cache
-            .put_pending_executed_block(pending_block, &harness.chain.slot_clock)
+            .put_pending_executed_block(pending_block)
             .expect("should put block");
         assert!(
             matches!(availability, Availability::Available(_)),
@@ -1298,10 +1287,7 @@ mod test {
 
         for i in 0..capacity {
             cache
-                .put_pending_executed_block(
-                    pending_blocks.pop_front().expect("should have block"),
-                    &harness.chain.slot_clock,
-                )
+                .put_pending_executed_block(pending_blocks.pop_front().expect("should have block"))
                 .expect("should put block");
             assert_eq!(cache.critical.read().in_memory.len(), i + 1);
         }
@@ -1327,10 +1313,7 @@ mod test {
         );
 
         cache
-            .put_pending_executed_block(
-                pending_blocks.pop_front().expect("should have block"),
-                &harness.chain.slot_clock,
-            )
+            .put_pending_executed_block(pending_blocks.pop_front().expect("should have block"))
             .expect("should put block");
         assert_eq!(
             cache.critical.read().in_memory.len(),
@@ -1385,11 +1368,7 @@ mod test {
         for (blob_index, gossip_blob) in blobs_0.into_iter().enumerate() {
             kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(
-                    roots[0],
-                    kzg_verified_blobs.clone(),
-                    &harness.chain.slot_clock,
-                )
+                .put_kzg_verified_blobs(roots[0], kzg_verified_blobs.clone())
                 .expect("should put blob");
             if blob_index == expected_blobs - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
@@ -1469,18 +1448,14 @@ mod test {
                 let block_first = (rand::random::<usize>() % 2) == 0;
                 if block_first {
                     let availability = cache
-                        .put_pending_executed_block(pending_block, &harness.chain.slot_clock)
+                        .put_pending_executed_block(pending_block)
                         .expect("should put block");
                     assert!(
                         matches!(availability, Availability::MissingComponents(_)),
                         "should have pending blobs"
                     );
                     let availability = cache
-                        .put_kzg_verified_blobs(
-                            block_root,
-                            kzg_verified_blobs,
-                            &harness.chain.slot_clock,
-                        )
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs)
                         .expect("should put blob");
                     assert!(
                         matches!(availability, Availability::MissingComponents(_)),
@@ -1489,11 +1464,7 @@ mod test {
                     );
                 } else {
                     let availability = cache
-                        .put_kzg_verified_blobs(
-                            block_root,
-                            kzg_verified_blobs,
-                            &harness.chain.slot_clock,
-                        )
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs)
                         .expect("should put blob");
                     let root = pending_block.block.as_block().canonical_root();
                     assert_eq!(
@@ -1502,7 +1473,7 @@ mod test {
                         "should be pending block"
                     );
                     let availability = cache
-                        .put_pending_executed_block(pending_block, &harness.chain.slot_clock)
+                        .put_pending_executed_block(pending_block)
                         .expect("should put block");
                     assert!(
                         matches!(availability, Availability::MissingComponents(_)),
@@ -1511,7 +1482,7 @@ mod test {
                 }
             } else {
                 let availability = cache
-                    .put_pending_executed_block(pending_block, &harness.chain.slot_clock)
+                    .put_pending_executed_block(pending_block)
                     .expect("should put block");
                 assert!(
                     matches!(availability, Availability::MissingComponents(_)),
@@ -1609,18 +1580,14 @@ mod test {
                 let block_first = (rand::random::<usize>() % 2) == 0;
                 if block_first {
                     let availability = cache
-                        .put_pending_executed_block(pending_block, &harness.chain.slot_clock)
+                        .put_pending_executed_block(pending_block)
                         .expect("should put block");
                     assert!(
                         matches!(availability, Availability::MissingComponents(_)),
                         "should have pending blobs"
                     );
                     let availability = cache
-                        .put_kzg_verified_blobs(
-                            block_root,
-                            kzg_verified_blobs,
-                            &harness.chain.slot_clock,
-                        )
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs)
                         .expect("should put blob");
                     assert!(
                         matches!(availability, Availability::MissingComponents(_)),
@@ -1629,11 +1596,7 @@ mod test {
                     );
                 } else {
                     let availability = cache
-                        .put_kzg_verified_blobs(
-                            block_root,
-                            kzg_verified_blobs,
-                            &harness.chain.slot_clock,
-                        )
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs)
                         .expect("should put blob");
                     let root = pending_block.block.as_block().canonical_root();
                     assert_eq!(
@@ -1642,7 +1605,7 @@ mod test {
                         "should be pending block"
                     );
                     let availability = cache
-                        .put_pending_executed_block(pending_block, &harness.chain.slot_clock)
+                        .put_pending_executed_block(pending_block)
                         .expect("should put block");
                     assert!(
                         matches!(availability, Availability::MissingComponents(_)),
@@ -1651,7 +1614,7 @@ mod test {
                 }
             } else {
                 let availability = cache
-                    .put_pending_executed_block(pending_block, &harness.chain.slot_clock)
+                    .put_pending_executed_block(pending_block)
                     .expect("should put block");
                 assert!(
                     matches!(availability, Availability::MissingComponents(_)),
@@ -1727,11 +1690,7 @@ mod test {
             for (i, gossip_blob) in blobs.into_iter().enumerate() {
                 kzg_verified_blobs.push(gossip_blob.into_inner());
                 let availability = recovered_cache
-                    .put_kzg_verified_blobs(
-                        root,
-                        kzg_verified_blobs.clone(),
-                        &harness.chain.slot_clock,
-                    )
+                    .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                     .expect("should put blob");
                 if i == additional_blobs - 1 {
                     assert!(matches!(availability, Availability::Available(_)))
@@ -1791,7 +1750,7 @@ mod test {
 
             // put the block in the cache
             let availability = cache
-                .put_pending_executed_block(pending_block, &harness.chain.slot_clock)
+                .put_pending_executed_block(pending_block)
                 .expect("should put block");
 
             // grab the diet block from the cache for later testing
