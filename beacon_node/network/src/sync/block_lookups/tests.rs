@@ -15,7 +15,7 @@ use beacon_chain::test_utils::{
     build_log, generate_rand_block_and_blobs, BeaconChainHarness, EphemeralHarnessType, NumBlobs,
 };
 use beacon_processor::WorkEvent;
-use lighthouse_network::rpc::RPCResponseErrorCode;
+use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
 use lighthouse_network::types::SyncState;
 use lighthouse_network::{NetworkGlobals, Request};
 use slog::info;

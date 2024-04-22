@@ -1,9 +1,20 @@
 use beacon_chain::get_block_root;
-use lighthouse_network::rpc::{methods::BlobsByRootRequest, BlocksByRootRequest, RPCError};
+use lighthouse_network::rpc::{methods::BlobsByRootRequest, BlocksByRootRequest};
 use std::sync::Arc;
+use strum::IntoStaticStr;
 use types::{
     blob_sidecar::BlobIdentifier, BlobSidecar, ChainSpec, EthSpec, Hash256, SignedBeaconBlock,
 };
+
+#[derive(Debug, PartialEq, Eq, IntoStaticStr)]
+pub enum LookupVerifyError {
+    NoResponseReturned,
+    TooManyResponses,
+    UnrequestedBlockRoot(Hash256),
+    UnrequestedBlobIndex(u64),
+    InvalidInclusionProof,
+    DuplicateData,
+}
 
 pub struct ActiveBlocksByRootRequest {
     request: BlocksByRootSingleRequest,
@@ -24,16 +35,14 @@ impl ActiveBlocksByRootRequest {
     pub fn add_response<E: EthSpec>(
         &mut self,
         block: Arc<SignedBeaconBlock<E>>,
-    ) -> Result<Arc<SignedBeaconBlock<E>>, RPCError> {
+    ) -> Result<Arc<SignedBeaconBlock<E>>, LookupVerifyError> {
         if self.resolved {
-            return Err(RPCError::InvalidData("too many responses".to_string()));
+            return Err(LookupVerifyError::TooManyResponses);
         }
 
         let block_root = get_block_root(&block);
         if self.request.0 != block_root {
-            return Err(RPCError::InvalidData(format!(
-                "un-requested block root {block_root:?}"
-            )));
+            return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
 
         // Valid data, blocks by root expects a single response
@@ -41,11 +50,11 @@ impl ActiveBlocksByRootRequest {
         Ok(block)
     }
 
-    pub fn terminate(self) -> Result<(), RPCError> {
+    pub fn terminate(self) -> Result<(), LookupVerifyError> {
         if self.resolved {
             Ok(())
         } else {
-            Err(RPCError::InvalidData("no response returned".to_string()))
+            Err(LookupVerifyError::NoResponseReturned)
         }
     }
 }
@@ -101,28 +110,23 @@ impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
     pub fn add_response(
         &mut self,
         blob: Arc<BlobSidecar<E>>,
-    ) -> Result<Option<Vec<Arc<BlobSidecar<E>>>>, RPCError> {
+    ) -> Result<Option<Vec<Arc<BlobSidecar<E>>>>, LookupVerifyError> {
         if self.resolved {
-            return Err(RPCError::InvalidData("too many responses".to_string()));
+            return Err(LookupVerifyError::TooManyResponses);
         }
 
         let block_root = blob.block_root();
         if self.request.block_root != block_root {
-            return Err(RPCError::InvalidData(format!(
-                "un-requested block root {block_root:?}"
-            )));
+            return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
         if !blob.verify_blob_sidecar_inclusion_proof().unwrap_or(false) {
-            return Err(RPCError::InvalidData("invalid inclusion proof".to_string()));
+            return Err(LookupVerifyError::InvalidInclusionProof);
         }
         if !self.request.indices.contains(&blob.index) {
-            return Err(RPCError::InvalidData(format!(
-                "un-requested blob index {}",
-                blob.index
-            )));
+            return Err(LookupVerifyError::UnrequestedBlobIndex(blob.index));
         }
         if self.blobs.iter().any(|b| b.index == blob.index) {
-            return Err(RPCError::InvalidData("duplicated data".to_string()));
+            return Err(LookupVerifyError::DuplicateData);
         }
 
         self.blobs.push(blob);

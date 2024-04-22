@@ -1,5 +1,6 @@
 use self::single_block_lookup::SingleBlockLookup;
 use super::manager::BlockProcessingResult;
+use super::network_context::{LookupFailure, LookupVerifyError};
 use super::BatchProcessResult;
 use super::{manager::BlockProcessType, network_context::SyncNetworkContext};
 use crate::metrics;
@@ -20,7 +21,6 @@ pub use common::Lookup;
 pub use common::Parent;
 pub use common::RequestState;
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::RPCError;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 pub use single_block_lookup::{BlobRequestState, BlockRequestState};
@@ -604,7 +604,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // processed. Drop the request without extra penalty
             }
             RequestError::BadState(..) => {
-                // Internal error should never happen
+                warn!(self.log, "Failed to request parent";  "error" => e.as_static());
             }
         }
     }
@@ -638,10 +638,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         id: SingleLookupReqId,
         peer_id: &PeerId,
         cx: &mut SyncNetworkContext<T>,
-        error: RPCError,
+        error: LookupFailure,
     ) {
-        // Downscore peer even if lookup is not known
-        self.downscore_on_rpc_error(peer_id, &error, cx);
+        // Only downscore lookup verify errors. RPC errors are downscored in the network handler.
+        if let LookupFailure::LookupVerifyError(e) = &error {
+            // Downscore peer even if lookup is not known
+            self.downscore_on_rpc_error(peer_id, e, cx);
+        }
 
         let Some(mut parent_lookup) = self.get_parent_lookup::<R>(id) else {
             debug!(self.log,
@@ -671,14 +674,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         id: SingleLookupReqId,
         peer_id: &PeerId,
         cx: &mut SyncNetworkContext<T>,
-        error: RPCError,
+        error: LookupFailure,
     ) {
-        // Downscore peer even if lookup is not known
-        self.downscore_on_rpc_error(peer_id, &error, cx);
+        // Only downscore lookup verify errors. RPC errors are downscored in the network handler.
+        if let LookupFailure::LookupVerifyError(e) = &error {
+            // Downscore peer even if lookup is not known
+            self.downscore_on_rpc_error(peer_id, e, cx);
+        }
 
         let log = self.log.clone();
         let Some(mut lookup) = self.get_single_lookup::<R>(id) else {
-            debug!(log, "Error response to dropped lookup"; "error" => ?error);
+            debug!(log, "Error response to dropped lookup"; "error" => %error);
             return;
         };
         let block_root = lookup.block_root();
@@ -1322,31 +1328,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn downscore_on_rpc_error(
         &self,
         peer_id: &PeerId,
-        error: &RPCError,
+        error: &LookupVerifyError,
         cx: &SyncNetworkContext<T>,
     ) {
         // Note: logging the report event here with the full error display. The log inside
         // `report_peer` only includes a smaller string, like "invalid_data"
-        debug!(self.log, "reporting peer for sync lookup error"; "error" => %error);
-        if let Some(action) = match error {
-            // Protocol errors are heavily penalized
-            RPCError::SSZDecodeError(..)
-            | RPCError::IoError(..)
-            | RPCError::ErrorResponse(..)
-            | RPCError::InvalidData(..)
-            | RPCError::HandlerRejected => Some(PeerAction::LowToleranceError),
-            // Timing / network errors are less penalized
-            // TODO: Is IoError a protocol error or network error?
-            RPCError::StreamTimeout | RPCError::IncompleteStream | RPCError::NegotiationTimeout => {
-                Some(PeerAction::MidToleranceError)
-            }
-            // Not supporting a specific protocol is tolerated. TODO: Are you sure?
-            RPCError::UnsupportedProtocol => None,
-            // Our fault, don't penalize peer
-            RPCError::InternalError(..) | RPCError::Disconnected => None,
-        } {
-            cx.report_peer(*peer_id, action, error.into());
-        }
+        let error_str: &'static str = error.into();
+
+        debug!(self.log, "reporting peer for sync lookup error"; "error" => error_str);
+        cx.report_peer(*peer_id, PeerAction::LowToleranceError, error_str);
     }
 
     pub fn update_metrics(&self) {

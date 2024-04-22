@@ -17,6 +17,7 @@ use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
+pub use requests::LookupVerifyError;
 use slog::{debug, trace, warn};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -51,7 +52,33 @@ pub enum RpcEvent<T> {
     RPCError(RPCError),
 }
 
-pub type RpcProcessingResult<T> = Option<Result<(T, Duration), RPCError>>;
+pub type RpcProcessingResult<T> = Option<Result<(T, Duration), LookupFailure>>;
+
+pub enum LookupFailure {
+    RpcError(RPCError),
+    LookupVerifyError(LookupVerifyError),
+}
+
+impl std::fmt::Display for LookupFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            LookupFailure::RpcError(e) => write!(f, "RPC Error: {:?}", e),
+            LookupFailure::LookupVerifyError(e) => write!(f, "Lookup Verify Error: {:?}", e),
+        }
+    }
+}
+
+impl From<RPCError> for LookupFailure {
+    fn from(e: RPCError) -> Self {
+        LookupFailure::RpcError(e)
+    }
+}
+
+impl From<LookupVerifyError> for LookupFailure {
+    fn from(e: LookupVerifyError) -> Self {
+        LookupFailure::LookupVerifyError(e)
+    }
+}
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
 pub struct SyncNetworkContext<T: BeaconChainTypes> {
@@ -61,7 +88,10 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// A sequential ID for all RPC requests.
     request_id: Id,
 
+    /// A mapping of active BlocksByRoot requests, including both current slot and parent lookups.
     blocks_by_root_requests: FnvHashMap<SingleLookupReqId, ActiveBlocksByRootRequest>,
+
+    /// A mapping of active BlobsByRoot requests, including both current slot and parent lookups.
     blobs_by_root_requests: FnvHashMap<SingleLookupReqId, ActiveBlobsByRootRequest<T::EthSpec>>,
 
     /// BlocksByRange requests paired with BlobsByRange
@@ -439,20 +469,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     Ok(block) => Ok((block, seen_timestamp)),
                     Err(e) => {
                         // The request must be dropped after receiving an error.
-                        // TODO: We could NOT drop the request here, and penalize the peer again if
-                        // sends multiple penalizable chunks after the first invalid.
                         request.remove();
-                        Err(e)
+                        Err(e.into())
                     }
                 }
             }
             RpcEvent::StreamTermination => match request.remove().terminate() {
                 Ok(_) => return None,
-                Err(e) => Err(e),
+                Err(e) => Err(e.into()),
             },
             RpcEvent::RPCError(e) => {
                 request.remove();
-                Err(e)
+                Err(e.into())
             }
         })
     }
@@ -468,32 +496,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         Some(match blob {
             RpcEvent::Response(blob, _) => match request.get_mut().add_response(blob) {
-                // TODO: Should deal only with Vec<Arc<BlobSidecar>>
                 Ok(Some(blobs)) => to_fixed_blob_sidecar_list(blobs)
                     .map(|blobs| (blobs, timestamp_now()))
-                    .map_err(RPCError::InvalidData),
+                    .map_err(Into::into),
                 Ok(None) => return None,
                 Err(e) => {
                     request.remove();
-                    Err(e)
+                    Err(e.into())
                 }
             },
             RpcEvent::StreamTermination => {
                 // Stream terminator
                 match request.remove().terminate() {
-                    // TODO: Should deal only with Vec<Arc<BlobSidecar>>
                     Some(blobs) => to_fixed_blob_sidecar_list(blobs)
-                        // TODO: a seen_timestamp for an array of blobs doesn't make much sense
-                        // since each is received at different times. Should we track first, last or
-                        // average?
                         .map(|blobs| (blobs, timestamp_now()))
-                        .map_err(RPCError::InvalidData),
+                        .map_err(Into::into),
                     None => return None,
                 }
             }
             RpcEvent::RPCError(e) => {
                 request.remove();
-                Err(e)
+                Err(e.into())
             }
         })
     }
@@ -501,13 +524,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
 fn to_fixed_blob_sidecar_list<E: EthSpec>(
     blobs: Vec<Arc<BlobSidecar<E>>>,
-) -> Result<FixedBlobSidecarList<E>, String> {
+) -> Result<FixedBlobSidecarList<E>, LookupVerifyError> {
     let mut fixed_list = FixedBlobSidecarList::default();
     for blob in blobs.into_iter() {
         let index = blob.index as usize;
         *fixed_list
             .get_mut(index)
-            .ok_or("invalid index".to_string())? = Some(blob)
+            .ok_or(LookupVerifyError::UnrequestedBlobIndex(index as u64))? = Some(blob)
     }
     Ok(fixed_list)
 }
