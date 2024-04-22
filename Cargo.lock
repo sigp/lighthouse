@@ -1332,6 +1332,7 @@ dependencies = [
  "time",
  "timer",
  "tokio",
+ "tree_hash",
  "types",
 ]
 
@@ -7479,13 +7480,16 @@ dependencies = [
  "clap",
  "env_logger 0.9.3",
  "eth1",
- "eth1_test_rig",
+ "eth2_network_config",
+ "ethereum-types 0.14.1",
  "execution_layer",
  "futures",
  "node_test_rig",
  "parking_lot 0.12.1",
  "rayon",
  "sensitive_url",
+ "serde_json",
+ "ssz_types",
  "tokio",
  "types",
 ]
