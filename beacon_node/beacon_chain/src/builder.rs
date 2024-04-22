@@ -519,12 +519,6 @@ where
         let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
         self = updated_builder;
 
-        // Build the committee caches before storing. The database assumes that states have
-        // committee caches built before storing.
-        weak_subj_state
-            .build_all_committee_caches(&self.spec)
-            .map_err(|e| format!("Error building caches on checkpoint state: {:?}", e))?;
-
         // Fill in the linear block roots between the checkpoint block's slot and the aligned
         // state's slot. All slots less than the block's slot will be handled by block backfill,
         // while states greater or equal to the checkpoint state will be handled by `migrate_db`.

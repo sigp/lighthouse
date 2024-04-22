@@ -743,7 +743,6 @@ version = "0.2.0"
 dependencies = [
  "bitvec 1.0.1",
  "bls",
- "crossbeam-channel",
  "derivative",
  "environment",
  "eth1",
@@ -7856,7 +7855,6 @@ dependencies = [
  "tokio",
  "tree_hash",
  "types",
- "vec_map",
 ]
 
 [[package]]

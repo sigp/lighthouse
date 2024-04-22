@@ -28,7 +28,6 @@ arbitrary = { workspace = true }
 lighthouse_metrics = { workspace = true }
 lazy_static = { workspace = true }
 derivative = { workspace = true }
-vec_map = "0.8.2"
 
 [features]
 default = ["legacy-arith"]

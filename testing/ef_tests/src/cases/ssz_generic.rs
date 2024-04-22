@@ -8,7 +8,7 @@ use serde::{de::Error as SerdeError, Deserialize, Deserializer};
 use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
-use types::{BitList, BitVector, ForkName, VariableList, Vector};
+use types::{BitList, BitVector, FixedVector, ForkName, VariableList, Vector};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
@@ -135,6 +135,14 @@ impl Case for SszGeneric {
                     ssz_generic_test,
                     (&self.path),
                     Vector,
+                    <>,
+                    [elem_ty => primitive_type]
+                    [length => typenum]
+                )?;
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path),
+                    FixedVector,
                     <>,
                     [elem_ty => primitive_type]
                     [length => typenum]

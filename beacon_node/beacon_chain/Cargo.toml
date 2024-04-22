@@ -21,7 +21,6 @@ serde_json = { workspace = true }
 [dependencies]
 bitvec = { workspace = true }
 bls = { workspace = true }
-crossbeam-channel = { workspace = true }
 derivative = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
