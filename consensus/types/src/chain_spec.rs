@@ -291,22 +291,13 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.electra_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
-            _ => match self.deneb_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-                _ => match self.capella_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                    _ => match self.bellatrix_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-                        _ => match self.altair_fork_epoch {
-                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                            _ => ForkName::Base,
-                        },
-                    },
-                },
-            },
+        for (fork_name, _) in FORK_ORDER.iter().copied().rev() {
+            match self.fork_epoch(fork_name) {
+                Some(fork_epoch) if epoch >= fork_epoch => return fork_name,
+                _ => continue,
+            }
         }
+        ForkName::Base
     }
 
     /// Returns the fork version for a named fork.
