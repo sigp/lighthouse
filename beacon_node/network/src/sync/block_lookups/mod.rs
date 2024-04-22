@@ -16,9 +16,6 @@ use beacon_chain::data_availability_checker::{
 };
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
-pub use common::Current;
-pub use common::Lookup;
-pub use common::Parent;
 pub use common::RequestState;
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
@@ -55,12 +52,12 @@ pub struct BlockLookups<T: BeaconChainTypes> {
     /// Parent chain lookups being downloaded.
     parent_lookups: SmallVec<[ParentLookup<T>; 3]>,
 
-    processing_parent_lookups: HashMap<Hash256, (Vec<Hash256>, SingleBlockLookup<Parent, T>)>,
+    processing_parent_lookups: HashMap<Hash256, (Vec<Hash256>, SingleBlockLookup<T>)>,
 
     /// A cache of failed chain lookups to prevent duplicate searches.
     failed_chains: LRUTimeCache<Hash256>,
 
-    single_block_lookups: FnvHashMap<Id, SingleBlockLookup<Current, T>>,
+    single_block_lookups: FnvHashMap<Id, SingleBlockLookup<T>>,
 
     pub(crate) da_checker: Arc<DataAvailabilityChecker<T>>,
 
@@ -131,7 +128,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Attempts to trigger the request matching the given `block_root`.
     pub fn trigger_single_lookup(
         &mut self,
-        mut single_block_lookup: SingleBlockLookup<Current, T>,
+        mut single_block_lookup: SingleBlockLookup<T>,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let block_root = single_block_lookup.block_root();
@@ -147,7 +144,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Adds a lookup to the `single_block_lookups` map.
-    pub fn add_single_lookup(&mut self, single_block_lookup: SingleBlockLookup<Current, T>) {
+    pub fn add_single_lookup(&mut self, single_block_lookup: SingleBlockLookup<T>) {
         self.single_block_lookups
             .insert(single_block_lookup.id, single_block_lookup);
 
@@ -212,6 +209,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             peers,
             self.da_checker.clone(),
             cx.next_id(),
+            LookupType::Current,
         );
 
         debug!(
@@ -284,10 +282,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Get a single block lookup by its ID. This method additionally ensures the `req_counter`
     /// matches the current `req_counter` for the lookup. This ensures any stale responses from requests
     /// that have been retried are ignored.
-    fn get_single_lookup<R: RequestState<Current, T>>(
+    fn get_single_lookup<R: RequestState<T>>(
         &mut self,
         id: SingleLookupReqId,
-    ) -> Option<SingleBlockLookup<Current, T>> {
+    ) -> Option<SingleBlockLookup<T>> {
         let mut lookup = self.single_block_lookups.remove(&id.id)?;
 
         let request_state = R::request_state_mut(&mut lookup);
@@ -314,7 +312,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Process a block or blob response received from a single lookup request.
-    pub fn single_lookup_response<R: RequestState<Current, T>>(
+    pub fn single_lookup_response<R: RequestState<T>>(
         &mut self,
         lookup_id: SingleLookupReqId,
         peer_id: PeerId,
@@ -345,7 +343,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "response_type" => ?response_type,
         );
 
-        match self.handle_verified_response::<Current, R>(
+        match self.handle_verified_response::<R>(
             seen_timestamp,
             cx,
             BlockProcessType::SingleBlock { id: lookup.id },
@@ -372,13 +370,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /// Consolidates error handling for `single_lookup_response`. An `Err` here should always mean
     /// the lookup is dropped.
-    fn handle_verified_response<L: Lookup, R: RequestState<L, T>>(
+    fn handle_verified_response<R: RequestState<T>>(
         &self,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T>,
         process_type: BlockProcessType,
         verified_response: R::VerifiedResponseType,
-        lookup: &mut SingleBlockLookup<L, T>,
+        lookup: &mut SingleBlockLookup<T>,
     ) -> Result<(), LookupRequestError> {
         let id = lookup.id;
         let block_root = lookup.block_root();
@@ -389,7 +387,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // If we have an outstanding parent request for this block, delay sending the response until
                 // all parent blocks have been processed, otherwise we will fail validation with an
                 // `UnknownParent`.
-                let delay_send = match L::lookup_type() {
+                let delay_send = match lookup.lookup_type {
                     LookupType::Parent => false,
                     LookupType::Current => self.has_pending_parent_request(lookup.block_root()),
                 };
@@ -453,7 +451,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Get a parent block lookup by its ID. This method additionally ensures the `req_counter`
     /// matches the current `req_counter` for the lookup. This any stale responses from requests
     /// that have been retried are ignored.
-    fn get_parent_lookup<R: RequestState<Parent, T>>(
+    fn get_parent_lookup<R: RequestState<T>>(
         &mut self,
         id: SingleLookupReqId,
     ) -> Option<ParentLookup<T>> {
@@ -479,7 +477,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Process a response received from a parent lookup request.
-    pub fn parent_lookup_response<R: RequestState<Parent, T>>(
+    pub fn parent_lookup_response<R: RequestState<T>>(
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
@@ -523,7 +521,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /// Consolidates error handling for `parent_lookup_response`. An `Err` here should always mean
     /// the lookup is dropped.
-    fn parent_lookup_response_inner<R: RequestState<Parent, T>>(
+    fn parent_lookup_response_inner<R: RequestState<T>>(
         &mut self,
         peer_id: PeerId,
         response: R::VerifiedResponseType,
@@ -554,7 +552,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         }
 
-        self.handle_verified_response::<Parent, R>(
+        self.handle_verified_response::<R>(
             seen_timestamp,
             cx,
             BlockProcessType::ParentLookup {
@@ -633,7 +631,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// An RPC error has occurred during a parent lookup. This function handles this case.
-    pub fn parent_lookup_failed<R: RequestState<Parent, T>>(
+    pub fn parent_lookup_failed<R: RequestState<T>>(
         &mut self,
         id: SingleLookupReqId,
         peer_id: &PeerId,
@@ -669,7 +667,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// An RPC error has occurred during a single lookup. This function handles this case.\
-    pub fn single_block_lookup_failed<R: RequestState<Current, T>>(
+    pub fn single_block_lookup_failed<R: RequestState<T>>(
         &mut self,
         id: SingleLookupReqId,
         peer_id: &PeerId,
@@ -717,7 +715,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Processing responses */
 
-    pub fn single_block_component_processed<R: RequestState<Current, T>>(
+    pub fn single_block_component_processed<R: RequestState<T>>(
         &mut self,
         target_id: Id,
         result: BlockProcessingResult<T::EthSpec>,
