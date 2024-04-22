@@ -8,5 +8,5 @@ edition = { workspace = true }
 bytes = { workspace = true }
 
 [dev-dependencies]
-yaml-rust = "0.4.4"
 hex = { workspace = true }
+serde_yml = "0.0.4"
