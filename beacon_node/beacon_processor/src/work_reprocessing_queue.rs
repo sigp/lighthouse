@@ -980,6 +980,7 @@ mod tests {
     use super::*;
     use logging::test_logger;
     use slot_clock::{ManualSlotClock, TestingSlotClock};
+    use std::ops::Add;
     use std::sync::Arc;
     use task_executor::test_utils::TestRuntime;
 
@@ -1062,8 +1063,10 @@ mod tests {
 
         // Advance the time by more than 1/2 the slot to trigger a scheduled backfill batch to be sent.
         // This should fail as the `ready_work` channel is at capacity, and it should be rescheduled.
-        let more_than_half_slot = Duration::from_secs(slot_duration / 2 + 1);
-        advance_time(&slot_clock, more_than_half_slot).await;
+        let duration_to_next_event =
+            ReprocessQueue::duration_until_next_backfill_batch_event(slot_clock.as_ref());
+        let one_ms = Duration::from_millis(1);
+        advance_time(&slot_clock, duration_to_next_event.add(one_ms)).await;
 
         // Now drain the `ready_work` channel.
         assert!(matches!(
@@ -1073,7 +1076,9 @@ mod tests {
         assert!(ready_work_rx.try_recv().is_err());
 
         // Advance time again, and assert that the re-scheduled batch is successfully sent.
-        advance_time(&slot_clock, more_than_half_slot).await;
+        let duration_to_next_event =
+            ReprocessQueue::duration_until_next_backfill_batch_event(slot_clock.as_ref());
+        advance_time(&slot_clock, duration_to_next_event.add(one_ms)).await;
         assert!(matches!(
             ready_work_rx.try_recv(),
             Ok(ReadyWork::BackfillSync { .. })
