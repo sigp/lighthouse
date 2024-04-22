@@ -509,9 +509,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
-            let executor = processor.executor.clone();
             processor
-                .handle_blocks_by_range_request(executor, peer_id, request_id, request)
+                .handle_blocks_by_range_request(peer_id, request_id, request)
                 .await;
         };
 
@@ -530,9 +529,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
-            let executor = processor.executor.clone();
             processor
-                .handle_blocks_by_root_request(executor, peer_id, request_id, request)
+                .handle_blocks_by_root_request(peer_id, request_id, request)
                 .await;
         };
 
