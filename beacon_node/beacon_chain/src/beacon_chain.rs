@@ -30,6 +30,7 @@ use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
+use crate::graffiti_calculator::GraffitiCalculator;
 use crate::head_tracker::{HeadTracker, HeadTrackerReader, SszHeadTracker};
 use crate::historical_blocks::HistoricalBlockError;
 use crate::light_client_finality_update_verification::{
@@ -480,7 +481,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
-    pub(crate) graffiti: Graffiti,
+    pub(crate) graffiti_calculator: GraffitiCalculator<T>,
     /// Optional slasher.
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
     /// Provides monitoring of a set of explicitly defined validators.
@@ -4777,6 +4778,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Perform the state advance and block-packing functions.
         let chain = self.clone();
+        let graffiti = self
+            .graffiti_calculator
+            .get_graffiti(validator_graffiti)
+            .await;
         let mut partial_beacon_block = self
             .task_executor
             .spawn_blocking_handle(
@@ -4786,7 +4791,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         state_root_opt,
                         produce_at_slot,
                         randao_reveal,
-                        validator_graffiti,
+                        graffiti,
                         builder_boost_factor,
                         block_production_version,
                     )
@@ -4884,7 +4889,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state_root_opt: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
-        validator_graffiti: Option<Graffiti>,
+        graffiti: Graffiti,
         builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<PartialBeaconBlock<T::EthSpec>, BlockProductionError> {
@@ -4988,12 +4993,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
         drop(unagg_import_timer);
-
-        // Override the beacon node's graffiti with graffiti from the validator, if present.
-        let graffiti = match validator_graffiti {
-            Some(graffiti) => graffiti,
-            None => self.graffiti,
-        };
 
         let attestation_packing_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
