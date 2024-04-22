@@ -52,3 +52,4 @@ arc-swap = "1.6.0"
 eth2_network_config = { workspace = true }
 alloy-rlp = "0.3"
 alloy-consensus = { git = "https://github.com/alloy-rs/alloy.git", rev = "974d488bab5e21e9f17452a39a4bfa56677367b2" }
+lighthouse_version = { workspace = true }

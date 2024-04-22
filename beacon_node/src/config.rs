@@ -3,6 +3,7 @@ use beacon_chain::chain_config::{
     DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
     DEFAULT_RE_ORG_PARENT_THRESHOLD,
 };
+use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_chain::TrustedSetup;
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
@@ -17,7 +18,6 @@ use lighthouse_network::ListenAddress;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
-use std::cmp;
 use std::cmp::max;
 use std::fmt::Debug;
 use std::fs;
@@ -27,7 +27,8 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
-use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+use types::graffiti::GraffitiString;
+use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
 
 /// Gets the fully-initialized global client.
 ///
@@ -575,24 +576,16 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.genesis_backfill = true;
     }
 
-    let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
-        if graffiti.len() > GRAFFITI_BYTES_LEN {
-            return Err(format!(
-                "Your graffiti is too long! {} bytes maximum!",
-                GRAFFITI_BYTES_LEN
-            ));
-        }
-
-        graffiti.as_bytes()
+    let beacon_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
+        GraffitiOrigin::UserSpecified(GraffitiString::from_str(graffiti)?.into())
     } else if cli_args.is_present("private") {
-        b""
+        // When 'private' flag is present, use a zero-initialized bytes array.
+        GraffitiOrigin::UserSpecified(GraffitiString::empty().into())
     } else {
-        lighthouse_version::VERSION.as_bytes()
+        // Use the default lighthouse graffiti if no user-specified graffiti flags are present
+        GraffitiOrigin::default()
     };
-
-    let trimmed_graffiti_len = cmp::min(raw_graffiti.len(), GRAFFITI_BYTES_LEN);
-    client_config.graffiti.0[..trimmed_graffiti_len]
-        .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
+    client_config.beacon_graffiti = beacon_graffiti;
 
     if let Some(wss_checkpoint) = cli_args.value_of("wss-checkpoint") {
         let mut split = wss_checkpoint.split(':');
