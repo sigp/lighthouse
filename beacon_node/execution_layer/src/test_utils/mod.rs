@@ -58,6 +58,7 @@ mod mock_builder;
 mod mock_execution_layer;
 
 /// Configuration for the MockExecutionLayer.
+#[derive(Clone)]
 pub struct MockExecutionConfig {
     pub server_config: Config,
     pub jwt_key: JwtKey,

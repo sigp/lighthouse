@@ -24,6 +24,11 @@ pub enum ClientGenesis {
         validator_count: usize,
         genesis_time: u64,
     },
+    // Creates a genesis state similar to the 2019 Canada specs, but starting post-Merge.
+    InteropMerge {
+        validator_count: usize,
+        genesis_time: u64,
+    },
     /// Reads the genesis state and other persisted data from the `Store`.
     FromStore,
     /// Connects to an eth1 node and waits until it can create the genesis state from the deposit
