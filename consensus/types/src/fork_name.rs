@@ -1,12 +1,12 @@
+use crate::fork_order::FORK_ORDER;
 use crate::{ChainSpec, Epoch};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use std::cmp::{Ord, Ordering};
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
-#[derive(
-    Debug, Clone, Copy, Decode, Encode, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, Decode, Encode, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String")]
 #[serde(into = "String")]
 #[ssz(enum_behaviour = "tag")]
@@ -19,21 +19,34 @@ pub enum ForkName {
     Electra,
 }
 
+impl PartialOrd for ForkName {
+    fn partial_cmp(&self, other: &ForkName) -> Option<Ordering> {
+        let self_idx = FORK_ORDER
+            .iter()
+            .position(|(fork_name, _)| fork_name == self);
+        let other_idx = FORK_ORDER
+            .iter()
+            .position(|(fork_name, _)| fork_name == other);
+
+        // Forks that are not enabled will come back as `None`. Treat them as greater than all
+        // enabled forks (and equal to each other).
+        match (self_idx, other_idx) {
+            (None, None) => None, // incomparable
+            (None, Some(_)) => Some(Ordering::Greater),
+            (Some(_), None) => Some(Ordering::Less),
+            (Some(i), Some(j)) => Some(i.cmp(&j)),
+        }
+    }
+}
+
 impl ForkName {
     pub fn list_all() -> Vec<ForkName> {
-        vec![
-            ForkName::Base,
-            ForkName::Altair,
-            ForkName::Merge,
-            ForkName::Capella,
-            ForkName::Deneb,
-            ForkName::Electra,
-        ]
+        FORK_ORDER.iter().map(|(fork, _)| *fork).collect()
     }
 
-    pub fn latest() -> ForkName {
-        // This unwrap is safe as long as we have 1+ forks. It is tested below.
-        *ForkName::list_all().last().unwrap()
+    pub const fn latest() -> ForkName {
+        #[allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
+        FORK_ORDER[FORK_ORDER.len() - 1].0
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
