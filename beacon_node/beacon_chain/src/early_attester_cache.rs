@@ -124,12 +124,30 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.committee_lengths
                 .get_committee_length::<E>(request_slot, request_index, spec)?;
 
-        let attestation = match spec.fork_name_at_slot::<E>(request_slot) {
-            types::ForkName::Base
-            | types::ForkName::Altair
-            | types::ForkName::Merge
-            | types::ForkName::Capella
-            | types::ForkName::Deneb => Attestation::Base(AttestationBase {
+        let attestation = if spec.fork_name_at_slot::<E>(request_slot) >= ForkName::Electra {
+            // TODO(eip7549) ensure bitlists are the correct size
+
+            let mut committee_bits = BitVector::default();
+            if committee_len > 0 {
+                committee_bits
+                    .set(request_index as usize, true)
+                    .map_err(BeaconStateError::from)?;
+            }
+            Attestation::Electra(AttestationElectra {
+                aggregation_bits: BitList::with_capacity(committee_len)
+                    .map_err(BeaconStateError::from)?,
+                committee_bits,
+                data: AttestationData {
+                    slot: request_slot,
+                    index: 0u64,
+                    beacon_block_root: item.beacon_block_root,
+                    source: item.source,
+                    target: item.target,
+                },
+                signature: AggregateSignature::empty(),
+            })
+        } else {
+            Attestation::Base(AttestationBase {
                 aggregation_bits: BitList::with_capacity(committee_len)
                     .map_err(BeaconStateError::from)?,
                 data: AttestationData {
@@ -140,30 +158,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
                     target: item.target,
                 },
                 signature: AggregateSignature::empty(),
-            }),
-            types::ForkName::Electra => {
-                // TODO(eip7549) ensure bitlists are the correct size
-
-                let mut committee_bits = BitVector::default();
-                if committee_len > 0 {
-                    committee_bits
-                        .set(request_index as usize, true)
-                        .map_err(BeaconStateError::from)?;
-                }
-                Attestation::Electra(AttestationElectra {
-                    aggregation_bits: BitList::with_capacity(committee_len)
-                        .map_err(BeaconStateError::from)?,
-                    committee_bits,
-                    data: AttestationData {
-                        slot: request_slot,
-                        index: 0u64,
-                        beacon_block_root: item.beacon_block_root,
-                        source: item.source,
-                        target: item.target,
-                    },
-                    signature: AggregateSignature::empty(),
-                })
-            }
+            })
         };
 
         metrics::inc_counter(&metrics::BEACON_EARLY_ATTESTER_CACHE_HITS);

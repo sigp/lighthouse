@@ -35,6 +35,7 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
 use types::attestation::AttestationBase;
+use types::attestation::AttestationElectra;
 use types::{
     AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
     MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
@@ -3270,19 +3271,20 @@ impl ApiTester {
             .await
             .unwrap()
             .data;
-        let mut attestation = if fork >= ForkName::Electra {
+        let fork_name = self.chain.spec.fork_name_at_epoch(epoch);
+        let mut attestation = if fork_name >= ForkName::Electra {
             Attestation::Electra(AttestationElectra {
                 aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
                 committee_bits: BitVector::default(),
                 data: attestation_data,
                 signature: AggregateSignature::infinity(),
-            });
+            })
         } else {
             Attestation::Base(AttestationBase {
                 aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
                 data: attestation_data,
                 signature: AggregateSignature::infinity(),
-            });
+            })
         };
 
         attestation

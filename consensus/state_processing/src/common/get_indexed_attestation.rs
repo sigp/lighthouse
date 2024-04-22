@@ -115,6 +115,7 @@ pub mod indexed_attestation_electra {
         let mut output: HashSet<u64> = HashSet::new();
 
         let committee_indices = get_committee_indices::<E>(committee_bits);
+     
         let committee_offset = 0;
 
         let committees_map: HashMap<u64, &BeaconCommittee> = committees
@@ -124,6 +125,9 @@ pub mod indexed_attestation_electra {
 
         for index in committee_indices {
             if let Some(&beacon_committee) = committees_map.get(&index) {
+                if aggregation_bits.len() != beacon_committee.committee.len() {
+                    return Err(BeaconStateError::InvalidBitfield);
+                }
                 let committee_attesters = beacon_committee
                     .committee
                     .iter()

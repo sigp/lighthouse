@@ -46,7 +46,7 @@ use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
     common::{indexed_attestation_base, indexed_attestation_electra},
-    per_block_processing::errors::AttestationValidationError,
+    per_block_processing::errors::{AttestationValidationError, BlockOperationError},
     signature_sets::{
         indexed_attestation_signature_set_from_pubkeys,
         signed_aggregate_selection_proof_signature_set, signed_aggregate_signature_set,
@@ -57,9 +57,8 @@ use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
     Attestation, BeaconCommittee, ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName, Hash256,
-    IndexedAttestation, SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
+    IndexedAttestation, SelectionProof, SignedAggregateAndProof, Slot, SubnetId, BeaconStateError::NoCommitteeFound
 };
-
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
 
 /// Returned when an attestation was not successfully verified. It might not have been verified for
@@ -1114,7 +1113,6 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     indexed_attestation: &IndexedAttestation<T::EthSpec>,
 ) -> Result<(), Error> {
-    println!("CHECK");
     let signature_setup_timer =
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
 
@@ -1295,9 +1293,21 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
                 }
             }
             Attestation::Electra(att) => {
+            
                 indexed_attestation_electra::get_indexed_attestation(&committees, att)
                     .map(|attestation| (attestation, committees_per_slot))
-                    .map_err(Error::Invalid)
+                    .map_err(|e| {
+                        // TODO(eip7549) this was done to pass unaggregated_attestation_for_gossip
+                        // we could probably clean this up a bit  
+                        if e == BlockOperationError::BeaconStateError(NoCommitteeFound) {
+                            Error::NoCommitteeForSlotAndIndex {
+                                slot: att.data.slot,
+                                index: att.committee_index(),
+                            }
+                        } else {
+                            Error::Invalid(e)
+                        }
+                     })
             }
         }
     })

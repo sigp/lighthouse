@@ -40,6 +40,7 @@ mod tests {
     use tokio::sync::OnceCell;
     use tokio::time::sleep;
     use types::attestation::AttestationBase;
+    use types::attestation::AttestationElectra;
     use types::*;
     use url::Url;
     use validator_client::{
@@ -541,10 +542,32 @@ mod tests {
         }
     }
 
-    /// Get a generic, arbitrary attestation for signing.
-    fn get_attestation() -> Attestation<E> {
+    fn get_attestation_base() -> Attestation<E> {
         Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(1).unwrap(),
+            data: AttestationData {
+                slot: <_>::default(),
+                index: <_>::default(),
+                beacon_block_root: <_>::default(),
+                source: Checkpoint {
+                    epoch: <_>::default(),
+                    root: <_>::default(),
+                },
+                target: Checkpoint {
+                    epoch: <_>::default(),
+                    root: <_>::default(),
+                },
+            },
+            signature: AggregateSignature::empty(),
+        })
+    }
+
+    /// Get a generic, arbitrary attestation for signing.
+    fn get_attestation_electra() -> Attestation<E> {
+        // TODO(eip7549) make fork aware?
+        Attestation::Electra(AttestationElectra {
+            aggregation_bits: BitList::with_capacity(1).unwrap(),
+            committee_bits: BitVector::default(),
             data: AttestationData {
                 slot: <_>::default(),
                 index: <_>::default(),
@@ -601,7 +624,13 @@ mod tests {
         })
         .await
         .assert_signatures_match("attestation", |pubkey, validator_store| async move {
-            let mut attestation = get_attestation();
+            let fork_name = spec.fork_name_at_epoch(Epoch::new(0));
+            let mut attestation = if fork_name >= ForkName::Electra {
+                get_attestation_electra()
+            } else {
+                get_attestation_base()
+            };
+
             validator_store
                 .sign_attestation(pubkey, 0, &mut attestation, Epoch::new(0))
                 .await
@@ -610,7 +639,13 @@ mod tests {
         })
         .await
         .assert_signatures_match("signed_aggregate", |pubkey, validator_store| async move {
-            let attestation = get_attestation();
+            let fork_name = spec.fork_name_at_epoch(Epoch::new(0));
+            let attestation = if fork_name >= ForkName::Electra {
+                get_attestation_electra()
+            } else {
+                get_attestation_base()
+            };
+
             validator_store
                 .produce_signed_aggregate_and_proof(
                     pubkey,
@@ -771,7 +806,7 @@ mod tests {
         let slashable_message_should_sign = !slashing_protection_config.local;
 
         let first_attestation = || {
-            let mut attestation = get_attestation();
+            let mut attestation = get_attestation_base();
             attestation.data_mut().source.epoch = Epoch::new(1);
             attestation.data_mut().target.epoch = Epoch::new(4);
             attestation

@@ -14,6 +14,7 @@ use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
 use types::attestation::AttestationBase;
+use types::attestation::AttestationElectra;
 use types::Address;
 
 fn new_keystore(password: ZeroizeString) -> Keystore {
@@ -1237,24 +1238,47 @@ async fn delete_nonexistent_keystores() {
 }
 
 fn make_attestation(source_epoch: u64, target_epoch: u64) -> Attestation<E> {
-    Attestation::Base(AttestationBase {
-        aggregation_bits: BitList::with_capacity(
-            <E as EthSpec>::MaxValidatorsPerCommittee::to_usize(),
-        )
-        .unwrap(),
-        data: AttestationData {
-            source: Checkpoint {
-                epoch: Epoch::new(source_epoch),
-                root: Hash256::from_low_u64_le(source_epoch),
+    let fork = E::default_spec().fork_name_at_epoch(source_epoch.into());
+    if fork >= ForkName::Electra {
+        Attestation::Electra(AttestationElectra {
+            aggregation_bits: BitList::with_capacity(
+                <E as EthSpec>::MaxValidatorsPerCommittee::to_usize(),
+            )
+            .unwrap(),
+            data: AttestationData {
+                source: Checkpoint {
+                    epoch: Epoch::new(source_epoch),
+                    root: Hash256::from_low_u64_le(source_epoch),
+                },
+                target: Checkpoint {
+                    epoch: Epoch::new(target_epoch),
+                    root: Hash256::from_low_u64_le(target_epoch),
+                },
+                ..AttestationData::default()
             },
-            target: Checkpoint {
-                epoch: Epoch::new(target_epoch),
-                root: Hash256::from_low_u64_le(target_epoch),
+            committee_bits: BitVector::default(),
+            signature: AggregateSignature::empty(),
+        })
+    } else {
+        Attestation::Base(AttestationBase {
+            aggregation_bits: BitList::with_capacity(
+                <E as EthSpec>::MaxValidatorsPerCommittee::to_usize(),
+            )
+            .unwrap(),
+            data: AttestationData {
+                source: Checkpoint {
+                    epoch: Epoch::new(source_epoch),
+                    root: Hash256::from_low_u64_le(source_epoch),
+                },
+                target: Checkpoint {
+                    epoch: Epoch::new(target_epoch),
+                    root: Hash256::from_low_u64_le(target_epoch),
+                },
+                ..AttestationData::default()
             },
-            ..AttestationData::default()
-        },
-        signature: AggregateSignature::empty(),
-    })
+            signature: AggregateSignature::empty(),
+        })
+    }
 }
 
 #[tokio::test]

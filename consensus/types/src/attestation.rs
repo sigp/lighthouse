@@ -184,7 +184,7 @@ impl<E: EthSpec> Attestation<E> {
     pub fn committee_index(&self) -> u64 {
         match self {
             Attestation::Base(att) => att.data.index,
-            Attestation::Electra(att) => *att.get_committee_indices().first().unwrap_or(&0u64),
+            Attestation::Electra(att) => att.committee_index(),
         }
     }
 }
@@ -195,6 +195,10 @@ impl<E: EthSpec> AttestationElectra<E> {
         self.aggregation_bits
             .intersection(&other.aggregation_bits)
             .is_zero()
+    }
+
+    pub fn committee_index(&self) -> u64 {
+        *self.get_committee_indices().first().unwrap_or(&0u64)
     }
 
     pub fn get_committee_indices(&self) -> Vec<u64> {
@@ -211,7 +215,6 @@ impl<E: EthSpec> AttestationElectra<E> {
     pub fn aggregate(&mut self, other: &Self) {
         debug_assert_eq!(self.data, other.data);
         debug_assert!(self.signers_disjoint_from(other));
-
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
     }

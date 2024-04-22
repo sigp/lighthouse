@@ -351,7 +351,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             attestation_1: indexed_attestation.clone(),
             attestation_2: indexed_attestation,
         };
-
+        
         let attestation = Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerCommittee::to_usize())
                 .unwrap(),
