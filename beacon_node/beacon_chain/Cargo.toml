@@ -31,6 +31,7 @@ operation_pool = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 ethereum_serde_utils = { workspace = true }
+lighthouse_version = { workspace = true }
 slog = { workspace = true }
 sloggers = { workspace = true }
 slot_clock = { workspace = true }

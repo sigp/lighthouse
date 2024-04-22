@@ -7,6 +7,7 @@ use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
+use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
 use crate::head_tracker::HeadTracker;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
@@ -39,8 +40,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti,
-    Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256,
+    Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -96,7 +97,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     spec: ChainSpec,
     chain_config: ChainConfig,
     log: Option<Logger>,
-    graffiti: Graffiti,
+    beacon_graffiti: GraffitiOrigin,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
@@ -139,7 +140,7 @@ where
             spec: E::default_spec(),
             chain_config: ChainConfig::default(),
             log: None,
-            graffiti: Graffiti::default(),
+            beacon_graffiti: GraffitiOrigin::default(),
             slasher: None,
             pending_io_batch: vec![],
             kzg: None,
@@ -649,9 +650,9 @@ where
         self
     }
 
-    /// Sets the `graffiti` field.
-    pub fn graffiti(mut self, graffiti: Graffiti) -> Self {
-        self.graffiti = graffiti;
+    /// Sets the `beacon_graffiti` field.
+    pub fn beacon_graffiti(mut self, beacon_graffiti: GraffitiOrigin) -> Self {
+        self.beacon_graffiti = beacon_graffiti;
         self
     }
 
@@ -920,7 +921,7 @@ where
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
             eth1_chain: self.eth1_chain,
-            execution_layer: self.execution_layer,
+            execution_layer: self.execution_layer.clone(),
             genesis_validators_root,
             genesis_time,
             canonical_head,
@@ -953,7 +954,12 @@ where
                 .shutdown_sender
                 .ok_or("Cannot build without a shutdown sender.")?,
             log: log.clone(),
-            graffiti: self.graffiti,
+            graffiti_calculator: GraffitiCalculator::new(
+                self.beacon_graffiti,
+                self.execution_layer,
+                slot_clock.slot_duration() * E::slots_per_epoch() as u32,
+                log.clone(),
+            ),
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
