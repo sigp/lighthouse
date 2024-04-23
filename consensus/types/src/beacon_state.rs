@@ -269,15 +269,15 @@ where
     pub slashings: FixedVector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
-    #[superstruct(feature(not(SyncCommittees)))]
+    #[superstruct(feature(not(Altair)))]
     pub previous_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
-    #[superstruct(feature(not(SyncCommittees)))]
+    #[superstruct(feature(not(Altair)))]
     pub current_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(feature(SyncCommittees))]
+    #[superstruct(feature(Altair))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(feature(SyncCommittees))]
+    #[superstruct(feature(Altair))]
     pub current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
@@ -292,13 +292,13 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(feature(SyncCommittees))]
+    #[superstruct(feature(Altair))]
     pub inactivity_scores: VariableList<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(feature(SyncCommittees))]
+    #[superstruct(feature(Altair))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(feature(SyncCommittees))]
+    #[superstruct(feature(Altair))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
@@ -324,14 +324,14 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
 
     // Capella
-    #[superstruct(feature(Withdrawals), partial_getter(copy))]
+    #[superstruct(feature(Capella), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_index: u64,
-    #[superstruct(feature(Withdrawals), partial_getter(copy))]
+    #[superstruct(feature(Capella), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(feature(Withdrawals))]
+    #[superstruct(feature(Capella))]
     pub historical_summaries: VariableList<HistoricalSummary, E::HistoricalRootsLimit>,
 
     // Caching (not in the spec)

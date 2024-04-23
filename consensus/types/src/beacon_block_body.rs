@@ -68,7 +68,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub attestations: VariableList<Attestation<E>, E::MaxAttestations>,
     pub deposits: VariableList<Deposit, E::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
-    #[superstruct(feature(SyncCommittees))]
+    #[superstruct(feature(Altair))]
     pub sync_aggregate: SyncAggregate<E>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
@@ -85,10 +85,10 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     #[serde(flatten)]
     pub execution_payload: Payload::Electra,
-    #[superstruct(feature(Withdrawals))]
+    #[superstruct(feature(Capella))]
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
-    #[superstruct(feature(Blobs))]
+    #[superstruct(feature(Deneb))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(feature(not(Merge)))]
     #[ssz(skip_serializing, skip_deserializing)]
