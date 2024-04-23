@@ -4,11 +4,12 @@
 use self::requests::{ActiveBlobsByRootRequest, ActiveBlocksByRootRequest};
 pub use self::requests::{BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest};
 use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
-use super::manager::{Id, RequestId as SyncRequestId};
+use super::manager::{BlockProcessType, Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
+use crate::sync::block_lookups::SingleLookupId;
 use crate::sync::manager::SingleLookupReqId;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::validator_monitor::timestamp_now;
@@ -18,13 +19,13 @@ use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 pub use requests::LookupVerifyError;
-use slog::{debug, trace, warn};
+use slog::{debug, error, trace, warn};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock};
 
 mod requests;
 
@@ -52,7 +53,7 @@ pub enum RpcEvent<T> {
     RPCError(RPCError),
 }
 
-pub type RpcProcessingResult<T> = Option<Result<(T, Duration), LookupFailure>>;
+pub type RpcProcessingResult<T> = Result<(T, Duration), LookupFailure>;
 
 pub enum LookupFailure {
     RpcError(RPCError),
@@ -297,10 +298,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     pub fn block_lookup_request(
         &mut self,
-        id: SingleLookupReqId,
+        lookup_id: SingleLookupId,
         peer_id: PeerId,
         request: BlocksByRootSingleRequest,
     ) -> Result<(), &'static str> {
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
+
         debug!(
             self.log,
             "Sending BlocksByRoot Request";
@@ -324,10 +330,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     pub fn blob_lookup_request(
         &mut self,
-        id: SingleLookupReqId,
+        lookup_id: SingleLookupId,
         peer_id: PeerId,
         request: BlobsByRootSingleBlockRequest,
     ) -> Result<(), &'static str> {
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
+
         debug!(
             self.log,
             "Sending BlobsByRoot Request";
@@ -458,7 +469,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         request_id: SingleLookupReqId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
-    ) -> RpcProcessingResult<Arc<SignedBeaconBlock<T::EthSpec>>> {
+    ) -> Option<RpcProcessingResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
         let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
             return None;
         };
@@ -489,7 +500,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         request_id: SingleLookupReqId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
-    ) -> RpcProcessingResult<FixedBlobSidecarList<T::EthSpec>> {
+    ) -> Option<RpcProcessingResult<FixedBlobSidecarList<T::EthSpec>>> {
         let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
             return None;
         };
@@ -519,6 +530,69 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 Err(e.into())
             }
         })
+    }
+
+    pub fn send_block_for_processing(
+        &self,
+        block_root: Hash256,
+        block: RpcBlock<T::EthSpec>,
+        duration: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), &'static str> {
+        match self.beacon_processor_if_enabled() {
+            Some(beacon_processor) => {
+                debug!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
+                if let Err(e) = beacon_processor.send_rpc_beacon_block(
+                    block_root,
+                    block,
+                    duration,
+                    process_type,
+                ) {
+                    error!(
+                        self.log,
+                        "Failed to send sync block to processor";
+                        "error" => ?e
+                    );
+                    Err("beacon processor send failure")
+                } else {
+                    Ok(())
+                }
+            }
+            None => {
+                trace!(self.log, "Dropping block ready for processing. Beacon processor not available"; "block" => %block_root);
+                Err("beacon processor unavailable")
+            }
+        }
+    }
+
+    pub fn send_blobs_for_processing(
+        &self,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+        duration: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), &'static str> {
+        match self.beacon_processor_if_enabled() {
+            Some(beacon_processor) => {
+                trace!(self.log, "Sending blobs for processing"; "block" => ?block_root, "process_type" => ?process_type);
+                if let Err(e) =
+                    beacon_processor.send_rpc_blobs(block_root, blobs, duration, process_type)
+                {
+                    error!(
+                        self.log,
+                        "Failed to send sync blobs to processor";
+                        "error" => ?e
+                    );
+                    Err("beacon processor send failure")
+                } else {
+                    Ok(())
+                }
+            }
+            None => {
+                trace!(self.log, "Dropping blobs ready for processing. Beacon processor not available"; "block_root" => %block_root);
+                Err("beacon processor unavailable")
+            }
+        }
     }
 }
 

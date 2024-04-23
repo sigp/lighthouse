@@ -21,6 +21,7 @@ pub enum Error {
     RebuildingStateCaches(BeaconStateError),
 }
 
+#[derive(PartialEq, Eq)]
 pub enum ErrorCategory {
     /// Internal Errors (not caused by peers)
     Internal,
