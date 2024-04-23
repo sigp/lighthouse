@@ -214,6 +214,8 @@ pub struct DutiesService<T, E: EthSpec> {
     pub sync_duties: SyncDutiesMap<E>,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<ValidatorStore<T, E>>,
+    /// Maps unknown validator pubkeys to the next slot time when a poll should be conducted again.
+    pub unknown_validator_next_poll_slots: RwLock<HashMap<PublicKeyBytes, Slot>>,
     /// Tracks the current slot.
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.
@@ -478,6 +480,18 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
         .validator_store
         .voting_pubkeys(DoppelgangerStatus::ignored);
 
+    let current_slot_opt = duties_service.slot_clock.now();
+    let next_poll_slot_opt = current_slot_opt.map(|slot| slot.saturating_add(E::slots_per_epoch()));
+
+    let is_first_slot_of_epoch = if let Some(current_slot) = current_slot_opt {
+        let current_epoch_first_slot = current_slot
+            .epoch(E::slots_per_epoch())
+            .start_slot(E::slots_per_epoch());
+        current_slot == current_epoch_first_slot
+    } else {
+        false
+    };
+
     for pubkey in all_pubkeys {
         // This is on its own line to avoid some weirdness with locks and if statements.
         let is_known = duties_service
@@ -488,6 +502,20 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
             .is_some();
 
         if !is_known {
+            if let Some(current_slot) = current_slot_opt {
+                // Query an unknown validator later if it was queried within the last epoch, or if
+                // the current slot is the first slot of an epoch.
+                let poll_later = duties_service
+                    .unknown_validator_next_poll_slots
+                    .read()
+                    .get(&pubkey)
+                    .map(|&poll_slot| poll_slot > current_slot || is_first_slot_of_epoch)
+                    .unwrap_or(false);
+                if poll_later {
+                    continue;
+                }
+            }
+
             // Query the remote BN to resolve a pubkey to a validator index.
             let download_result = duties_service
                 .beacon_nodes
@@ -532,10 +560,22 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                         .initialized_validators()
                         .write()
                         .set_index(&pubkey, response.data.index);
+
+                    duties_service
+                        .unknown_validator_next_poll_slots
+                        .write()
+                        .remove(&pubkey);
                 }
                 // This is not necessarily an error, it just means the validator is not yet known to
                 // the beacon chain.
                 Ok(None) => {
+                    if let Some(next_poll_slot) = next_poll_slot_opt {
+                        duties_service
+                            .unknown_validator_next_poll_slots
+                            .write()
+                            .insert(pubkey, next_poll_slot);
+                    }
+
                     debug!(
                         log,
                         "Validator without index";
