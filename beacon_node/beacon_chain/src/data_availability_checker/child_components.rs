@@ -66,4 +66,11 @@ impl<E: EthSpec> ChildComponents<E> {
     pub fn clear_blobs(&mut self) {
         self.downloaded_blobs = FixedBlobSidecarList::default();
     }
+
+    pub fn downloaded_blobs_count(&self) -> usize {
+        self.downloaded_blobs
+            .iter()
+            .filter(|blob| blob.is_some())
+            .count()
+    }
 }

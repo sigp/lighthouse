@@ -74,21 +74,20 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_root() == block_root
     }
 
-    /// Update the requested block, this should only be used in a chain of parent lookups to request
-    /// the next parent.
-    pub fn update_requested_parent_block(&mut self, block_root: Hash256) {
-        self.block_request_state.requested_block_root = block_root;
-        self.blob_request_state.block_root = block_root;
-        self.block_request_state.state.state = State::AwaitingDownload;
-        self.blob_request_state.state.state = State::AwaitingDownload;
-        self.child_components = Some(ChildComponents::empty(block_root));
-    }
-
     /// Get all unique used peers across block and blob requests.
     pub fn all_used_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
         self.block_request_state
             .state
             .get_used_peers()
+            .chain(self.blob_request_state.state.get_used_peers())
+            .unique()
+    }
+
+    /// Get all unique available peers across block and blob requests.
+    pub fn all_available_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
+        self.block_request_state
+            .state
+            .get_available_peers()
             .chain(self.blob_request_state.state.get_used_peers())
             .unique()
     }
@@ -124,11 +123,17 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn get_cached_child_block(&self) -> CachedChild<T::EthSpec> {
         if let Some(components) = self.child_components.as_ref() {
             let Some(block) = components.downloaded_block.as_ref() else {
-                return CachedChild::DownloadIncomplete;
+                return CachedChild::DownloadIncomplete("missing block".to_owned());
             };
 
-            if !self.missing_blob_ids().is_empty() {
-                return CachedChild::DownloadIncomplete;
+            // CacheChild should include only block components for an unknown parent, so nothing is
+            // imported into the da_checker. The only possible contents are here.
+            let blobs_expected = block.num_expected_blobs();
+            let blobs_downloaded = components.downloaded_blobs_count();
+            if blobs_expected != blobs_downloaded {
+                return CachedChild::DownloadIncomplete(format!(
+                    "missing blobs expected {blobs_expected} got {blobs_downloaded}"
+                ));
             }
 
             match RpcBlock::new_from_fixed(
@@ -222,9 +227,15 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             .check_peer_disconnected(peer_id)
             .is_err();
 
+        if self.all_available_peers().count() == 0 {
+            return true;
+        }
+
+        // If there was an active download request with this peer, send them again with another
+        // peer. We should receive an RPCError anyway, but this should speed things up?
         if block_peer_disconnected || blob_peer_disconnected {
             if let Err(e) = self.request_block_and_blobs(cx) {
-                debug!(log, "Single lookup failed on peer disconnection"; "block_root" => ?block_root, "error" => ?e);
+                debug!(log, "Single lookup failed on retry after peer disconnection"; "block_root" => ?block_root, "error" => ?e);
                 return true;
             }
         }
@@ -352,7 +363,7 @@ pub enum CachedChild<E: EthSpec> {
     /// been performed and no kzg verification has been performed.
     Ok(RpcBlock<E>),
     /// All child components have not yet been received.
-    DownloadIncomplete,
+    DownloadIncomplete(String),
     /// Child components should not be cached, send this directly for processing.
     NotRequired,
     /// There was an error during consistency checks between block and blobs.
@@ -510,6 +521,10 @@ impl SingleLookupRequestState {
 
     pub fn get_used_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.used_peers.iter()
+    }
+
+    pub fn get_available_peers(&self) -> impl Iterator<Item = &PeerId> {
+        self.available_peers.iter()
     }
 
     /// Selects a random peer from available peers if any, inserts it in used peers and returns it.

@@ -263,7 +263,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn active_single_lookups(&self) -> Vec<Id> {
+    pub(crate) fn active_single_lookups(&self) -> Vec<(Id, Hash256)> {
         self.block_lookups.active_single_lookups()
     }
 
@@ -661,9 +661,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     }
                 }
-                ChainSegmentProcessId::ParentLookup(chain_hash) => self
-                    .block_lookups
-                    .parent_chain_processed(chain_hash, result, &mut self.network),
             },
         }
     }
