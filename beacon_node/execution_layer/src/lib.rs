@@ -24,7 +24,7 @@ use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fmt;
@@ -1331,15 +1331,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
             &[metrics::NEW_PAYLOAD],
         );
+        let timer = std::time::Instant::now();
 
+        let block_number = new_payload_request.block_number();
         let block_hash = new_payload_request.block_hash();
-        trace!(
-            self.log(),
-            "Issuing engine_newPayload";
-            "parent_hash" => ?new_payload_request.parent_hash(),
-            "block_hash" => ?block_hash,
-            "block_number" => ?new_payload_request.block_number(),
-        );
+        let parent_hash = new_payload_request.parent_hash();
 
         let result = self
             .engine()
@@ -1347,9 +1343,19 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .await;
 
         if let Ok(status) = &result {
+            let status_str = <&'static str>::from(status.status);
             metrics::inc_counter_vec(
                 &metrics::EXECUTION_LAYER_PAYLOAD_STATUS,
-                &["new_payload", status.status.into()],
+                &["new_payload", status_str],
+            );
+            debug!(
+                self.log(),
+                "Processed engine_newPayload";
+                "status" => status_str,
+                "parent_hash" => ?parent_hash,
+                "block_hash" => ?block_hash,
+                "block_number" => block_number,
+                "response_time_ms" => timer.elapsed().as_millis()
             );
         }
         *self.inner.last_new_payload_errored.write().await = result.is_err();
