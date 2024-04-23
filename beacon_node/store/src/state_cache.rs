@@ -35,7 +35,6 @@ pub struct StateCache<E: EthSpec> {
     finalized_state: Option<FinalizedState<E>>,
     states: LruCache<Hash256, BeaconState<E>>,
     block_map: BlockMap,
-    capacity: NonZeroUsize,
     max_epoch: Epoch,
 }
 
@@ -53,13 +52,16 @@ impl<E: EthSpec> StateCache<E> {
             finalized_state: None,
             states: LruCache::new(capacity),
             block_map: BlockMap::default(),
-            capacity,
             max_epoch: Epoch::new(0),
         }
     }
 
     pub fn len(&self) -> usize {
         self.states.len()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.states.cap().get()
     }
 
     pub fn update_finalized_state(
@@ -149,7 +151,7 @@ impl<E: EthSpec> StateCache<E> {
         self.max_epoch = std::cmp::max(state.current_epoch(), self.max_epoch);
 
         // If the cache is full, use the custom cull routine to make room.
-        if let Some(over_capacity) = self.len().checked_sub(self.capacity.get()) {
+        if let Some(over_capacity) = self.len().checked_sub(self.capacity()) {
             self.cull(over_capacity + 1);
         }
 

@@ -230,6 +230,7 @@ impl From<BeaconStateHash> for Hash256 {
             mappings(
                 map_beacon_state_base_fields(),
                 map_beacon_state_base_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_base_tree_list_fields_immutable(groups(tree_lists)),
             ),
             bimappings(bimap_beacon_state_base_tree_list_fields(
                 other_type = "BeaconStateBase",
@@ -243,6 +244,7 @@ impl From<BeaconStateHash> for Hash256 {
             mappings(
                 map_beacon_state_altair_fields(),
                 map_beacon_state_altair_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_altair_tree_list_fields_immutable(groups(tree_lists)),
             ),
             bimappings(bimap_beacon_state_altair_tree_list_fields(
                 other_type = "BeaconStateAltair",
@@ -256,8 +258,9 @@ impl From<BeaconStateHash> for Hash256 {
             mappings(
                 map_beacon_state_bellatrix_fields(),
                 map_beacon_state_bellatrix_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_bellatrix_tree_list_fields_immutable(groups(tree_lists)),
             ),
-            bimappings(bimap_beacon_state_merge_tree_list_fields(
+            bimappings(bimap_beacon_state_bellatrix_tree_list_fields(
                 other_type = "BeaconStateMerge",
                 self_mutable,
                 fallible,
@@ -269,6 +272,7 @@ impl From<BeaconStateHash> for Hash256 {
             mappings(
                 map_beacon_state_capella_fields(),
                 map_beacon_state_capella_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_capella_tree_list_fields_immutable(groups(tree_lists)),
             ),
             bimappings(bimap_beacon_state_capella_tree_list_fields(
                 other_type = "BeaconStateCapella",
@@ -282,6 +286,7 @@ impl From<BeaconStateHash> for Hash256 {
             mappings(
                 map_beacon_state_deneb_fields(),
                 map_beacon_state_deneb_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_deneb_tree_list_fields_immutable(groups(tree_lists)),
             ),
             bimappings(bimap_beacon_state_deneb_tree_list_fields(
                 other_type = "BeaconStateDeneb",
@@ -295,6 +300,7 @@ impl From<BeaconStateHash> for Hash256 {
             mappings(
                 map_beacon_state_electra_fields(),
                 map_beacon_state_electra_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_electra_tree_list_fields_immutable(groups(tree_lists)),
             ),
             bimappings(bimap_beacon_state_electra_tree_list_fields(
                 other_type = "BeaconStateElectra",
@@ -626,21 +632,6 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_validator_index(&mut self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
         self.update_pubkey_cache()?;
         Ok(self.pubkey_cache().get(pubkey))
-    }
-
-    /// Immutable variant of `get_validator_index` which errors if the cache is not up to date.
-    pub fn get_validator_index_read_only(
-        &self,
-        pubkey: &PublicKeyBytes,
-    ) -> Result<Option<usize>, Error> {
-        let pubkey_cache = self.pubkey_cache();
-        if pubkey_cache.len() != self.validators().len() {
-            return Err(Error::PubkeyCacheIncomplete {
-                cache_len: pubkey_cache.len(),
-                registry_len: self.validators().len(),
-            });
-        }
-        Ok(pubkey_cache.get(pubkey))
     }
 
     /// The epoch corresponding to `self.slot()`.
@@ -1921,29 +1912,49 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     pub fn has_pending_mutations(&self) -> bool {
-        self.block_roots().has_pending_updates()
-            || self.state_roots().has_pending_updates()
-            || self.historical_roots().has_pending_updates()
-            || self.eth1_data_votes().has_pending_updates()
-            || self.validators().has_pending_updates()
-            || self.balances().has_pending_updates()
-            || self.randao_mixes().has_pending_updates()
-            || self.slashings().has_pending_updates()
-            || self
-                .previous_epoch_attestations()
-                .map_or(false, List::has_pending_updates)
-            || self
-                .current_epoch_attestations()
-                .map_or(false, List::has_pending_updates)
-            || self
-                .previous_epoch_participation()
-                .map_or(false, List::has_pending_updates)
-            || self
-                .current_epoch_participation()
-                .map_or(false, List::has_pending_updates)
-            || self
-                .inactivity_scores()
-                .map_or(false, List::has_pending_updates)
+        let mut any_pending_mutations = false;
+        match &self {
+            Self::Base(self_inner) => {
+                map_beacon_state_base_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
+            }
+            Self::Altair(self_inner) => {
+                map_beacon_state_altair_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
+            }
+            Self::Merge(self_inner) => {
+                map_beacon_state_bellatrix_tree_list_fields_immutable!(
+                    self_inner,
+                    |_, self_field| {
+                        any_pending_mutations |= self_field.has_pending_updates();
+                    }
+                );
+            }
+            Self::Capella(self_inner) => {
+                map_beacon_state_capella_tree_list_fields_immutable!(
+                    self_inner,
+                    |_, self_field| {
+                        any_pending_mutations |= self_field.has_pending_updates();
+                    }
+                );
+            }
+            Self::Deneb(self_inner) => {
+                map_beacon_state_deneb_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
+            }
+            Self::Electra(self_inner) => {
+                map_beacon_state_electra_tree_list_fields_immutable!(
+                    self_inner,
+                    |_, self_field| {
+                        any_pending_mutations |= self_field.has_pending_updates();
+                    }
+                );
+            }
+        };
+        any_pending_mutations
     }
 
     /// Completely drops the `progressive_balances_cache` cache, replacing it with a new, empty cache.
@@ -2042,7 +2053,7 @@ impl<E: EthSpec> BeaconState<E> {
             }
             (Self::Altair(_), _) => (),
             (Self::Merge(self_inner), Self::Merge(base_inner)) => {
-                bimap_beacon_state_merge_tree_list_fields!(
+                bimap_beacon_state_bellatrix_tree_list_fields!(
                     self_inner,
                     base_inner,
                     |_, self_field, base_field| { self_field.rebase_on(base_field) }
@@ -2169,8 +2180,6 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn apply_pending_mutations(&mut self) -> Result<(), Error> {
         match self {
             Self::Base(inner) => {
-                inner.previous_epoch_attestations.apply_updates()?;
-                inner.current_epoch_attestations.apply_updates()?;
                 map_beacon_state_base_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
             Self::Altair(inner) => {
@@ -2189,7 +2198,6 @@ impl<E: EthSpec> BeaconState<E> {
                 map_beacon_state_electra_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
         }
-        self.eth1_data_votes_mut().apply_updates()?;
         Ok(())
     }
 
