@@ -63,7 +63,14 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub eth1_data: Eth1Data,
     pub graffiti: Graffiti,
     pub proposer_slashings: VariableList<ProposerSlashing, E::MaxProposerSlashings>,
-    pub attester_slashings: VariableList<AttesterSlashing<E>, E::MaxAttesterSlashings>,
+    #[superstruct(
+        only(Base, Altair, Merge, Capella, Deneb),
+        partial_getter(rename = "attester_slashings_base")
+    )]
+    pub attester_slashings: VariableList<AttesterSlashingBase<E>, E::MaxAttesterSlashings>,
+    #[superstruct(only(Electra), partial_getter(rename = "attester_slashings_electra"))]
+    pub attester_slashings:
+        VariableList<AttesterSlashingElectra<E>, E::MaxAttesterSlashingsElectra>,
     pub attestations: VariableList<Attestation<E>, E::MaxAttestations>,
     pub deposits: VariableList<Deposit, E::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
@@ -89,6 +96,8 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
     #[superstruct(only(Deneb, Electra))]
     pub blob_kzg_commitments: KzgCommitments<E>,
+    #[superstruct(only(Electra))]
+    pub consolidations: VariableList<SignedConsolidation, E::MaxConsolidations>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -252,6 +261,52 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     pub fn has_blobs(self) -> bool {
         self.blob_kzg_commitments()
             .map_or(false, |blobs| !blobs.is_empty())
+    }
+
+    pub fn attester_slashings_len(&self) -> usize {
+        match self {
+            Self::Base(body) => body.attester_slashings.len(),
+            Self::Altair(body) => body.attester_slashings.len(),
+            Self::Merge(body) => body.attester_slashings.len(),
+            Self::Capella(body) => body.attester_slashings.len(),
+            Self::Deneb(body) => body.attester_slashings.len(),
+            Self::Electra(body) => body.attester_slashings.len(),
+        }
+    }
+
+    pub fn attester_slashings(&self) -> Box<dyn Iterator<Item = AttesterSlashingRef<'a, E>> + 'a> {
+        match self {
+            Self::Base(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Base),
+            ),
+            Self::Altair(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Base),
+            ),
+            Self::Merge(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Base),
+            ),
+            Self::Capella(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Base),
+            ),
+            Self::Deneb(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Base),
+            ),
+            Self::Electra(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Electra),
+            ),
+        }
     }
 }
 
@@ -553,6 +608,7 @@ impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
             execution_payload: FullPayloadElectra { execution_payload },
             bls_to_execution_changes,
             blob_kzg_commitments,
+            consolidations,
         } = body;
 
         (
@@ -571,6 +627,7 @@ impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
                 },
                 bls_to_execution_changes,
                 blob_kzg_commitments: blob_kzg_commitments.clone(),
+                consolidations,
             },
             Some(execution_payload),
         )
@@ -709,6 +766,7 @@ impl<E: EthSpec> BeaconBlockBodyElectra<E, FullPayload<E>> {
             execution_payload: FullPayloadElectra { execution_payload },
             bls_to_execution_changes,
             blob_kzg_commitments,
+            consolidations,
         } = self;
 
         BeaconBlockBodyElectra {
@@ -726,6 +784,7 @@ impl<E: EthSpec> BeaconBlockBodyElectra<E, FullPayload<E>> {
             },
             bls_to_execution_changes: bls_to_execution_changes.clone(),
             blob_kzg_commitments: blob_kzg_commitments.clone(),
+            consolidations: consolidations.clone(),
         }
     }
 }
@@ -759,12 +818,21 @@ impl<E: EthSpec> BeaconBlockBody<E> {
             _ => return Err(Error::IndexNotSupported(generalized_index)),
         };
 
+        let attester_slashings_root = match self {
+            BeaconBlockBody::Base(_)
+            | BeaconBlockBody::Altair(_)
+            | BeaconBlockBody::Merge(_)
+            | BeaconBlockBody::Capella(_)
+            | BeaconBlockBody::Deneb(_) => self.attester_slashings_base()?.tree_hash_root(),
+            BeaconBlockBody::Electra(_) => self.attester_slashings_electra()?.tree_hash_root(),
+        };
+
         let mut leaves = vec![
             self.randao_reveal().tree_hash_root(),
             self.eth1_data().tree_hash_root(),
             self.graffiti().tree_hash_root(),
             self.proposer_slashings().tree_hash_root(),
-            self.attester_slashings().tree_hash_root(),
+            attester_slashings_root,
             self.attestations().tree_hash_root(),
             self.deposits().tree_hash_root(),
             self.voluntary_exits().tree_hash_root(),

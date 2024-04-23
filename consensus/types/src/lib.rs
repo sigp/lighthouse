@@ -118,7 +118,9 @@ pub use crate::aggregate_and_proof::AggregateAndProof;
 pub use crate::attestation::{Attestation, Error as AttestationError};
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
-pub use crate::attester_slashing::AttesterSlashing;
+pub use crate::attester_slashing::{
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingRef,
+};
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockDeneb,
     BeaconBlockElectra, BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock,

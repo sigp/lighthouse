@@ -7,7 +7,7 @@ use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState,
+    AbstractExecPayload, AggregateSignature, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
     InconsistentFork, IndexedAttestation, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
@@ -335,7 +335,7 @@ where
 pub fn attester_slashing_signature_sets<'a, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
-    attester_slashing: &'a AttesterSlashing<E>,
+    attester_slashing: AttesterSlashingRef<'a, E>,
     spec: &'a ChainSpec,
 ) -> Result<(SignatureSet<'a>, SignatureSet<'a>)>
 where
@@ -346,15 +346,15 @@ where
         indexed_attestation_signature_set(
             state,
             get_pubkey.clone(),
-            attester_slashing.attestation_1.signature(),
-            &attester_slashing.attestation_1,
+            &attester_slashing.attestation_1().signature,
+            &attester_slashing.attestation_1(),
             spec,
         )?,
         indexed_attestation_signature_set(
             state,
             get_pubkey,
-            attester_slashing.attestation_2.signature(),
-            &attester_slashing.attestation_2,
+            &attester_slashing.attestation_2().signature,
+            &attester_slashing.attestation_2(),
             spec,
         )?,
     ))

@@ -16,14 +16,14 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// Returns `Ok(indices)` with `indices` being a non-empty vec of validator indices in ascending
 /// order if the `AttesterSlashing` is valid. Otherwise returns `Err(e)` with the reason for
 /// invalidity.
-pub fn verify_attester_slashing<E: EthSpec>(
+pub fn verify_attester_slashing<'a, E: EthSpec>(
     state: &BeaconState<E>,
-    attester_slashing: &AttesterSlashing<E>,
+    attester_slashing: AttesterSlashingRef<'a, E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<Vec<u64>> {
-    let attestation_1 = &attester_slashing.attestation_1;
-    let attestation_2 = &attester_slashing.attestation_2;
+    let attestation_1 = attester_slashing.attestation_1();
+    let attestation_2 = attester_slashing.attestation_2();
 
     // Spec: is_slashable_attestation_data
     verify!(
@@ -43,9 +43,9 @@ pub fn verify_attester_slashing<E: EthSpec>(
 /// For a given attester slashing, return the indices able to be slashed in ascending order.
 ///
 /// Returns Ok(indices) if `indices.len() > 0`
-pub fn get_slashable_indices<E: EthSpec>(
+pub fn get_slashable_indices<'a, E: EthSpec>(
     state: &BeaconState<E>,
-    attester_slashing: &AttesterSlashing<E>,
+    attester_slashing: AttesterSlashingRef<'a, E>,
 ) -> Result<Vec<u64>> {
     get_slashable_indices_modular(state, attester_slashing, |_, validator| {
         validator.is_slashable_at(state.current_epoch())
@@ -54,16 +54,16 @@ pub fn get_slashable_indices<E: EthSpec>(
 
 /// Same as `gather_attester_slashing_indices` but allows the caller to specify the criteria
 /// for determining whether a given validator should be considered slashable.
-pub fn get_slashable_indices_modular<F, E: EthSpec>(
+pub fn get_slashable_indices_modular<'a, F, E: EthSpec>(
     state: &BeaconState<E>,
-    attester_slashing: &AttesterSlashing<E>,
+    attester_slashing: AttesterSlashingRef<'a, E>,
     is_slashable: F,
 ) -> Result<Vec<u64>>
 where
     F: Fn(u64, &Validator) -> bool,
 {
-    let attestation_1 = &attester_slashing.attestation_1;
-    let attestation_2 = &attester_slashing.attestation_2;
+    let attestation_1 = attester_slashing.attestation_1();
+    let attestation_2 = attester_slashing.attestation_2();
 
     let attesting_indices_1 = attestation_1
         .attesting_indices_iter()

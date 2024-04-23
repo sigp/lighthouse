@@ -1092,8 +1092,8 @@ where
                 .copied()
                 .collect::<BTreeSet<_>>()
         };
-        let att1_indices = attesting_indices_set(&slashing.attestation_1);
-        let att2_indices = attesting_indices_set(&slashing.attestation_2);
+        let att1_indices = attesting_indices_set(slashing.attestation_1());
+        let att2_indices = attesting_indices_set(slashing.attestation_2());
         self.fc_store
             .extend_equivocating_indices(att1_indices.intersection(&att2_indices).copied());
     }

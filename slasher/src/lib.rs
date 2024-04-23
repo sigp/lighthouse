@@ -28,6 +28,7 @@ pub use database::{
 };
 pub use error::Error;
 
+use types::AttesterSlashingBase;
 use types::{AttesterSlashing, EthSpec, IndexedAttestation, ProposerSlashing};
 
 #[derive(Debug, PartialEq)]
@@ -59,14 +60,18 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
         match self {
             NotSlashable => None,
             AlreadyDoubleVoted => None,
-            DoubleVote(existing) | SurroundedByExisting(existing) => Some(AttesterSlashing {
-                attestation_1: *existing,
-                attestation_2: new_attestation.clone(),
-            }),
-            SurroundsExisting(existing) => Some(AttesterSlashing {
+            // TODO(electra): fix this once we superstruct IndexedAttestation (return the correct type)
+            DoubleVote(existing) | SurroundedByExisting(existing) => {
+                Some(AttesterSlashing::Base(AttesterSlashingBase {
+                    attestation_1: *existing,
+                    attestation_2: new_attestation.clone(),
+                }))
+            }
+            // TODO(electra): fix this once we superstruct IndexedAttestation (return the correct type)
+            SurroundsExisting(existing) => Some(AttesterSlashing::Base(AttesterSlashingBase {
                 attestation_1: new_attestation.clone(),
                 attestation_2: *existing,
-            }),
+            })),
         }
     }
 }

@@ -238,16 +238,19 @@ pub fn process_proposer_slashings<E: EthSpec>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_attester_slashings<E: EthSpec>(
+pub fn process_attester_slashings<'a, E: EthSpec, I>(
     state: &mut BeaconState<E>,
-    attester_slashings: &[AttesterSlashing<E>],
+    attester_slashings: I,
     verify_signatures: VerifySignatures,
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
+) -> Result<(), BlockProcessingError>
+where
+    I: Iterator<Item = AttesterSlashingRef<'a, E>>,
+{
     state.build_slashings_cache()?;
 
-    for (i, attester_slashing) in attester_slashings.iter().enumerate() {
+    for (i, attester_slashing) in attester_slashings.enumerate() {
         let slashable_indices =
             verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(i))?;

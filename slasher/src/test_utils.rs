@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use types::{
     indexed_attestation::IndexedAttestationBase, AggregateSignature, AttestationData,
-    AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch, Hash256, IndexedAttestation,
-    MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
+    AttesterSlashing, AttesterSlashingBase, BeaconBlockHeader, Checkpoint, Epoch, Hash256,
+    IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
@@ -37,10 +37,11 @@ pub fn att_slashing(
     attestation_1: &IndexedAttestation<E>,
     attestation_2: &IndexedAttestation<E>,
 ) -> AttesterSlashing<E> {
-    AttesterSlashing {
+    // TODO(electra): fix this one we superstruct IndexedAttestation (return the correct type)
+    AttesterSlashing::Base(AttesterSlashingBase {
         attestation_1: attestation_1.clone(),
         attestation_2: attestation_2.clone(),
-    }
+    })
 }
 
 pub fn hashset_intersection(
@@ -61,8 +62,8 @@ pub fn slashed_validators_from_slashings(slashings: &HashSet<AttesterSlashing<E>
     slashings
         .iter()
         .flat_map(|slashing| {
-            let att1 = &slashing.attestation_1;
-            let att2 = &slashing.attestation_2;
+            let att1 = slashing.attestation_1();
+            let att2 = slashing.attestation_2();
             assert!(
                 att1.is_double_vote(att2) || att1.is_surround_vote(att2),
                 "invalid slashing: {:#?}",

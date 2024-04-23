@@ -247,13 +247,12 @@ where
     ) -> Result<()> {
         self.sets
             .sets
-            .reserve(block.message().body().attester_slashings().len() * 2);
+            .reserve(block.message().body().attester_slashings_len() * 2);
 
         block
             .message()
             .body()
             .attester_slashings()
-            .iter()
             .try_for_each(|attester_slashing| {
                 let (set_1, set_2) = attester_slashing_signature_sets(
                     self.state,

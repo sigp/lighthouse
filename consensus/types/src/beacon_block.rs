@@ -11,7 +11,7 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use self::indexed_attestation::IndexedAttestationBase;
+use self::indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra};
 
 /// A block of the `BeaconChain`.
 #[superstruct(
@@ -349,7 +349,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             signed_header_2: signed_header,
         };
 
-        let attester_slashing = AttesterSlashing {
+        let attester_slashing = AttesterSlashingBase {
             attestation_1: indexed_attestation.clone(),
             attestation_2: indexed_attestation,
         };
@@ -607,6 +607,26 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
     /// Return a Electra block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
+        // TODO(electra): check this
+        let indexed_attestation: IndexedAttestationElectra<E> = IndexedAttestationElectra {
+            attesting_indices: VariableList::new(vec![
+                0_u64;
+                E::MaxValidatorsPerCommitteePerSlot::to_usize()
+            ])
+            .unwrap(),
+            data: AttestationData::default(),
+            signature: AggregateSignature::empty(),
+        };
+        // TODO(electra): fix this so we calculate this size correctly
+        let attester_slashings = vec![
+            AttesterSlashingElectra {
+                attestation_1: indexed_attestation.clone(),
+                attestation_2: indexed_attestation,
+            };
+            E::max_attester_slashings_electra()
+        ]
+        .into();
+
         let bls_to_execution_changes = vec![
             SignedBlsToExecutionChange {
                 message: BlsToExecutionChange {
@@ -630,7 +650,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
             state_root: Hash256::zero(),
             body: BeaconBlockBodyElectra {
                 proposer_slashings: base_block.body.proposer_slashings,
-                attester_slashings: base_block.body.attester_slashings,
+                attester_slashings,
                 attestations: base_block.body.attestations,
                 deposits: base_block.body.deposits,
                 voluntary_exits: base_block.body.voluntary_exits,
@@ -645,6 +665,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
                 graffiti: Graffiti::default(),
                 execution_payload: Payload::Electra::default(),
                 blob_kzg_commitments: VariableList::empty(),
+                consolidations: VariableList::empty(),
             },
         }
     }
@@ -675,6 +696,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
                 execution_payload: Payload::Electra::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
+                consolidations: VariableList::empty(),
             },
         }
     }
