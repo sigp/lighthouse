@@ -62,12 +62,8 @@ impl BlockDelays {
             .execution_time
             .and_then(|execution_time| execution_time.checked_sub(times.observed?));
         // Duration since UNIX epoch at which block became available.
-        let available_time = times.execution_time.and_then(|execution_time| {
-            if let Some(all_blobs_observed) = times.all_blobs_observed {
-                Some(std::cmp::max(execution_time, all_blobs_observed))
-            } else {
-                Some(execution_time)
-            }
+        let available_time = times.execution_time.map(|execution_time| {
+            std::cmp::max(execution_time, times.all_blobs_observed.unwrap_or_default())
         });
         // Duration from the start of the slot until the block became available.
         let available_delay =
