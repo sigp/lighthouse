@@ -63,6 +63,8 @@ pub trait EthSpec:
      * Misc
      */
     type MaxValidatorsPerCommittee: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
+    type MaxValidatorsPerCommitteePerSlot: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
+    type MaxCommitteesPerSlot: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
     /*
      * Time parameters
      */
@@ -359,6 +361,8 @@ impl EthSpec for MainnetEthSpec {
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;
+    type MaxCommitteesPerSlot = U64;
+    type MaxValidatorsPerCommitteePerSlot = U131072;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U32;
     type EpochsPerEth1VotingPeriod = U64;
@@ -435,6 +439,8 @@ impl EthSpec for MinimalEthSpec {
         SubnetBitfieldLength,
         SyncCommitteeSubnetCount,
         MaxValidatorsPerCommittee,
+        MaxCommitteesPerSlot,
+        MaxValidatorsPerCommitteePerSlot,
         GenesisEpoch,
         HistoricalRootsLimit,
         ValidatorRegistryLimit,
@@ -480,6 +486,8 @@ impl EthSpec for GnosisEthSpec {
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;
+    type MaxCommitteesPerSlot = U64;
+    type MaxValidatorsPerCommitteePerSlot = U131072;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U16;
     type EpochsPerEth1VotingPeriod = U64;

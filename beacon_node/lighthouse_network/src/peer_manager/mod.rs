@@ -553,7 +553,6 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
-                    Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
                     // Lighthouse does not currently make light client requests; therefore, this
                     // is an unexpected scenario. We do not ban the peer for rate limiting.
                     Protocol::LightClientBootstrap => return,
@@ -578,7 +577,6 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlocksByRoot => return,
                     Protocol::BlobsByRange => return,
                     Protocol::BlobsByRoot => return,
-                    Protocol::DataColumnsByRange => return,
                     Protocol::Goodbye => return,
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
@@ -599,7 +597,6 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
-                    Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,

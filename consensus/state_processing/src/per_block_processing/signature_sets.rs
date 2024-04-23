@@ -425,7 +425,7 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let slot = signed_aggregate_and_proof.message.aggregate.data.slot;
+    let slot = signed_aggregate_and_proof.message.aggregate.data().slot;
 
     let domain = spec.get_domain(
         slot.epoch(E::slots_per_epoch()),
@@ -458,7 +458,7 @@ where
     let target_epoch = signed_aggregate_and_proof
         .message
         .aggregate
-        .data
+        .data()
         .target
         .epoch;
 

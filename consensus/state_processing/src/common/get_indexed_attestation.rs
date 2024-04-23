@@ -11,11 +11,15 @@ pub fn get_indexed_attestation<E: EthSpec>(
     committee: &[usize],
     attestation: &Attestation<E>,
 ) -> Result<IndexedAttestation<E>> {
-    let attesting_indices = get_attesting_indices::<E>(committee, &attestation.aggregation_bits)?;
+    let attesting_indices = match attestation {
+        Attestation::Base(att) =>  get_attesting_indices::<E>(committee, &att.aggregation_bits)?,
+        // TODO(eip7549) implement get_attesting_indices for electra
+        Attestation::Electra(_) => todo!(),
+    };
 
     Ok(IndexedAttestation {
         attesting_indices: VariableList::new(attesting_indices)?,
-        data: attestation.data.clone(),
-        signature: attestation.signature.clone(),
+        data: attestation.data().clone(),
+        signature: attestation.signature().clone(),
     })
 }

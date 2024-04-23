@@ -30,7 +30,7 @@ use tree_hash_derive::TreeHash;
 pub struct IndexedAttestation<E: EthSpec> {
     /// Lists validator registry indices, not committee indices.
     #[serde(with = "quoted_variable_list_u64")]
-    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommittee>,
+    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommitteePerSlot>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
 }

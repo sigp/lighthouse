@@ -21,7 +21,6 @@ const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 pub enum ByRangeRequestType {
     BlocksAndBlobs,
     Blocks,
-    DataColumns,
 }
 
 /// Allows customisation of the above constants used in other sync methods such as BackFillSync.
