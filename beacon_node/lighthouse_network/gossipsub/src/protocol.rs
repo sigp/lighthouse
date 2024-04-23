@@ -23,8 +23,8 @@ use super::handler::HandlerEvent;
 use super::rpc_proto::proto;
 use super::topic::TopicHash;
 use super::types::{
-    ControlAction, Graft, IHave, IWant, MessageId, PeerInfo, PeerKind, Prune, RawMessage, Rpc,
-    Subscription, SubscriptionAction,
+    ControlAction, Graft, IDontWant, IHave, IWant, MessageId, PeerInfo, PeerKind, Prune,
+    RawMessage, Rpc, Subscription, SubscriptionAction,
 };
 use super::ValidationError;
 use asynchronous_codec::{Decoder, Encoder, Framed};
@@ -484,10 +484,25 @@ impl Decoder for GossipsubCodec {
                 }));
             }
 
+            let idontwant_msgs: Vec<ControlAction> = rpc_control
+                .idontwant
+                .into_iter()
+                .map(|idontwant| {
+                    ControlAction::IDontWant(IDontWant {
+                        message_ids: idontwant
+                            .message_ids
+                            .into_iter()
+                            .map(MessageId::from)
+                            .collect::<Vec<_>>(),
+                    })
+                })
+                .collect();
+
             control_msgs.extend(ihave_msgs);
             control_msgs.extend(iwant_msgs);
             control_msgs.extend(graft_msgs);
             control_msgs.extend(prune_msgs);
+            control_msgs.extend(idontwant_msgs);
         }
 
         Ok(Some(HandlerEvent::Message {
