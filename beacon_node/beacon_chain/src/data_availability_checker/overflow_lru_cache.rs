@@ -39,7 +39,7 @@ use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
-use slog::{debug, Logger};
+use slog::{debug, trace, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
@@ -258,7 +258,7 @@ impl<E: EthSpec> PendingComponents<E> {
             BlockImportRequirement::CustodyColumns(num_expected_columns) => {
                 let num_received_data_columns = self.num_received_data_columns();
 
-                debug!(
+                trace!(
                     log,
                     "Checking block and data column importability";
                     "block_root" => %self.block_root,
@@ -381,7 +381,7 @@ impl<E: EthSpec> PendingComponents<E> {
 enum OverflowKey {
     Block(Hash256),
     Blob(Hash256, u8),
-    DataColumn(Hash256),
+    DataColumn(Hash256, u8),
 }
 
 impl OverflowKey {
@@ -408,14 +408,17 @@ impl OverflowKey {
                 data_column_id.index,
             ));
         }
-        Ok(Self::DataColumn(data_column_id.block_root))
+        Ok(Self::DataColumn(
+            data_column_id.block_root,
+            data_column_id.index as u8,
+        ))
     }
 
     pub fn root(&self) -> &Hash256 {
         match self {
             Self::Block(root) => root,
             Self::Blob(root, _) => root,
-            Self::DataColumn(root) => root,
+            Self::DataColumn(root, _) => root,
         }
     }
 }
@@ -501,7 +504,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
                         .ok_or(AvailabilityCheckError::BlobIndexInvalid(index as u64))? =
                         Some(KzgVerifiedBlob::from_ssz_bytes(value_bytes.as_slice())?);
                 }
-                OverflowKey::DataColumn(_) => {
+                OverflowKey::DataColumn(_, _index) => {
                     let data_column =
                         KzgVerifiedDataColumn::from_ssz_bytes(value_bytes.as_slice())?;
                     maybe_pending_components
@@ -1071,7 +1074,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                                 .slot()
                                 .epoch(T::EthSpec::slots_per_epoch())
                         }
-                        OverflowKey::DataColumn(_) => {
+                        OverflowKey::DataColumn(_, _) => {
                             KzgVerifiedDataColumn::<T::EthSpec>::from_ssz_bytes(
                                 value_bytes.as_slice(),
                             )?
@@ -1132,9 +1135,9 @@ impl ssz::Encode for OverflowKey {
                 block_hash.ssz_append(buf);
                 buf.push(*index + 1)
             }
-            OverflowKey::DataColumn(block_hash) => {
+            OverflowKey::DataColumn(block_hash, index) => {
                 block_hash.ssz_append(buf);
-                buf.push(0u8)
+                buf.push(*index + 1)
             }
         }
     }
@@ -1147,7 +1150,7 @@ impl ssz::Encode for OverflowKey {
         match self {
             Self::Block(root) => root.ssz_bytes_len() + 1,
             Self::Blob(root, _) => root.ssz_bytes_len() + 1,
-            Self::DataColumn(root) => root.ssz_bytes_len() + 1,
+            Self::DataColumn(root, _) => root.ssz_bytes_len() + 1,
         }
     }
 }
