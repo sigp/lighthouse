@@ -704,9 +704,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// - `result_state_root == state.canonical_root()`
     /// - `state.slot() <= max_slot`
     /// - `state.get_latest_block_root(result_state_root) == block_root`
-    ///
-    /// Presently this is only used to avoid loading the un-advanced split state, but in future will
-    /// be expanded to return states from an in-memory cache.
     pub fn get_advanced_hot_state(
         &self,
         block_root: Hash256,
@@ -745,9 +742,23 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else {
             state_root
         };
-        let opt_state = self
+        let mut opt_state = self
             .load_hot_state(&state_root)?
             .map(|(state, _block_root)| (state_root, state));
+
+        if let Some((state_root, state)) = opt_state.as_mut() {
+            state.update_tree_hash_cache()?;
+            state.build_all_caches(&self.spec)?;
+            self.state_cache
+                .lock()
+                .put_state(*state_root, block_root, state)?;
+            debug!(
+                self.log,
+                "Cached state";
+                "state_root" => ?state_root,
+                "slot" => state.slot(),
+            );
+        }
         drop(split);
         Ok(opt_state)
     }
