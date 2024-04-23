@@ -1,10 +1,18 @@
 use super::{types::*, PK_LEN, SECRET_PREFIX};
 use crate::Error;
-use libsecp256k1::PublicKey;
-use reqwest::IntoUrl;
+use account_utils::ZeroizeString;
+use bytes::Bytes;
+use libsecp256k1::{Message, PublicKey, Signature};
+use reqwest::{
+    header::{HeaderMap, HeaderValue},
+    IntoUrl,
+};
+use ring::digest::{digest, SHA256};
 use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::{self, Display};
+use std::fs;
+use std::path::Path;
 
 pub use reqwest;
 pub use reqwest::{Response, StatusCode, Url};
@@ -16,6 +24,9 @@ use types::graffiti::GraffitiString;
 pub struct ValidatorClientHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
+    secret: Option<ZeroizeString>,
+    server_pubkey: Option<PublicKey>,
+    authorization_header: AuthorizationHeader,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -67,11 +78,14 @@ pub fn parse_pubkey(secret: &str) -> Result<Option<PublicKey>, Error> {
 }
 
 impl ValidatorClientHttpClient {
-    /// Create a new client.
-    pub fn new(server: SensitiveUrl) -> Result<Self, Error> {
+    /// Create a new client pre-initialised with an API token.
+    pub fn new(server: SensitiveUrl, secret: String) -> Result<Self, Error> {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
+            server_pubkey: parse_pubkey(&secret)?,
+            secret: Some(secret.into()),
+            authorization_header: AuthorizationHeader::Bearer,
         })
     }
 
@@ -82,31 +96,151 @@ impl ValidatorClientHttpClient {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
+            secret: None,
+            server_pubkey: None,
+            authorization_header: AuthorizationHeader::Omit,
         })
     }
 
-    pub fn from_components(server: SensitiveUrl, client: reqwest::Client) -> Result<Self, Error> {
+    pub fn from_components(
+        server: SensitiveUrl,
+        client: reqwest::Client,
+        secret: String,
+    ) -> Result<Self, Error> {
         Ok(Self {
             client,
             server,
+            server_pubkey: parse_pubkey(&secret)?,
+            secret: Some(secret.into()),
+            authorization_header: AuthorizationHeader::Bearer,
         })
+    }
+
+    /// Get a reference to this client's API token, if any.
+    pub fn api_token(&self) -> Option<&ZeroizeString> {
+        self.secret.as_ref()
+    }
+
+    /// Read an API token from the specified `path`, stripping any trailing whitespace.
+    pub fn load_api_token_from_file(path: &Path) -> Result<ZeroizeString, Error> {
+        let token = fs::read_to_string(path).map_err(|e| Error::TokenReadError(path.into(), e))?;
+        Ok(ZeroizeString::from(token.trim_end().to_string()))
+    }
+
+    /// Add an authentication token to use when making requests.
+    ///
+    /// If the token is Lighthouse-like, a pubkey derivation will be attempted. In the case
+    /// of failure the token will still be stored, and the client can continue to be used to
+    /// communicate with non-Lighthouse nodes.
+    pub fn add_auth_token(&mut self, token: ZeroizeString) -> Result<(), Error> {
+        let pubkey_res = parse_pubkey(token.as_str());
+
+        self.secret = Some(token);
+        self.authorization_header = AuthorizationHeader::Bearer;
+
+        pubkey_res.map(|opt_pubkey| {
+            self.server_pubkey = opt_pubkey;
+        })
+    }
+
+    /// Set to `false` to disable sending the `Authorization` header on requests.
+    ///
+    /// Failing to send the `Authorization` header will cause the VC to reject requests with a 403.
+    /// This function is intended only for testing purposes.
+    pub fn send_authorization_header(&mut self, should_send: bool) {
+        if should_send {
+            self.authorization_header = AuthorizationHeader::Bearer;
+        } else {
+            self.authorization_header = AuthorizationHeader::Omit;
+        }
+    }
+
+    /// Use the legacy basic auth style (bearer auth preferred by default now).
+    pub fn use_basic_auth(&mut self) {
+        self.authorization_header = AuthorizationHeader::Basic;
+    }
+
+    async fn signed_body(&self, response: Response) -> Result<Bytes, Error> {
+        let server_pubkey = self.server_pubkey.as_ref().ok_or(Error::NoServerPubkey)?;
+        let sig = response
+            .headers()
+            .get("Signature")
+            .ok_or(Error::MissingSignatureHeader)?
+            .to_str()
+            .map_err(|_| Error::InvalidSignatureHeader)?
+            .to_string();
+
+        let body = response.bytes().await.map_err(Error::from)?;
+
+        let message =
+            Message::parse_slice(digest(&SHA256, &body).as_ref()).expect("sha256 is 32 bytes");
+
+        serde_utils::hex::decode(&sig)
+            .ok()
+            .and_then(|bytes| {
+                let sig = Signature::parse_der(&bytes).ok()?;
+                Some(libsecp256k1::verify(&message, &sig, server_pubkey))
+            })
+            .filter(|is_valid| *is_valid)
+            .ok_or(Error::InvalidSignatureHeader)?;
+
+        Ok(body)
+    }
+
+    async fn signed_json<T: DeserializeOwned>(&self, response: Response) -> Result<T, Error> {
+        let body = self.signed_body(response).await?;
+        serde_json::from_slice(&body).map_err(Error::InvalidJson)
+    }
+
+    fn headers(&self) -> Result<HeaderMap, Error> {
+        let mut headers = HeaderMap::new();
+
+        if self.authorization_header == AuthorizationHeader::Basic
+            || self.authorization_header == AuthorizationHeader::Bearer
+        {
+            let secret = self.secret.as_ref().ok_or(Error::NoToken)?;
+            let header_value = HeaderValue::from_str(&format!(
+                "{} {}",
+                self.authorization_header,
+                secret.as_str()
+            ))
+            .map_err(|e| {
+                Error::InvalidSecret(format!("secret is invalid as a header value: {}", e))
+            })?;
+
+            headers.insert("Authorization", header_value);
+        }
+
+        Ok(headers)
     }
 
     /// Perform a HTTP GET request, returning the `Response` for further processing.
     async fn get_response<U: IntoUrl>(&self, url: U) -> Result<Response, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::from)?;
+        let response = self
+            .client
+            .get(url)
+            .headers(self.headers()?)
+            .send()
+            .await
+            .map_err(Error::from)?;
         ok_or_error(response).await
     }
 
     /// Perform a HTTP DELETE request, returning the `Response` for further processing.
     async fn delete_response<U: IntoUrl>(&self, url: U) -> Result<Response, Error> {
-        let response = self.client.delete(url).send().await.map_err(Error::from)?;
+        let response = self
+            .client
+            .delete(url)
+            .headers(self.headers()?)
+            .send()
+            .await
+            .map_err(Error::from)?;
         ok_or_error(response).await
     }
 
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
         let response = self.get_response(url).await?;
-        Ok(response.json().await?)
+        self.signed_json(response).await
     }
 
     async fn delete<U: IntoUrl>(&self, url: U) -> Result<(), Error> {
@@ -118,10 +252,18 @@ impl ValidatorClientHttpClient {
         }
     }
 
+    async fn get_unsigned<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
+        self.get_response(url)
+            .await?
+            .json()
+            .await
+            .map_err(Error::from)
+    }
+
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
         match self.get_response(url).await {
-            Ok(resp) => Ok(resp.json().await.map(Option::Some)?),
+            Ok(resp) => self.signed_json(resp).await.map(Option::Some),
             Err(err) => {
                 if err.status() == Some(StatusCode::NOT_FOUND) {
                     Ok(None)
@@ -141,6 +283,7 @@ impl ValidatorClientHttpClient {
         let response = self
             .client
             .post(url)
+            .headers(self.headers()?)
             .json(body)
             .send()
             .await
@@ -154,6 +297,15 @@ impl ValidatorClientHttpClient {
         body: &T,
     ) -> Result<V, Error> {
         let response = self.post_with_raw_response(url, body).await?;
+        self.signed_json(response).await
+    }
+
+    async fn post_with_unsigned_response<T: Serialize, U: IntoUrl, V: DeserializeOwned>(
+        &self,
+        url: U,
+        body: &T,
+    ) -> Result<V, Error> {
+        let response = self.post_with_raw_response(url, body).await?;
         Ok(response.json().await?)
     }
 
@@ -162,11 +314,13 @@ impl ValidatorClientHttpClient {
         let response = self
             .client
             .patch(url)
+            .headers(self.headers()?)
             .json(body)
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await?;
+        let response = ok_or_error(response).await?;
+        self.signed_body(response).await?;
         Ok(())
     }
 
@@ -179,6 +333,7 @@ impl ValidatorClientHttpClient {
         let response = self
             .client
             .delete(url)
+            .headers(self.headers()?)
             .json(body)
             .send()
             .await
@@ -432,10 +587,20 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
+    /// `GET lighthouse/auth`
+    pub async fn get_auth(&self) -> Result<AuthResponse, Error> {
+        let mut url = self.server.full.clone();
+        url.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("auth");
+        self.get_unsigned(url).await
+    }
+
     /// `GET eth/v1/keystores`
     pub async fn get_keystores(&self) -> Result<ListKeystoresResponse, Error> {
         let url = self.make_keystores_url()?;
-        self.get(url).await
+        self.get_unsigned(url).await
     }
 
     /// `POST eth/v1/keystores`
@@ -444,7 +609,7 @@ impl ValidatorClientHttpClient {
         req: &ImportKeystoresRequest,
     ) -> Result<ImportKeystoresResponse, Error> {
         let url = self.make_keystores_url()?;
-        self.post(url, req).await
+        self.post_with_unsigned_response(url, req).await
     }
 
     /// `DELETE eth/v1/keystores`
@@ -459,7 +624,7 @@ impl ValidatorClientHttpClient {
     /// `GET eth/v1/remotekeys`
     pub async fn get_remotekeys(&self) -> Result<ListRemotekeysResponse, Error> {
         let url = self.make_remotekeys_url()?;
-        self.get(url).await
+        self.get_unsigned(url).await
     }
 
     /// `POST eth/v1/remotekeys`
@@ -468,7 +633,7 @@ impl ValidatorClientHttpClient {
         req: &ImportRemotekeysRequest,
     ) -> Result<ImportRemotekeysResponse, Error> {
         let url = self.make_remotekeys_url()?;
-        self.post(url, req).await
+        self.post_with_unsigned_response(url, req).await
     }
 
     /// `DELETE eth/v1/remotekeys`
