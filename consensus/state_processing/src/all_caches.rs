@@ -9,12 +9,14 @@ use types::{BeaconState, ChainSpec, EpochCacheError, EthSpec, Hash256, RelativeE
 pub trait AllCaches {
     /// Build all caches.
     ///
-    /// Note that this excludes the tree-hash cache. That needs to be managed separately.
+    /// Note that this excludes milhouse's intrinsic tree-hash cache. That needs to be managed
+    /// separately.
     fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), EpochCacheError>;
 
     /// Return true if all caches are built.
     ///
-    /// Note that this excludes the tree-hash cache. That needs to be managed separately.
+    /// Note that this excludes milhouse's intrinsic tree-hash cache. That needs to be managed
+    /// separately.
     fn all_caches_built(&self) -> bool;
 }
 

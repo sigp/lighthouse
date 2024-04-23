@@ -2,6 +2,7 @@
 
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
+use milhouse::List;
 use rayon::prelude::*;
 use ssz::Encode;
 use std::sync::Arc;
@@ -27,21 +28,23 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
             .expect("should add balance");
     }
 
-    *state.validators_mut() = (0..validator_count)
-        .collect::<Vec<_>>()
-        .par_iter()
-        .map(|&i| Validator {
-            pubkey: generate_deterministic_keypair(i).pk.into(),
-            withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
-            effective_balance: spec.max_effective_balance,
-            slashed: false,
-            activation_eligibility_epoch: Epoch::new(0),
-            activation_epoch: Epoch::new(0),
-            exit_epoch: Epoch::from(u64::max_value()),
-            withdrawable_epoch: Epoch::from(u64::max_value()),
-        })
-        .collect::<Vec<_>>()
-        .into();
+    *state.validators_mut() = List::new(
+        (0..validator_count)
+            .collect::<Vec<_>>()
+            .par_iter()
+            .map(|&i| Validator {
+                pubkey: generate_deterministic_keypair(i).pk.compress(),
+                withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
+                effective_balance: spec.max_effective_balance,
+                slashed: false,
+                activation_eligibility_epoch: Epoch::new(0),
+                activation_epoch: Epoch::new(0),
+                exit_epoch: Epoch::from(u64::max_value()),
+                withdrawable_epoch: Epoch::from(u64::max_value()),
+            })
+            .collect(),
+    )
+    .unwrap();
 
     state
 }
@@ -90,19 +93,6 @@ fn all_benches(c: &mut Criterion) {
             b.iter_batched_ref(
                 || inner_state.clone(),
                 |state| black_box(state.clone()),
-                criterion::BatchSize::SmallInput,
-            )
-        })
-        .sample_size(10),
-    );
-
-    let inner_state = state.clone();
-    c.bench(
-        &format!("{}_validators", validator_count),
-        Benchmark::new("clone/tree_hash_cache", move |b| {
-            b.iter_batched_ref(
-                || inner_state.clone(),
-                |state| black_box(state.tree_hash_cache().clone()),
                 criterion::BatchSize::SmallInput,
             )
         })

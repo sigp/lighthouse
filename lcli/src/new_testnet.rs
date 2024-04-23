@@ -264,7 +264,7 @@ fn initialize_state_with_validators<E: EthSpec>(
     let mut state = BeaconState::new(genesis_time, eth1_data, spec);
 
     // Seed RANDAO with Eth1 entropy
-    state.fill_randao_mixes_with(eth1_block_hash);
+    state.fill_randao_mixes_with(eth1_block_hash).unwrap();
 
     for keypair in keypairs.iter() {
         let withdrawal_credentials = |pubkey: &PublicKey| {
