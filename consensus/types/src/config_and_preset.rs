@@ -1,6 +1,6 @@
 use crate::{
-    consts::altair, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config,
-    DenebPreset, ElectraPreset, EthSpec, ForkName,
+    consts::altair, consts::deneb, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset,
+    ChainSpec, Config, DenebPreset, ElectraPreset, EthSpec, ForkName,
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
@@ -96,10 +96,12 @@ impl ConfigAndPreset {
 /// Get a hashmap of constants to add to the `PresetAndConfig`
 pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
     let hex_string = |value: &[u8]| format!("0x{}", hex::encode(value)).into();
+    let u64_hex = |v: u64| hex_string(&v.to_le_bytes());
     let u32_hex = |v: u32| hex_string(&v.to_le_bytes());
     let u8_hex = |v: u8| hex_string(&v.to_le_bytes());
     hashmap! {
         "bls_withdrawal_prefix".to_uppercase() => u8_hex(spec.bls_withdrawal_prefix_byte),
+        "eth1_address_withdrawal_prefix".to_uppercase() => u8_hex(spec.eth1_address_withdrawal_prefix_byte),
         "domain_beacon_proposer".to_uppercase() => u32_hex(spec.domain_beacon_proposer),
         "domain_beacon_attester".to_uppercase() => u32_hex(spec.domain_beacon_attester),
         "domain_randao".to_uppercase()=> u32_hex(spec.domain_randao),
@@ -119,6 +121,13 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
             altair::SYNC_COMMITTEE_SUBNET_COUNT.to_string().into(),
         "target_aggregators_per_sync_subcommittee".to_uppercase() =>
             altair::TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE.to_string().into(),
+        // Deneb
+        "versioned_hash_version_kzg".to_uppercase() => deneb::VERSIONED_HASH_VERSION_KZG.to_string().into(),
+        // Electra
+        "compounding_withdrawal_prefix".to_uppercase() => u8_hex(spec.compounding_withdrawal_prefix_byte),
+        "unset_deposit_receipts_start_index".to_uppercase() => spec.unset_deposit_receipts_start_index.to_string().into(),
+        "full_exit_request_amount".to_uppercase() => spec.full_exit_request_amount.to_string().into(),
+        "domain_consolidation".to_uppercase()=> u32_hex(spec.domain_consolidation),
     }
 }
 
