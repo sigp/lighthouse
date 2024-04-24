@@ -2,8 +2,8 @@
 use crate::{test_utils::*, ForkName};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
-    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateCapella,
-    BeaconStateDeneb, BeaconStateElectra, BeaconStateError, BeaconStateMerge, ChainSpec, Domain,
+    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateBellatrix,
+    BeaconStateCapella, BeaconStateDeneb, BeaconStateElectra, BeaconStateError, ChainSpec, Domain,
     Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot, Vector,
 };
 use ssz::Encode;
@@ -413,7 +413,7 @@ fn check_num_fields_pow2() {
         let num_fields = match fork_name {
             ForkName::Base => BeaconStateBase::<E>::NUM_FIELDS,
             ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS,
-            ForkName::Merge => BeaconStateMerge::<E>::NUM_FIELDS,
+            ForkName::Bellatrix => BeaconStateBellatrix::<E>::NUM_FIELDS,
             ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS,
             ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS,
             ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS,
