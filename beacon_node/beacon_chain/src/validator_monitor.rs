@@ -469,7 +469,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 unaggregated_attestations.remove(&oldest_slot);
             }
         }
-        let slot = attestation.data.slot;
+        let slot = attestation.data().slot;
         self.unaggregated_attestations.insert(slot, attestation);
     }
 
@@ -730,12 +730,12 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 // that qualifies the committee index for reward is included
                 let inclusion_delay = spec.min_attestation_inclusion_delay;
 
-                let data = &unaggregated_attestation.data;
+                let data = unaggregated_attestation.data();
 
                 // Get the reward indices for the unaggregated attestation or log an error
                 match get_attestation_participation_flag_indices(
                     state,
-                    &unaggregated_attestation.data,
+                    unaggregated_attestation.data(),
                     inclusion_delay,
                     spec,
                 ) {

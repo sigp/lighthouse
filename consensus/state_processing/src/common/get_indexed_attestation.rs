@@ -12,7 +12,7 @@ pub fn get_indexed_attestation<E: EthSpec>(
     attestation: &Attestation<E>,
 ) -> Result<IndexedAttestation<E>> {
     let attesting_indices = match attestation {
-        Attestation::Base(att) =>  get_attesting_indices::<E>(committee, &att.aggregation_bits)?,
+        Attestation::Base(att) => get_attesting_indices::<E>(committee, &att.aggregation_bits)?,
         // TODO(eip7549) implement get_attesting_indices for electra
         Attestation::Electra(_) => todo!(),
     };

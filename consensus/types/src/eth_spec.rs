@@ -138,8 +138,8 @@ pub trait EthSpec:
     type BytesPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     /*
-    * New for DAS
-    */
+     * New for DAS
+     */
     type MaxDataColumnsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
 
     /*

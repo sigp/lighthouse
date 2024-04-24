@@ -2,8 +2,8 @@ use crate::AttestationStats;
 use itertools::Itertools;
 use std::collections::HashMap;
 use types::{
-    AggregateSignature, Attestation, AttestationData, BeaconState, BitList, Checkpoint, Epoch,
-    EthSpec, Hash256, Slot,
+    attestation::AttestationBase, AggregateSignature, Attestation, AttestationData, BeaconState,
+    BitList, Checkpoint, Epoch, EthSpec, Hash256, Slot,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -54,19 +54,26 @@ pub struct AttestationDataMap<E: EthSpec> {
 impl<E: EthSpec> SplitAttestation<E> {
     pub fn new(attestation: Attestation<E>, attesting_indices: Vec<u64>) -> Self {
         let checkpoint = CheckpointKey {
-            source: attestation.data.source,
-            target_epoch: attestation.data.target.epoch,
+            source: attestation.data().source,
+            target_epoch: attestation.data().target.epoch,
         };
         let data = CompactAttestationData {
-            slot: attestation.data.slot,
-            index: attestation.data.index,
-            beacon_block_root: attestation.data.beacon_block_root,
-            target_root: attestation.data.target.root,
+            slot: attestation.data().slot,
+            index: attestation.data().index,
+            beacon_block_root: attestation.data().beacon_block_root,
+            target_root: attestation.data().target.root,
         };
+
+        let aggregation_bits = match attestation.clone() {
+            Attestation::Base(attn) => attn.aggregation_bits,
+            // TODO(eip7549) implement electra variant
+            Attestation::Electra(_) => todo!(),
+        };
+
         let indexed = CompactIndexedAttestation {
             attesting_indices,
-            aggregation_bits: attestation.aggregation_bits,
-            signature: attestation.signature,
+            aggregation_bits,
+            signature: attestation.signature().clone(),
         };
         Self {
             checkpoint,
@@ -99,11 +106,11 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
     }
 
     pub fn clone_as_attestation(&self) -> Attestation<E> {
-        Attestation {
+        Attestation::Base(AttestationBase {
             aggregation_bits: self.indexed.aggregation_bits.clone(),
             data: self.attestation_data(),
             signature: self.indexed.signature.clone(),
-        }
+        })
     }
 }
 

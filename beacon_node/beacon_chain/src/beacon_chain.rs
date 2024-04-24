@@ -121,6 +121,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
+use types::attestation::AttestationBase;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::payload::BlockProductionVersion;
 use types::*;
@@ -1670,7 +1671,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
     ) -> Result<Attestation<T::EthSpec>, Error> {
-        let beacon_block_root = attestation.data.beacon_block_root;
+        let beacon_block_root = attestation.data().beacon_block_root;
         match self
             .canonical_head
             .fork_choice_read_lock()
@@ -1936,7 +1937,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
         drop(cache_timer);
 
-        Ok(Attestation {
+        // TODO(eip7549) implement electra variant
+        Ok(Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(committee_len)?,
             data: AttestationData {
                 slot: request_slot,
@@ -1946,7 +1948,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 target,
             },
             signature: AggregateSignature::empty(),
-        })
+        }))
     }
 
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for
@@ -2158,8 +2160,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.log,
                 "Stored unaggregated attestation";
                 "outcome" => ?outcome,
-                "index" => attestation.data.index,
-                "slot" => attestation.data.slot.as_u64(),
+                "index" => attestation.data().index,
+                "slot" => attestation.data().slot.as_u64(),
             ),
             Err(NaiveAggregationError::SlotTooLow {
                 slot,
@@ -2177,8 +2179,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to store unaggregated attestation";
                         "error" => ?e,
-                        "index" => attestation.data.index,
-                        "slot" => attestation.data.slot.as_u64(),
+                        "index" => attestation.data().index,
+                        "slot" => attestation.data().slot.as_u64(),
                 );
                 return Err(Error::from(e).into());
             }
@@ -3746,7 +3748,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to get indexed attestation";
                         "purpose" => "validator monitor",
-                        "attestation_slot" => attestation.data.slot,
+                        "attestation_slot" => attestation.data().slot,
                         "error" => ?e,
                     );
                     continue;
@@ -3802,7 +3804,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to register observed attestation";
                         "error" => ?e,
-                        "epoch" => a.data.target.epoch
+                        "epoch" => a.data().target.epoch
                     );
                 }
             }
@@ -3814,7 +3816,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to get indexed attestation";
                         "purpose" => "observation",
-                        "attestation_slot" => a.data.slot,
+                        "attestation_slot" => a.data().slot,
                         "error" => ?e,
                     );
                     continue;
@@ -3825,13 +3827,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             for &validator_index in &indexed_attestation.attesting_indices {
                 if let Err(e) = observed_block_attesters
-                    .observe_validator(a.data.target.epoch, validator_index as usize)
+                    .observe_validator(a.data().target.epoch, validator_index as usize)
                 {
                     debug!(
                         self.log,
                         "Failed to register observed block attester";
                         "error" => ?e,
-                        "epoch" => a.data.target.epoch,
+                        "epoch" => a.data().target.epoch,
                         "validator_index" => validator_index,
                     )
                 }
@@ -3855,7 +3857,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             self.log,
                             "Failed to get indexed attestation";
                             "purpose" => "slasher",
-                            "attestation_slot" => attestation.data.slot,
+                            "attestation_slot" => attestation.data().slot,
                             "error" => ?e,
                         );
                         continue;

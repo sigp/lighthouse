@@ -1803,7 +1803,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .naive_aggregation_pool
                             .read()
                             .iter()
-                            .filter(|&att| query_filter(&att.data))
+                            .filter(|&att| query_filter(att.data()))
                             .cloned(),
                     );
                     Ok(api_types::GenericResponse::from(attestations))
@@ -3166,7 +3166,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     chain
                         .produce_unaggregated_attestation(query.slot, query.committee_index)
-                        .map(|attestation| attestation.data)
+                        .map(|attestation| attestation.data().clone())
                         .map(api_types::GenericResponse::from)
                         .map_err(warp_utils::reject::beacon_chain_error)
                 })
@@ -3368,8 +3368,8 @@ pub fn serve<T: BeaconChainTypes>(
                                     "error" => format!("{:?}", e),
                                     "request_index" => index,
                                     "aggregator_index" => aggregate.message.aggregator_index,
-                                    "attestation_index" => aggregate.message.aggregate.data.index,
-                                    "attestation_slot" => aggregate.message.aggregate.data.slot,
+                                    "attestation_index" => aggregate.message.aggregate.data().index,
+                                    "attestation_slot" => aggregate.message.aggregate.data().slot,
                                 );
                                 failures.push(api_types::Failure::new(index, format!("Verification: {:?}", e)));
                             }
@@ -3389,8 +3389,8 @@ pub fn serve<T: BeaconChainTypes>(
                                     "error" => format!("{:?}", e),
                                     "request_index" => index,
                                     "aggregator_index" => verified_aggregate.aggregate().message.aggregator_index,
-                                    "attestation_index" => verified_aggregate.attestation().data.index,
-                                    "attestation_slot" => verified_aggregate.attestation().data.slot,
+                                    "attestation_index" => verified_aggregate.attestation().data().index,
+                                    "attestation_slot" => verified_aggregate.attestation().data().slot,
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }

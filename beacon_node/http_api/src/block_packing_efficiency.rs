@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{
-    BeaconCommittee, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, Epoch, EthSpec,
-    Hash256, OwnedBeaconCommittee, RelativeEpoch, SignedBeaconBlock, Slot,
+    Attestation, BeaconCommittee, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, Epoch,
+    EthSpec, Hash256, OwnedBeaconCommittee, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 use warp_utils::reject::{beacon_chain_error, custom_bad_request, custom_server_error};
 
@@ -112,21 +112,29 @@ impl<E: EthSpec> PackingEfficiencyHandler<E> {
 
         let mut attestations_in_block = HashMap::new();
         for attestation in attestations.iter() {
-            for (position, voted) in attestation.aggregation_bits.iter().enumerate() {
-                if voted {
-                    let unique_attestation = UniqueAttestation {
-                        slot: attestation.data.slot,
-                        committee_index: attestation.data.index,
-                        committee_position: position,
-                    };
-                    let inclusion_distance: u64 = block
-                        .slot()
-                        .as_u64()
-                        .checked_sub(attestation.data.slot.as_u64())
-                        .ok_or(PackingEfficiencyError::InvalidAttestationError)?;
+            match attestation {
+                Attestation::Base(attn) => {
+                    for (position, voted) in attn.aggregation_bits.iter().enumerate() {
+                        if voted {
+                            let unique_attestation = UniqueAttestation {
+                                slot: attn.data.slot,
+                                committee_index: attn.data.index,
+                                committee_position: position,
+                            };
+                            let inclusion_distance: u64 = block
+                                .slot()
+                                .as_u64()
+                                .checked_sub(attn.data.slot.as_u64())
+                                .ok_or(PackingEfficiencyError::InvalidAttestationError)?;
 
-                    self.available_attestations.remove(&unique_attestation);
-                    attestations_in_block.insert(unique_attestation, inclusion_distance);
+                            self.available_attestations.remove(&unique_attestation);
+                            attestations_in_block.insert(unique_attestation, inclusion_distance);
+                        }
+                    }
+                }
+                // TODO(eip7549) implement electra variant
+                Attestation::Electra(_) => {
+                    todo!()
                 }
             }
         }

@@ -29,8 +29,10 @@ pub fn get_attesting_indices_from_state<E: EthSpec>(
 ) -> Result<Vec<u64>, BeaconStateError> {
     let committee = state.get_beacon_committee(att.data().slot, att.data().index)?;
     match att {
-        Attestation::Base(att) =>  get_attesting_indices::<E>(committee.committee, &att.aggregation_bits),
+        Attestation::Base(att) => {
+            get_attesting_indices::<E>(committee.committee, &att.aggregation_bits)
+        }
         // TODO(eip7549) implement get_attesting_indices for electra
-        Attestation::Electra(att) => todo!(),
+        Attestation::Electra(_) => todo!(),
     }
 }

@@ -93,8 +93,7 @@ impl<E: EthSpec> Decode for Attestation<E> {
 
 impl<E: EthSpec> TestRandom for Attestation<E> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let aggregation_bits: BitList<E::MaxValidatorsPerCommittee> =
-            BitList::random_for_test(rng);
+        let aggregation_bits: BitList<E::MaxValidatorsPerCommittee> = BitList::random_for_test(rng);
         // let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
         let data = AttestationData::random_for_test(rng);
         let signature = AggregateSignature::random_for_test(rng);
@@ -188,6 +187,27 @@ impl<E: EthSpec> Attestation<E> {
         match self {
             Attestation::Base(att) => att.data.index,
             Attestation::Electra(att) => att.committee_index(),
+        }
+    }
+
+    pub fn is_aggregation_bits_zero(&self) -> bool {
+        match self {
+            Attestation::Base(att) => att.aggregation_bits.is_zero(),
+            Attestation::Electra(att) => att.aggregation_bits.is_zero(),
+        }
+    }
+
+    pub fn num_set_aggregation_bits(&self) -> usize {
+        match self {
+            Attestation::Base(att) => att.aggregation_bits.num_set_bits(),
+            Attestation::Electra(att) => att.aggregation_bits.num_set_bits(),
+        }
+    }
+
+    pub fn get_aggregation_bit(&self, index: usize) -> Result<bool, ssz_types::Error> {
+        match self {
+            Attestation::Base(att) => att.aggregation_bits.get(index),
+            Attestation::Electra(att) => att.aggregation_bits.get(index),
         }
     }
 }
