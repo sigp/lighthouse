@@ -29,16 +29,19 @@ pub mod bls_to_execution_change;
 pub mod builder_bid;
 pub mod chain_spec;
 pub mod checkpoint;
+pub mod consolidation;
 pub mod consts;
 pub mod contribution_and_proof;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_message;
+pub mod deposit_receipt;
 pub mod deposit_tree_snapshot;
 pub mod enr_fork_id;
 pub mod eth1_data;
 pub mod eth_spec;
 pub mod execution_block_hash;
+pub mod execution_layer_withdrawal_request;
 pub mod execution_payload;
 pub mod execution_payload_header;
 pub mod fork;
@@ -54,6 +57,9 @@ pub mod light_client_finality_update;
 pub mod light_client_optimistic_update;
 pub mod light_client_update;
 pub mod pending_attestation;
+pub mod pending_balance_deposit;
+pub mod pending_consolidation;
+pub mod pending_partial_withdrawal;
 pub mod proposer_preparation_data;
 pub mod proposer_slashing;
 pub mod relative_epoch;
@@ -63,6 +69,7 @@ pub mod signed_aggregate_and_proof;
 pub mod signed_beacon_block;
 pub mod signed_beacon_block_header;
 pub mod signed_bls_to_execution_change;
+pub mod signed_consolidation;
 pub mod signed_contribution_and_proof;
 pub mod signed_voluntary_exit;
 pub mod signing_data;
@@ -135,12 +142,14 @@ pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::{
     ConfigAndPreset, ConfigAndPresetCapella, ConfigAndPresetDeneb, ConfigAndPresetElectra,
 };
+pub use crate::consolidation::Consolidation;
 pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::data_column_sidecar::DataColumnSidecar;
 pub use crate::data_column_subnet_id::DataColumnSubnetId;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
+pub use crate::deposit_receipt::DepositReceipt;
 pub use crate::deposit_tree_snapshot::{DepositTreeSnapshot, FinalizedExecutionBlock};
 pub use crate::enr_fork_id::EnrForkId;
 pub use crate::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
@@ -148,6 +157,7 @@ pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::ExecutionBlockHeader;
+pub use crate::execution_layer_withdrawal_request::ExecutionLayerWithdrawalRequest;
 pub use crate::execution_payload::{
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
     ExecutionPayloadMerge, ExecutionPayloadRef, Transaction, Transactions, Withdrawals,
@@ -193,6 +203,9 @@ pub use crate::payload::{
     FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
+pub use crate::pending_balance_deposit::PendingBalanceDeposit;
+pub use crate::pending_consolidation::PendingConsolidation;
+pub use crate::pending_partial_withdrawal::PendingPartialWithdrawal;
 pub use crate::preset::{
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, DenebPreset, ElectraPreset,
 };
@@ -211,6 +224,7 @@ pub use crate::signed_beacon_block::{
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
+pub use crate::signed_consolidation::SignedConsolidation;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};

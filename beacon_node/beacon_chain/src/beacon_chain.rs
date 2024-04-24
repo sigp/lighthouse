@@ -1141,7 +1141,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blocks_checking_caches(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
-        executor: &TaskExecutor,
     ) -> Result<
         impl Stream<
             Item = (
@@ -1151,14 +1150,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?
-            .launch_stream(block_roots, executor))
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?.launch_stream(block_roots))
     }
 
     pub fn get_blocks(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
-        executor: &TaskExecutor,
     ) -> Result<
         impl Stream<
             Item = (
@@ -1168,8 +1165,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?
-            .launch_stream(block_roots, executor))
+        Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?.launch_stream(block_roots))
     }
 
     pub fn get_blobs_checking_early_attester_cache(
@@ -3019,7 +3015,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Wraps `process_block` in logic to cache the block's commitments in the processing cache
-    /// and evict if the block was imported or erred.
+    /// and evict if the block was imported or errored.
     pub async fn process_block_with_early_caching<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         block_root: Hash256,
@@ -3064,21 +3060,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Increment the Prometheus counter for block processing requests.
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
 
+        let block_slot = unverified_block.block().slot();
+
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
-        if let (Some(seen_timestamp), Some(current_slot)) =
-            (self.slot_clock.now_duration(), self.slot_clock.now())
-        {
+        if let Some(seen_timestamp) = self.slot_clock.now_duration() {
             self.block_times_cache.write().set_time_observed(
                 block_root,
-                current_slot,
+                block_slot,
                 seen_timestamp,
                 None,
                 None,
             );
         }
-
-        let block_slot = unverified_block.block().slot();
 
         // A small closure to group the verification and import errors.
         let chain = self.clone();
@@ -3090,6 +3084,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )?;
             publish_fn()?;
             let executed_block = chain.into_executed_block(execution_pending).await?;
+            // Record the time it took to ask the execution layer.
+            if let Some(seen_timestamp) = self.slot_clock.now_duration() {
+                self.block_times_cache.write().set_execution_time(
+                    block_root,
+                    block_slot,
+                    seen_timestamp,
+                )
+            }
+
             match executed_block {
                 ExecutedBlock::Available(block) => {
                     self.import_available_block(Box::new(block)).await
@@ -3156,8 +3159,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Accepts a fully-verified block and awaits on it's payload verification handle to
-    /// get a fully `ExecutedBlock`
+    /// Accepts a fully-verified block and awaits on its payload verification handle to
+    /// get a fully `ExecutedBlock`.
     ///
     /// An error is returned if the verification handle couldn't be awaited.
     pub async fn into_executed_block(
@@ -3307,10 +3310,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         match availability {
             Availability::Available(block) => {
-                // This is the time since start of the slot where all the components of the block have become available
-                let delay =
-                    get_slot_delay_ms(timestamp_now(), block.block.slot(), &self.slot_clock);
-                metrics::observe_duration(&metrics::BLOCK_AVAILABILITY_DELAY, delay);
                 // Block is fully available, import into fork choice
                 self.import_available_block(block).await
             }
@@ -3338,6 +3337,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             confirmed_state_roots,
             consensus_context,
         } = import_data;
+
+        // Record the time at which this block's blobs became available.
+        if let Some(blobs_available) = block.blobs_available_timestamp() {
+            self.block_times_cache.write().set_time_blob_observed(
+                block_root,
+                block.slot(),
+                blobs_available,
+            );
+        }
 
         // import
         let chain = self.clone();
@@ -3479,6 +3487,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 "Early attester cache insert failed";
                                 "error" => ?e
                             );
+                        } else {
+                            let attestable_timestamp =
+                                self.slot_clock.now_duration().unwrap_or_default();
+                            self.block_times_cache.write().set_time_attestable(
+                                block_root,
+                                signed_block.slot(),
+                                attestable_timestamp,
+                            )
                         }
                     } else {
                         warn!(
@@ -3976,25 +3992,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 block_root,
                 current_slot,
                 block_time_imported,
-            );
-        }
-
-        // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
-        // sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 4 {
-            // Observe the delay between when we observed the block and when we imported it.
-            let block_delays = self.block_times_cache.read().get_block_delays(
-                block_root,
-                self.slot_clock
-                    .start_of(current_slot)
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-
-            metrics::observe_duration(
-                &metrics::BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME,
-                block_delays
-                    .imported
-                    .unwrap_or_else(|| Duration::from_secs(0)),
             );
         }
 

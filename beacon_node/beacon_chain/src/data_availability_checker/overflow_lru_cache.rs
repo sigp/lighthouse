@@ -304,6 +304,12 @@ impl<E: EthSpec> PendingComponents<E> {
             executed_block,
         } = self;
 
+        let blobs_available_timestamp = verified_blobs
+            .iter()
+            .flatten()
+            .map(|blob| blob.seen_timestamp())
+            .max();
+
         let Some(diet_executed_block) = executed_block else {
             return Err(AvailabilityCheckError::Unexpected);
         };
@@ -338,6 +344,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block_root,
             block,
             blobs: Some(verified_blobs),
+            blobs_available_timestamp,
             data_columns: Some(verified_data_columns),
         };
         Ok(Availability::Available(Box::new(

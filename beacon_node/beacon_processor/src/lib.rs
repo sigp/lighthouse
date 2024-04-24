@@ -867,7 +867,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             ready_work_tx,
             work_reprocessing_rx,
             &self.executor,
-            slot_clock,
+            Arc::new(slot_clock),
             self.log.clone(),
             maximum_gossip_clock_disparity,
         )?;
