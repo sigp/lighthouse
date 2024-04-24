@@ -1,7 +1,7 @@
 use crate::doppelganger_service::DoppelgangerService;
 use crate::key_cache::{KeyCache, CACHE_FILENAME};
 use crate::{
-    http_api::{Config as HttpConfig, Context},
+    http_api::{ApiSecret, Config as HttpConfig, Context},
     initialized_validators::{InitializedValidators, OnDecryptFailure},
     Config, ValidatorDefinitions, ValidatorStore,
 };
@@ -10,13 +10,18 @@ use account_utils::{
     ZeroizeString,
 };
 use deposit_contract::decode_eth1_tx_data;
-use eth2::lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*};
+use eth2::{
+    lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
+    types::ErrorMessage as ApiErrorMessage,
+    Error as ApiError,
+};
 use eth2_keystore::KeystoreBuilder;
 use logging::test_logger;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
+use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
@@ -52,6 +57,7 @@ pub struct ApiTester {
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
     pub validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     pub url: SensitiveUrl,
+    pub api_token: String,
     pub test_runtime: TestRuntime,
     pub _server_shutdown: oneshot::Sender<()>,
     pub validator_dir: TempDir,
@@ -79,6 +85,9 @@ impl ApiTester {
         )
         .await
         .unwrap();
+
+        let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
+        let api_pubkey = api_secret.api_token();
 
         let config = Config {
             validator_dir: validator_dir.path().into(),
@@ -117,6 +126,7 @@ impl ApiTester {
 
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
+            api_secret,
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
@@ -146,13 +156,14 @@ impl ApiTester {
         ))
         .unwrap();
 
-        let client = ValidatorClientHttpClient::new(url.clone()).unwrap();
+        let client = ValidatorClientHttpClient::new(url.clone(), api_pubkey.clone()).unwrap();
 
         Self {
             client,
             initialized_validators,
             validator_store,
             url,
+            api_token: api_pubkey,
             test_runtime,
             _server_shutdown: shutdown_tx,
             validator_dir,
@@ -187,6 +198,48 @@ impl ApiTester {
             .decrypt_key_cache(key_cache, &mut <_>::default(), OnDecryptFailure::Error)
             .await
             .expect("key cache should decypt");
+    }
+
+    pub fn invalid_token_client(&self) -> ValidatorClientHttpClient {
+        let tmp = tempdir().unwrap();
+        let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
+        let invalid_pubkey = api_secret.api_token();
+        ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap()
+    }
+
+    pub async fn test_with_invalid_auth<F, A, T>(self, func: F) -> Self
+    where
+        F: Fn(ValidatorClientHttpClient) -> A,
+        A: Future<Output = Result<T, ApiError>>,
+    {
+        /*
+         * Test with an invalid Authorization header.
+         */
+        match func(self.invalid_token_client()).await {
+            Err(ApiError::ServerMessage(ApiErrorMessage { code: 403, .. })) => (),
+            Err(other) => panic!("expected authorized error, got {:?}", other),
+            Ok(_) => panic!("expected authorized error, got Ok"),
+        }
+
+        /*
+         * Test with a missing Authorization header.
+         */
+        let mut missing_token_client = self.client.clone();
+        missing_token_client.send_authorization_header(false);
+        match func(missing_token_client).await {
+            Err(ApiError::ServerMessage(ApiErrorMessage {
+                code: 401, message, ..
+            })) if message.contains("missing Authorization header") => (),
+            Err(other) => panic!("expected missing header error, got {:?}", other),
+            Ok(_) => panic!("expected missing header error, got Ok"),
+        }
+
+        self
+    }
+
+    pub fn invalidate_api_token(mut self) -> Self {
+        self.client = self.invalid_token_client();
+        self
     }
 
     pub async fn test_get_lighthouse_version_invalid(self) -> Self {

@@ -5,7 +5,7 @@ mod keystores;
 
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
-    http_api::{Config as HttpConfig, Context},
+    http_api::{ApiSecret, Config as HttpConfig, Context},
     initialized_validators::InitializedValidators,
     Config, ValidatorDefinitions, ValidatorStore,
 };
@@ -74,6 +74,9 @@ impl ApiTester {
         .await
         .unwrap();
 
+        let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
+        let api_pubkey = api_secret.api_token();
+
         config.validator_dir = validator_dir.path().into();
         config.secrets_dir = secrets_dir.path().into();
 
@@ -111,6 +114,7 @@ impl ApiTester {
 
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
+            api_secret,
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
@@ -143,7 +147,7 @@ impl ApiTester {
         ))
         .unwrap();
 
-        let client = ValidatorClientHttpClient::new(url.clone()).unwrap();
+        let client = ValidatorClientHttpClient::new(url.clone(), api_pubkey).unwrap();
 
         Self {
             client,
@@ -154,6 +158,48 @@ impl ApiTester {
             _validator_dir: validator_dir,
             _test_runtime: test_runtime,
         }
+    }
+
+    pub fn invalid_token_client(&self) -> ValidatorClientHttpClient {
+        let tmp = tempdir().unwrap();
+        let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
+        let invalid_pubkey = api_secret.api_token();
+        ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey.clone()).unwrap()
+    }
+
+    pub async fn test_with_invalid_auth<F, A, T>(self, func: F) -> Self
+    where
+        F: Fn(ValidatorClientHttpClient) -> A,
+        A: Future<Output = Result<T, ApiError>>,
+    {
+        /*
+         * Test with an invalid Authorization header.
+         */
+        match func(self.invalid_token_client()).await {
+            Err(ApiError::ServerMessage(ApiErrorMessage { code: 403, .. })) => (),
+            Err(other) => panic!("expected authorized error, got {:?}", other),
+            Ok(_) => panic!("expected authorized error, got Ok"),
+        }
+
+        /*
+         * Test with a missing Authorization header.
+         */
+        let mut missing_token_client = self.client.clone();
+        missing_token_client.send_authorization_header(false);
+        match func(missing_token_client).await {
+            Err(ApiError::ServerMessage(ApiErrorMessage {
+                code: 401, message, ..
+            })) if message.contains("missing Authorization header") => (),
+            Err(other) => panic!("expected missing header error, got {:?}", other),
+            Ok(_) => panic!("expected missing header error, got Ok"),
+        }
+
+        self
+    }
+
+    pub fn invalidate_api_token(mut self) -> Self {
+        self.client = self.invalid_token_client();
+        self
     }
 
     pub async fn test_get_lighthouse_version_invalid(self) -> Self {
@@ -781,6 +827,141 @@ struct KeystoreValidatorScenario {
 struct Web3SignerValidatorScenario {
     count: usize,
     enabled: bool,
+}
+
+#[tokio::test]
+async fn invalid_pubkey() {
+    ApiTester::new()
+        .await
+        .invalidate_api_token()
+        .test_get_lighthouse_version_invalid()
+        .await;
+}
+
+#[tokio::test]
+async fn routes_with_invalid_auth() {
+    ApiTester::new()
+        .await
+        .test_with_invalid_auth(|client| async move { client.get_lighthouse_version().await })
+        .await
+        .test_with_invalid_auth(|client| async move { client.get_lighthouse_health().await })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client.get_lighthouse_spec::<types::Config>().await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move { client.get_lighthouse_validators().await })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .get_lighthouse_validators_pubkey(&PublicKeyBytes::empty())
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .post_lighthouse_validators(vec![ValidatorRequest {
+                    enable: <_>::default(),
+                    description: <_>::default(),
+                    graffiti: <_>::default(),
+                    suggested_fee_recipient: <_>::default(),
+                    gas_limit: <_>::default(),
+                    builder_proposals: <_>::default(),
+                    deposit_gwei: <_>::default(),
+                    builder_boost_factor: <_>::default(),
+                    prefer_builder_proposals: <_>::default(),
+                }])
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .post_lighthouse_validators_mnemonic(&CreateValidatorsMnemonicRequest {
+                    mnemonic: String::default().into(),
+                    key_derivation_path_offset: <_>::default(),
+                    validators: <_>::default(),
+                })
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            let password = random_password();
+            let keypair = Keypair::random();
+            let keystore = KeystoreBuilder::new(&keypair, password.as_bytes(), String::new())
+                .unwrap()
+                .build()
+                .unwrap();
+            client
+                .post_lighthouse_validators_keystore(&KeystoreValidatorsPostRequest {
+                    password: String::default().into(),
+                    enable: <_>::default(),
+                    keystore,
+                    graffiti: <_>::default(),
+                    suggested_fee_recipient: <_>::default(),
+                    gas_limit: <_>::default(),
+                    builder_proposals: <_>::default(),
+                    builder_boost_factor: <_>::default(),
+                    prefer_builder_proposals: <_>::default(),
+                })
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .patch_lighthouse_validators(
+                    &PublicKeyBytes::empty(),
+                    Some(false),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move { client.get_keystores().await })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            let password = random_password_string();
+            let keypair = Keypair::random();
+            let keystore = KeystoreBuilder::new(&keypair, password.as_ref(), String::new())
+                .unwrap()
+                .build()
+                .map(KeystoreJsonStr)
+                .unwrap();
+            client
+                .post_keystores(&ImportKeystoresRequest {
+                    keystores: vec![keystore],
+                    passwords: vec![password],
+                    slashing_protection: None,
+                })
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            let keypair = Keypair::random();
+            client
+                .delete_keystores(&DeleteKeystoresRequest {
+                    pubkeys: vec![keypair.pk.compress()],
+                })
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client.delete_graffiti(&PublicKeyBytes::empty()).await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client.get_graffiti(&PublicKeyBytes::empty()).await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .set_graffiti(&PublicKeyBytes::empty(), GraffitiString::default())
+                .await
+        })
+        .await;
 }
 
 #[tokio::test]

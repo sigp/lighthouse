@@ -14,6 +14,7 @@ use eth2::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -207,7 +208,9 @@ pub enum Validators {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct MoveConfig {
     pub src_vc_url: SensitiveUrl,
+    pub src_vc_token_path: PathBuf,
     pub dest_vc_url: SensitiveUrl,
+    pub dest_vc_token_path: PathBuf,
     pub validators: Validators,
     pub builder_proposals: Option<bool>,
     pub builder_boost_factor: Option<u64>,
@@ -241,7 +244,9 @@ impl MoveConfig {
 
         Ok(Self {
             src_vc_url: clap_utils::parse_required(matches, SRC_VC_URL_FLAG)?,
+            src_vc_token_path: clap_utils::parse_required(matches, SRC_VC_TOKEN_FLAG)?,
             dest_vc_url: clap_utils::parse_required(matches, DEST_VC_URL_FLAG)?,
+            dest_vc_token_path: clap_utils::parse_required(matches, DEST_VC_TOKEN_FLAG)?,
             validators,
             builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
             builder_boost_factor: clap_utils::parse_optional(matches, BUILDER_BOOST_FACTOR_FLAG)?,
@@ -273,7 +278,9 @@ pub async fn cli_run<'a>(
 async fn run<'a>(config: MoveConfig) -> Result<(), String> {
     let MoveConfig {
         src_vc_url,
+        src_vc_token_path,
         dest_vc_url,
+        dest_vc_token_path,
         validators,
         builder_proposals,
         fee_recipient,
@@ -292,8 +299,10 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         ));
     }
 
-    let (src_http_client, src_keystores) = vc_http_client(src_vc_url.clone()).await?;
-    let (dest_http_client, _dest_keystores) = vc_http_client(dest_vc_url.clone()).await?;
+    let (src_http_client, src_keystores) =
+        vc_http_client(src_vc_url.clone(), &src_vc_token_path).await?;
+    let (dest_http_client, _dest_keystores) =
+        vc_http_client(dest_vc_url.clone(), &dest_vc_token_path).await?;
 
     if src_keystores.is_empty() {
         return Err(NO_VALIDATORS_MSG.to_string());
@@ -758,8 +767,12 @@ mod test {
         where
             F: Fn(&[PublicKeyBytes]) -> Validators,
         {
+            let src_vc_token_path = self.dir.path().join(SRC_VC_TOKEN_FILE_NAME);
+            fs::write(&src_vc_token_path, &src_vc.api_token).unwrap();
             let (src_vc_client, src_vc_initial_keystores) =
-                vc_http_client(src_vc.url.clone()).await.unwrap();
+                vc_http_client(src_vc.url.clone(), &src_vc_token_path)
+                    .await
+                    .unwrap();
 
             let src_vc_initial_pubkeys: Vec<_> = src_vc_initial_keystores
                 .iter()
@@ -767,12 +780,19 @@ mod test {
                 .collect();
             let validators = gen_validators_enum(&src_vc_initial_pubkeys);
 
+            let dest_vc_token_path = self.dir.path().join(DEST_VC_TOKEN_FILE_NAME);
+            fs::write(&dest_vc_token_path, &dest_vc.api_token).unwrap();
+
             let (dest_vc_client, dest_vc_initial_keystores) =
-                vc_http_client(dest_vc.url.clone()).await.unwrap();
+                vc_http_client(dest_vc.url.clone(), &dest_vc_token_path)
+                    .await
+                    .unwrap();
 
             let move_config = MoveConfig {
                 src_vc_url: src_vc.url.clone(),
+                src_vc_token_path,
                 dest_vc_url: dest_vc.url.clone(),
+                dest_vc_token_path: dest_vc_token_path.clone(),
                 validators: validators.clone(),
                 builder_proposals: None,
                 builder_boost_factor: None,

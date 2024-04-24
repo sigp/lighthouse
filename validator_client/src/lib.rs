@@ -42,6 +42,7 @@ use clap::ArgMatches;
 use duties_service::{sync::SyncDutiesMap, DutiesService};
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
+use http_api::ApiSecret;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
 use preparation_service::{PreparationService, PreparationServiceBuilder};
@@ -531,9 +532,12 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let (block_service_tx, block_service_rx) = mpsc::channel(channel_capacity);
         let log = self.context.log();
 
+        let api_secret = ApiSecret::create_or_open(&self.config.validator_dir)?;
+
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx = Arc::new(http_api::Context {
                 task_executor: self.context.executor.clone(),
+                api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
                 secrets_dir: Some(self.config.secrets_dir.clone()),

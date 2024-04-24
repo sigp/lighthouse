@@ -4,6 +4,7 @@ mod graffiti;
 mod keystores;
 mod remotekeys;
 mod tests;
+mod api_secret;
 
 pub mod test_utils;
 
@@ -19,7 +20,7 @@ use create_validator::{
     create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
 };
 use eth2::lighthouse_vc::{
-    std_types::{GetFeeRecipientResponse, GetGasLimitResponse},
+    std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{
         self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, PublicKey,
         PublicKeyBytes, SetGraffitiRequest,
@@ -29,7 +30,7 @@ use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use slog::{crit, info, Logger};
+use slog::{warn, crit, info, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::future::Future;
@@ -53,6 +54,7 @@ use warp::{
     Filter,
 };
 use warp_utils::reject::convert_rejection;
+pub use api_secret::ApiSecret;
 
 #[derive(Debug)]
 pub enum Error {
@@ -77,6 +79,7 @@ impl From<String> for Error {
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<T: SlotClock, E: EthSpec> {
     pub task_executor: TaskExecutor,
+    pub api_secret: ApiSecret,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
     pub secrets_dir: Option<PathBuf>,
@@ -159,6 +162,21 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         ));
     }
 
+    let authorization_header_filter = ctx.api_secret.authorization_header_filter();
+    let mut api_token_path = ctx.api_secret.api_token_path();
+
+    // Attempt to convert the path to an absolute path, but don't error if it fails.
+    match api_token_path.canonicalize() {
+        Ok(abs_path) => api_token_path = abs_path,
+        Err(e) => {
+            warn!(
+                log,
+                "Error canonicalizing token path";
+                "error" => ?e,
+            );
+        }
+    };
+
     let inner_validator_store = ctx.validator_store.clone();
     let validator_store_filter = warp::any()
         .map(move || inner_validator_store.clone())
@@ -209,6 +227,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
+
+    let api_token_path_inner = api_token_path.clone();
+    let api_token_path_filter = warp::any().map(move || api_token_path_inner.clone());
 
     // Filter for SEE Logging events
     let inner_components = ctx.sse_logging_components.clone();
@@ -739,6 +760,18 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 })
             },
         );
+    
+     // GET /lighthouse/auth
+     let get_auth = warp::path("lighthouse").and(warp::path("auth").and(warp::path::end()));
+     let get_auth = get_auth
+         .and(api_token_path_filter)
+         .then( move|token_path: PathBuf| {
+             blocking_signed_json_task(move || {
+                 Ok(AuthResponse {
+                     token_path: token_path.display().to_string(),
+                 })
+             })
+         });
 
     // DELETE /lighthouse/keystores
     let delete_lighthouse_keystores = warp::path("lighthouse")
@@ -1213,6 +1246,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         });
 
     let routes = warp::any()
+        .and(authorization_header_filter)
+        // Note: it is critical that the `authorization_header_filter` is applied to all routes.
+        // Keeping all the routes inside the following `and` is a reliable way to achieve this.
+        //
+        // When adding a route, don't forget to add it to the `routes_with_invalid_auth` tests!
         .and(
             warp::get()
                 .and(
@@ -1228,7 +1266,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_graffiti)
                         .or(get_std_keystores)
                         .or(get_std_remotekeys)
-                        .or(get_log_events)
                         .recover(warp_utils::reject::handle_rejection),
                 )
                 .or(warp::post().and(
@@ -1256,6 +1293,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .recover(warp_utils::reject::handle_rejection),
                 )),
         )
+        // The auth route and logs  are the only routes that are allowed to be accessed without the API token.
+        .or(warp::get().and(get_auth.or(get_log_events.boxed())))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.
