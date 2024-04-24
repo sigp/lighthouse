@@ -51,17 +51,3 @@ lcli \
 	--node-count $VC_COUNT
 
 echo Validators generated with keystore passwords at $DATADIR.
-
-echo "Generating bootnode enr"
-lcli \
-	generate-bootnode-enr \
-	--ip 127.0.0.1 \
-	--udp-port $BOOTNODE_PORT \
-	--tcp-port $BOOTNODE_PORT \
-	--genesis-fork-version $GENESIS_FORK_VERSION \
-	--output-dir $DATADIR/bootnode
-
-bootnode_enr=`cat $DATADIR/bootnode/enr.dat`
-echo "- $bootnode_enr" > $TESTNET_DIR/boot_enr.yaml
-
-echo "Generated bootnode enr and written to $TESTNET_DIR/boot_enr.yaml"
