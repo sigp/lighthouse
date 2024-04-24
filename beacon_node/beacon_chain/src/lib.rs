@@ -28,6 +28,7 @@ pub mod events;
 pub mod execution_payload;
 pub mod fork_choice_signal;
 pub mod fork_revert;
+pub mod graffiti_calculator;
 mod head_tracker;
 pub mod historical_blocks;
 pub mod kzg_utils;

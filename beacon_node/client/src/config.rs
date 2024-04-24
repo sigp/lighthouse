@@ -1,3 +1,4 @@
+use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_chain::validator_monitor::ValidatorMonitorConfig;
 use beacon_chain::TrustedSetup;
 use beacon_processor::BeaconProcessorConfig;
@@ -9,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use types::Graffiti;
 
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
@@ -63,8 +63,8 @@ pub struct Config {
     /// This is the method used for the 2019 client interop in Canada.
     pub dummy_eth1_backend: bool,
     pub sync_eth1_chain: bool,
-    /// Graffiti to be inserted everytime we create a block.
-    pub graffiti: Graffiti,
+    /// Graffiti to be inserted everytime we create a block if the validator doesn't specify.
+    pub beacon_graffiti: GraffitiOrigin,
     pub validator_monitor: ValidatorMonitorConfig,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
@@ -104,7 +104,7 @@ impl Default for Config {
             eth1: <_>::default(),
             execution_layer: None,
             trusted_setup: None,
-            graffiti: Graffiti::default(),
+            beacon_graffiti: GraffitiOrigin::default(),
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             monitoring_api: None,
