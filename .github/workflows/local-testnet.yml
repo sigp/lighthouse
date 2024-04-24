@@ -18,7 +18,7 @@ jobs:
       matrix:
         os:
           - ubuntu-22.04
-          - macos-latest
+          - macos-14
     runs-on: ${{ matrix.os }}
     env:
       # Enable portable to prevent issues with caching `blst` for the wrong CPU type
@@ -35,12 +35,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install ethereum
       - name: Install geth (mac)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-14'
         run: |
           brew tap ethereum/ethereum
           brew install ethereum
       - name: Install GNU sed & GNU grep
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-14'
         run: |
           brew install gnu-sed grep
           echo "$(brew --prefix)/opt/gnu-sed/libexec/gnubin" >> $GITHUB_PATH
