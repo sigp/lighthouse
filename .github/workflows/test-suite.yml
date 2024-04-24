@@ -221,23 +221,13 @@ jobs:
     name: dockerfile-ubuntu
     runs-on: ubuntu-latest
     steps:
-<<<<<<< HEAD
       - uses: actions/checkout@v4
       - name: Build the root Dockerfile
         run: docker build --build-arg FEATURES=portable -t lighthouse:local .
       - name: Test the built image
         run: docker run -t lighthouse:local lighthouse --version
-  eth1-simulator-ubuntu:
-    name: eth1-simulator-ubuntu
-=======
-    - uses: actions/checkout@v4
-    - name: Build the root Dockerfile
-      run: docker build --build-arg FEATURES=portable -t lighthouse:local .
-    - name: Test the built image
-      run: docker run -t lighthouse:local lighthouse --version
   basic-simulator-ubuntu:
     name: basic-simulator-ubuntu
->>>>>>> sigp/unstable
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -246,21 +236,10 @@ jobs:
         with:
           channel: stable
           cache-target: release
-<<<<<<< HEAD
-      - name: Install Foundry (anvil)
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-      - name: Run the beacon chain sim that starts from an eth1 contract
-        run: cargo run --release --bin simulator eth1-sim
-  merge-transition-ubuntu:
-    name: merge-transition-ubuntu
-=======
-    - name: Run a basic beacon chain sim that starts from Bellatrix
-      run: cargo run --release --bin simulator basic-sim
+      - name: Run a basic beacon chain sim that starts from Bellatrix
+        run: cargo run --release --bin simulator basic-sim
   fallback-simulator-ubuntu:
     name: fallback-simulator-ubuntu
->>>>>>> sigp/unstable
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -269,45 +248,8 @@ jobs:
         with:
           channel: stable
           cache-target: release
-<<<<<<< HEAD
-      - name: Install Foundry (anvil)
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-      - name: Run the beacon chain sim and go through the merge transition
-        run: cargo run --release --bin simulator eth1-sim --post-merge
-  no-eth1-simulator-ubuntu:
-    name: no-eth1-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Get latest version of stable Rust
-        uses: moonrepo/setup-rust@v1
-        with:
-          channel: stable
-          cache-target: release
-      - name: Run the beacon chain sim without an eth1 connection
-        run: cargo run --release --bin simulator no-eth1-sim
-  syncing-simulator-ubuntu:
-    name: syncing-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Get latest version of stable Rust
-        uses: moonrepo/setup-rust@v1
-        with:
-          channel: stable
-          cache-target: release
-      - name: Install Foundry (anvil)
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-      - name: Run the syncing simulator
-        run: cargo run --release --bin simulator syncing-sim
-=======
-    - name: Run a beacon chain sim which tests VC fallback behaviour
-      run: cargo run --release --bin simulator fallback-sim
->>>>>>> sigp/unstable
+      - name: Run a beacon chain sim which tests VC fallback behaviour
+        run: cargo run --release --bin simulator fallback-sim
   doppelganger-protection-test:
     name: doppelganger-protection-test
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
