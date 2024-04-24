@@ -36,7 +36,7 @@ use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
 use types::{
     AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
-    MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
+    MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot, attestation::AttestationBase
 };
 
 type E = MainnetEthSpec;
@@ -1669,7 +1669,7 @@ impl ApiTester {
         let mut attestations = Vec::new();
         for attestation in &self.attestations {
             let mut invalid_attestation = attestation.clone();
-            invalid_attestation.data.slot += 1;
+            invalid_attestation.data_mut().slot += 1;
 
             // add both to ensure we only fail on invalid attestations
             attestations.push(attestation.clone());
@@ -3168,7 +3168,8 @@ impl ApiTester {
                 .chain
                 .produce_unaggregated_attestation(slot, index)
                 .unwrap()
-                .data;
+                .data()
+                .clone();
 
             assert_eq!(result, expected);
         }
@@ -3188,8 +3189,8 @@ impl ApiTester {
         let result = self
             .client
             .get_validator_aggregate_attestation(
-                attestation.data.slot,
-                attestation.data.tree_hash_root(),
+                attestation.data().slot,
+                attestation.data().tree_hash_root(),
             )
             .await
             .unwrap()
@@ -3269,11 +3270,11 @@ impl ApiTester {
             .unwrap()
             .data;
 
-        let mut attestation = Attestation {
+        let mut attestation = Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
             data: attestation_data,
             signature: AggregateSignature::infinity(),
-        };
+        });
 
         attestation
             .sign(
@@ -3312,7 +3313,7 @@ impl ApiTester {
     pub async fn test_get_validator_aggregate_and_proofs_invalid(mut self) -> Self {
         let mut aggregate = self.get_aggregate().await;
 
-        aggregate.message.aggregate.data.slot += 1;
+        aggregate.message.aggregate.data_mut().slot += 1;
 
         self.client
             .post_validator_aggregate_and_proof::<E>(&[aggregate])

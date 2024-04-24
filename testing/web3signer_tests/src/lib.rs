@@ -39,7 +39,7 @@ mod tests {
     use tempfile::{tempdir, TempDir};
     use tokio::sync::OnceCell;
     use tokio::time::sleep;
-    use types::*;
+    use types::{*, attestation::AttestationBase};
     use url::Url;
     use validator_client::{
         initialized_validators::{
@@ -542,7 +542,7 @@ mod tests {
 
     /// Get a generic, arbitrary attestation for signing.
     fn get_attestation() -> Attestation<E> {
-        Attestation {
+        Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(1).unwrap(),
             data: AttestationData {
                 slot: <_>::default(),
@@ -558,7 +558,7 @@ mod tests {
                 },
             },
             signature: AggregateSignature::empty(),
-        }
+        })
     }
 
     fn get_validator_registration(pubkey: PublicKeyBytes) -> ValidatorRegistrationData {
@@ -771,28 +771,28 @@ mod tests {
 
         let first_attestation = || {
             let mut attestation = get_attestation();
-            attestation.data.source.epoch = Epoch::new(1);
-            attestation.data.target.epoch = Epoch::new(4);
+            attestation.data_mut().source.epoch = Epoch::new(1);
+            attestation.data_mut().target.epoch = Epoch::new(4);
             attestation
         };
 
         let double_vote_attestation = || {
             let mut attestation = first_attestation();
-            attestation.data.beacon_block_root = Hash256::from_low_u64_be(1);
+            attestation.data_mut().beacon_block_root = Hash256::from_low_u64_be(1);
             attestation
         };
 
         let surrounding_attestation = || {
             let mut attestation = first_attestation();
-            attestation.data.source.epoch = Epoch::new(0);
-            attestation.data.target.epoch = Epoch::new(5);
+            attestation.data_mut().source.epoch = Epoch::new(0);
+            attestation.data_mut().target.epoch = Epoch::new(5);
             attestation
         };
 
         let surrounded_attestation = || {
             let mut attestation = first_attestation();
-            attestation.data.source.epoch = Epoch::new(2);
-            attestation.data.target.epoch = Epoch::new(3);
+            attestation.data_mut().source.epoch = Epoch::new(2);
+            attestation.data_mut().target.epoch = Epoch::new(3);
             attestation
         };
 

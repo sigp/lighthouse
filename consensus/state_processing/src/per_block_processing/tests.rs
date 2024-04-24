@@ -394,7 +394,7 @@ async fn invalid_attestation_no_committee_for_index() {
         .deconstruct()
         .0;
     head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+        .data_mut()
         .index += 1;
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -428,11 +428,11 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
         .clone()
         .deconstruct()
         .0;
-    let old_justified_checkpoint = head_block.body().attestations()[0].data.source;
+    let old_justified_checkpoint = head_block.body().attestations()[0].data().source;
     let mut new_justified_checkpoint = old_justified_checkpoint;
     new_justified_checkpoint.epoch += Epoch::new(1);
     head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+        .data_mut()
         .source = new_justified_checkpoint;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -472,7 +472,7 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         .clone()
         .deconstruct()
         .0;
-    head_block.to_mut().body_mut().attestations_mut()[0].aggregation_bits =
+    *head_block.to_mut().body_mut().attestations_mut()[0].aggregation_bits_base_mut().unwrap() =
         Bitfield::with_capacity(spec.target_committee_size).unwrap();
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -506,7 +506,7 @@ async fn invalid_attestation_bad_signature() {
         .clone()
         .deconstruct()
         .0;
-    head_block.to_mut().body_mut().attestations_mut()[0].signature = AggregateSignature::empty();
+    *head_block.to_mut().body_mut().attestations_mut()[0].signature_mut() = AggregateSignature::empty();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -541,10 +541,10 @@ async fn invalid_attestation_included_too_early() {
         .clone()
         .deconstruct()
         .0;
-    let new_attesation_slot = head_block.body().attestations()[0].data.slot
+    let new_attesation_slot = head_block.body().attestations()[0].data().slot
         + Slot::new(MainnetEthSpec::slots_per_epoch());
     head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+        .data_mut()
         .slot = new_attesation_slot;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -584,10 +584,10 @@ async fn invalid_attestation_included_too_late() {
         .clone()
         .deconstruct()
         .0;
-    let new_attesation_slot = head_block.body().attestations()[0].data.slot
+    let new_attesation_slot = head_block.body().attestations()[0].data().slot
         - Slot::new(MainnetEthSpec::slots_per_epoch());
     head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+        .data_mut()
         .slot = new_attesation_slot;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -625,7 +625,7 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
         .deconstruct()
         .0;
     head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+        .data_mut()
         .target
         .epoch += Epoch::new(1);
 
