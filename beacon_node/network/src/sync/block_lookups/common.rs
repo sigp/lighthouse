@@ -29,34 +29,12 @@ pub enum LookupType {
     Parent,
 }
 
-/// This trait helps differentiate `SingleBlockLookup`s from `ParentLookup`s .This is useful in
-/// ensuring requests and responses are handled separately and enables us to use different failure
-/// tolerances for each, while re-using the same basic request and retry logic.
-pub trait Lookup {
-    const MAX_ATTEMPTS: u8;
-    fn lookup_type() -> LookupType;
-    fn max_attempts() -> u8 {
-        Self::MAX_ATTEMPTS
-    }
-}
-
-/// A `Lookup` that is a part of a `ParentLookup`.
-pub struct Parent;
-
-impl Lookup for Parent {
-    const MAX_ATTEMPTS: u8 = PARENT_FAIL_TOLERANCE;
-    fn lookup_type() -> LookupType {
-        LookupType::Parent
-    }
-}
-
-/// A `Lookup` that part of a single block lookup.
-pub struct Current;
-
-impl Lookup for Current {
-    const MAX_ATTEMPTS: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
-    fn lookup_type() -> LookupType {
-        LookupType::Current
+impl LookupType {
+    fn max_attempts(&self) -> u8 {
+        match self {
+            LookupType::Current => SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
+            LookupType::Parent => PARENT_FAIL_TOLERANCE,
+        }
     }
 }
 
@@ -68,7 +46,7 @@ impl Lookup for Current {
 /// The use of the `ResponseType` associated type gives us a degree of type
 /// safety when handling a block/blob response ensuring we only mutate the correct corresponding
 /// state.
-pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
+pub trait RequestState<T: BeaconChainTypes> {
     /// The type of the request .
     type RequestType;
 
@@ -81,9 +59,12 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     /* Request building methods */
 
     /// Construct a new request.
-    fn build_request(&mut self) -> Result<(PeerId, Self::RequestType), LookupRequestError> {
+    fn build_request(
+        &mut self,
+        lookup_type: LookupType,
+    ) -> Result<(PeerId, Self::RequestType), LookupRequestError> {
         // Verify and construct request.
-        self.too_many_attempts()?;
+        self.too_many_attempts(lookup_type)?;
         let peer = self.get_peer()?;
         let request = self.new_request();
         Ok((peer, request))
@@ -93,6 +74,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     fn build_request_and_send(
         &mut self,
         id: Id,
+        lookup_type: LookupType,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         // Check if request is necessary.
@@ -101,7 +83,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         }
 
         // Construct request.
-        let (peer_id, request) = self.build_request()?;
+        let (peer_id, request) = self.build_request(lookup_type)?;
 
         // Update request state.
         let req_counter = self.get_state_mut().on_download_start(peer_id);
@@ -110,17 +92,16 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         let id = SingleLookupReqId {
             id,
             req_counter,
-            lookup_type: L::lookup_type(),
+            lookup_type,
         };
         Self::make_request(id, peer_id, request, cx)
     }
 
     /// Verify the current request has not exceeded the maximum number of attempts.
-    fn too_many_attempts(&self) -> Result<(), LookupRequestError> {
-        let max_attempts = L::max_attempts();
+    fn too_many_attempts(&self, lookup_type: LookupType) -> Result<(), LookupRequestError> {
         let request_state = self.get_state();
 
-        if request_state.failed_attempts() >= max_attempts {
+        if request_state.failed_attempts() >= lookup_type.max_attempts() {
             let cannot_process = request_state.more_failed_processing_attempts();
             Err(LookupRequestError::TooManyAttempts { cannot_process })
         } else {
@@ -187,7 +168,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     fn response_type() -> ResponseType;
 
     /// A getter for the `BlockRequestState` or `BlobRequestState` associated with this trait.
-    fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self;
+    fn request_state_mut(request: &mut SingleBlockLookup<T>) -> &mut Self;
 
     /// A getter for a reference to the `SingleLookupRequestState` associated with this trait.
     fn get_state(&self) -> &SingleLookupRequestState;
@@ -196,7 +177,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     fn get_state_mut(&mut self) -> &mut SingleLookupRequestState;
 }
 
-impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L> {
+impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState {
     type RequestType = BlocksByRootSingleRequest;
     type VerifiedResponseType = Arc<SignedBeaconBlock<T::EthSpec>>;
     type ReconstructedResponseType = RpcBlock<T::EthSpec>;
@@ -253,7 +234,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
     fn response_type() -> ResponseType {
         ResponseType::Block
     }
-    fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self {
+    fn request_state_mut(request: &mut SingleBlockLookup<T>) -> &mut Self {
         &mut request.block_request_state
     }
     fn get_state(&self) -> &SingleLookupRequestState {
@@ -264,7 +245,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlockRequestState<L>
     }
 }
 
-impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, T::EthSpec> {
+impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
     type RequestType = BlobsByRootSingleBlockRequest;
     type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
     type ReconstructedResponseType = FixedBlobSidecarList<T::EthSpec>;
@@ -328,7 +309,7 @@ impl<L: Lookup, T: BeaconChainTypes> RequestState<L, T> for BlobRequestState<L, 
     fn response_type() -> ResponseType {
         ResponseType::Blob
     }
-    fn request_state_mut(request: &mut SingleBlockLookup<L, T>) -> &mut Self {
+    fn request_state_mut(request: &mut SingleBlockLookup<T>) -> &mut Self {
         &mut request.blob_request_state
     }
     fn get_state(&self) -> &SingleLookupRequestState {
