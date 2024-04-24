@@ -179,9 +179,6 @@ pub fn get_config<E: EthSpec>(
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
     }
-    if let Some(cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
-        client_config.chain.snapshot_cache_size = cache_size;
-    }
 
     /*
      * Prometheus metrics HTTP server
@@ -406,6 +403,10 @@ pub fn get_config<E: EthSpec>(
         client_config.store.block_cache_size = block_cache_size
             .parse()
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    }
+
+    if let Some(cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
+        client_config.store.state_cache_size = cache_size;
     }
 
     if let Some(historic_state_cache_size) = cli_args.value_of("historic-state-cache-size") {

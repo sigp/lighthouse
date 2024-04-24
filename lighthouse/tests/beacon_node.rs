@@ -173,26 +173,6 @@ fn shuffling_cache_set() {
 }
 
 #[test]
-fn snapshot_cache_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.snapshot_cache_size,
-                beacon_node::beacon_chain::snapshot_cache::DEFAULT_SNAPSHOT_CACHE_SIZE
-            )
-        });
-}
-
-#[test]
-fn snapshot_cache_set() {
-    CommandLineTest::new()
-        .flag("state-cache-size", Some("500"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.snapshot_cache_size, 500));
-}
-
-#[test]
 fn fork_choice_before_proposal_timeout_default() {
     CommandLineTest::new()
         .run_with_zero_port()

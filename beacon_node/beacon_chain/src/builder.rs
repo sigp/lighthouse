@@ -12,7 +12,6 @@ use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::snapshot_cache::SnapshotCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -32,7 +31,7 @@ use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, debug, error, info, o, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::per_slot_processing;
+use state_processing::{per_slot_processing, AllCaches};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -462,7 +461,7 @@ where
         // Prime all caches before storing the state in the database and computing the tree hash
         // root.
         weak_subj_state
-            .build_caches(&self.spec)
+            .build_all_caches(&self.spec)
             .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
         let weak_subj_state_root = weak_subj_state
             .update_tree_hash_cache()
@@ -537,6 +536,13 @@ where
 
         // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
+        store
+            .update_finalized_state(
+                weak_subj_state_root,
+                weak_subj_block_root,
+                weak_subj_state.clone(),
+            )
+            .map_err(|e| format!("Failed to set checkpoint state as finalized state: {:?}", e))?;
         store
             .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {e:?}"))?;
@@ -851,10 +857,8 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let head_for_snapshot_cache = head_snapshot.clone();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
-        let snapshot_cache_size = self.chain_config.snapshot_cache_size;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -930,10 +934,6 @@ where
             fork_choice_signal_rx,
             event_handler: self.event_handler,
             head_tracker,
-            snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
-                snapshot_cache_size,
-                head_for_snapshot_cache,
-            )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
@@ -962,7 +962,6 @@ where
                     .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
-            block_production_state: Arc::new(Mutex::new(None)),
         };
 
         let head = beacon_chain.head_snapshot();
