@@ -73,7 +73,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     key. Defaults to ~/.lighthouse/{network}/secrets.",
                 )
                 .takes_value(true)
-                .conflicts_with("datadir")
         )
         .arg(
             Arg::with_name("init-slashing-protection")

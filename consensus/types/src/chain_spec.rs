@@ -26,6 +26,7 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
+    Consolidation,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -77,6 +78,7 @@ pub struct ChainSpec {
     pub genesis_fork_version: [u8; 4],
     pub bls_withdrawal_prefix_byte: u8,
     pub eth1_address_withdrawal_prefix_byte: u8,
+    pub compounding_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
@@ -109,6 +111,7 @@ pub struct ChainSpec {
     pub(crate) domain_voluntary_exit: u32,
     pub(crate) domain_selection_proof: u32,
     pub(crate) domain_aggregate_and_proof: u32,
+    pub(crate) domain_consolidation: u32,
 
     /*
      * Fork choice
@@ -178,6 +181,15 @@ pub struct ChainSpec {
     pub electra_fork_version: [u8; 4],
     /// The Electra fork epoch is optional, with `None` representing "Electra never happens".
     pub electra_fork_epoch: Option<Epoch>,
+    pub unset_deposit_receipts_start_index: u64,
+    pub full_exit_request_amount: u64,
+    pub min_activation_balance: u64,
+    pub max_effective_balance_electra: u64,
+    pub min_slashing_penalty_quotient_electra: u64,
+    pub whistleblower_reward_quotient_electra: u64,
+    pub max_pending_partials_per_withdrawals_sweep: u64,
+    pub min_per_epoch_churn_limit_electra: u64,
+    pub max_per_epoch_activation_exit_churn_limit: u64,
 
     /*
      * DAS params
@@ -373,7 +385,9 @@ impl ChainSpec {
         state: &BeaconState<E>,
     ) -> u64 {
         let fork_name = state.fork_name_unchecked();
-        if fork_name >= ForkName::Merge {
+        if fork_name >= ForkName::Electra {
+            self.min_slashing_penalty_quotient_electra
+        } else if fork_name >= ForkName::Merge {
             self.min_slashing_penalty_quotient_bellatrix
         } else if fork_name >= ForkName::Altair {
             self.min_slashing_penalty_quotient_altair
@@ -427,6 +441,7 @@ impl ChainSpec {
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
             Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
             Domain::BlsToExecutionChange => self.domain_bls_to_execution_change,
+            Domain::Consolidation => self.domain_consolidation,
         }
     }
 
@@ -611,6 +626,7 @@ impl ChainSpec {
             genesis_fork_version: [0; 4],
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
+            compounding_withdrawal_prefix_byte: 0x02,
 
             /*
              * Time parameters
@@ -644,6 +660,7 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
+            domain_consolidation: 0x0B,
 
             /*
              * Fork choice
@@ -718,6 +735,30 @@ impl ChainSpec {
              */
             electra_fork_version: [0x05, 00, 00, 00],
             electra_fork_epoch: None,
+            unset_deposit_receipts_start_index: u64::MAX,
+            full_exit_request_amount: 0,
+            min_activation_balance: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_effective_balance_electra: option_wrapper(|| {
+                u64::checked_pow(2, 11)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            min_slashing_penalty_quotient_electra: u64::checked_pow(2, 12)
+                .expect("pow does not overflow"),
+            whistleblower_reward_quotient_electra: u64::checked_pow(2, 12)
+                .expect("pow does not overflow"),
+            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 3)
+                .expect("pow does not overflow"),
+            min_per_epoch_churn_limit_electra: option_wrapper(|| {
+                u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
+                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
 
             /*
              * DAS params
@@ -891,6 +932,7 @@ impl ChainSpec {
             genesis_fork_version: [0x00, 0x00, 0x00, 0x64],
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
+            compounding_withdrawal_prefix_byte: 0x02,
 
             /*
              * Time parameters
@@ -924,6 +966,7 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
+            domain_consolidation: 0x0B,
 
             /*
              * Fork choice
@@ -1000,6 +1043,30 @@ impl ChainSpec {
              */
             electra_fork_version: [0x05, 0x00, 0x00, 0x64],
             electra_fork_epoch: None,
+            unset_deposit_receipts_start_index: u64::MAX,
+            full_exit_request_amount: 0,
+            min_activation_balance: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_effective_balance_electra: option_wrapper(|| {
+                u64::checked_pow(2, 11)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            min_slashing_penalty_quotient_electra: u64::checked_pow(2, 12)
+                .expect("pow does not overflow"),
+            whistleblower_reward_quotient_electra: u64::checked_pow(2, 12)
+                .expect("pow does not overflow"),
+            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 3)
+                .expect("pow does not overflow"),
+            min_per_epoch_churn_limit_electra: option_wrapper(|| {
+                u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
+                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
 
             /*
              * DAS params
@@ -1236,6 +1303,13 @@ pub struct Config {
     #[serde(default = "default_data_column_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
     data_column_sidecar_subnet_count: u64,
+
+    #[serde(default = "default_min_per_epoch_churn_limit_electra")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_per_epoch_churn_limit_electra: u64,
+    #[serde(default = "default_max_per_epoch_activation_exit_churn_limit")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_per_epoch_activation_exit_churn_limit: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1356,6 +1430,14 @@ const fn default_blob_sidecar_subnet_count() -> u64 {
 
 const fn default_data_column_sidecar_subnet_count() -> u64 {
     32
+}
+
+const fn default_min_per_epoch_churn_limit_electra() -> u64 {
+    128_000_000_000
+}
+
+const fn default_max_per_epoch_activation_exit_churn_limit() -> u64 {
+    256_000_000_000
 }
 
 const fn default_epochs_per_subnet_subscription() -> u64 {
@@ -1554,6 +1636,10 @@ impl Config {
             min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
+
+            min_per_epoch_churn_limit_electra: spec.min_per_epoch_churn_limit_electra,
+            max_per_epoch_activation_exit_churn_limit: spec
+                .max_per_epoch_activation_exit_churn_limit,
         }
     }
 
@@ -1623,6 +1709,9 @@ impl Config {
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
             data_column_sidecar_subnet_count,
+
+            min_per_epoch_churn_limit_electra,
+            max_per_epoch_activation_exit_churn_limit,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -1685,6 +1774,9 @@ impl Config {
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
             data_column_sidecar_subnet_count,
+
+            min_per_epoch_churn_limit_electra,
+            max_per_epoch_activation_exit_churn_limit,
 
             // We need to re-derive any values that might have changed in the config.
             max_blocks_by_root_request: max_blocks_by_root_request_common(max_request_blocks),
@@ -1760,6 +1852,7 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
+        test_domain(Domain::Consolidation, spec.domain_consolidation, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];
