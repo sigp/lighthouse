@@ -418,6 +418,10 @@ impl EthSpec for MinimalEthSpec {
     type BytesPerBlob = U131072;
     type MaxBlobCommitmentsPerBlock = U16;
     type KzgCommitmentInclusionProofDepth = U9;
+    type PendingPartialWithdrawalsLimit = U64;
+    type PendingConsolidationsLimit = U64;
+    type MaxDepositReceiptsPerPayload = U4;
+    type MaxWithdrawalRequestsPerPayload = U2;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -442,13 +446,9 @@ impl EthSpec for MinimalEthSpec {
         MaxBlobsPerBlock,
         BytesPerFieldElement,
         PendingBalanceDepositsLimit,
-        PendingPartialWithdrawalsLimit,
-        PendingConsolidationsLimit,
         MaxConsolidations,
-        MaxDepositReceiptsPerPayload,
         MaxAttesterSlashingsElectra,
-        MaxAttestationsElectra,
-        MaxWithdrawalRequestsPerPayload
+        MaxAttestationsElectra
     });
 
     fn default_spec() -> ChainSpec {
