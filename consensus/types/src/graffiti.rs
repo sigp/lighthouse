@@ -47,6 +47,12 @@ impl Into<[u8; GRAFFITI_BYTES_LEN]> for Graffiti {
 #[serde(transparent)]
 pub struct GraffitiString(String);
 
+impl GraffitiString {
+    pub fn empty() -> Self {
+        Self(String::new())
+    }
+}
+
 impl FromStr for GraffitiString {
     type Err = String;
 

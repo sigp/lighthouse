@@ -165,6 +165,17 @@ impl From<ApiError> for Error {
     }
 }
 
+impl From<EngineError> for Error {
+    fn from(e: EngineError) -> Self {
+        match e {
+            // This removes an unnecessary layer of indirection.
+            // TODO (mark): consider refactoring these error enums
+            EngineError::Api { error } => Error::ApiError(error),
+            _ => Error::EngineError(Box::new(e)),
+        }
+    }
+}
+
 pub enum BlockProposalContentsType<E: EthSpec> {
     Full(BlockProposalContents<E, FullPayload<E>>),
     Blinded(BlockProposalContents<E, BlindedPayload<E>>),
@@ -1526,8 +1537,26 @@ impl<E: EthSpec> ExecutionLayer<E> {
         self.engine()
             .request(|engine| engine.get_engine_capabilities(age_limit))
             .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
+            .map_err(Into::into)
+    }
+
+    /// Returns the execution engine version resulting from a call to
+    /// engine_clientVersionV1. If the version cache is not populated, or if it
+    /// is populated with a cached result of age >= `age_limit`, this method will
+    /// fetch the result from the execution engine and populate the cache before
+    /// returning it. Otherwise it will return the cached result from an earlier
+    /// call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_version(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<Vec<ClientVersionV1>, Error> {
+        self.engine()
+            .request(|engine| engine.get_engine_version(age_limit))
+            .await
+            .map_err(Into::into)
     }
 
     /// Used during block production to determine if the merge has been triggered.
