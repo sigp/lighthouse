@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 use types::{
-    AggregateSignature, AttestationData, AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch,
-    Hash256, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
+    indexed_attestation::IndexedAttestationBase, AggregateSignature, AttestationData,
+    AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch, Hash256, IndexedAttestation,
+    MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
@@ -12,7 +13,7 @@ pub fn indexed_att(
     target_epoch: u64,
     target_root: u64,
 ) -> IndexedAttestation<E> {
-    IndexedAttestation {
+    IndexedAttestation::Base(IndexedAttestationBase {
         attesting_indices: attesting_indices.as_ref().to_vec().into(),
         data: AttestationData {
             slot: Slot::new(0),
@@ -28,7 +29,7 @@ pub fn indexed_att(
             },
         },
         signature: AggregateSignature::empty(),
-    }
+    })
 }
 
 pub fn att_slashing(
@@ -66,7 +67,9 @@ pub fn slashed_validators_from_slashings(slashings: &HashSet<AttesterSlashing<E>
                 "invalid slashing: {:#?}",
                 slashing
             );
-            hashset_intersection(&att1.attesting_indices, &att2.attesting_indices)
+            let attesting_indices_1 = att1.attesting_indices_to_vec();
+            let attesting_indices_2 = att2.attesting_indices_to_vec();
+            hashset_intersection(&attesting_indices_1, &attesting_indices_2)
         })
         .collect()
 }
@@ -82,10 +85,14 @@ pub fn slashed_validators_from_attestations(
                 continue;
             }
 
+            // TODO(eip7549) in a nested loop, copying to vecs feels bad
+            let attesting_indices_1 = att1.attesting_indices_to_vec();
+            let attesting_indices_2 = att2.attesting_indices_to_vec();
+
             if att1.is_double_vote(att2) || att1.is_surround_vote(att2) {
                 slashed_validators.extend(hashset_intersection(
-                    &att1.attesting_indices,
-                    &att2.attesting_indices,
+                    &attesting_indices_1,
+                    &attesting_indices_2,
                 ));
             }
         }

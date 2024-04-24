@@ -229,7 +229,6 @@ pub struct ChainSpec {
     pub max_blocks_by_root_request: usize,
     pub max_blocks_by_root_request_deneb: usize,
     pub max_blobs_by_root_request: usize,
-    pub max_data_columns_by_range_request: usize,
 
     /*
      * Application params
@@ -723,11 +722,6 @@ impl ChainSpec {
             deneb_fork_epoch: Some(Epoch::new(269568)),
 
             /*
-             * DAS params
-             */
-            max_data_columns_by_range_request: 128,
-
-            /*
              * Electra hard fork params
              */
             electra_fork_version: [0x05, 00, 00, 00],
@@ -853,8 +847,6 @@ impl ChainSpec {
             // Deneb
             deneb_fork_version: [0x04, 0x00, 0x00, 0x01],
             deneb_fork_epoch: None,
-            // DAS
-            max_data_columns_by_range_request: 128,
             // Electra
             electra_fork_version: [0x05, 0x00, 0x00, 0x01],
             electra_fork_epoch: None,
@@ -1028,11 +1020,6 @@ impl ChainSpec {
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x64],
             deneb_fork_epoch: Some(Epoch::new(889856)),
-
-            /*
-             * DAS params
-             */
-            max_data_columns_by_range_request: 128,
 
             /*
              * Electra hard fork params

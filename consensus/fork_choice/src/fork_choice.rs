@@ -241,10 +241,10 @@ pub struct QueuedAttestation {
 impl<E: EthSpec> From<&IndexedAttestation<E>> for QueuedAttestation {
     fn from(a: &IndexedAttestation<E>) -> Self {
         Self {
-            slot: a.data.slot,
-            attesting_indices: a.attesting_indices[..].to_vec(),
-            block_root: a.data.beacon_block_root,
-            target_epoch: a.data.target.epoch,
+            slot: a.data().slot,
+            attesting_indices: a.attesting_indices_to_vec(),
+            block_root: a.data().beacon_block_root,
+            target_epoch: a.data().target.epoch,
         }
     }
 }
@@ -948,20 +948,20 @@ where
         //
         // This is not in the specification, however it should be transparent to other nodes. We
         // return early here to avoid wasting precious resources verifying the rest of it.
-        if indexed_attestation.attesting_indices.is_empty() {
+        if indexed_attestation.attesting_indices_is_empty() {
             return Err(InvalidAttestation::EmptyAggregationBitfield);
         }
 
-        let target = indexed_attestation.data.target;
+        let target = indexed_attestation.data().target;
 
         if matches!(is_from_block, AttestationFromBlock::False) {
             self.validate_target_epoch_against_current_time(target.epoch)?;
         }
 
-        if target.epoch != indexed_attestation.data.slot.epoch(E::slots_per_epoch()) {
+        if target.epoch != indexed_attestation.data().slot.epoch(E::slots_per_epoch()) {
             return Err(InvalidAttestation::BadTargetEpoch {
                 target: target.epoch,
-                slot: indexed_attestation.data.slot,
+                slot: indexed_attestation.data().slot,
             });
         }
 
@@ -983,9 +983,9 @@ where
         // attestation and do not delay consideration for later.
         let block = self
             .proto_array
-            .get_block(&indexed_attestation.data.beacon_block_root)
+            .get_block(&indexed_attestation.data().beacon_block_root)
             .ok_or(InvalidAttestation::UnknownHeadBlock {
-                beacon_block_root: indexed_attestation.data.beacon_block_root,
+                beacon_block_root: indexed_attestation.data().beacon_block_root,
             })?;
 
         // If an attestation points to a block that is from an earlier slot than the attestation,
@@ -993,7 +993,7 @@ where
         // is from a prior epoch to the attestation, then the target root must be equal to the root
         // of the block that is being attested to.
         let expected_target = if target.epoch > block.slot.epoch(E::slots_per_epoch()) {
-            indexed_attestation.data.beacon_block_root
+            indexed_attestation.data().beacon_block_root
         } else {
             block.target_root
         };
@@ -1007,10 +1007,10 @@ where
 
         // Attestations must not be for blocks in the future. If this is the case, the attestation
         // should not be considered.
-        if block.slot > indexed_attestation.data.slot {
+        if block.slot > indexed_attestation.data().slot {
             return Err(InvalidAttestation::AttestsToFutureBlock {
                 block: block.slot,
-                attestation: indexed_attestation.data.slot,
+                attestation: indexed_attestation.data().slot,
             });
         }
 
@@ -1055,18 +1055,18 @@ where
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
         // fine because votes to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
-        if attestation.data.beacon_block_root == Hash256::zero() {
+        if attestation.data().beacon_block_root == Hash256::zero() {
             return Ok(());
         }
 
         self.validate_on_attestation(attestation, is_from_block)?;
 
-        if attestation.data.slot < self.fc_store.get_current_slot() {
-            for validator_index in attestation.attesting_indices.iter() {
+        if attestation.data().slot < self.fc_store.get_current_slot() {
+            for validator_index in attestation.attesting_indices_iter() {
                 self.proto_array.process_attestation(
                     *validator_index as usize,
-                    attestation.data.beacon_block_root,
-                    attestation.data.target.epoch,
+                    attestation.data().beacon_block_root,
+                    attestation.data().target.epoch,
                 )?;
             }
         } else {
@@ -1088,8 +1088,7 @@ where
     /// We assume that the attester slashing provided to this function has already been verified.
     pub fn on_attester_slashing(&mut self, slashing: &AttesterSlashing<E>) {
         let attesting_indices_set = |att: &IndexedAttestation<E>| {
-            att.attesting_indices
-                .iter()
+            att.attesting_indices_iter()
                 .copied()
                 .collect::<BTreeSet<_>>()
         };

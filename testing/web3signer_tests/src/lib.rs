@@ -39,7 +39,7 @@ mod tests {
     use tempfile::{tempdir, TempDir};
     use tokio::sync::OnceCell;
     use tokio::time::sleep;
-    use types::{*, attestation::AttestationBase};
+    use types::{attestation::AttestationBase, *};
     use url::Url;
     use validator_client::{
         initialized_validators::{

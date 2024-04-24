@@ -1,6 +1,6 @@
 use super::get_attesting_indices;
 use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
-use types::*;
+use types::{indexed_attestation::IndexedAttestationBase, *};
 
 type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 
@@ -17,9 +17,9 @@ pub fn get_indexed_attestation<E: EthSpec>(
         Attestation::Electra(_) => todo!(),
     };
 
-    Ok(IndexedAttestation {
+    Ok(IndexedAttestation::Base(IndexedAttestationBase {
         attesting_indices: VariableList::new(attesting_indices)?,
         data: attestation.data().clone(),
         signature: attestation.signature().clone(),
-    })
+    }))
 }

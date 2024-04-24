@@ -472,8 +472,9 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         .clone()
         .deconstruct()
         .0;
-    *head_block.to_mut().body_mut().attestations_mut()[0].aggregation_bits_base_mut().unwrap() =
-        Bitfield::with_capacity(spec.target_committee_size).unwrap();
+    *head_block.to_mut().body_mut().attestations_mut()[0]
+        .aggregation_bits_base_mut()
+        .unwrap() = Bitfield::with_capacity(spec.target_committee_size).unwrap();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -506,7 +507,8 @@ async fn invalid_attestation_bad_signature() {
         .clone()
         .deconstruct()
         .0;
-    *head_block.to_mut().body_mut().attestations_mut()[0].signature_mut() = AggregateSignature::empty();
+    *head_block.to_mut().body_mut().attestations_mut()[0].signature_mut() =
+        AggregateSignature::empty();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -704,7 +706,10 @@ async fn invalid_attester_slashing_1_invalid() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
-    attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+    *attester_slashing
+        .attestation_1
+        .attesting_indices_base_mut()
+        .unwrap() = VariableList::from(vec![2, 1]);
 
     let mut state = harness.get_current_state();
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -735,7 +740,10 @@ async fn invalid_attester_slashing_2_invalid() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
-    attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+    *attester_slashing
+        .attestation_2
+        .attesting_indices_base_mut()
+        .unwrap() = VariableList::from(vec![2, 1]);
 
     let mut state = harness.get_current_state();
     let mut ctxt = ConsensusContext::new(state.slot());

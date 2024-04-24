@@ -137,15 +137,14 @@ pub mod altair_deneb {
         let previous_epoch = ctxt.previous_epoch;
         let current_epoch = ctxt.current_epoch;
 
-        let attesting_indices = &verify_attestation_for_block_inclusion(
+        let indexed_att = verify_attestation_for_block_inclusion(
             state,
             attestation,
             ctxt,
             verify_signatures,
             spec,
         )
-        .map_err(|e| e.into_with_index(att_index))?
-        .attesting_indices;
+        .map_err(|e| e.into_with_index(att_index))?;
 
         // Matching roots, participation flag indices
         let data = attestation.data();
@@ -155,7 +154,7 @@ pub mod altair_deneb {
 
         // Update epoch participation flags.
         let mut proposer_reward_numerator = 0;
-        for index in attesting_indices {
+        for index in indexed_att.attesting_indices_iter() {
             let index = *index as usize;
 
             let validator_effective_balance = state.epoch_cache().get_effective_balance(index)?;

@@ -66,13 +66,12 @@ where
     let attestation_2 = &attester_slashing.attestation_2;
 
     let attesting_indices_1 = attestation_1
-        .attesting_indices
-        .iter()
+        .attesting_indices_iter()
         .cloned()
         .collect::<BTreeSet<_>>();
+
     let attesting_indices_2 = attestation_2
-        .attesting_indices
-        .iter()
+        .attesting_indices_iter()
         .cloned()
         .collect::<BTreeSet<_>>();
 

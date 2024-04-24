@@ -1233,7 +1233,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         indexed_attestation: &IndexedAttestation<E>,
         slot_clock: &S,
     ) {
-        let data = &indexed_attestation.data;
+        let data = indexed_attestation.data();
         let epoch = data.slot.epoch(E::slots_per_epoch());
         let delay = get_message_delay_ms(
             seen_timestamp,
@@ -1242,7 +1242,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             slot_clock,
         );
 
-        indexed_attestation.attesting_indices.iter().for_each(|i| {
+        indexed_attestation.attesting_indices_iter().for_each(|i| {
             if let Some(validator) = self.get_validator(*i) {
                 let id = &validator.id;
 
@@ -1321,7 +1321,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         indexed_attestation: &IndexedAttestation<E>,
         slot_clock: &S,
     ) {
-        let data = &indexed_attestation.data;
+        let data = indexed_attestation.data();
         let epoch = data.slot.epoch(E::slots_per_epoch());
         let delay = get_message_delay_ms(
             seen_timestamp,
@@ -1365,7 +1365,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             });
         }
 
-        indexed_attestation.attesting_indices.iter().for_each(|i| {
+        indexed_attestation.attesting_indices_iter().for_each(|i| {
             if let Some(validator) = self.get_validator(*i) {
                 let id = &validator.id;
 
@@ -1414,7 +1414,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         parent_slot: Slot,
         spec: &ChainSpec,
     ) {
-        let data = &indexed_attestation.data;
+        let data = indexed_attestation.data();
         // Best effort inclusion distance which ignores skip slots between the parent
         // and the current block. Skipped slots between the attestation slot and the parent
         // slot are still counted for simplicity's sake.
@@ -1423,7 +1423,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = inclusion_distance - spec.min_attestation_inclusion_delay;
         let epoch = data.slot.epoch(E::slots_per_epoch());
 
-        indexed_attestation.attesting_indices.iter().for_each(|i| {
+        indexed_attestation.attesting_indices_iter().for_each(|i| {
             if let Some(validator) = self.get_validator(*i) {
                 let id = &validator.id;
 
@@ -1798,18 +1798,16 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     fn register_attester_slashing(&self, src: &str, slashing: &AttesterSlashing<E>) {
-        let data = &slashing.attestation_1.data;
+        let data = slashing.attestation_1.data();
         let attestation_1_indices: HashSet<u64> = slashing
             .attestation_1
-            .attesting_indices
-            .iter()
+            .attesting_indices_iter()
             .copied()
             .collect();
 
         slashing
             .attestation_2
-            .attesting_indices
-            .iter()
+            .attesting_indices_iter()
             .filter(|index| attestation_1_indices.contains(index))
             .filter_map(|index| self.get_validator(*index))
             .for_each(|validator| {

@@ -11,6 +11,8 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
+use self::indexed_attestation::IndexedAttestationBase;
+
 /// A block of the `BeaconChain`.
 #[superstruct(
     variants(Base, Altair, Merge, Capella, Deneb, Electra),
@@ -325,15 +327,16 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             message: header,
             signature: Signature::empty(),
         };
-        let indexed_attestation: IndexedAttestation<E> = IndexedAttestation {
-            attesting_indices: VariableList::new(vec![
-                0_u64;
-                E::MaxValidatorsPerCommittee::to_usize()
-            ])
-            .unwrap(),
-            data: AttestationData::default(),
-            signature: AggregateSignature::empty(),
-        };
+        let indexed_attestation: IndexedAttestation<E> =
+            IndexedAttestation::Base(IndexedAttestationBase {
+                attesting_indices: VariableList::new(vec![
+                    0_u64;
+                    E::MaxValidatorsPerCommittee::to_usize()
+                ])
+                .unwrap(),
+                data: AttestationData::default(),
+                signature: AggregateSignature::empty(),
+            });
 
         let deposit_data = DepositData {
             pubkey: PublicKeyBytes::empty(),

@@ -72,7 +72,7 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
 
     fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
         let attestation = *self.attestation;
-        let attesting_indices = self.indexed_attestation.attesting_indices.into();
+        let attesting_indices = self.indexed_attestation.attesting_indices_to_vec();
         (attestation, attesting_indices)
     }
 }
@@ -106,7 +106,7 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
     /// Efficient clone-free implementation that moves out of the `Box`.
     fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
         let attestation = self.signed_aggregate.message.aggregate;
-        let attesting_indices = self.indexed_attestation.attesting_indices.into();
+        let attesting_indices = self.indexed_attestation.attesting_indices_to_vec();
         (attestation, attesting_indices)
     }
 }
@@ -309,7 +309,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match result {
             Ok(verified_attestation) => {
                 let indexed_attestation = &verified_attestation.indexed_attestation;
-                let beacon_block_root = indexed_attestation.data.beacon_block_root;
+                let beacon_block_root = indexed_attestation.data().beacon_block_root;
 
                 // Register the attestation with any monitored validators.
                 self.chain
