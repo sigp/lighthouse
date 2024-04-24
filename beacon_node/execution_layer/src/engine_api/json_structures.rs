@@ -747,3 +747,36 @@ pub mod serde_logs_bloom {
             .map_err(|e| serde::de::Error::custom(format!("invalid logs bloom: {:?}", e)))
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonClientVersionV1 {
+    pub code: String,
+    pub name: String,
+    pub version: String,
+    pub commit: String,
+}
+
+impl From<ClientVersionV1> for JsonClientVersionV1 {
+    fn from(client_version: ClientVersionV1) -> Self {
+        Self {
+            code: client_version.code.to_string(),
+            name: client_version.name,
+            version: client_version.version,
+            commit: client_version.commit.to_string(),
+        }
+    }
+}
+
+impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
+    type Error = String;
+
+    fn try_from(json: JsonClientVersionV1) -> Result<Self, Self::Error> {
+        Ok(Self {
+            code: json.code.try_into()?,
+            name: json.name,
+            version: json.version,
+            commit: json.commit.try_into()?,
+        })
+    }
+}

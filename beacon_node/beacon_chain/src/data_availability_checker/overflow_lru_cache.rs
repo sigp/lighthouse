@@ -1059,7 +1059,7 @@ mod test {
         let chain = &harness.chain;
         let log = chain.log.clone();
         let head = chain.head_snapshot();
-        let parent_state = head.beacon_state.clone_with_only_committee_caches();
+        let parent_state = head.beacon_state.clone();
 
         let target_slot = chain.slot().expect("should get slot") + 1;
         let parent_root = head.beacon_block_root;

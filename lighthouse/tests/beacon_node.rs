@@ -5,9 +5,11 @@ use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
 };
+use beacon_node::beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_processor::BeaconProcessorConfig;
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
+use lighthouse_version;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -173,26 +175,6 @@ fn shuffling_cache_set() {
 }
 
 #[test]
-fn snapshot_cache_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.snapshot_cache_size,
-                beacon_node::beacon_chain::snapshot_cache::DEFAULT_SNAPSHOT_CACHE_SIZE
-            )
-        });
-}
-
-#[test]
-fn snapshot_cache_set() {
-    CommandLineTest::new()
-        .flag("state-cache-size", Some("500"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.snapshot_cache_size, 500));
-}
-
-#[test]
 fn fork_choice_before_proposal_timeout_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -316,10 +298,33 @@ fn graffiti_flag() {
         .flag("graffiti", Some("nice-graffiti"))
         .run_with_zero_port()
         .with_config(|config| {
+            assert!(matches!(
+                config.beacon_graffiti,
+                GraffitiOrigin::UserSpecified(_)
+            ));
             assert_eq!(
-                config.graffiti.to_string(),
-                "0x6e6963652d677261666669746900000000000000000000000000000000000000"
+                config.beacon_graffiti.graffiti().to_string(),
+                "0x6e6963652d677261666669746900000000000000000000000000000000000000",
             );
+        });
+}
+
+#[test]
+fn default_graffiti() {
+    use types::GRAFFITI_BYTES_LEN;
+    // test default graffiti when no graffiti flags are provided
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(matches!(
+                config.beacon_graffiti,
+                GraffitiOrigin::Calculated(_)
+            ));
+            let version_bytes = lighthouse_version::VERSION.as_bytes();
+            let trimmed_len = std::cmp::min(version_bytes.len(), GRAFFITI_BYTES_LEN);
+            let mut bytes = [0u8; GRAFFITI_BYTES_LEN];
+            bytes[..trimmed_len].copy_from_slice(&version_bytes[..trimmed_len]);
+            assert_eq!(config.beacon_graffiti.graffiti().0, bytes);
         });
 }
 
@@ -1221,7 +1226,17 @@ fn private_flag() {
     CommandLineTest::new()
         .flag("private", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.network.private));
+        .with_config(|config| {
+            assert!(config.network.private);
+            assert!(matches!(
+                config.beacon_graffiti,
+                GraffitiOrigin::UserSpecified(_)
+            ));
+            assert_eq!(
+                config.beacon_graffiti.graffiti().to_string(),
+                "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            );
+        });
 }
 #[test]
 fn zero_ports_flag() {

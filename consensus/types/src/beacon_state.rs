@@ -7,6 +7,7 @@ use compare_fields_derive::CompareFields;
 use derivative::Derivative;
 use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
+use metastruct::{metastruct, NumFields};
 pub use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
@@ -28,28 +29,25 @@ pub use crate::beacon_state::balance::Balance;
 pub use crate::beacon_state::exit_cache::ExitCache;
 pub use crate::beacon_state::progressive_balances_cache::*;
 pub use crate::beacon_state::slashings_cache::SlashingsCache;
-pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
-pub use tree_hash_cache::BeaconTreeHashCache;
+pub use milhouse::{interface::Interface, List, Vector};
 
 #[macro_use]
 mod committee_cache;
 mod balance;
-mod clone_config;
 mod exit_cache;
 mod iter;
 mod progressive_balances_cache;
 mod pubkey_cache;
 mod slashings_cache;
 mod tests;
-mod tree_hash_cache;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 
-pub type Validators<T> = VariableList<Validator, <T as EthSpec>::ValidatorRegistryLimit>;
-pub type Balances<T> = VariableList<u64, <T as EthSpec>::ValidatorRegistryLimit>;
+pub type Validators<E> = List<Validator, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -144,6 +142,20 @@ pub enum Error {
         current_epoch: Epoch,
         epoch: Epoch,
     },
+    MilhouseError(milhouse::Error),
+    CommitteeCacheDiffInvalidEpoch {
+        prev_current_epoch: Epoch,
+        current_epoch: Epoch,
+    },
+    CommitteeCacheDiffUninitialized {
+        expected_epoch: Epoch,
+    },
+    DiffAcrossFork {
+        prev_fork: ForkName,
+        current_fork: ForkName,
+    },
+    TotalActiveBalanceDiffUninitialized,
+    MissingImmutableValidator(usize),
     IndexNotSupported(usize),
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
@@ -207,16 +219,105 @@ impl From<BeaconStateHash> for Hash256 {
             TreeHash,
             TestRandom,
             CompareFields,
-            arbitrary::Arbitrary
+            arbitrary::Arbitrary,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
         derivative(Clone),
     ),
+    specific_variant_attributes(
+        Base(metastruct(
+            mappings(
+                map_beacon_state_base_fields(),
+                map_beacon_state_base_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_base_tree_list_fields_immutable(groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_base_tree_list_fields(
+                other_type = "BeaconStateBase",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
+        )),
+        Altair(metastruct(
+            mappings(
+                map_beacon_state_altair_fields(),
+                map_beacon_state_altair_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_altair_tree_list_fields_immutable(groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_altair_tree_list_fields(
+                other_type = "BeaconStateAltair",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
+        )),
+        Merge(metastruct(
+            mappings(
+                map_beacon_state_bellatrix_fields(),
+                map_beacon_state_bellatrix_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_bellatrix_tree_list_fields_immutable(groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_bellatrix_tree_list_fields(
+                other_type = "BeaconStateMerge",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
+        )),
+        Capella(metastruct(
+            mappings(
+                map_beacon_state_capella_fields(),
+                map_beacon_state_capella_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_capella_tree_list_fields_immutable(groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_capella_tree_list_fields(
+                other_type = "BeaconStateCapella",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
+        )),
+        Deneb(metastruct(
+            mappings(
+                map_beacon_state_deneb_fields(),
+                map_beacon_state_deneb_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_deneb_tree_list_fields_immutable(groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_deneb_tree_list_fields(
+                other_type = "BeaconStateDeneb",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
+        )),
+        Electra(metastruct(
+            mappings(
+                map_beacon_state_electra_fields(),
+                map_beacon_state_electra_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_electra_tree_list_fields_immutable(groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_electra_tree_list_fields(
+                other_type = "BeaconStateElectra",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
+        ))
+    ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    map_ref_mut_into(BeaconStateRef)
 )]
-#[derive(Debug, PartialEq, Serialize, Deserialize, Encode, TreeHash, arbitrary::Arbitrary)]
+#[derive(
+    Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash, arbitrary::Arbitrary,
+)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
@@ -228,76 +329,102 @@ where
 {
     // Versioning
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub genesis_time: u64,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub genesis_validators_root: Hash256,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub slot: Slot,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub fork: Fork,
 
     // History
+    #[metastruct(exclude_from(tree_lists))]
     pub latest_block_header: BeaconBlockHeader,
-    #[compare_fields(as_slice)]
-    pub block_roots: FixedVector<Hash256, E::SlotsPerHistoricalRoot>,
-    #[compare_fields(as_slice)]
-    pub state_roots: FixedVector<Hash256, E::SlotsPerHistoricalRoot>,
+    #[test_random(default)]
+    #[compare_fields(as_iter)]
+    pub block_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
+    #[test_random(default)]
+    #[compare_fields(as_iter)]
+    pub state_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
     // Frozen in Capella, replaced by historical_summaries
-    pub historical_roots: VariableList<Hash256, E::HistoricalRootsLimit>,
+    #[test_random(default)]
+    #[compare_fields(as_iter)]
+    pub historical_roots: List<Hash256, E::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
+    #[metastruct(exclude_from(tree_lists))]
     pub eth1_data: Eth1Data,
-    pub eth1_data_votes: VariableList<Eth1Data, E::SlotsPerEth1VotingPeriod>,
+    #[test_random(default)]
+    pub eth1_data_votes: List<Eth1Data, E::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
 
     // Registry
-    #[compare_fields(as_slice)]
-    pub validators: VariableList<Validator, E::ValidatorRegistryLimit>,
-    #[compare_fields(as_slice)]
+    #[test_random(default)]
+    pub validators: List<Validator, E::ValidatorRegistryLimit>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    pub balances: VariableList<u64, E::ValidatorRegistryLimit>,
+    #[compare_fields(as_iter)]
+    #[test_random(default)]
+    pub balances: List<u64, E::ValidatorRegistryLimit>,
 
     // Randomness
-    pub randao_mixes: FixedVector<Hash256, E::EpochsPerHistoricalVector>,
+    #[test_random(default)]
+    pub randao_mixes: Vector<Hash256, E::EpochsPerHistoricalVector>,
 
     // Slashings
+    #[test_random(default)]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
-    pub slashings: FixedVector<u64, E::EpochsPerSlashingsVector>,
+    pub slashings: Vector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
     #[superstruct(only(Base))]
-    pub previous_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
+    #[test_random(default)]
+    pub previous_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
     #[superstruct(only(Base))]
-    pub current_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
+    #[test_random(default)]
+    pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
-    pub previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+    #[test_random(default)]
+    pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
-    pub current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+    #[test_random(default)]
+    pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
     #[test_random(default)]
+    #[metastruct(exclude_from(tree_lists))]
     pub justification_bits: BitVector<E::JustificationBitsLength>,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub previous_justified_checkpoint: Checkpoint,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub current_justified_checkpoint: Checkpoint,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
-    pub inactivity_scores: VariableList<u64, E::ValidatorRegistryLimit>,
+    #[test_random(default)]
+    pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
@@ -305,89 +432,85 @@ where
         only(Merge),
         partial_getter(rename = "latest_execution_payload_header_merge")
     )]
+    #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderMerge<E>,
     #[superstruct(
         only(Capella),
         partial_getter(rename = "latest_execution_payload_header_capella")
     )]
+    #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<E>,
     #[superstruct(
         only(Deneb),
         partial_getter(rename = "latest_execution_payload_header_deneb")
     )]
+    #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(
         only(Electra),
         partial_getter(rename = "latest_execution_payload_header_electra")
     )]
+    #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
 
     // Capella
     #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
+    #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_index: u64,
     #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
+    #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella, Deneb, Electra))]
-    pub historical_summaries: VariableList<HistoricalSummary, E::HistoricalRootsLimit>,
+    #[test_random(default)]
+    pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
+    #[metastruct(exclude)]
     pub total_active_balance: Option<(Epoch, u64)>,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
+    #[metastruct(exclude)]
+    pub committee_caches: [Arc<CommitteeCache>; CACHED_EPOCHS],
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[metastruct(exclude)]
     pub progressive_balances_cache: ProgressiveBalancesCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
-    pub committee_caches: [CommitteeCache; CACHED_EPOCHS],
-    #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing, skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
+    #[metastruct(exclude)]
     pub pubkey_cache: PubkeyCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
+    #[metastruct(exclude)]
     pub exit_cache: ExitCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
+    #[metastruct(exclude)]
     pub slashings_cache: SlashingsCache,
     /// Epoch cache of values that are useful for block processing that are static over an epoch.
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
+    #[metastruct(exclude)]
     pub epoch_cache: EpochCache,
-    #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing, skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
-    pub tree_hash_cache: BeaconTreeHashCache<E>,
-}
-
-impl<E: EthSpec> Clone for BeaconState<E> {
-    fn clone(&self) -> Self {
-        self.clone_with(CloneConfig::all())
-    }
 }
 
 impl<E: EthSpec> BeaconState<E> {
@@ -395,6 +518,7 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// Not a complete genesis state, see `initialize_beacon_state_from_eth1`.
     pub fn new(genesis_time: u64, eth1_data: Eth1Data, spec: &ChainSpec) -> Self {
+        let default_committee_cache = Arc::new(CommitteeCache::default());
         BeaconState::Base(BeaconStateBase {
             // Versioning
             genesis_time,
@@ -408,28 +532,28 @@ impl<E: EthSpec> BeaconState<E> {
 
             // History
             latest_block_header: BeaconBlock::<E>::empty(spec).temporary_block_header(),
-            block_roots: FixedVector::from_elem(Hash256::zero()),
-            state_roots: FixedVector::from_elem(Hash256::zero()),
-            historical_roots: VariableList::empty(),
+            block_roots: Vector::default(),
+            state_roots: Vector::default(),
+            historical_roots: List::default(),
 
             // Eth1
             eth1_data,
-            eth1_data_votes: VariableList::empty(),
+            eth1_data_votes: List::default(),
             eth1_deposit_index: 0,
 
             // Validator registry
-            validators: VariableList::empty(), // Set later.
-            balances: VariableList::empty(),   // Set later.
+            validators: List::default(), // Set later.
+            balances: List::default(),   // Set later.
 
             // Randomness
-            randao_mixes: FixedVector::from_elem(Hash256::zero()),
+            randao_mixes: Vector::default(),
 
             // Slashings
-            slashings: FixedVector::from_elem(0),
+            slashings: Vector::default(),
 
             // Attestations
-            previous_epoch_attestations: VariableList::empty(),
-            current_epoch_attestations: VariableList::empty(),
+            previous_epoch_attestations: List::default(),
+            current_epoch_attestations: List::default(),
 
             // Finality
             justification_bits: BitVector::new(),
@@ -441,15 +565,14 @@ impl<E: EthSpec> BeaconState<E> {
             total_active_balance: None,
             progressive_balances_cache: <_>::default(),
             committee_caches: [
-                CommitteeCache::default(),
-                CommitteeCache::default(),
-                CommitteeCache::default(),
+                default_committee_cache.clone(),
+                default_committee_cache.clone(),
+                default_committee_cache,
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
             slashings_cache: SlashingsCache::default(),
             epoch_cache: EpochCache::default(),
-            tree_hash_cache: <_>::default(),
         })
     }
 
@@ -485,30 +608,6 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Specialised deserialisation method that uses the `ChainSpec` as context.
-    #[allow(clippy::arithmetic_side_effects)]
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
-        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
-        let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
-        let slot_end = slot_start + <Slot as Decode>::ssz_fixed_len();
-
-        let slot_bytes = bytes
-            .get(slot_start..slot_end)
-            .ok_or(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: slot_end,
-            })?;
-
-        let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let fork_at_slot = spec.fork_name_at_slot::<E>(slot);
-
-        Ok(map_fork_name!(
-            fork_at_slot,
-            Self,
-            <_>::from_ssz_bytes(bytes)?
-        ))
-    }
-
     /// Returns the `tree_hash_root` of the state.
     ///
     /// Spec v0.12.1
@@ -516,11 +615,15 @@ impl<E: EthSpec> BeaconState<E> {
         Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
-    pub fn historical_batch(&self) -> HistoricalBatch<E> {
-        HistoricalBatch {
+    pub fn historical_batch(&mut self) -> Result<HistoricalBatch<E>, Error> {
+        // Updating before cloning makes the clone cheap and saves repeated hashing.
+        self.block_roots_mut().apply_updates()?;
+        self.state_roots_mut().apply_updates()?;
+
+        Ok(HistoricalBatch {
             block_roots: self.block_roots().clone(),
             state_roots: self.state_roots().clone(),
-        }
+        })
     }
 
     /// This method ensures the state's pubkey cache is fully up-to-date before checking if the validator
@@ -1079,8 +1182,9 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Fill `randao_mixes` with
-    pub fn fill_randao_mixes_with(&mut self, index_root: Hash256) {
-        *self.randao_mixes_mut() = FixedVector::from_elem(index_root);
+    pub fn fill_randao_mixes_with(&mut self, index_root: Hash256) -> Result<(), Error> {
+        *self.randao_mixes_mut() = Vector::from_elem(index_root)?;
+        Ok(())
     }
 
     /// Safely obtains the index for `randao_mixes`
@@ -1213,7 +1317,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Get a reference to the entire `slashings` vector.
-    pub fn get_all_slashings(&self) -> &[u64] {
+    pub fn get_all_slashings(&self) -> &Vector<u64, E::EpochsPerSlashingsVector> {
         self.slashings()
     }
 
@@ -1237,45 +1341,25 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Convenience accessor for validators and balances simultaneously.
-    pub fn validators_and_balances_and_progressive_balances_mut(
-        &mut self,
+    pub fn validators_and_balances_and_progressive_balances_mut<'a>(
+        &'a mut self,
     ) -> (
-        &mut Validators<E>,
-        &mut Balances<E>,
-        &mut ProgressiveBalancesCache,
+        &'a mut Validators<E>,
+        &'a mut Balances<E>,
+        &'a mut ProgressiveBalancesCache,
     ) {
-        match self {
-            BeaconState::Base(state) => (
-                &mut state.validators,
-                &mut state.balances,
-                &mut state.progressive_balances_cache,
-            ),
-            BeaconState::Altair(state) => (
-                &mut state.validators,
-                &mut state.balances,
-                &mut state.progressive_balances_cache,
-            ),
-            BeaconState::Merge(state) => (
-                &mut state.validators,
-                &mut state.balances,
-                &mut state.progressive_balances_cache,
-            ),
-            BeaconState::Capella(state) => (
-                &mut state.validators,
-                &mut state.balances,
-                &mut state.progressive_balances_cache,
-            ),
-            BeaconState::Deneb(state) => (
-                &mut state.validators,
-                &mut state.balances,
-                &mut state.progressive_balances_cache,
-            ),
-            BeaconState::Electra(state) => (
-                &mut state.validators,
-                &mut state.balances,
-                &mut state.progressive_balances_cache,
-            ),
-        }
+        map_beacon_state_ref_mut_into_beacon_state_ref!(&'a _, self.to_mut(), |inner, cons| {
+            if false {
+                cons(&*inner);
+                unreachable!()
+            } else {
+                (
+                    &mut inner.validators,
+                    &mut inner.balances,
+                    &mut inner.progressive_balances_cache,
+                )
+            }
+        })
     }
 
     #[allow(clippy::type_complexity)]
@@ -1285,9 +1369,9 @@ impl<E: EthSpec> BeaconState<E> {
         (
             &mut Validators<E>,
             &mut Balances<E>,
-            &VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
-            &VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
-            &mut VariableList<u64, E::ValidatorRegistryLimit>,
+            &List<ParticipationFlags, E::ValidatorRegistryLimit>,
+            &List<ParticipationFlags, E::ValidatorRegistryLimit>,
+            &mut List<u64, E::ValidatorRegistryLimit>,
             &mut ProgressiveBalancesCache,
             &mut ExitCache,
             &mut EpochCache,
@@ -1349,6 +1433,13 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
+    /// Get a mutable reference to the balance of a single validator.
+    pub fn get_balance_mut(&mut self, validator_index: usize) -> Result<&mut u64, Error> {
+        self.balances_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::BalancesOutOfBounds(validator_index))
+    }
+
     /// Generate a seed for the given `epoch`.
     pub fn get_seed(
         &self,
@@ -1398,6 +1489,16 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(Error::UnknownValidator(validator_index))
     }
 
+    /// Safe copy-on-write accessor for the `validators` list.
+    pub fn get_validator_cow(
+        &mut self,
+        validator_index: usize,
+    ) -> Result<milhouse::Cow<Validator>, Error> {
+        self.validators_mut()
+            .get_cow(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))
+    }
+
     /// Return the effective balance for a validator with the given `validator_index`.
     pub fn get_effective_balance(&self, validator_index: usize) -> Result<u64, Error> {
         self.get_validator(validator_index)
@@ -1421,13 +1522,6 @@ impl<E: EthSpec> BeaconState<E> {
         self.inactivity_scores_mut()?
             .get_mut(validator_index)
             .ok_or(Error::InactivityScoresOutOfBounds(validator_index))
-    }
-
-    /// Get a mutable reference to the balance of a single validator.
-    pub fn get_balance_mut(&mut self, validator_index: usize) -> Result<&mut u64, Error> {
-        self.balances_mut()
-            .get_mut(validator_index)
-            .ok_or(Error::BalancesOutOfBounds(validator_index))
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
@@ -1575,7 +1669,7 @@ impl<E: EthSpec> BeaconState<E> {
         epoch: Epoch,
         previous_epoch: Epoch,
         current_epoch: Epoch,
-    ) -> Result<&mut VariableList<ParticipationFlags, E::ValidatorRegistryLimit>, Error> {
+    ) -> Result<&mut List<ParticipationFlags, E::ValidatorRegistryLimit>, Error> {
         if epoch == current_epoch {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
@@ -1659,7 +1753,6 @@ impl<E: EthSpec> BeaconState<E> {
         self.drop_committee_cache(RelativeEpoch::Current)?;
         self.drop_committee_cache(RelativeEpoch::Next)?;
         self.drop_pubkey_cache();
-        self.drop_tree_hash_cache();
         self.drop_progressive_balances_cache();
         *self.exit_cache_mut() = ExitCache::default();
         *self.slashings_cache_mut() = SlashingsCache::default();
@@ -1718,7 +1811,7 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<CommitteeCache, Error> {
+    ) -> Result<Arc<CommitteeCache>, Error> {
         CommitteeCache::initialized(self, epoch, spec)
     }
 
@@ -1732,7 +1825,7 @@ impl<E: EthSpec> BeaconState<E> {
         self.committee_caches_mut().rotate_left(1);
 
         let next = Self::committee_cache_index(RelativeEpoch::Next);
-        *self.committee_cache_at_index_mut(next)? = CommitteeCache::default();
+        *self.committee_cache_at_index_mut(next)? = Arc::new(CommitteeCache::default());
         Ok(())
     }
 
@@ -1747,21 +1840,24 @@ impl<E: EthSpec> BeaconState<E> {
     /// Get the committee cache for some `slot`.
     ///
     /// Return an error if the cache for the slot's epoch is not initialized.
-    fn committee_cache_at_slot(&self, slot: Slot) -> Result<&CommitteeCache, Error> {
+    fn committee_cache_at_slot(&self, slot: Slot) -> Result<&Arc<CommitteeCache>, Error> {
         let epoch = slot.epoch(E::slots_per_epoch());
         let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)?;
         self.committee_cache(relative_epoch)
     }
 
     /// Get the committee cache at a given index.
-    fn committee_cache_at_index(&self, index: usize) -> Result<&CommitteeCache, Error> {
+    fn committee_cache_at_index(&self, index: usize) -> Result<&Arc<CommitteeCache>, Error> {
         self.committee_caches()
             .get(index)
             .ok_or(Error::CommitteeCachesOutOfBounds(index))
     }
 
     /// Get a mutable reference to the committee cache at a given index.
-    fn committee_cache_at_index_mut(&mut self, index: usize) -> Result<&mut CommitteeCache, Error> {
+    fn committee_cache_at_index_mut(
+        &mut self,
+        index: usize,
+    ) -> Result<&mut Arc<CommitteeCache>, Error> {
         self.committee_caches_mut()
             .get_mut(index)
             .ok_or(Error::CommitteeCachesOutOfBounds(index))
@@ -1769,7 +1865,10 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
     /// initialized.
-    pub fn committee_cache(&self, relative_epoch: RelativeEpoch) -> Result<&CommitteeCache, Error> {
+    pub fn committee_cache(
+        &self,
+        relative_epoch: RelativeEpoch,
+    ) -> Result<&Arc<CommitteeCache>, Error> {
         let i = Self::committee_cache_index(relative_epoch);
         let cache = self.committee_cache_at_index(i)?;
 
@@ -1780,30 +1879,10 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Returns the cache for some `RelativeEpoch`, replacing the existing cache with an
-    /// un-initialized cache. Returns an error if the existing cache has not been initialized.
-    pub fn take_committee_cache(
-        &mut self,
-        relative_epoch: RelativeEpoch,
-    ) -> Result<CommitteeCache, Error> {
-        let i = Self::committee_cache_index(relative_epoch);
-        let current_epoch = self.current_epoch();
-        let cache = self
-            .committee_caches_mut()
-            .get_mut(i)
-            .ok_or(Error::CommitteeCachesOutOfBounds(i))?;
-
-        if cache.is_initialized_at(relative_epoch.into_epoch(current_epoch)) {
-            Ok(mem::take(cache))
-        } else {
-            Err(Error::CommitteeCacheUninitialized(Some(relative_epoch)))
-        }
-    }
-
     /// Drops the cache, leaving it in an uninitialized state.
     pub fn drop_committee_cache(&mut self, relative_epoch: RelativeEpoch) -> Result<(), Error> {
         *self.committee_cache_at_index_mut(Self::committee_cache_index(relative_epoch))? =
-            CommitteeCache::default();
+            Arc::new(CommitteeCache::default());
         Ok(())
     }
 
@@ -1813,13 +1892,11 @@ impl<E: EthSpec> BeaconState<E> {
     /// never re-add a pubkey.
     pub fn update_pubkey_cache(&mut self) -> Result<(), Error> {
         let mut pubkey_cache = mem::take(self.pubkey_cache_mut());
-        for (i, validator) in self
-            .validators()
-            .iter()
-            .enumerate()
-            .skip(pubkey_cache.len())
-        {
-            let success = pubkey_cache.insert(validator.pubkey, i);
+        let start_index = pubkey_cache.len();
+
+        for (i, validator) in self.validators().iter_from(start_index)?.enumerate() {
+            let index = start_index.safe_add(i)?;
+            let success = pubkey_cache.insert(validator.pubkey, index);
             if !success {
                 return Err(Error::PubkeyCacheInconsistent);
             }
@@ -1834,96 +1911,71 @@ impl<E: EthSpec> BeaconState<E> {
         *self.pubkey_cache_mut() = PubkeyCache::default()
     }
 
+    pub fn has_pending_mutations(&self) -> bool {
+        let mut any_pending_mutations = false;
+        match &self {
+            Self::Base(self_inner) => {
+                map_beacon_state_base_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
+            }
+            Self::Altair(self_inner) => {
+                map_beacon_state_altair_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
+            }
+            Self::Merge(self_inner) => {
+                map_beacon_state_bellatrix_tree_list_fields_immutable!(
+                    self_inner,
+                    |_, self_field| {
+                        any_pending_mutations |= self_field.has_pending_updates();
+                    }
+                );
+            }
+            Self::Capella(self_inner) => {
+                map_beacon_state_capella_tree_list_fields_immutable!(
+                    self_inner,
+                    |_, self_field| {
+                        any_pending_mutations |= self_field.has_pending_updates();
+                    }
+                );
+            }
+            Self::Deneb(self_inner) => {
+                map_beacon_state_deneb_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
+            }
+            Self::Electra(self_inner) => {
+                map_beacon_state_electra_tree_list_fields_immutable!(
+                    self_inner,
+                    |_, self_field| {
+                        any_pending_mutations |= self_field.has_pending_updates();
+                    }
+                );
+            }
+        };
+        any_pending_mutations
+    }
+
     /// Completely drops the `progressive_balances_cache` cache, replacing it with a new, empty cache.
     fn drop_progressive_balances_cache(&mut self) {
         *self.progressive_balances_cache_mut() = ProgressiveBalancesCache::default();
-    }
-
-    /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
-    pub fn initialize_tree_hash_cache(&mut self) {
-        if !self.tree_hash_cache().is_initialized() {
-            *self.tree_hash_cache_mut() = BeaconTreeHashCache::new(self)
-        }
     }
 
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
     pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
-        self.initialize_tree_hash_cache();
-
-        let cache = self.tree_hash_cache_mut().take();
-
-        if let Some(mut cache) = cache {
-            // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
-            // None. There's no need to keep a cache that fails.
-            let root = cache.recalculate_tree_hash_root(self)?;
-            self.tree_hash_cache_mut().restore(cache);
-            Ok(root)
-        } else {
-            Err(Error::TreeHashCacheNotInitialized)
-        }
+        self.apply_pending_mutations()?;
+        Ok(self.tree_hash_root())
     }
 
     /// Compute the tree hash root of the validators using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
     pub fn update_validators_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
-        self.initialize_tree_hash_cache();
-
-        let cache = self.tree_hash_cache_mut().take();
-
-        if let Some(mut cache) = cache {
-            // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
-            // None. There's no need to keep a cache that fails.
-            let root = cache.recalculate_validators_tree_hash_root(self.validators())?;
-            self.tree_hash_cache_mut().restore(cache);
-            Ok(root)
-        } else {
-            Err(Error::TreeHashCacheNotInitialized)
-        }
-    }
-
-    /// Completely drops the tree hash cache, replacing it with a new, empty cache.
-    pub fn drop_tree_hash_cache(&mut self) {
-        self.tree_hash_cache_mut().uninitialize();
-    }
-
-    /// Clone the state whilst preserving only the selected caches.
-    pub fn clone_with(&self, config: CloneConfig) -> Self {
-        let mut res = match self {
-            BeaconState::Base(inner) => BeaconState::Base(inner.clone()),
-            BeaconState::Altair(inner) => BeaconState::Altair(inner.clone()),
-            BeaconState::Merge(inner) => BeaconState::Merge(inner.clone()),
-            BeaconState::Capella(inner) => BeaconState::Capella(inner.clone()),
-            BeaconState::Deneb(inner) => BeaconState::Deneb(inner.clone()),
-            BeaconState::Electra(inner) => BeaconState::Electra(inner.clone()),
-        };
-        if config.committee_caches {
-            res.committee_caches_mut()
-                .clone_from(self.committee_caches());
-            *res.total_active_balance_mut() = *self.total_active_balance();
-        }
-        if config.pubkey_cache {
-            *res.pubkey_cache_mut() = self.pubkey_cache().clone();
-        }
-        if config.exit_cache {
-            *res.exit_cache_mut() = self.exit_cache().clone();
-        }
-        if config.slashings_cache {
-            *res.slashings_cache_mut() = self.slashings_cache().clone();
-        }
-        if config.tree_hash_cache {
-            *res.tree_hash_cache_mut() = self.tree_hash_cache().clone();
-        }
-        if config.progressive_balances_cache {
-            *res.progressive_balances_cache_mut() = self.progressive_balances_cache().clone();
-        }
-        res
-    }
-
-    pub fn clone_with_only_committee_caches(&self) -> Self {
-        self.clone_with(CloneConfig::committee_caches_only())
+        self.validators_mut().apply_updates()?;
+        Ok(self.validators().tree_hash_root())
     }
 
     /// Passing `previous_epoch` to this function rather than computing it internally provides
@@ -1979,10 +2031,177 @@ impl<E: EthSpec> BeaconState<E> {
         self.epoch_cache().get_base_reward(validator_index)
     }
 
-    pub fn compute_merkle_proof(
-        &mut self,
-        generalized_index: usize,
-    ) -> Result<Vec<Hash256>, Error> {
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn rebase_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
+        // Required for macros (which use type-hints internally).
+
+        match (&mut *self, base) {
+            (Self::Base(self_inner), Self::Base(base_inner)) => {
+                bimap_beacon_state_base_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Base(_), _) => (),
+            (Self::Altair(self_inner), Self::Altair(base_inner)) => {
+                bimap_beacon_state_altair_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Altair(_), _) => (),
+            (Self::Merge(self_inner), Self::Merge(base_inner)) => {
+                bimap_beacon_state_bellatrix_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Merge(_), _) => (),
+            (Self::Capella(self_inner), Self::Capella(base_inner)) => {
+                bimap_beacon_state_capella_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Capella(_), _) => (),
+            (Self::Deneb(self_inner), Self::Deneb(base_inner)) => {
+                bimap_beacon_state_deneb_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Deneb(_), _) => (),
+            (Self::Electra(self_inner), Self::Electra(base_inner)) => {
+                bimap_beacon_state_electra_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Electra(_), _) => (),
+        }
+
+        // Use sync committees from `base` if they are equal.
+        if let Ok(current_sync_committee) = self.current_sync_committee_mut() {
+            if let Ok(base_sync_committee) = base.current_sync_committee() {
+                if current_sync_committee == base_sync_committee {
+                    *current_sync_committee = base_sync_committee.clone();
+                }
+            }
+        }
+        if let Ok(next_sync_committee) = self.next_sync_committee_mut() {
+            if let Ok(base_sync_committee) = base.next_sync_committee() {
+                if next_sync_committee == base_sync_committee {
+                    *next_sync_committee = base_sync_committee.clone();
+                }
+            }
+        }
+
+        // Rebase caches like the committee caches and the pubkey cache, which are expensive to
+        // rebuild and likely to be re-usable from the base state.
+        self.rebase_caches_on(base, spec)?;
+
+        Ok(())
+    }
+
+    pub fn rebase_caches_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
+        // Use pubkey cache from `base` if it contains superior information (likely if our cache is
+        // uninitialized).
+        let num_validators = self.validators().len();
+        let pubkey_cache = self.pubkey_cache_mut();
+        let base_pubkey_cache = base.pubkey_cache();
+        if pubkey_cache.len() < base_pubkey_cache.len() && pubkey_cache.len() < num_validators {
+            *pubkey_cache = base_pubkey_cache.clone();
+        }
+
+        // Use committee caches from `base` if they are relevant.
+        let epochs = [
+            self.previous_epoch(),
+            self.current_epoch(),
+            self.next_epoch()?,
+        ];
+        for (index, epoch) in epochs.into_iter().enumerate() {
+            if let Ok(base_relative_epoch) = RelativeEpoch::from_epoch(base.current_epoch(), epoch)
+            {
+                *self.committee_cache_at_index_mut(index)? =
+                    base.committee_cache(base_relative_epoch)?.clone();
+
+                // Ensure total active balance cache remains built whenever current committee
+                // cache is built.
+                if epoch == self.current_epoch() {
+                    self.build_total_active_balance_cache(spec)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> BeaconState<E> {
+    /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
+    ///
+    /// This is relevant to tree-hashing of the `BeaconState`.
+    ///
+    /// We assume this value is stable across forks. This assumption is checked in the
+    /// `check_num_fields_pow2` test.
+    pub const NUM_FIELDS_POW2: usize = BeaconStateMerge::<E>::NUM_FIELDS.next_power_of_two();
+
+    /// Specialised deserialisation method that uses the `ChainSpec` as context.
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
+        let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
+        let slot_end = slot_start + <Slot as Decode>::ssz_fixed_len();
+
+        let slot_bytes = bytes
+            .get(slot_start..slot_end)
+            .ok_or(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_end,
+            })?;
+
+        let slot = Slot::from_ssz_bytes(slot_bytes)?;
+        let fork_at_slot = spec.fork_name_at_slot::<E>(slot);
+
+        Ok(map_fork_name!(
+            fork_at_slot,
+            Self,
+            <_>::from_ssz_bytes(bytes)?
+        ))
+    }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn apply_pending_mutations(&mut self) -> Result<(), Error> {
+        match self {
+            Self::Base(inner) => {
+                map_beacon_state_base_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Altair(inner) => {
+                map_beacon_state_altair_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Merge(inner) => {
+                map_beacon_state_bellatrix_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Capella(inner) => {
+                map_beacon_state_capella_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Deneb(inner) => {
+                map_beacon_state_deneb_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Electra(inner) => {
+                map_beacon_state_electra_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+        }
+        Ok(())
+    }
+
+    pub fn compute_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
         // 1. Convert generalized index to field index.
         let field_index = match generalized_index {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
@@ -1992,7 +2211,7 @@ impl<E: EthSpec> BeaconState<E> {
                 // in the `BeaconState`:
                 // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
                 generalized_index
-                    .checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
+                    .checked_sub(Self::NUM_FIELDS_POW2)
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
             light_client_update::FINALIZED_ROOT_INDEX => {
@@ -2002,20 +2221,47 @@ impl<E: EthSpec> BeaconState<E> {
                 // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 which matches
                 // position of `finalized_checkpoint` in `BeaconState`.
                 finalized_checkpoint_generalized_index
-                    .checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
+                    .checked_sub(Self::NUM_FIELDS_POW2)
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
             _ => return Err(Error::IndexNotSupported(generalized_index)),
         };
 
         // 2. Get all `BeaconState` leaves.
-        self.initialize_tree_hash_cache();
-        let mut cache = self
-            .tree_hash_cache_mut()
-            .take()
-            .ok_or(Error::TreeHashCacheNotInitialized)?;
-        let leaves = cache.recalculate_tree_hash_leaves(self)?;
-        self.tree_hash_cache_mut().restore(cache);
+        let mut leaves = vec![];
+        #[allow(clippy::arithmetic_side_effects)]
+        match self {
+            BeaconState::Base(state) => {
+                map_beacon_state_base_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Altair(state) => {
+                map_beacon_state_altair_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Merge(state) => {
+                map_beacon_state_bellatrix_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Capella(state) => {
+                map_beacon_state_capella_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Deneb(state) => {
+                map_beacon_state_deneb_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Electra(state) => {
+                map_beacon_state_electra_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+        };
 
         // 3. Make deposit tree.
         // Use the depth of the `BeaconState` fields (i.e. `log2(32) = 5`).
@@ -2074,9 +2320,10 @@ impl From<ArithError> for Error {
     }
 }
 
-/// Helper function for "cloning" a field by using its default value.
-fn clone_default<T: Default>(_value: &T) -> T {
-    T::default()
+impl From<milhouse::Error> for Error {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
+    }
 }
 
 impl<E: EthSpec> CompareFields for BeaconState<E> {
