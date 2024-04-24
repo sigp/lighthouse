@@ -1,4 +1,4 @@
-use account_utils::ZeroizeString;
+use account_utils::{strip_off_newlines, ZeroizeString};
 use eth2::lighthouse_vc::std_types::{InterchangeJsonStr, KeystoreJsonStr};
 use eth2::{
     lighthouse_vc::{
@@ -317,10 +317,16 @@ mod bytes_4_without_0x_prefix {
     }
 }
 
-pub async fn vc_http_client(
+pub async fn vc_http_client<P: AsRef<Path>>(
     url: SensitiveUrl,
+    token_path: P,
 ) -> Result<(ValidatorClientHttpClient, Vec<SingleKeystoreResponse>), String> {
-    let http_client = ValidatorClientHttpClient::new(url.clone()).map_err(|e| {
+    let token_path = token_path.as_ref();
+    let token_bytes =
+        fs::read(token_path).map_err(|e| format!("Failed to read {:?}: {:?}", token_path, e))?;
+    let token_string = String::from_utf8(strip_off_newlines(token_bytes))
+        .map_err(|e| format!("Failed to parse {:?} as utf8: {:?}", token_path, e))?;
+    let http_client = ValidatorClientHttpClient::new(url.clone(), token_string).map_err(|e| {
         format!(
             "Could not instantiate HTTP client from URL and secret: {:?}",
             e
