@@ -1,6 +1,6 @@
+use super::common::LookupType;
 use super::single_block_lookup::{LookupRequestError, SingleBlockLookup};
 use super::{DownloadedBlock, PeerId};
-use crate::sync::block_lookups::common::Parent;
 use crate::sync::{manager::SLOT_IMPORT_TOLERANCE, network_context::SyncNetworkContext};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -24,7 +24,7 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     /// The blocks that have currently been downloaded.
     downloaded_blocks: Vec<DownloadedBlock<T::EthSpec>>,
     /// Request of the last parent.
-    pub current_parent_request: SingleBlockLookup<Parent, T>,
+    pub current_parent_request: SingleBlockLookup<T>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -55,6 +55,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             &[peer_id],
             da_checker,
             cx.next_id(),
+            LookupType::Parent,
         );
 
         Self {
@@ -132,7 +133,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         Hash256,
         VecDeque<RpcBlock<T::EthSpec>>,
         Vec<Hash256>,
-        SingleBlockLookup<Parent, T>,
+        SingleBlockLookup<T>,
     ) {
         let ParentLookup {
             chain_hash,
