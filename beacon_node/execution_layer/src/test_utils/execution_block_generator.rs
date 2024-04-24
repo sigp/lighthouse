@@ -91,7 +91,14 @@ impl<E: EthSpec> Block<E> {
     pub fn as_execution_block_with_tx(&self) -> Option<ExecutionBlockWithTransactions<E>> {
         match self {
             Block::PoS(payload) => Some(payload.clone().try_into().unwrap()),
-            Block::PoW(_) => None,
+            Block::PoW(block) => Some(
+                ExecutionPayload::Merge(ExecutionPayloadMerge {
+                    block_hash: block.block_hash,
+                    ..Default::default()
+                })
+                .try_into()
+                .unwrap(),
+            ),
         }
     }
 }
@@ -155,7 +162,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
-        kzg: Option<Kzg>,
+        kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -172,7 +179,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             cancun_time,
             prague_time,
             blobs_bundles: <_>::default(),
-            kzg: kzg.map(Arc::new),
+            kzg,
             rng: make_rng(),
         };
 
@@ -187,6 +194,19 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
     pub fn latest_execution_block(&self) -> Option<ExecutionBlock> {
         self.latest_block()
+            .map(|block| block.as_execution_block(self.terminal_total_difficulty))
+    }
+
+    pub fn genesis_block(&self) -> Option<Block<E>> {
+        if let Some(genesis_block_hash) = self.block_hashes.get(&0) {
+            self.blocks.get(genesis_block_hash.first()?).cloned()
+        } else {
+            None
+        }
+    }
+
+    pub fn genesis_execution_block(&self) -> Option<ExecutionBlock> {
+        self.genesis_block()
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
@@ -502,13 +522,6 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         let id = match payload_attributes {
             None => None,
             Some(attributes) => {
-                if !self.blocks.iter().any(|(_, block)| {
-                    block.block_hash() == self.terminal_block_hash
-                        || block.block_number() == self.terminal_block_number
-                }) {
-                    return Err("refusing to create payload id before terminal block".to_string());
-                }
-
                 let parent = self
                     .blocks
                     .get(&head_block_hash)
@@ -766,12 +779,14 @@ pub fn generate_genesis_header<E: EthSpec>(
         generate_genesis_block(spec.terminal_total_difficulty, DEFAULT_TERMINAL_BLOCK)
             .ok()
             .map(|block| block.block_hash);
+    let empty_transactions_root = Transactions::<E>::empty().tree_hash_root();
     match genesis_fork {
         ForkName::Base | ForkName::Altair => None,
         ForkName::Merge => {
             if post_transition_merge {
                 let mut header = ExecutionPayloadHeader::Merge(<_>::default());
                 *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+                *header.transactions_root_mut() = empty_transactions_root;
                 Some(header)
             } else {
                 Some(ExecutionPayloadHeader::<E>::Merge(<_>::default()))
@@ -780,16 +795,19 @@ pub fn generate_genesis_header<E: EthSpec>(
         ForkName::Capella => {
             let mut header = ExecutionPayloadHeader::Capella(<_>::default());
             *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
         ForkName::Deneb => {
             let mut header = ExecutionPayloadHeader::Deneb(<_>::default());
             *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
         ForkName::Electra => {
             let mut header = ExecutionPayloadHeader::Electra(<_>::default());
             *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
     }

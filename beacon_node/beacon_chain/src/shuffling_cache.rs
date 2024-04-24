@@ -339,7 +339,7 @@ mod test {
             .clone();
         let committee_b = state.committee_cache(RelativeEpoch::Next).unwrap().clone();
         assert!(committee_a != committee_b);
-        (Arc::new(committee_a), Arc::new(committee_b))
+        (committee_a, committee_b)
     }
 
     /// Builds a deterministic but incoherent shuffling ID from a `u64`.

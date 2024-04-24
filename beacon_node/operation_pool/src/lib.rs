@@ -721,7 +721,7 @@ impl<E: EthSpec> OperationPool<E> {
 }
 
 /// Filter up to a maximum number of operations out of an iterator.
-fn filter_limit_operations<'a, T: 'a, V: 'a, I, F, G>(
+fn filter_limit_operations<'a, T, V: 'a, I, F, G>(
     operations: I,
     filter: F,
     mapping: G,
@@ -731,7 +731,7 @@ where
     I: IntoIterator<Item = &'a T>,
     F: Fn(&T) -> bool,
     G: Fn(&T) -> V,
-    T: Clone,
+    T: Clone + 'a,
 {
     operations
         .into_iter()
@@ -1272,7 +1272,7 @@ mod release_tests {
         // Each validator will have a multiple of 1_000_000_000 wei.
         // Safe from overflow unless there are about 18B validators (2^64 / 1_000_000_000).
         for i in 0..state.validators().len() {
-            state.validators_mut()[i].effective_balance = 1_000_000_000 * i as u64;
+            state.validators_mut().get_mut(i).unwrap().effective_balance = 1_000_000_000 * i as u64;
         }
 
         let num_validators = num_committees
@@ -1530,9 +1530,9 @@ mod release_tests {
         let spec = &harness.spec;
         let mut state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        state.validators_mut()[1].effective_balance = 17_000_000_000;
-        state.validators_mut()[2].effective_balance = 17_000_000_000;
-        state.validators_mut()[3].effective_balance = 17_000_000_000;
+        state.validators_mut().get_mut(1).unwrap().effective_balance = 17_000_000_000;
+        state.validators_mut().get_mut(2).unwrap().effective_balance = 17_000_000_000;
+        state.validators_mut().get_mut(3).unwrap().effective_balance = 17_000_000_000;
 
         let slashing_1 = harness.make_attester_slashing(vec![1, 2, 3]);
         let slashing_2 = harness.make_attester_slashing(vec![4, 5, 6]);
