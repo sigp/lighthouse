@@ -100,6 +100,9 @@ pub struct Config {
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
 
+    /// Subscribe to all data column subnets for the duration of the runtime.
+    pub subscribe_all_data_column_subnets: bool,
+
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
 
@@ -338,6 +341,7 @@ impl Default for Config {
             upnp_enabled: true,
             network_load: 4,
             private: false,
+            subscribe_all_data_column_subnets: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
             shutdown_after_sync: false,

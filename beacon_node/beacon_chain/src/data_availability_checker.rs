@@ -7,7 +7,7 @@ use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
 use slasher::test_utils::E;
-use slog::{debug, error, Logger};
+use slog::{debug, error, o, Logger};
 use slot_clock::SlotClock;
 use ssz_types::FixedVector;
 use std::fmt;
@@ -79,10 +79,26 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot_clock: T::SlotClock,
         kzg: Option<Arc<Kzg>>,
         store: BeaconStore<T>,
+        import_all_data_columns: bool,
         log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
-        let overflow_cache = OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
+        let custody_subnet_count = if import_all_data_columns {
+            E::data_column_subnet_count()
+        } else {
+            E::min_custody_requirement()
+        };
+
+        let custody_column_count =
+            custody_subnet_count.saturating_mul(E::data_columns_per_subnet());
+        let overflow_cache = OverflowLRUCache::new(
+            OVERFLOW_LRU_CAPACITY,
+            store,
+            custody_column_count,
+            log.new(o!("service" => "availability_cache")),
+            spec.clone(),
+        )?;
+
         Ok(Self {
             availability_cache: Arc::new(overflow_cache),
             slot_clock,
@@ -250,49 +266,52 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
-        match (blobs, data_columns) {
-            (None, None) => {
-                if self.blobs_required_for_block(&block) {
-                    Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-                } else {
-                    Ok(MaybeAvailableBlock::Available(AvailableBlock {
-                        block_root,
-                        block,
-                        blobs: None,
-                        blobs_available_timestamp: None,
-                        data_columns: None,
-                    }))
-                }
-            }
-            (maybe_blob_list, maybe_data_column_list) => {
-                let (verified_blobs, verified_data_column) =
-                    if self.blobs_required_for_block(&block) {
-                        let kzg = self
-                            .kzg
-                            .as_ref()
-                            .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-
-                        if let Some(blob_list) = maybe_blob_list.as_ref() {
-                            verify_kzg_for_blob_list(blob_list.iter(), kzg)
-                                .map_err(AvailabilityCheckError::Kzg)?;
-                        }
-                        if let Some(data_column_list) = maybe_data_column_list.as_ref() {
-                            verify_kzg_for_data_column_list(data_column_list.iter(), kzg)
-                                .map_err(AvailabilityCheckError::Kzg)?;
-                        }
-                        (maybe_blob_list, maybe_data_column_list)
-                    } else {
-                        (None, None)
-                    };
+        if self.blobs_required_for_block(&block) {
+            return if let Some(blob_list) = blobs.as_ref() {
+                let kzg = self
+                    .kzg
+                    .as_ref()
+                    .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
+                verify_kzg_for_blob_list(blob_list.iter(), kzg)
+                    .map_err(AvailabilityCheckError::Kzg)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
-                    blobs: verified_blobs,
+                    blobs,
                     blobs_available_timestamp: None,
-                    data_columns: verified_data_column,
+                    data_columns: None,
                 }))
-            }
+            } else {
+                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+            };
         }
+        if self.data_columns_required_for_block(&block) {
+            return if let Some(data_column_list) = data_columns.as_ref() {
+                let kzg = self
+                    .kzg
+                    .as_ref()
+                    .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
+                verify_kzg_for_data_column_list(data_column_list.iter(), kzg)
+                    .map_err(AvailabilityCheckError::Kzg)?;
+                Ok(MaybeAvailableBlock::Available(AvailableBlock {
+                    block_root,
+                    block,
+                    blobs: None,
+                    blobs_available_timestamp: None,
+                    data_columns,
+                }))
+            } else {
+                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+            };
+        }
+
+        Ok(MaybeAvailableBlock::Available(AvailableBlock {
+            block_root,
+            block,
+            blobs: None,
+            blobs_available_timestamp: None,
+            data_columns: None,
+        }))
     }
 
     /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
@@ -324,39 +343,46 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             verify_kzg_for_blob_list(all_blobs.iter(), kzg)?;
         }
 
+        // TODO(das) verify kzg for all data columns
+
         for block in blocks {
             let (block_root, block, blobs, data_columns) = block.deconstruct();
-            match (blobs, data_columns) {
-                (None, None) => {
-                    if self.blobs_required_for_block(&block) {
-                        results.push(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-                    } else {
-                        results.push(MaybeAvailableBlock::Available(AvailableBlock {
-                            block_root,
-                            block,
-                            blobs: None,
-                            blobs_available_timestamp: None,
-                            data_columns: None,
-                        }))
-                    }
-                }
-                (maybe_blob_list, maybe_data_column_list) => {
-                    let (verified_blobs, verified_data_columns) =
-                        if self.blobs_required_for_block(&block) {
-                            (maybe_blob_list, maybe_data_column_list)
-                        } else {
-                            (None, None)
-                        };
-                    // already verified kzg for all blobs
-                    results.push(MaybeAvailableBlock::Available(AvailableBlock {
+
+            let maybe_available_block = if self.blobs_required_for_block(&block) {
+                if blobs.is_some() {
+                    MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
-                        blobs: verified_blobs,
+                        blobs,
                         blobs_available_timestamp: None,
-                        data_columns: verified_data_columns,
-                    }))
+                        data_columns: None,
+                    })
+                } else {
+                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
                 }
-            }
+            } else if self.data_columns_required_for_block(&block) {
+                if data_columns.is_some() {
+                    MaybeAvailableBlock::Available(AvailableBlock {
+                        block_root,
+                        block,
+                        blobs: None,
+                        blobs_available_timestamp: None,
+                        data_columns,
+                    })
+                } else {
+                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
+                }
+            } else {
+                MaybeAvailableBlock::Available(AvailableBlock {
+                    block_root,
+                    block,
+                    blobs: None,
+                    blobs_available_timestamp: None,
+                    data_columns: None,
+                })
+            };
+
+            results.push(maybe_available_block);
         }
 
         Ok(results)
@@ -365,7 +391,25 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Determines the blob requirements for a block. If the block is pre-deneb, no blobs are required.
     /// If the block's epoch is from prior to the data availability boundary, no blobs are required.
     fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        block.num_expected_blobs() > 0 && self.da_check_required_for_epoch(block.epoch())
+        block.num_expected_blobs() > 0
+            && self.da_check_required_for_epoch(block.epoch())
+            && !self.is_peer_das_enabled_for_epoch(block.epoch())
+    }
+
+    /// Determines the data column requirements for a block.
+    /// - If the block is pre-peerdas, no data columns are required.
+    /// - If the block's epoch is from prior to the data availability boundary, no data columns are required.
+    fn data_columns_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
+        block.num_expected_blobs() > 0
+            && self.da_check_required_for_epoch(block.epoch())
+            && self.is_peer_das_enabled_for_epoch(block.epoch())
+    }
+
+    /// Returns true if the given epoch is greater than or equal to the `PEER_DAS_EPOCH`.
+    fn is_peer_das_enabled_for_epoch(&self, block_epoch: Epoch) -> bool {
+        self.spec
+            .peer_das_epoch
+            .map_or(false, |peer_das_epoch| block_epoch >= peer_das_epoch)
     }
 
     /// The epoch at which we require a data availability check in block processing.

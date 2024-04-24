@@ -370,6 +370,7 @@ pub async fn consensus_partial_pass_only_consensus() {
 
     /* submit `block_b` which should induce equivocation */
     let channel = tokio::sync::mpsc::unbounded_channel();
+    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_block(
         None,
@@ -379,6 +380,7 @@ pub async fn consensus_partial_pass_only_consensus() {
         test_logger,
         validation_level.unwrap(),
         StatusCode::ACCEPTED,
+        network_globals,
     )
     .await;
 
@@ -659,6 +661,7 @@ pub async fn equivocation_consensus_late_equivocation() {
     assert!(gossip_block_contents_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
+    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_block(
         None,
@@ -668,6 +671,7 @@ pub async fn equivocation_consensus_late_equivocation() {
         test_logger,
         validation_level.unwrap(),
         StatusCode::ACCEPTED,
+        network_globals,
     )
     .await;
 
@@ -1305,6 +1309,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
+    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_blinded_block(
         block_b,
@@ -1313,6 +1318,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         test_logger,
         validation_level.unwrap(),
         StatusCode::ACCEPTED,
+        network_globals,
     )
     .await;
 

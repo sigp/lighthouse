@@ -9,7 +9,7 @@ use beacon_chain::{
 use eth2::types::{into_full_block_and_blobs, BroadcastValidation, ErrorMessage};
 use eth2::types::{FullPayloadContents, PublishBlockRequest};
 use execution_layer::ProvenancedPayload;
-use lighthouse_network::PubsubMessage;
+use lighthouse_network::{NetworkGlobals, PubsubMessage};
 use network::NetworkMessage;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -46,6 +46,7 @@ impl<T: BeaconChainTypes, B: IntoGossipVerifiedBlockContents<T>> ProvenancedBloc
 }
 
 /// Handles a request from the HTTP API for full blocks.
+#[allow(clippy::too_many_arguments)]
 pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockContents<T>>(
     block_root: Option<Hash256>,
     provenanced_block: ProvenancedBlock<T, B>,
@@ -54,6 +55,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     log: Logger,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
+    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
     let seen_timestamp = timestamp_now();
 
@@ -238,6 +240,35 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         }
     }
 
+    if let Some(gossip_verified_data_columns) = gossip_verified_data_columns {
+        let custody_columns = network_globals
+            .custody_columns(block.epoch())
+            .map_err(|e| {
+                warp_utils::reject::broadcast_without_import(format!(
+                    "Failed to compute custody column indices: {:?}",
+                    e
+                ))
+            })?;
+
+        for data_column in gossip_verified_data_columns {
+            if custody_columns.contains(&data_column.index()) {
+                if let Err(e) = Box::pin(chain.process_gossip_data_column(data_column)).await {
+                    let msg = format!("Invalid data column: {e}");
+                    return if let BroadcastValidation::Gossip = validation_level {
+                        Err(warp_utils::reject::broadcast_without_import(msg))
+                    } else {
+                        error!(
+                            log,
+                            "Invalid blob provided to HTTP API";
+                            "reason" => &msg
+                        );
+                        Err(warp_utils::reject::custom_bad_request(msg))
+                    };
+                }
+            }
+        }
+    }
+
     match Box::pin(chain.process_block(
         block_root,
         gossip_verified_block,
@@ -324,6 +355,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     log: Logger,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
+    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
     let block_root = blinded_block.canonical_root();
     let full_block: ProvenancedBlock<T, PublishBlockRequest<T::EthSpec>> =
@@ -336,6 +368,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         log,
         validation_level,
         duplicate_status_code,
+        network_globals,
     )
     .await
 }
