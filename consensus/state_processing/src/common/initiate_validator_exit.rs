@@ -26,17 +26,18 @@ pub fn initiate_validator_exit<E: EthSpec>(
         .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
     let exit_queue_churn = state.exit_cache().get_churn_at(exit_queue_epoch)?;
 
-    if exit_queue_churn >= state.get_churn_limit(spec)? {
+    if exit_queue_churn >= state.get_validator_churn_limit(spec)? {
         exit_queue_epoch.safe_add_assign(1)?;
     }
 
-    let validator = state.get_validator_mut(index)?;
+    let validator = state.get_validator_cow(index)?;
 
     // Return if the validator already initiated exit
     if validator.exit_epoch != spec.far_future_epoch {
         return Ok(());
     }
 
+    let validator = validator.into_mut()?;
     validator.exit_epoch = exit_queue_epoch;
     validator.withdrawable_epoch =
         exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;

@@ -24,7 +24,7 @@ use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fmt;
@@ -366,14 +366,14 @@ struct Inner<E: EthSpec> {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Endpoint urls for EL nodes that are running the engine api.
-    pub execution_endpoints: Vec<SensitiveUrl>,
+    /// Endpoint url for EL nodes that are running the engine api.
+    pub execution_endpoint: Option<SensitiveUrl>,
     /// Endpoint urls for services providing the builder api.
     pub builder_url: Option<SensitiveUrl>,
     /// User agent to send with requests to the builder API.
     pub builder_user_agent: Option<String>,
-    /// JWT secrets for the above endpoints running the engine api.
-    pub secret_files: Vec<PathBuf>,
+    /// JWT secret for the above endpoint running the engine api.
+    pub secret_file: Option<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
     /// the validator client during block preparation.
     pub suggested_fee_recipient: Option<Address>,
@@ -397,10 +397,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
     /// Instantiate `Self` with an Execution engine specified in `Config`, using JSON-RPC via HTTP.
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
-            execution_endpoints: urls,
+            execution_endpoint: url,
             builder_url,
             builder_user_agent,
-            secret_files,
+            secret_file,
             suggested_fee_recipient,
             jwt_id,
             jwt_version,
@@ -408,16 +408,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
             execution_timeout_multiplier,
         } = config;
 
-        if urls.len() > 1 {
-            warn!(log, "Only the first execution engine url will be used");
-        }
-        let execution_url = urls.into_iter().next().ok_or(Error::NoEngine)?;
+        let execution_url = url.ok_or(Error::NoEngine)?;
 
         // Use the default jwt secret path if not provided via cli.
-        let secret_file = secret_files
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| default_datadir.join(DEFAULT_JWT_FILE));
+        let secret_file = secret_file.unwrap_or_else(|| default_datadir.join(DEFAULT_JWT_FILE));
 
         let jwt_key = if secret_file.exists() {
             // Read secret from file if it already exists
@@ -1348,15 +1342,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
             &[metrics::NEW_PAYLOAD],
         );
+        let timer = std::time::Instant::now();
 
+        let block_number = new_payload_request.block_number();
         let block_hash = new_payload_request.block_hash();
-        trace!(
-            self.log(),
-            "Issuing engine_newPayload";
-            "parent_hash" => ?new_payload_request.parent_hash(),
-            "block_hash" => ?block_hash,
-            "block_number" => ?new_payload_request.block_number(),
-        );
+        let parent_hash = new_payload_request.parent_hash();
 
         let result = self
             .engine()
@@ -1364,9 +1354,19 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .await;
 
         if let Ok(status) = &result {
+            let status_str = <&'static str>::from(status.status);
             metrics::inc_counter_vec(
                 &metrics::EXECUTION_LAYER_PAYLOAD_STATUS,
-                &["new_payload", status.status.into()],
+                &["new_payload", status_str],
+            );
+            debug!(
+                self.log(),
+                "Processed engine_newPayload";
+                "status" => status_str,
+                "parent_hash" => ?parent_hash,
+                "block_hash" => ?block_hash,
+                "block_number" => block_number,
+                "response_time_ms" => timer.elapsed().as_millis()
             );
         }
         *self.inner.last_new_payload_errored.write().await = result.is_err();

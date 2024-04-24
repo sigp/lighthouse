@@ -27,6 +27,7 @@ use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
+use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::ExecutionLayer;
 use futures::channel::mpsc::Receiver;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
@@ -264,6 +265,21 @@ where
                     genesis_time,
                     Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
                     None,
+                    &spec,
+                )?;
+                builder.genesis_state(genesis_state).map(|v| (v, None))?
+            }
+            ClientGenesis::InteropMerge {
+                validator_count,
+                genesis_time,
+            } => {
+                let execution_payload_header = generate_genesis_header(&spec, true);
+                let keypairs = generate_deterministic_keypairs(validator_count);
+                let genesis_state = interop_genesis_state(
+                    &keypairs,
+                    genesis_time,
+                    Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                    execution_payload_header,
                     &spec,
                 )?;
                 builder.genesis_state(genesis_state).map(|v| (v, None))?

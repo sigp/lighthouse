@@ -40,7 +40,6 @@ mod verify_exit;
 mod verify_proposer_slashing;
 
 use crate::common::decrease_balance;
-use crate::StateProcessingStrategy;
 
 use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_metrics,
@@ -102,7 +101,6 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     signed_block: &SignedBeaconBlock<E, Payload>,
     block_signature_strategy: BlockSignatureStrategy,
-    state_processing_strategy: StateProcessingStrategy,
     verify_block_root: VerifyBlockRoot,
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
@@ -172,9 +170,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     // previous block.
     if is_execution_enabled(state, block.body()) {
         let body = block.body();
-        if state_processing_strategy == StateProcessingStrategy::Accurate {
-            process_withdrawals::<E, Payload>(state, body.execution_payload()?, spec)?;
-        }
+        process_withdrawals::<E, Payload>(state, body.execution_payload()?, spec)?;
         process_execution_payload::<E, Payload>(state, body, spec)?;
     }
 
