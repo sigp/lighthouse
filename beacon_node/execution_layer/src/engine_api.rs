@@ -627,6 +627,9 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         withdrawals,
                         blob_gas_used: header.blob_gas_used,
                         excess_blob_gas: header.excess_blob_gas,
+                        // TODO(electra)
+                        deposit_receipts: <_>::default(),
+                        withdrawal_requests: <_>::default(),
                     }))
                 } else {
                     Err(format!(
