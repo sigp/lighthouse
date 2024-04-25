@@ -132,9 +132,14 @@ done
 sleeping 20
 
 # Reset the `genesis.json` config file fork times.
-sed -i '' 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' $genesis_file
-sed -i '' 's/"cancunTime".*$/"cancunTime": 0,/g' $genesis_file
-sed -i '' 's/"pragueTime".*$/"pragueTime": 0,/g' $genesis_file
+sed 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' $genesis_file > "/tmp/genesis.json"
+mv "/tmp/genesis.json" $genesis_file
+
+sed 's/"cancunTime".*$/"cancunTime": 0,/g' $genesis_file > "/tmp/genesis.json"
+mv "/tmp/genesis.json" $genesis_file
+
+sed 's/"pragueTime".*$/"pragueTime": 0,/g' $genesis_file > "/tmp/genesis.json"
+mv "/tmp/genesis.json" $genesis_file
 
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     secret=$DATADIR/geth_datadir$bn/geth/jwtsecret
