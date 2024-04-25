@@ -1,3 +1,4 @@
+use safe_arith::SafeArith;
 use std::mem;
 use types::{
     BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
@@ -19,7 +20,7 @@ pub fn upgrade_to_electra<E: EthSpec>(
         .map(|v| v.exit_epoch)
         .max()
         .unwrap_or(epoch)
-        + 1;
+        .safe_add(1)?;
 
     let consolidation_balance_to_consume = pre_state.get_consolidation_churn_limit(spec)?;
     let earliest_consolidation_epoch = spec.compute_activation_exit_epoch(epoch)?;
