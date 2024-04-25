@@ -121,7 +121,7 @@ impl<E: EthSpec> RpcBlock<E> {
                 }
             }
         }
-        
+
         Ok(Self {
             block_root,
             block,
@@ -525,7 +525,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
             block_root,
             block,
             blobs: blobs_opt,
-            data_columns: data_columns_opt
+            data_columns: data_columns_opt,
         }
     }
 }
@@ -553,7 +553,7 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
         &self.block
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-       self.block.clone()
+        self.block.clone()
     }
     fn canonical_root(&self) -> Hash256 {
         self.as_block().canonical_root()

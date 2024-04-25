@@ -460,7 +460,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         };
 
-        let peer = batch.current_peer().cloned().ok_or_else(|| {
+        let peer = batch.current_block_peer().cloned().ok_or_else(|| {
             RemoveChain::WrongBatchState(format!(
                 "Processing target is in wrong state: {:?}",
                 batch.state(),
@@ -653,9 +653,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         }
                     }
                 }
-                BatchState::Downloading(peer, ..) => {
+                BatchState::Downloading(downloading_state) => {
                     // remove this batch from the peer's active requests
-                    if let Some(active_batches) = self.peers.get_mut(peer) {
+                    if let Some(active_batches) = self.peers.get_mut(&downloading_state.block_peer()) {
                         active_batches.remove(&id);
                     }
                 }
