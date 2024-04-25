@@ -63,7 +63,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         .bellatrix_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
     {
-        // this will set state.latest_execution_payload_header = ExecutionPayloadHeaderMerge::default()
+        // this will set state.latest_execution_payload_header = ExecutionPayloadHeaderBellatrix::default()
         upgrade_to_bellatrix(&mut state, spec)?;
 
         // Remove intermediate Altair fork from `state.fork`.
@@ -71,8 +71,8 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/bellatrix/beacon-chain.md#testing
-        if let Some(ExecutionPayloadHeader::Merge(ref header)) = execution_payload_header {
-            *state.latest_execution_payload_header_merge_mut()? = header.clone();
+        if let Some(ExecutionPayloadHeader::Bellatrix(ref header)) = execution_payload_header {
+            *state.latest_execution_payload_header_bellatrix_mut()? = header.clone();
         }
     }
 

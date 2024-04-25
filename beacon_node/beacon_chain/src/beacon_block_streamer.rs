@@ -14,8 +14,8 @@ use types::{
     SignedBlindedBeaconBlock, Slot,
 };
 use types::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadHeader,
-    ExecutionPayloadMerge,
+    ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
+    ExecutionPayloadHeader,
 };
 
 #[derive(PartialEq)]
@@ -95,7 +95,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
         .map_err(BeaconChainError::InconsistentFork)?;
 
     let payload: ExecutionPayload<E> = match fork {
-        ForkName::Merge => ExecutionPayloadMerge::default().into(),
+        ForkName::Bellatrix => ExecutionPayloadBellatrix::default().into(),
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
