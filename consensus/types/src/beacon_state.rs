@@ -467,6 +467,40 @@ where
     #[test_random(default)]
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
+    // Electra
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub deposit_receipts_start_index: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub deposit_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub exit_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    pub earliest_exit_epoch: Epoch,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub consolidation_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    pub earliest_consolidation_epoch: Epoch,
+    #[test_random(default)]
+    #[superstruct(only(Electra))]
+    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    #[test_random(default)]
+    #[superstruct(only(Electra))]
+    pub pending_partial_withdrawals:
+        List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
+    #[test_random(default)]
+    #[superstruct(only(Electra))]
+    pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
+
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -2029,6 +2063,83 @@ impl<E: EthSpec> BeaconState<E> {
     /// This function will error if the epoch cache is not initialized.
     pub fn get_base_reward(&self, validator_index: usize) -> Result<u64, EpochCacheError> {
         self.epoch_cache().get_base_reward(validator_index)
+    }
+
+    // ******* Electra accessors *******
+
+    /// Return the churn limit for the current epoch.
+    pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        let total_active_balance = self.get_total_active_balance()?;
+        let churn = std::cmp::max(
+            spec.min_per_epoch_churn_limit_electra,
+            total_active_balance.safe_div(spec.churn_limit_quotient)?,
+        );
+
+        Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
+    }
+
+    /// Return the churn limit for the current epoch dedicated to activations and exits.
+    pub fn get_activation_exit_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        Ok(std::cmp::min(
+            spec.max_per_epoch_activation_exit_churn_limit,
+            self.get_balance_churn_limit(spec)?,
+        ))
+    }
+
+    pub fn get_consolidation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        self.get_balance_churn_limit(spec)?
+            .safe_sub(self.get_activation_exit_churn_limit(spec)?)
+            .map_err(Into::into)
+    }
+
+    // ******* Electra mutators *******
+
+    pub fn queue_excess_active_balance(
+        &mut self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let balance = self
+            .balances_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        if *balance > spec.min_activation_balance {
+            let excess_balance = balance.safe_sub(spec.min_activation_balance)?;
+            *balance = spec.min_activation_balance;
+            self.pending_balance_deposits_mut()?
+                .push(PendingBalanceDeposit {
+                    index: validator_index as u64,
+                    amount: excess_balance,
+                })?;
+        }
+        Ok(())
+    }
+
+    pub fn queue_entire_balance_and_reset_validator(
+        &mut self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let balance = self
+            .balances_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        let balance_copy = *balance;
+        *balance = 0_u64;
+
+        let validator = self
+            .validators_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        validator.effective_balance = 0;
+        validator.activation_eligibility_epoch = spec.far_future_epoch;
+
+        self.pending_balance_deposits_mut()?
+            .push(PendingBalanceDeposit {
+                index: validator_index as u64,
+                amount: balance_copy,
+            })
+            .map_err(Into::into)
     }
 
     #[allow(clippy::arithmetic_side_effects)]

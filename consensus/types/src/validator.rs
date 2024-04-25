@@ -102,6 +102,11 @@ impl Validator {
             .unwrap_or(false)
     }
 
+    /// Check if ``validator`` has an 0x02 prefixed "compounding" withdrawal credential.
+    pub fn has_compounding_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
+        is_compounding_withdrawal_credential(self.withdrawal_credentials, spec)
+    }
+
     /// Get the eth1 withdrawal address if this validator has one initialized.
     pub fn get_eth1_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
         self.has_eth1_withdrawal_credential(spec)
@@ -151,6 +156,17 @@ impl Default for Validator {
             effective_balance: std::u64::MAX,
         }
     }
+}
+
+pub fn is_compounding_withdrawal_credential(
+    withdrawal_credentials: Hash256,
+    spec: &ChainSpec,
+) -> bool {
+    withdrawal_credentials
+        .as_bytes()
+        .first()
+        .map(|prefix_byte| *prefix_byte == spec.compounding_withdrawal_prefix_byte)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
