@@ -12,6 +12,9 @@ pub fn upgrade_to_electra<E: EthSpec>(
 ) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
 
+    // The total active balance cache must be built before the consolidation churn limit
+    // is calculated.
+    pre_state.build_total_active_balance_cache(spec)?;
     let exit_balance_to_consume = pre_state.get_activation_exit_churn_limit(spec)?;
     let earliest_exit_epoch = pre_state
         .validators()
@@ -22,9 +25,6 @@ pub fn upgrade_to_electra<E: EthSpec>(
         .unwrap_or(epoch)
         .safe_add(1)?;
 
-    // The total active balance cache must be built before the consolidation churn limit
-    // is calculated.
-    pre_state.build_total_active_balance_cache(spec)?;
     let consolidation_balance_to_consume = pre_state.get_consolidation_churn_limit(spec)?;
     let earliest_consolidation_epoch = spec.compute_activation_exit_epoch(epoch)?;
 
