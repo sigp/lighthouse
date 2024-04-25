@@ -1,4 +1,5 @@
 //! A collection of variables that are accessible outside of the network thread itself.
+use crate::discovery::peer_id_to_node_id;
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV2};
 use crate::types::{BackFillState, SyncState};
@@ -120,6 +121,33 @@ impl<E: EthSpec> NetworkGlobals<E> {
             DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count)
                 .collect(),
         )
+    }
+
+    pub fn peers_across_all_column_subnets(
+        &self,
+        peers: Vec<&PeerId>,
+        _epoch: Epoch,
+    ) -> Result<bool, String> {
+        let mut column_index_set = HashSet::new();
+        for peer in peers {
+            let node_id = peer_id_to_node_id(peer)?;
+
+            let columns: Vec<ColumnIndex> = DataColumnSubnetId::compute_custody_columns::<E>(
+                node_id.raw().into(),
+                E::min_custody_requirement() as u64,
+            )
+            .collect();
+
+            column_index_set.extend(columns);
+        }
+
+        for data_column_index in 1..E::data_column_subnet_count() {
+            if column_index_set.get(&(data_column_index as u64)).is_none() {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.

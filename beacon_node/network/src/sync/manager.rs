@@ -52,6 +52,7 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
 use futures::StreamExt;
+use itertools::Itertools;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
@@ -63,7 +64,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -440,13 +441,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     let mut sync_state = {
                         let head = self.chain.best_slot();
                         let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
+                        let current_epoch = self.chain.epoch().unwrap_or_else(|_| Epoch::new(0));
 
                         let peers = self.network_globals().peers.read();
+                        let peers_across_all_columns = self
+                            .network_globals()
+                            .peers_across_all_column_subnets(
+                                peers.synced_peers().collect_vec(),
+                                current_epoch,
+                            )
+                            .unwrap_or(false);
+
                         if current_slot >= head
                             && current_slot.sub(head) <= (SLOT_IMPORT_TOLERANCE as u64)
                             && head > 0
                         {
                             SyncState::Synced
+                        } else if !peers_across_all_columns {
+                            SyncState::Stalled
                         } else if peers.advanced_peers().next().is_some() {
                             SyncState::SyncTransition
                         } else if peers.synced_peers().next().is_none() {
