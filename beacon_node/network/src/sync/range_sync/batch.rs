@@ -2,6 +2,7 @@ use crate::sync::manager::Id;
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::PeerId;
+use types::data_column_sidecar::ColumnIndex;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
@@ -111,14 +112,34 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     marker: std::marker::PhantomData<B>,
 }
 
+pub struct Downloading<E: EthSpec> {
+    block_peer: PeerId,
+    blob_peer: PeerId,
+    data_column_peers: Vec<DataColumnPeer>,
+    data: Vec<RpcBlock<E>>,
+    id: Id,
+}
+
+pub struct AwaitingProcessing<E: EthSpec> {
+    block_peer: PeerId,
+    blob_peer: PeerId,
+    data_column_peers: Vec<DataColumnPeer>,
+    data: Vec<RpcBlock<E>>,
+}
+
+pub struct DataColumnPeer {
+    peer_id: PeerId,
+    data_column_index: ColumnIndex,
+}
+
 /// Current state of a batch
 pub enum BatchState<E: EthSpec> {
     /// The batch has failed either downloading or processing, but can be requested again.
     AwaitingDownload,
     /// The batch is being downloaded.
-    Downloading(PeerId, Vec<RpcBlock<E>>, Id),
+    Downloading(Downloading<E>),
     /// The batch has been completely downloaded and is ready for processing.
-    AwaitingProcessing(PeerId, Vec<RpcBlock<E>>),
+    AwaitingProcessing(AwaitingProcessing<E>),
     /// The batch is being processed.
     Processing(Attempt),
     /// The batch was successfully processed and is waiting to be validated.
