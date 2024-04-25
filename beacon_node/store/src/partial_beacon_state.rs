@@ -14,7 +14,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -66,9 +66,9 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
@@ -78,21 +78,21 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
     #[superstruct(
-        only(Merge),
-        partial_getter(rename = "latest_execution_payload_header_merge")
+        only(Bellatrix),
+        partial_getter(rename = "latest_execution_payload_header_bellatrix")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderMerge<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderBellatrix<E>,
     #[superstruct(
         only(Capella),
         partial_getter(rename = "latest_execution_payload_header_capella")
@@ -199,11 +199,11 @@ impl<E: EthSpec> PartialBeaconState<E> {
                 ],
                 []
             ),
-            BeaconState::Merge(s) => impl_from_state_forgetful!(
+            BeaconState::Bellatrix(s) => impl_from_state_forgetful!(
                 s,
                 outer,
-                Merge,
-                PartialBeaconStateMerge,
+                Bellatrix,
+                PartialBeaconStateBellatrix,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -467,10 +467,10 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 ],
                 []
             ),
-            PartialBeaconState::Merge(inner) => impl_try_into_beacon_state!(
+            PartialBeaconState::Bellatrix(inner) => impl_try_into_beacon_state!(
                 inner,
-                Merge,
-                BeaconStateMerge,
+                Bellatrix,
+                BeaconStateBellatrix,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

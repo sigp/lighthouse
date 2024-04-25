@@ -105,7 +105,7 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
                 Ok(())
             }
             BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_) => {
@@ -128,7 +128,7 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
                 base::process_rewards_and_penalties(state, &validator_statuses, spec)
             }
             BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_) => altair::process_rewards_and_penalties_slow(state, spec),
@@ -161,7 +161,7 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
                 )?;
             }
             BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_) => {
@@ -203,7 +203,7 @@ impl<E: EthSpec> EpochTransition<E> for RandaoMixesReset {
 impl<E: EthSpec> EpochTransition<E> for HistoricalRootsUpdate {
     fn run(state: &mut BeaconState<E>, _spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
-            BeaconState::Base(_) | BeaconState::Altair(_) | BeaconState::Merge(_) => {
+            BeaconState::Base(_) | BeaconState::Altair(_) | BeaconState::Bellatrix(_) => {
                 process_historical_roots_update(state)
             }
             _ => Ok(()),
@@ -237,7 +237,7 @@ impl<E: EthSpec> EpochTransition<E> for SyncCommitteeUpdates {
         match state {
             BeaconState::Base(_) => Ok(()),
             BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_) => altair::process_sync_committee_updates(state, spec),
@@ -250,7 +250,7 @@ impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
         match state {
             BeaconState::Base(_) => Ok(()),
             BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_) => altair::process_inactivity_updates_slow(state, spec),
@@ -263,7 +263,7 @@ impl<E: EthSpec> EpochTransition<E> for ParticipationFlagUpdates {
         match state {
             BeaconState::Base(_) => Ok(()),
             BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_) => altair::process_participation_flag_updates(state),
@@ -313,7 +313,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                     && T::name() != "historical_summaries_update"
             }
             // No phase0 tests for Altair and later.
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 T::name() != "participation_record_updates"
                     && T::name() != "historical_summaries_update"
             }

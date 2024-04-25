@@ -39,7 +39,7 @@ PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair merge capella deneb electra
+FORKS=phase0 altair bellatrix capella deneb electra
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=

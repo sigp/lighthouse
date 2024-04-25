@@ -91,7 +91,7 @@ pub trait EthSpec:
     /// The number of `sync_committee` subnets.
     type SyncCommitteeSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * New in Merge
+     * New in Bellatrix
      */
     type MaxBytesPerTransaction: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxTransactionsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
