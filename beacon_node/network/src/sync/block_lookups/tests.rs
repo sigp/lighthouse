@@ -10,9 +10,7 @@ use std::sync::Arc;
 
 use super::*;
 
-use crate::sync::block_lookups::common::{
-    ResponseType, PARENT_DEPTH_TOLERANCE, PARENT_FAIL_TOLERANCE,
-};
+use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
@@ -29,7 +27,7 @@ use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::{
     test_utils::{SeedableRng, XorShiftRng},
-    BlobSidecar, ForkName, MinimalEthSpec as E, SignedBeaconBlock,
+    BlobSidecar, ForkName, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
@@ -77,6 +75,7 @@ struct TestRig {
 }
 
 const D: Duration = Duration::new(0, 0);
+const PARENT_FAIL_TOLERANCE: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
 
 impl TestRig {
     fn test_setup() -> Self {

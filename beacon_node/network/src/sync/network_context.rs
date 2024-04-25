@@ -301,7 +301,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_id: SingleLookupId,
         peer_id: PeerId,
         request: BlocksByRootSingleRequest,
-    ) -> Result<(), &'static str> {
+    ) -> Result<bool, &'static str> {
         let id = SingleLookupReqId {
             lookup_id,
             req_id: self.next_id(),
@@ -325,15 +325,56 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blocks_by_root_requests
             .insert(id, ActiveBlocksByRootRequest::new(request));
 
-        Ok(())
+        Ok(true)
     }
 
+    /// Request necessary blobs for `block_root`. Requests only the necessary blobs by checking:
+    /// - If we have a downloaded but not yet processed block
+    /// - If the da_checker has a pending block
+    /// - If the da_checker has pending blobs from gossip
+    ///
+    /// Returns false if no request was made, because we don't need to fetch (more) blobs.
     pub fn blob_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
         peer_id: PeerId,
-        request: BlobsByRootSingleBlockRequest,
-    ) -> Result<(), &'static str> {
+        block_root: Hash256,
+        downloaded_block_expected_blobs: Option<usize>,
+    ) -> Result<bool, &'static str> {
+        let expected_blobs = downloaded_block_expected_blobs
+            .or_else(|| {
+                self.chain
+                    .data_availability_checker
+                    .num_expected_blobs(&block_root)
+            })
+            .unwrap_or_else(|| {
+                // If we don't about the block being requested, attempt to fetch all blobs
+                if self
+                    .chain
+                    .data_availability_checker
+                    .da_check_required_for_current_epoch()
+                {
+                    T::EthSpec::max_blobs_per_block()
+                } else {
+                    0
+                }
+            });
+
+        let imported_blob_indexes = self
+            .chain
+            .data_availability_checker
+            .imported_blob_indexes(&block_root)
+            .unwrap_or_default();
+        // Include only the blob indexes not yet imported (received through gossip)
+        let indices = (0..expected_blobs as u64)
+            .filter(|index| !imported_blob_indexes.contains(index))
+            .collect::<Vec<_>>();
+
+        if indices.is_empty() {
+            // No blobs required, do not issue any request
+            return Ok(false);
+        }
+
         let id = SingleLookupReqId {
             lookup_id,
             req_id: self.next_id(),
@@ -343,11 +384,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending BlobsByRoot Request";
             "method" => "BlobsByRoot",
-            "block_root" => ?request.block_root,
-            "blob_indices" => ?request.indices,
+            "block_root" => ?block_root,
+            "blob_indices" => ?indices,
             "peer" => %peer_id,
             "id" => ?id
         );
+
+        let request = BlobsByRootSingleBlockRequest {
+            block_root,
+            indices,
+        };
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
@@ -358,7 +404,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blobs_by_root_requests
             .insert(id, ActiveBlobsByRootRequest::new(request));
 
-        Ok(())
+        Ok(true)
     }
 
     pub fn is_execution_engine_online(&self) -> bool {

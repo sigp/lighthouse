@@ -47,7 +47,7 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlobError, BlockError, EngineState,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
 use futures::StreamExt;
 use lighthouse_network::rpc::RPCError;
@@ -249,10 +249,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             ),
             range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
             backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
-            block_lookups: BlockLookups::new(
-                beacon_chain.data_availability_checker.clone(),
-                log.clone(),
-            ),
+            block_lookups: BlockLookups::new(log.clone()),
             log: log.clone(),
         }
     }
@@ -348,8 +345,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
-        self.block_lookups
-            .peer_disconnected(peer_id, &mut self.network);
+        self.block_lookups.peer_disconnected(peer_id);
         // Regardless of the outcome, we update the sync status.
         let _ = self
             .backfill_sync
@@ -573,7 +569,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     block_slot,
-                    BlockComponent::Block((block.block_cloned(), block_root, timestamp_now())),
+                    BlockComponent::Block((
+                        block.block_cloned(),
+                        block_root,
+                        timestamp_now(),
+                        peer_id,
+                    )),
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
@@ -586,7 +587,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     blob_slot,
-                    BlockComponent::Blob((blob, block_root, timestamp_now())),
+                    BlockComponent::Blob((blob, block_root, timestamp_now(), peer_id)),
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
@@ -643,7 +644,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        unknown_parent_trigger: BlockComponent<T::EthSpec>,
+        block_component: BlockComponent<T::EthSpec>,
     ) {
         match self.should_search_for_block(Some(slot), &peer_id) {
             Ok(_) => {
@@ -653,10 +654,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     &[peer_id],
                     &mut self.network,
                 );
-                self.block_lookups.search_block(
+                self.block_lookups.search_child_of_parent(
                     block_root,
-                    Some((peer_id, unknown_parent_trigger)),
-                    &[peer_id],
+                    block_component,
+                    peer_id,
                     &mut self.network,
                 );
             }
@@ -670,7 +671,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match self.should_search_for_block(None, &peer_id) {
             Ok(_) => {
                 self.block_lookups
-                    .search_block(block_root, None, &[peer_id], &mut self.network);
+                    .search_unknown_block(block_root, &[peer_id], &mut self.network);
             }
             Err(reason) => {
                 debug!(self.log, "Ignoring unknown block request"; "block_root" => %block_root, "reason" => reason);
