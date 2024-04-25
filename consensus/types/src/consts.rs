@@ -22,3 +22,6 @@ pub mod altair {
 pub mod merge {
     pub const INTERVALS_PER_SLOT: u64 = 3;
 }
+pub mod deneb {
+    pub use crate::VERSIONED_HASH_VERSION_KZG;
+}
