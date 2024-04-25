@@ -128,7 +128,7 @@ pub mod altair_deneb {
         let previous_epoch = ctxt.previous_epoch;
         let current_epoch = ctxt.current_epoch;
 
-        let attesting_indices = &verify_attestation_for_block_inclusion(
+        let attesting_indices = verify_attestation_for_block_inclusion(
             state,
             attestation,
             ctxt,
@@ -136,7 +136,8 @@ pub mod altair_deneb {
             spec,
         )
         .map_err(|e| e.into_with_index(att_index))?
-        .attesting_indices;
+        .attesting_indices
+        .clone();
 
         // Matching roots, participation flag indices
         let data = &attestation.data;
@@ -146,7 +147,7 @@ pub mod altair_deneb {
 
         // Update epoch participation flags.
         let mut proposer_reward_numerator = 0;
-        for index in attesting_indices {
+        for index in &attesting_indices {
             let index = *index as usize;
 
             let validator_effective_balance = state.epoch_cache().get_effective_balance(index)?;
@@ -371,14 +372,14 @@ pub fn process_deposits<E: EthSpec>(
 
     // Update the state in series.
     for deposit in deposits {
-        process_deposit(state, deposit, spec, false)?;
+        apply_deposit(state, deposit, spec, false)?;
     }
 
     Ok(())
 }
 
 /// Process a single deposit, optionally verifying its merkle proof.
-pub fn process_deposit<E: EthSpec>(
+pub fn apply_deposit<E: EthSpec>(
     state: &mut BeaconState<E>,
     deposit: &Deposit,
     spec: &ChainSpec,

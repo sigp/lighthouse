@@ -1,7 +1,7 @@
 use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
-use crate::test_utils::DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI;
+use crate::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
@@ -47,6 +47,12 @@ pub async fn handle_rpc<E: EthSpec>(
                     ctx.execution_block_generator
                         .read()
                         .latest_execution_block(),
+                )
+                .unwrap()),
+                "0x0" => Ok(serde_json::to_value(
+                    ctx.execution_block_generator
+                        .read()
+                        .genesis_execution_block(),
                 )
                 .unwrap()),
                 other => Err((
@@ -521,6 +527,9 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_EXCHANGE_CAPABILITIES => {
             let engine_capabilities = ctx.engine_capabilities.read();
             Ok(serde_json::to_value(engine_capabilities.to_response()).unwrap())
+        }
+        ENGINE_GET_CLIENT_VERSION_V1 => {
+            Ok(serde_json::to_value([DEFAULT_CLIENT_VERSION.clone()]).unwrap())
         }
         ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 => {
             #[derive(Deserialize)]

@@ -3,7 +3,6 @@ mod beacon_node_fallback;
 mod block_service;
 mod check_synced;
 mod cli;
-mod config;
 mod duties_service;
 mod graffiti_file;
 mod http_metrics;
@@ -14,6 +13,7 @@ mod preparation_service;
 mod signing_method;
 mod sync_committee_service;
 
+pub mod config;
 mod doppelganger_service;
 pub mod http_api;
 pub mod initialized_validators;

@@ -3,6 +3,7 @@ use beacon_chain::chain_config::{
     DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
     DEFAULT_RE_ORG_PARENT_THRESHOLD,
 };
+use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_chain::TrustedSetup;
 use clap::{parser::ValueSource, ArgMatches, Id};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
@@ -17,7 +18,6 @@ use lighthouse_network::ListenAddress;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
-use std::cmp;
 use std::cmp::max;
 use std::fmt::Debug;
 use std::fs;
@@ -27,7 +27,8 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
-use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+use types::graffiti::GraffitiString;
+use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
 
 /// Gets the fully-initialized global client.
 ///
@@ -178,9 +179,6 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
-    }
-    if let Some(cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
-        client_config.chain.snapshot_cache_size = cache_size;
     }
 
     /*
@@ -349,8 +347,8 @@ pub fn get_config<E: EthSpec>(
         }
 
         // Set config values from parse values.
-        el_config.secret_files = vec![secret_file.clone()];
-        el_config.execution_endpoints = vec![execution_endpoint.clone()];
+        el_config.secret_file = Some(secret_file.clone());
+        el_config.execution_endpoint = Some(execution_endpoint.clone());
         el_config.suggested_fee_recipient =
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
@@ -408,6 +406,12 @@ pub fn get_config<E: EthSpec>(
         client_config.store.block_cache_size = block_cache_size
             .parse()
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    }
+
+    if let Some(cache_size) = cli_args.get_one::<String>("state-cache-size") {
+        client_config.store.state_cache_size = cache_size
+            .parse()
+            .map_err(|_| "state-cache-size is not a valid integer".to_string())?;
     }
 
     if let Some(historic_state_cache_size) = cli_args.get_one::<String>("historic-state-cache-size")
@@ -578,24 +582,16 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.genesis_backfill = true;
     }
 
-    let raw_graffiti = if let Some(graffiti) = cli_args.get_one::<String>("graffiti") {
-        if graffiti.len() > GRAFFITI_BYTES_LEN {
-            return Err(format!(
-                "Your graffiti is too long! {} bytes maximum!",
-                GRAFFITI_BYTES_LEN
-            ));
-        }
-
-        graffiti.as_bytes()
+    let beacon_graffiti = if let Some(graffiti) = cli_args.get_one::<String>("graffiti") {
+        GraffitiOrigin::UserSpecified(GraffitiString::from_str(graffiti)?.into())
     } else if cli_args.get_flag("private") {
-        b""
+        // When 'private' flag is present, use a zero-initialized bytes array.
+        GraffitiOrigin::UserSpecified(GraffitiString::empty().into())
     } else {
-        lighthouse_version::VERSION.as_bytes()
+        // Use the default lighthouse graffiti if no user-specified graffiti flags are present
+        GraffitiOrigin::default()
     };
-
-    let trimmed_graffiti_len = cmp::min(raw_graffiti.len(), GRAFFITI_BYTES_LEN);
-    client_config.graffiti.0[..trimmed_graffiti_len]
-        .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
+    client_config.beacon_graffiti = beacon_graffiti;
 
     if let Some(wss_checkpoint) = cli_args.get_one::<String>("wss-checkpoint") {
         let mut split = wss_checkpoint.split(':');

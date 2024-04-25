@@ -204,6 +204,12 @@ impl<E: EthSpec> PendingComponents<E> {
             executed_block,
         } = self;
 
+        let blobs_available_timestamp = verified_blobs
+            .iter()
+            .flatten()
+            .map(|blob| blob.seen_timestamp())
+            .max();
+
         let Some(diet_executed_block) = executed_block else {
             return Err(AvailabilityCheckError::Unexpected);
         };
@@ -231,6 +237,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block_root,
             block,
             blobs: Some(verified_blobs),
+            blobs_available_timestamp,
         };
         Ok(Availability::Available(Box::new(
             AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome),
@@ -1052,7 +1059,7 @@ mod test {
         let chain = &harness.chain;
         let log = chain.log.clone();
         let head = chain.head_snapshot();
-        let parent_state = head.beacon_state.clone_with_only_committee_caches();
+        let parent_state = head.beacon_state.clone();
 
         let target_slot = chain.slot().expect("should get slot") + 1;
         let parent_root = head.beacon_block_root;

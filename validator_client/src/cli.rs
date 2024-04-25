@@ -459,7 +459,7 @@ pub fn cli_app() -> Command {
             Arg::new("web3-signer-keep-alive-timeout")
                 .long("web3-signer-keep-alive-timeout")
                 .value_name("MILLIS")
-                .default_value("90000")
+                .default_value("20000")
                 .help("Keep-alive timeout for each web3signer connection. Set to 'null' to never \
                        timeout")
                 .action(ArgAction::Set)

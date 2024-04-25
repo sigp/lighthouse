@@ -32,7 +32,8 @@ use tree_hash_derive::TreeHash;
         tree_hash(enum_behaviour = "transparent")
     ),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
+    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
+    map_ref_into(ExecutionPayloadHeader)
 )]
 #[derive(
     Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
@@ -361,6 +362,27 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderDe
             ExecutionPayloadHeader::Deneb(execution_payload_header) => Ok(execution_payload_header),
             _ => Err(BeaconStateError::IncorrectStateVariant),
         }
+    }
+}
+
+impl<'a, E: EthSpec> ExecutionPayloadHeaderRefMut<'a, E> {
+    /// Mutate through
+    pub fn replace(self, header: ExecutionPayloadHeader<E>) -> Result<(), BeaconStateError> {
+        match self {
+            ExecutionPayloadHeaderRefMut::Merge(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+            ExecutionPayloadHeaderRefMut::Capella(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+            ExecutionPayloadHeaderRefMut::Electra(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+        }
+        Ok(())
     }
 }
 
