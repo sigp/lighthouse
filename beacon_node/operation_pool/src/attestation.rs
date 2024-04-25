@@ -1,4 +1,4 @@
-use crate::attestation_storage::AttestationRef;
+use crate::attestation_storage::{AttestationRef, CompactIndexedAttestation};
 use crate::max_cover::MaxCover;
 use crate::reward_cache::RewardCache;
 use state_processing::common::{
@@ -83,7 +83,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
 
         let fresh_validators_rewards = att
             .indexed
-            .attesting_indices
+            .attesting_indices()
             .iter()
             .filter_map(|&index| {
                 if reward_cache
@@ -175,7 +175,11 @@ pub fn earliest_attestation_validators<E: EthSpec>(
     base_state: &BeaconStateBase<E>,
 ) -> BitList<E::MaxValidatorsPerCommittee> {
     // Bitfield of validators whose attestations are new/fresh.
-    let mut new_validators = attestation.indexed.aggregation_bits.clone();
+    let mut new_validators = match attestation.indexed {
+        CompactIndexedAttestation::Base(indexed_att) => indexed_att.aggregation_bits.clone(),
+        // TODO(eip7549) per the comments above, this code path is obsolete post altair fork, so maybe we should just return an empty bitlist here?
+        CompactIndexedAttestation::Electra(_) => todo!(),
+    };
 
     let state_attestations = if attestation.checkpoint.target_epoch == state.current_epoch() {
         &base_state.current_epoch_attestations

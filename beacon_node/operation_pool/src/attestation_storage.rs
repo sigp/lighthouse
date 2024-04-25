@@ -2,8 +2,8 @@ use crate::AttestationStats;
 use itertools::Itertools;
 use std::collections::HashMap;
 use types::{
-    attestation::AttestationBase, AggregateSignature, Attestation, AttestationData, BeaconState,
-    BitList, Checkpoint, Epoch, EthSpec, Hash256, Slot,
+    attestation::{AttestationBase, AttestationElectra}, superstruct, AggregateSignature, Attestation, AttestationData,
+    BeaconState, BitList, BitVector, Checkpoint, Epoch, EthSpec, Hash256, Slot,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -20,11 +20,18 @@ pub struct CompactAttestationData {
     pub target_root: Hash256,
 }
 
+#[superstruct(variants(Base, Electra), variant_attributes(derive(Debug, PartialEq,)))]
 #[derive(Debug, PartialEq)]
 pub struct CompactIndexedAttestation<E: EthSpec> {
     pub attesting_indices: Vec<u64>,
+    #[superstruct(only(Base), partial_getter(rename = "aggregation_bits_base"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
+    #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
+    pub aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot>,
     pub signature: AggregateSignature,
+    pub index: u64,
+    #[superstruct(only(Electra))]
+    pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
 }
 
 #[derive(Debug)]
@@ -64,17 +71,19 @@ impl<E: EthSpec> SplitAttestation<E> {
             target_root: attestation.data().target.root,
         };
 
-        let aggregation_bits = match attestation.clone() {
-            Attestation::Base(attn) => attn.aggregation_bits,
+        let indexed = match attestation.clone() {
+            Attestation::Base(attn) => {
+                CompactIndexedAttestation::Base(CompactIndexedAttestationBase {
+                    attesting_indices,
+                    aggregation_bits: attn.aggregation_bits,
+                    signature: attestation.signature().clone(),
+                    index: data.index,
+                })
+            }
             // TODO(eip7549) implement electra variant
             Attestation::Electra(_) => todo!(),
         };
 
-        let indexed = CompactIndexedAttestation {
-            attesting_indices,
-            aggregation_bits,
-            signature: attestation.signature().clone(),
-        };
         Self {
             checkpoint,
             data,
@@ -106,11 +115,19 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
     }
 
     pub fn clone_as_attestation(&self) -> Attestation<E> {
-        Attestation::Base(AttestationBase {
-            aggregation_bits: self.indexed.aggregation_bits.clone(),
-            data: self.attestation_data(),
-            signature: self.indexed.signature.clone(),
-        })
+        match self.indexed {
+            CompactIndexedAttestation::Base(indexed_att) => Attestation::Base(AttestationBase {
+                aggregation_bits: indexed_att.aggregation_bits.clone(),
+                data: self.attestation_data(),
+                signature: indexed_att.signature.clone(),
+            }),
+            CompactIndexedAttestation::Electra(indexed_att) => Attestation::Electra(AttestationElectra {
+                aggregation_bits: indexed_att.aggregation_bits.clone(),
+                data: self.attestation_data(),
+                signature: indexed_att.signature.clone(),
+                committee_bits: indexed_att.committee_bits.clone(),
+            }),
+        }
     }
 }
 
@@ -132,6 +149,34 @@ impl CheckpointKey {
 }
 
 impl<E: EthSpec> CompactIndexedAttestation<E> {
+    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
+        match (self, other) {
+            (CompactIndexedAttestation::Base(this), CompactIndexedAttestation::Base(other)) => {
+                this.signers_disjoint_from(other)
+            }
+            (CompactIndexedAttestation::Electra(_), CompactIndexedAttestation::Electra(_)) => {
+                todo!()
+            }
+            // TODO(eip7549) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
+            _ => false,
+        }
+    }
+
+    pub fn aggregate(&mut self, other: &Self) {
+        match (self, other) {
+            (CompactIndexedAttestation::Base(this), CompactIndexedAttestation::Base(other)) => {
+                this.aggregate(other)
+            }
+            (CompactIndexedAttestation::Electra(_), CompactIndexedAttestation::Electra(_)) => {
+                todo!()
+            }
+            // TODO(eip7549) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
+            _ => (),
+        }
+    }
+}
+
+impl<E: EthSpec> CompactIndexedAttestationBase<E> {
     pub fn signers_disjoint_from(&self, other: &Self) -> bool {
         self.aggregation_bits
             .intersection(&other.aggregation_bits)
