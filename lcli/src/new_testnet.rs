@@ -292,7 +292,6 @@ fn initialize_state_with_validators<E: EthSpec>(
     }
 
     process_activations(&mut state, spec).unwrap();
-    state.build_total_active_balance_cache(spec).unwrap();
 
     if spec
         .altair_fork_epoch
