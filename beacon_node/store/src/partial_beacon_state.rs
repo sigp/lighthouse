@@ -118,6 +118,29 @@ where
     #[ssz(skip_serializing, skip_deserializing)]
     #[superstruct(only(Capella, Deneb, Electra))]
     pub historical_summaries: Option<List<HistoricalSummary, E::HistoricalRootsLimit>>,
+
+    // Electra
+    #[superstruct(only(Electra))]
+    pub deposit_receipts_start_index: u64,
+    #[superstruct(only(Electra))]
+    pub deposit_balance_to_consume: u64,
+    #[superstruct(only(Electra))]
+    pub exit_balance_to_consume: u64,
+    #[superstruct(only(Electra))]
+    pub earliest_exit_epoch: Epoch,
+    #[superstruct(only(Electra))]
+    pub consolidation_balance_to_consume: u64,
+    #[superstruct(only(Electra))]
+    pub earliest_consolidation_epoch: Epoch,
+
+    // TODO(electra) should these be optional?
+    #[superstruct(only(Electra))]
+    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    #[superstruct(only(Electra))]
+    pub pending_partial_withdrawals:
+        List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
+    #[superstruct(only(Electra))]
+    pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -261,7 +284,16 @@ impl<E: EthSpec> PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_receipts_start_index,
+                    deposit_balance_to_consume,
+                    exit_balance_to_consume,
+                    earliest_exit_epoch,
+                    consolidation_balance_to_consume,
+                    earliest_consolidation_epoch,
+                    pending_balance_deposits,
+                    pending_partial_withdrawals,
+                    pending_consolidations
                 ],
                 [historical_summaries]
             ),
@@ -525,7 +557,16 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_receipts_start_index,
+                    deposit_balance_to_consume,
+                    exit_balance_to_consume,
+                    earliest_exit_epoch,
+                    consolidation_balance_to_consume,
+                    earliest_consolidation_epoch,
+                    pending_balance_deposits,
+                    pending_partial_withdrawals,
+                    pending_consolidations
                 ],
                 [historical_summaries]
             ),
