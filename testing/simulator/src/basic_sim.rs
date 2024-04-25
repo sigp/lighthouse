@@ -51,9 +51,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let log_level = matches
         .get_one::<String>("debug-level")
         .expect("missing speed_up_factor default");
-    
+
     let continue_after_checks = matches.get_flag("continue_after_checks");
-    let post_merge_sim = matches.get_flag("post-merge");
 
     println!("Basic Simulator:");
     println!(" nodes: {}", node_count);
