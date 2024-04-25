@@ -336,7 +336,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
     block: BeaconBlockRef<'_, T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
-    // Only apply this validation if this is a merge beacon block.
+    // Only apply this validation if this is a Bellatrix beacon block.
     if let Ok(execution_payload) = block.body().execution_payload() {
         // This logic should match `is_execution_enabled`. We use only the execution block hash of
         // the parent here in order to avoid loading the parent state during gossip verification.
@@ -385,7 +385,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 /// ## Errors
 ///
 /// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
+/// after the Bellatrix fork.
 ///
 /// ## Specification
 ///
@@ -415,13 +415,13 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
         &BeaconState::Capella(_) | &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
             Some(get_expected_withdrawals(state, spec)?.into())
         }
-        &BeaconState::Merge(_) => None,
+        &BeaconState::Bellatrix(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
     };
     let parent_beacon_block_root = match state {
         BeaconState::Deneb(_) | BeaconState::Electra(_) => Some(parent_block_root),
-        BeaconState::Merge(_) | BeaconState::Capella(_) => None,
+        BeaconState::Bellatrix(_) | BeaconState::Capella(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         BeaconState::Base(_) | BeaconState::Altair(_) => None,
     };
@@ -457,12 +457,12 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
 
 /// Prepares an execution payload for inclusion in a block.
 ///
-/// Will return `Ok(None)` if the merge fork has occurred, but a terminal block has not been found.
+/// Will return `Ok(None)` if the Bellatrix fork has occurred, but a terminal block has not been found.
 ///
 /// ## Errors
 ///
-/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
+/// Will return an error when using a pre-Bellatrix fork `state`. Ensure to only run this function
+/// after the Bellatrix fork.
 ///
 /// ## Specification
 ///

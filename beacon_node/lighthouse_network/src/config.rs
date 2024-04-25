@@ -438,7 +438,7 @@ pub fn gossipsub_config(
         let topic_bytes = message.topic.as_str().as_bytes();
         match fork_context.current_fork() {
             ForkName::Altair
-            | ForkName::Merge
+            | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb
             | ForkName::Electra => {
@@ -461,7 +461,7 @@ pub fn gossipsub_config(
         }
     }
     let message_domain_valid_snappy = gossipsub_config_params.message_domain_valid_snappy;
-    let is_merge_enabled = fork_context.fork_exists(ForkName::Merge);
+    let is_bellatrix_enabled = fork_context.fork_exists(ForkName::Bellatrix);
     let gossip_message_id = move |message: &gossipsub::Message| {
         gossipsub::MessageId::from(
             &Sha256::digest(
@@ -481,7 +481,7 @@ pub fn gossipsub_config(
 
     gossipsub::ConfigBuilder::default()
         .max_transmit_size(gossip_max_size(
-            is_merge_enabled,
+            is_bellatrix_enabled,
             gossipsub_config_params.gossip_max_size,
         ))
         .heartbeat_interval(load.heartbeat_interval)

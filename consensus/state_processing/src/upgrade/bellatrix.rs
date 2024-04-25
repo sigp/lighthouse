@@ -1,10 +1,10 @@
 use std::mem;
 use types::{
-    BeaconState, BeaconStateError as Error, BeaconStateMerge, ChainSpec, EpochCache, EthSpec,
-    ExecutionPayloadHeaderMerge, Fork,
+    BeaconState, BeaconStateBellatrix, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
+    ExecutionPayloadHeaderBellatrix, Fork,
 };
 
-/// Transform a `Altair` state into an `Merge` state.
+/// Transform a `Altair` state into an `Bellatrix` state.
 pub fn upgrade_to_bellatrix<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -17,7 +17,7 @@ pub fn upgrade_to_bellatrix<E: EthSpec>(
     //
     // Fixed size vectors get cloned because replacing them would require the same size
     // allocation as cloning.
-    let post = BeaconState::Merge(BeaconStateMerge {
+    let post = BeaconState::Bellatrix(BeaconStateBellatrix {
         // Versioning
         genesis_time: pre.genesis_time,
         genesis_validators_root: pre.genesis_validators_root,
@@ -57,7 +57,7 @@ pub fn upgrade_to_bellatrix<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution
-        latest_execution_payload_header: <ExecutionPayloadHeaderMerge<E>>::default(),
+        latest_execution_payload_header: <ExecutionPayloadHeaderBellatrix<E>>::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),

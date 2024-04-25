@@ -737,7 +737,7 @@ impl HttpJsonRpc {
     ) -> Result<Option<ExecutionBlockWithTransactions<E>>, Error> {
         let params = json!([block_hash, true]);
         Ok(Some(match fork {
-            ForkName::Merge => ExecutionBlockWithTransactions::Merge(
+            ForkName::Bellatrix => ExecutionBlockWithTransactions::Bellatrix(
                 self.rpc_request(
                     ETH_GET_BLOCK_BY_HASH,
                     params,
@@ -868,7 +868,7 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(GetPayloadResponse::Merge(GetPayloadResponseMerge {
+        Ok(GetPayloadResponse::Bellatrix(GetPayloadResponseBellatrix {
             execution_payload: payload_v1.into(),
             // Set the V1 payload values from the EE to be zero. This simulates
             // the pre-block-value functionality of always choosing the builder
@@ -885,7 +885,7 @@ impl HttpJsonRpc {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
-            ForkName::Merge => {
+            ForkName::Bellatrix => {
                 let response: JsonGetPayloadResponseV1<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
@@ -939,7 +939,7 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V4(response).into())
             }
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => Err(
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => Err(
                 Error::UnsupportedForkVariant(format!("called get_payload_v3 with {}", fork_name)),
             ),
         }
@@ -1180,7 +1180,7 @@ impl HttpJsonRpc {
     ) -> Result<PayloadStatusV1, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match new_payload_request {
-            NewPayloadRequest::Merge(_) | NewPayloadRequest::Capella(_) => {
+            NewPayloadRequest::Bellatrix(_) | NewPayloadRequest::Capella(_) => {
                 if engine_capabilities.new_payload_v2 {
                     self.new_payload_v2(new_payload_request.into_execution_payload())
                         .await
@@ -1218,7 +1218,7 @@ impl HttpJsonRpc {
     ) -> Result<GetPayloadResponse<E>, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match fork_name {
-            ForkName::Merge | ForkName::Capella => {
+            ForkName::Bellatrix | ForkName::Capella => {
                 if engine_capabilities.get_payload_v2 {
                     self.get_payload_v2(fork_name, payload_id).await
                 } else if engine_capabilities.new_payload_v1 {
@@ -1659,8 +1659,8 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(
-                            ExecutionPayloadMerge {
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(
+                            ExecutionPayloadBellatrix {
                                 parent_hash: ExecutionBlockHash::repeat_byte(0),
                                 fee_recipient: Address::repeat_byte(1),
                                 state_root: Hash256::repeat_byte(1),
@@ -1706,8 +1706,8 @@ mod test {
         Tester::new(false)
             .assert_auth_failure(|client| async move {
                 client
-                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(
-                        ExecutionPayloadMerge {
+                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(
+                        ExecutionPayloadBellatrix {
                             parent_hash: ExecutionBlockHash::repeat_byte(0),
                             fee_recipient: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
@@ -1917,7 +1917,7 @@ mod test {
                         .unwrap()
                         .into();
 
-                    let expected = ExecutionPayload::Merge(ExecutionPayloadMerge {
+                    let expected = ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -1942,7 +1942,7 @@ mod test {
                 // engine_newPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge{
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix{
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -1996,7 +1996,7 @@ mod test {
                 })],
                 |client| async move {
                     let response = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge::default()))
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()))
                         .await
                         .unwrap();
 
