@@ -2092,6 +2092,40 @@ impl<E: EthSpec> BeaconState<E> {
             .map_err(Into::into)
     }
 
+    pub fn get_active_balance(
+        &self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<u64, Error> {
+        let max_effective_balance = self
+            .validators()
+            .get(validator_index)
+            .map(|validator| validator.get_validator_max_effective_balance(spec))
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        // TODO(pawan): this is assuming balances and validat
+        Ok(std::cmp::min(
+            *self
+                .balances()
+                .get(validator_index)
+                .ok_or(Error::UnknownValidator(validator_index))?,
+            max_effective_balance,
+        ))
+    }
+
+    pub fn get_pending_balance_to_withdraw(&self, validator_index: u64) -> Result<u64, Error> {
+        Ok(self
+            .pending_partial_withdrawals()?
+            .iter()
+            .filter_map(|withdrawal| {
+                if withdrawal.index == validator_index {
+                    Some(withdrawal.amount)
+                } else {
+                    None
+                }
+            })
+            .sum())
+    }
+
     // ******* Electra mutators *******
 
     pub fn queue_excess_active_balance(
@@ -2140,6 +2174,99 @@ impl<E: EthSpec> BeaconState<E> {
                 amount: balance_copy,
             })
             .map_err(Into::into)
+    }
+
+    pub fn switch_to_compounding_validator(
+        &mut self,
+        validator_index: u64,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let validator = self
+            .validators_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        if validator.has_eth1_withdrawal_credential(spec) {
+            validator.withdrawal_credentials =
+                spec.compounding_withdrawal_prefix_byte + validator.withdrawal_credentials[1..];
+            self.queue_excess_active_balance(validator_index, spec)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn compute_exit_epoch_and_update_churn(
+        &self,
+        exit_balance: u64,
+        spec: &ChainSpec,
+    ) -> Result<Epoch, Error> {
+        let mut earliest_exit_epoch = std::cmp::max(
+            self.earliest_exit_epoch()?,
+            self.compute_activation_exit_epoch(self.current_epoch()),
+        );
+
+        let per_epoch_churn = self.get_activation_exit_churn_limit(spec)?;
+        // New epoch for exits
+        let mut exit_balance_to_consume = if self.earliest_exit_epoch()? < earliest_exit_epoch {
+            per_epoch_churn
+        } else {
+            self.exit_balance_to_consume()?
+        };
+
+        // Exit doesn't fit in the current earliest epoch
+        if exit_balance > exit_balance_to_consume {
+            let balance_to_process = exit_balance - exit_balance_to_consume;
+            let additional_epochs = balance_to_process
+                .safe_sub(1)
+                .safe_div(per_epoch_churn)?
+                .safe_add(1);
+            earliest_exit_epoch.safe_add_assign(additional_epochs)?;
+            exit_balance_to_consume
+                .safe_add_assign(additional_epochs.safe_mul(per_epoch_churn)?)?;
+        }
+        // Consume the balance and update state variables
+        self.exit_balance_to_consume_mut() = exit_balance_to_consume.safe_sub(exit_balance)?;
+        self.earliest_exit_epoch_mut() = earliest_exit_epoch;
+
+        Ok(self.earliest_exit_epoch())
+    }
+
+    pub fn compute_consolidation_epoch_and_update_churn(
+        &mut self,
+        consolidation_balance: u64,
+        spec: &ChainSpec,
+    ) -> Result<Epoch, Error> {
+        let mut earliest_consolidation_epoch = std::cmp::max(
+            self.earliest_consolidation_epoch()?,
+            self.compute_activation_exit_epoch(self.current_epoch(), spec)?,
+        );
+
+        let per_epoch_consolidation_churn = self.get_consolidation_churn_limit(spec)?;
+
+        // New epoch for consolidations
+        let mut consolidation_balance_to_consume =
+            if self.earliest_consolidation_epoch()? < earliest_consolidation_epoch {
+                per_epoch_consolidation_churn
+            } else {
+                self.consolidation_balance_to_consume()
+            };
+        // Consolidation doesn't fit in the current earliest epoch
+        if consolidation_balance > consolidation_balance_to_consume {
+            let balance_to_process =
+                consolidation_balance.safe_sub(consolidation_balance_to_consume)?;
+            let additional_epochs = balance_to_process
+                .safe_sub(1)?
+                .safe_div(per_epoch_consolidation_churn)?
+                .safe_add(1)?;
+            earliest_consolidation_epoch.safe_add_assign(additional_epochs)?;
+            consolidation_balance_to_consume
+                .safe_add_assign(additional_epochs.safe_mul(per_epoch_consolidation_churn)?)?;
+            // Consume the balance and update state variables
+            self.consolidation_balance_to_consume_mut() =
+                consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
+            self.earliest_consolidation_epoch_mut() = earliest_consolidation_epoch;
+
+            Ok(self.earliest_consolidation_epoch())
+        }
     }
 
     #[allow(clippy::arithmetic_side_effects)]
