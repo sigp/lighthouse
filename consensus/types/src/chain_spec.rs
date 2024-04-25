@@ -850,6 +850,8 @@ impl ChainSpec {
             // Electra
             electra_fork_version: [0x05, 0x00, 0x00, 0x01],
             electra_fork_epoch: None,
+            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 0)
+                .expect("pow does not overflow"),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
