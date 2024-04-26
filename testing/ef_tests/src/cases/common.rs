@@ -63,8 +63,8 @@ pub fn previous_fork(fork_name: ForkName) -> ForkName {
     match fork_name {
         ForkName::Base => ForkName::Base,
         ForkName::Altair => ForkName::Base,
-        ForkName::Merge => ForkName::Altair,
-        ForkName::Capella => ForkName::Merge,
+        ForkName::Bellatrix => ForkName::Altair,
+        ForkName::Capella => ForkName::Bellatrix,
         ForkName::Deneb => ForkName::Capella,
         ForkName::Electra => ForkName::Deneb,
     }

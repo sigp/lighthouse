@@ -1,8 +1,7 @@
-use super::{BeaconState, EthSpec, FixedVector, Hash256, LightClientHeader, SyncCommittee};
 use crate::{
-    light_client_update::*, test_utils::TestRandom, ChainSpec, ForkName, ForkVersionDeserialize,
-    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
-    Slot,
+    light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, EthSpec, FixedVector,
+    ForkName, ForkVersionDeserialize, Hash256, LightClientHeader, LightClientHeaderAltair,
+    LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock, Slot, SyncCommittee,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -79,7 +78,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
 
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let bootstrap = match fork_name {
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 Self::Altair(LightClientBootstrapAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella::from_ssz_bytes(bytes)?),
@@ -102,7 +101,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         match fork_name {
             ForkName::Base => 0,
             ForkName::Altair
-            | ForkName::Merge
+            | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb
             | ForkName::Electra => {
@@ -129,7 +128,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             .map_err(|_| Error::InconsistentFork)?
         {
             ForkName::Base => return Err(Error::AltairForkNotActive),
-            ForkName::Altair | ForkName::Merge => Self::Altair(LightClientBootstrapAltair {
+            ForkName::Altair | ForkName::Bellatrix => Self::Altair(LightClientBootstrapAltair {
                 header: LightClientHeaderAltair::block_to_light_client_header(block)?,
                 current_sync_committee,
                 current_sync_committee_branch,

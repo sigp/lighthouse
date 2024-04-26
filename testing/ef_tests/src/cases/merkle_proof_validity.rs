@@ -51,7 +51,7 @@ impl<E: EthSpec> LoadCase for MerkleProofValidity<E> {
 impl<E: EthSpec> Case for MerkleProofValidity<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let mut state = self.state.clone();
-        state.initialize_tree_hash_cache();
+        state.update_tree_hash_cache().unwrap();
         let Ok(proof) = state.compute_merkle_proof(self.merkle_proof.leaf_index) else {
             return Err(Error::FailedToParseTest(
                 "Could not retrieve merkle proof".to_string(),
@@ -77,9 +77,6 @@ impl<E: EthSpec> Case for MerkleProofValidity<E> {
             }
         }
 
-        // Tree hash cache should still be initialized (not dropped).
-        assert!(state.tree_hash_cache().is_initialized());
-
         Ok(())
     }
 }
@@ -95,7 +92,7 @@ pub struct KzgInclusionMerkleProofValidity<E: EthSpec> {
 impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let block: BeaconBlockBody<E, FullPayload<E>> = match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 return Err(Error::InternalError(format!(
                     "KZG inclusion merkle proof validity test skipped for {:?}",
                     fork_name

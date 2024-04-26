@@ -113,9 +113,6 @@ sleeping 3
 execute_command_add_PID el_bootnode.log ./el_bootnode.sh
 sleeping 3
 
-execute_command_add_PID el_bootnode.log ./el_bootnode.sh
-sleeping 1
-
 # Start beacon nodes
 BN_udp_tcp_base=9000
 BN_http_port_base=8000
