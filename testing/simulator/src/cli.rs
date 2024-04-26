@@ -120,18 +120,22 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .short("c")
                         .long("continue_after_checks")
                         .takes_value(false)
-           .help("Number of validators per client"))
-                .arg(Arg::with_name("speed_up_factor")
-                    .short("s")
-                    .long("speed_up_factor")
-                    .takes_value(true)
-                    .default_value("3")
-                    .help("Speed up factor. Please use a divisor of 12."))
-                .arg(Arg::with_name("continue_after_checks")
-                    .short("c")
-                    .long("continue_after_checks")
-                    .takes_value(false)
-                    .help("Continue after checks (default false)")
+                        .help("Number of validators per client"),
+                )
+                .arg(
+                    Arg::with_name("speed_up_factor")
+                        .short("s")
+                        .long("speed_up_factor")
+                        .takes_value(true)
+                        .default_value("3")
+                        .help("Speed up factor. Please use a divisor of 12."),
+                )
+                .arg(
+                    Arg::with_name("continue_after_checks")
+                        .short("c")
+                        .long("continue_after_checks")
+                        .takes_value(false)
+                        .help("Continue after checks (default false)")
                         .help("Continue after checks (default false)"),
                 ),
         )
