@@ -480,7 +480,7 @@ fn main() {
                     .action(ArgAction::Set)
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
-                    .value_parser(["merge", "bellatrix", "capella", "deneb", "capella"])
+                    .value_parser(["bellatrix", "capella", "deneb", "electra"])
                     .display_order(0)
             )
         )

@@ -47,7 +47,7 @@ pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> V
     match fork_name {
         ForkName::Base => BASE_CORE_TOPICS.to_vec(),
         ForkName::Altair => ALTAIR_CORE_TOPICS.to_vec(),
-        ForkName::Merge => vec![],
+        ForkName::Bellatrix => vec![],
         ForkName::Capella => CAPELLA_CORE_TOPICS.to_vec(),
         ForkName::Deneb => {
             // All of deneb blob topics are core topics

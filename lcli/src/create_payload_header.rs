@@ -5,8 +5,9 @@ use std::fs::File;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
-    EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderMerge, ForkName,
+    EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix,
+    ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
+    ForkName,
 };
 
 pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
@@ -22,17 +23,17 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let file_name = matches
         .get_one::<String>("file")
         .ok_or("No file supplied")?;
-    let fork_name: ForkName = parse_optional(matches, "fork")?.unwrap_or(ForkName::Merge);
+    let fork_name: ForkName = parse_optional(matches, "fork")?.unwrap_or(ForkName::Bellatrix);
 
     let execution_payload_header: ExecutionPayloadHeader<E> = match fork_name {
         ForkName::Base | ForkName::Altair => return Err("invalid fork name".to_string()),
-        ForkName::Merge => ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
+        ForkName::Bellatrix => ExecutionPayloadHeader::Bellatrix(ExecutionPayloadHeaderBellatrix {
             gas_limit,
             base_fee_per_gas,
             timestamp: genesis_time,
             block_hash: eth1_block_hash,
             prev_randao: eth1_block_hash.into_root(),
-            ..ExecutionPayloadHeaderMerge::default()
+            ..ExecutionPayloadHeaderBellatrix::default()
         }),
         ForkName::Capella => ExecutionPayloadHeader::Capella(ExecutionPayloadHeaderCapella {
             gas_limit,

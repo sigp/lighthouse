@@ -54,7 +54,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match state {
             BeaconState::Base(_) => self.compute_attestation_rewards_base(state, validators),
             BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_) => self.compute_attestation_rewards_altair(state, validators),

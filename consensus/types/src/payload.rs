@@ -79,22 +79,22 @@ pub trait AbstractExecPayload<E: EthSpec>:
     + Sized
     + From<ExecutionPayload<E>>
     + TryFrom<ExecutionPayloadHeader<E>>
-    + TryInto<Self::Merge>
+    + TryInto<Self::Bellatrix>
     + TryInto<Self::Capella>
     + TryInto<Self::Deneb>
     + TryInto<Self::Electra>
 {
     type Ref<'a>: ExecPayload<E>
         + Copy
-        + From<&'a Self::Merge>
+        + From<&'a Self::Bellatrix>
         + From<&'a Self::Capella>
         + From<&'a Self::Deneb>
         + From<&'a Self::Electra>;
 
-    type Merge: OwnedExecPayload<E>
+    type Bellatrix: OwnedExecPayload<E>
         + Into<Self>
-        + for<'a> From<Cow<'a, ExecutionPayloadMerge<E>>>
-        + TryFrom<ExecutionPayloadHeaderMerge<E>>;
+        + for<'a> From<Cow<'a, ExecutionPayloadBellatrix<E>>>
+        + TryFrom<ExecutionPayloadHeaderBellatrix<E>>;
     type Capella: OwnedExecPayload<E>
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadCapella<E>>>
@@ -110,7 +110,7 @@ pub trait AbstractExecPayload<E: EthSpec>:
 }
 
 #[superstruct(
-    variants(Merge, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -145,8 +145,11 @@ pub trait AbstractExecPayload<E: EthSpec>:
 #[arbitrary(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct FullPayload<E: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload: ExecutionPayloadMerge<E>,
+    #[superstruct(
+        only(Bellatrix),
+        partial_getter(rename = "execution_payload_bellatrix")
+    )]
+    pub execution_payload: ExecutionPayloadBellatrix<E>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload: ExecutionPayloadCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
@@ -252,7 +255,7 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
 
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
-            FullPayload::Merge(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Bellatrix(_) => Err(Error::IncorrectStateVariant),
             FullPayload::Capella(ref inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
@@ -267,7 +270,9 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
 
     fn blob_gas_used(&self) -> Result<u64, Error> {
         match self {
-            FullPayload::Merge(_) | FullPayload::Capella(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Bellatrix(_) | FullPayload::Capella(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
             FullPayload::Deneb(ref inner) => Ok(inner.execution_payload.blob_gas_used),
             FullPayload::Electra(ref inner) => Ok(inner.execution_payload.blob_gas_used),
         }
@@ -296,7 +301,7 @@ impl<E: EthSpec> FullPayload<E> {
     pub fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
             ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
-            ForkName::Merge => Ok(FullPayloadMerge::default().into()),
+            ForkName::Bellatrix => Ok(FullPayloadBellatrix::default().into()),
             ForkName::Capella => Ok(FullPayloadCapella::default().into()),
             ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
             ForkName::Electra => Ok(FullPayloadElectra::default().into()),
@@ -382,7 +387,7 @@ impl<'b, E: EthSpec> ExecPayload<E> for FullPayloadRef<'b, E> {
 
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
-            FullPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Bellatrix(_) => Err(Error::IncorrectStateVariant),
             FullPayloadRef::Capella(inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
@@ -397,7 +402,7 @@ impl<'b, E: EthSpec> ExecPayload<E> for FullPayloadRef<'b, E> {
 
     fn blob_gas_used(&self) -> Result<u64, Error> {
         match self {
-            FullPayloadRef::Merge(_) | FullPayloadRef::Capella(_) => {
+            FullPayloadRef::Bellatrix(_) | FullPayloadRef::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
             }
             FullPayloadRef::Deneb(inner) => Ok(inner.execution_payload.blob_gas_used),
@@ -420,7 +425,7 @@ impl<'b, E: EthSpec> ExecPayload<E> for FullPayloadRef<'b, E> {
 
 impl<E: EthSpec> AbstractExecPayload<E> for FullPayload<E> {
     type Ref<'a> = FullPayloadRef<'a, E>;
-    type Merge = FullPayloadMerge<E>;
+    type Bellatrix = FullPayloadBellatrix<E>;
     type Capella = FullPayloadCapella<E>;
     type Deneb = FullPayloadDeneb<E>;
     type Electra = FullPayloadElectra<E>;
@@ -442,7 +447,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -476,8 +481,11 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
 #[arbitrary(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BlindedPayload<E: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload_header: ExecutionPayloadHeaderMerge<E>,
+    #[superstruct(
+        only(Bellatrix),
+        partial_getter(rename = "execution_payload_bellatrix")
+    )]
+    pub execution_payload_header: ExecutionPayloadHeaderBellatrix<E>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload_header: ExecutionPayloadHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
@@ -561,7 +569,7 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
 
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
-            BlindedPayload::Merge(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayload::Bellatrix(_) => Err(Error::IncorrectStateVariant),
             BlindedPayload::Capella(ref inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
@@ -574,7 +582,7 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
 
     fn blob_gas_used(&self) -> Result<u64, Error> {
         match self {
-            BlindedPayload::Merge(_) | BlindedPayload::Capella(_) => {
+            BlindedPayload::Bellatrix(_) | BlindedPayload::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
             }
             BlindedPayload::Deneb(ref inner) => Ok(inner.execution_payload_header.blob_gas_used),
@@ -662,7 +670,7 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
 
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
-            BlindedPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayloadRef::Bellatrix(_) => Err(Error::IncorrectStateVariant),
             BlindedPayloadRef::Capella(inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
@@ -675,7 +683,7 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
 
     fn blob_gas_used(&self) -> Result<u64, Error> {
         match self {
-            BlindedPayloadRef::Merge(_) | BlindedPayloadRef::Capella(_) => {
+            BlindedPayloadRef::Bellatrix(_) | BlindedPayloadRef::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
             }
             BlindedPayloadRef::Deneb(inner) => Ok(inner.execution_payload_header.blob_gas_used),
@@ -699,12 +707,12 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
 }
 
 macro_rules! impl_exec_payload_common {
-    ($wrapper_type:ident,           // BlindedPayloadMerge          |   FullPayloadMerge
-     $wrapped_type:ident,           // ExecutionPayloadHeaderMerge  |   ExecutionPayloadMerge
-     $wrapped_type_full:ident,      // ExecutionPayloadMerge        |   ExecutionPayloadMerge
-     $wrapped_type_header:ident,    // ExecutionPayloadHeaderMerge  |   ExecutionPayloadHeaderMerge
+    ($wrapper_type:ident,           // BlindedPayloadBellatrix          |   FullPayloadBellatrix
+     $wrapped_type:ident,           // ExecutionPayloadHeaderBellatrix  |   ExecutionPayloadBellatrix
+     $wrapped_type_full:ident,      // ExecutionPayloadBellatrix        |   ExecutionPayloadBellatrix
+     $wrapped_type_header:ident,    // ExecutionPayloadHeaderBellatrix  |   ExecutionPayloadHeaderBellatrix
      $wrapped_field:ident,          // execution_payload_header     |   execution_payload
-     $fork_variant:ident,           // Merge                        |   Merge
+     $fork_variant:ident,           // Bellatrix                    |   Bellatrix
      $block_type_variant:ident,     // Blinded                      |   Full
      $is_default_with_empty_roots:block,
      $f:block,
@@ -783,17 +791,17 @@ macro_rules! impl_exec_payload_common {
 }
 
 macro_rules! impl_exec_payload_for_fork {
-    // BlindedPayloadMerge, FullPayloadMerge, ExecutionPayloadHeaderMerge, ExecutionPayloadMerge, Merge
+    // BlindedPayloadBellatrix, FullPayloadBellatrix, ExecutionPayloadHeaderBellatrix, ExecutionPayloadBellatrix, Bellatrix
     ($wrapper_type_header:ident, $wrapper_type_full:ident, $wrapped_type_header:ident, $wrapped_type_full:ident, $fork_variant:ident) => {
         //*************** Blinded payload implementations ******************//
 
         impl_exec_payload_common!(
-            $wrapper_type_header, // BlindedPayloadMerge
-            $wrapped_type_header, // ExecutionPayloadHeaderMerge
-            $wrapped_type_full,   // ExecutionPayloadMerge
-            $wrapped_type_header, // ExecutionPayloadHeaderMerge
+            $wrapper_type_header, // BlindedPayloadBellatrix
+            $wrapped_type_header, // ExecutionPayloadHeaderBellatrix
+            $wrapped_type_full,   // ExecutionPayloadBellatrix
+            $wrapped_type_header, // ExecutionPayloadHeaderBellatrix
             execution_payload_header,
-            $fork_variant, // Merge
+            $fork_variant, // Bellatrix
             Blinded,
             {
                 |wrapper: &$wrapper_type_header<E>| {
@@ -872,12 +880,12 @@ macro_rules! impl_exec_payload_for_fork {
         //*************** Full payload implementations ******************//
 
         impl_exec_payload_common!(
-            $wrapper_type_full,   // FullPayloadMerge
-            $wrapped_type_full,   // ExecutionPayloadMerge
-            $wrapped_type_full,   // ExecutionPayloadMerge
-            $wrapped_type_header, // ExecutionPayloadHeaderMerge
+            $wrapper_type_full,   // FullPayloadBellatrix
+            $wrapped_type_full,   // ExecutionPayloadBellatrix
+            $wrapped_type_full,   // ExecutionPayloadBellatrix
+            $wrapped_type_header, // ExecutionPayloadHeaderBellatrix
             execution_payload,
-            $fork_variant, // Merge
+            $fork_variant, // Bellatrix
             Full,
             {
                 |wrapper: &$wrapper_type_full<E>| {
@@ -952,11 +960,11 @@ macro_rules! impl_exec_payload_for_fork {
 }
 
 impl_exec_payload_for_fork!(
-    BlindedPayloadMerge,
-    FullPayloadMerge,
-    ExecutionPayloadHeaderMerge,
-    ExecutionPayloadMerge,
-    Merge
+    BlindedPayloadBellatrix,
+    FullPayloadBellatrix,
+    ExecutionPayloadHeaderBellatrix,
+    ExecutionPayloadBellatrix,
+    Bellatrix
 );
 impl_exec_payload_for_fork!(
     BlindedPayloadCapella,
@@ -982,7 +990,7 @@ impl_exec_payload_for_fork!(
 
 impl<E: EthSpec> AbstractExecPayload<E> for BlindedPayload<E> {
     type Ref<'a> = BlindedPayloadRef<'a, E>;
-    type Merge = BlindedPayloadMerge<E>;
+    type Bellatrix = BlindedPayloadBellatrix<E>;
     type Capella = BlindedPayloadCapella<E>;
     type Deneb = BlindedPayloadDeneb<E>;
     type Electra = BlindedPayloadElectra<E>;
@@ -1002,8 +1010,8 @@ impl<E: EthSpec> From<ExecutionPayload<E>> for BlindedPayload<E> {
 impl<E: EthSpec> From<ExecutionPayloadHeader<E>> for BlindedPayload<E> {
     fn from(execution_payload_header: ExecutionPayloadHeader<E>) -> Self {
         match execution_payload_header {
-            ExecutionPayloadHeader::Merge(execution_payload_header) => {
-                Self::Merge(BlindedPayloadMerge {
+            ExecutionPayloadHeader::Bellatrix(execution_payload_header) => {
+                Self::Bellatrix(BlindedPayloadBellatrix {
                     execution_payload_header,
                 })
             }
@@ -1029,8 +1037,8 @@ impl<E: EthSpec> From<ExecutionPayloadHeader<E>> for BlindedPayload<E> {
 impl<E: EthSpec> From<BlindedPayload<E>> for ExecutionPayloadHeader<E> {
     fn from(blinded: BlindedPayload<E>) -> Self {
         match blinded {
-            BlindedPayload::Merge(blinded_payload) => {
-                ExecutionPayloadHeader::Merge(blinded_payload.execution_payload_header)
+            BlindedPayload::Bellatrix(blinded_payload) => {
+                ExecutionPayloadHeader::Bellatrix(blinded_payload.execution_payload_header)
             }
             BlindedPayload::Capella(blinded_payload) => {
                 ExecutionPayloadHeader::Capella(blinded_payload.execution_payload_header)

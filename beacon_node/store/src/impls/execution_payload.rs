@@ -1,8 +1,8 @@
 use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
-    BlobSidecarList, EthSpec, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadMerge,
+    BlobSidecarList, EthSpec, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
+    ExecutionPayloadDeneb, ExecutionPayloadElectra,
 };
 
 macro_rules! impl_store_item {
@@ -22,7 +22,7 @@ macro_rules! impl_store_item {
         }
     };
 }
-impl_store_item!(ExecutionPayloadMerge);
+impl_store_item!(ExecutionPayloadBellatrix);
 impl_store_item!(ExecutionPayloadCapella);
 impl_store_item!(ExecutionPayloadDeneb);
 impl_store_item!(ExecutionPayloadElectra);
@@ -51,7 +51,8 @@ impl<E: EthSpec> StoreItem for ExecutionPayload<E> {
                         ExecutionPayloadCapella::from_ssz_bytes(bytes)
                             .map(Self::Capella)
                             .or_else(|_| {
-                                ExecutionPayloadMerge::from_ssz_bytes(bytes).map(Self::Merge)
+                                ExecutionPayloadBellatrix::from_ssz_bytes(bytes)
+                                    .map(Self::Bellatrix)
                             })
                     })
             })
