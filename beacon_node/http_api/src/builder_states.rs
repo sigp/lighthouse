@@ -53,7 +53,7 @@ fn get_next_withdrawals_sanity_checks<T: BeaconChainTypes>(
     }
 
     let fork = chain.spec.fork_name_at_slot::<T::EthSpec>(proposal_slot);
-    if let ForkName::Base | ForkName::Altair | ForkName::Merge = fork {
+    if let ForkName::Base | ForkName::Altair | ForkName::Bellatrix = fork {
         return Err(warp_utils::reject::custom_bad_request(
             "the specified state is a pre-capella state.".to_string(),
         ));

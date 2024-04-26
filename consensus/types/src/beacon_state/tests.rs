@@ -2,8 +2,8 @@
 use crate::{test_utils::*, ForkName};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
-    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateCapella,
-    BeaconStateDeneb, BeaconStateElectra, BeaconStateError, BeaconStateMerge, ChainSpec, Domain,
+    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateBellatrix,
+    BeaconStateCapella, BeaconStateDeneb, BeaconStateElectra, BeaconStateError, ChainSpec, Domain,
     Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot, Vector,
 };
 use ssz::Encode;

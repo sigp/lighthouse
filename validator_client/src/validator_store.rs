@@ -360,7 +360,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     fn signing_context(&self, domain: Domain, signing_epoch: Epoch) -> SigningContext {
         if domain == Domain::VoluntaryExit {
             match self.spec.fork_name_at_epoch(signing_epoch) {
-                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                     SigningContext {
                         domain,
                         epoch: signing_epoch,

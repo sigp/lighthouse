@@ -92,7 +92,7 @@ pub struct KzgInclusionMerkleProofValidity<E: EthSpec> {
 impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let block: BeaconBlockBody<E, FullPayload<E>> = match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 return Err(Error::InternalError(format!(
                     "KZG inclusion merkle proof validity test skipped for {:?}",
                     fork_name

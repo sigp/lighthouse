@@ -206,7 +206,7 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Derivative,
@@ -254,14 +254,14 @@ impl From<BeaconStateHash> for Hash256 {
             )),
             num_fields(all()),
         )),
-        Merge(metastruct(
+        Bellatrix(metastruct(
             mappings(
                 map_beacon_state_bellatrix_fields(),
                 map_beacon_state_bellatrix_tree_list_fields(mutable, fallible, groups(tree_lists)),
                 map_beacon_state_bellatrix_tree_list_fields_immutable(groups(tree_lists)),
             ),
             bimappings(bimap_beacon_state_bellatrix_tree_list_fields(
-                other_type = "BeaconStateMerge",
+                other_type = "BeaconStateBellatrix",
                 self_mutable,
                 fallible,
                 groups(tree_lists)
@@ -392,10 +392,10 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[test_random(default)]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[test_random(default)]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
@@ -415,25 +415,25 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[test_random(default)]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
     #[superstruct(
-        only(Merge),
-        partial_getter(rename = "latest_execution_payload_header_merge")
+        only(Bellatrix),
+        partial_getter(rename = "latest_execution_payload_header_bellatrix")
     )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderMerge<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderBellatrix<E>,
     #[superstruct(
         only(Capella),
         partial_getter(rename = "latest_execution_payload_header_capella")
@@ -635,7 +635,7 @@ impl<E: EthSpec> BeaconState<E> {
         match self {
             BeaconState::Base { .. } => ForkName::Base,
             BeaconState::Altair { .. } => ForkName::Altair,
-            BeaconState::Merge { .. } => ForkName::Merge,
+            BeaconState::Bellatrix { .. } => ForkName::Bellatrix,
             BeaconState::Capella { .. } => ForkName::Capella,
             BeaconState::Deneb { .. } => ForkName::Deneb,
             BeaconState::Electra { .. } => ForkName::Electra,
@@ -918,7 +918,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn latest_execution_payload_header(&self) -> Result<ExecutionPayloadHeaderRef<E>, Error> {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Merge(state) => Ok(ExecutionPayloadHeaderRef::Merge(
+            BeaconState::Bellatrix(state) => Ok(ExecutionPayloadHeaderRef::Bellatrix(
                 &state.latest_execution_payload_header,
             )),
             BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRef::Capella(
@@ -938,7 +938,7 @@ impl<E: EthSpec> BeaconState<E> {
     ) -> Result<ExecutionPayloadHeaderRefMut<E>, Error> {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Merge(state) => Ok(ExecutionPayloadHeaderRefMut::Merge(
+            BeaconState::Bellatrix(state) => Ok(ExecutionPayloadHeaderRefMut::Bellatrix(
                 &mut state.latest_execution_payload_header,
             )),
             BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRefMut::Capella(
@@ -1424,7 +1424,7 @@ impl<E: EthSpec> BeaconState<E> {
                 &mut state.exit_cache,
                 &mut state.epoch_cache,
             )),
-            BeaconState::Merge(state) => Ok((
+            BeaconState::Bellatrix(state) => Ok((
                 &mut state.validators,
                 &mut state.balances,
                 &state.previous_epoch_participation,
@@ -1589,7 +1589,7 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(match self {
             BeaconState::Base(_)
             | BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_) => self.get_validator_churn_limit(spec)?,
             BeaconState::Deneb(_) | BeaconState::Electra(_) => std::cmp::min(
                 spec.max_per_epoch_activation_churn_limit,
@@ -1708,7 +1708,7 @@ impl<E: EthSpec> BeaconState<E> {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
-                BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Bellatrix(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Deneb(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Electra(state) => Ok(&mut state.current_epoch_participation),
@@ -1717,7 +1717,7 @@ impl<E: EthSpec> BeaconState<E> {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
-                BeaconState::Merge(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Bellatrix(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Deneb(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Electra(state) => Ok(&mut state.previous_epoch_participation),
@@ -1958,7 +1958,7 @@ impl<E: EthSpec> BeaconState<E> {
                     any_pending_mutations |= self_field.has_pending_updates();
                 });
             }
-            Self::Merge(self_inner) => {
+            Self::Bellatrix(self_inner) => {
                 map_beacon_state_bellatrix_tree_list_fields_immutable!(
                     self_inner,
                     |_, self_field| {
@@ -2163,14 +2163,14 @@ impl<E: EthSpec> BeaconState<E> {
                 );
             }
             (Self::Altair(_), _) => (),
-            (Self::Merge(self_inner), Self::Merge(base_inner)) => {
+            (Self::Bellatrix(self_inner), Self::Bellatrix(base_inner)) => {
                 bimap_beacon_state_bellatrix_tree_list_fields!(
                     self_inner,
                     base_inner,
                     |_, self_field, base_field| { self_field.rebase_on(base_field) }
                 );
             }
-            (Self::Merge(_), _) => (),
+            (Self::Bellatrix(_), _) => (),
             (Self::Capella(self_inner), Self::Capella(base_inner)) => {
                 bimap_beacon_state_capella_tree_list_fields!(
                     self_inner,
@@ -2263,7 +2263,7 @@ impl<E: EthSpec> BeaconState<E> {
         match fork_name {
             ForkName::Base => BeaconStateBase::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS.next_power_of_two(),
-            ForkName::Merge => BeaconStateMerge::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Bellatrix => BeaconStateBellatrix::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS.next_power_of_two(),
@@ -2303,7 +2303,7 @@ impl<E: EthSpec> BeaconState<E> {
             Self::Altair(inner) => {
                 map_beacon_state_altair_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
-            Self::Merge(inner) => {
+            Self::Bellatrix(inner) => {
                 map_beacon_state_bellatrix_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
             Self::Capella(inner) => {
@@ -2359,7 +2359,7 @@ impl<E: EthSpec> BeaconState<E> {
                     leaves.push(field.tree_hash_root());
                 });
             }
-            BeaconState::Merge(state) => {
+            BeaconState::Bellatrix(state) => {
                 map_beacon_state_bellatrix_fields!(state, |_, field| {
                     leaves.push(field.tree_hash_root());
                 });
@@ -2449,7 +2449,7 @@ impl<E: EthSpec> CompareFields for BeaconState<E> {
         match (self, other) {
             (BeaconState::Base(x), BeaconState::Base(y)) => x.compare_fields(y),
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
-            (BeaconState::Merge(x), BeaconState::Merge(y)) => x.compare_fields(y),
+            (BeaconState::Bellatrix(x), BeaconState::Bellatrix(y)) => x.compare_fields(y),
             (BeaconState::Capella(x), BeaconState::Capella(y)) => x.compare_fields(y),
             (BeaconState::Deneb(x), BeaconState::Deneb(y)) => x.compare_fields(y),
             (BeaconState::Electra(x), BeaconState::Electra(y)) => x.compare_fields(y),
