@@ -67,8 +67,8 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         std::fs::write(&path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
 
         let config = Config {
-            execution_endpoints: vec![url],
-            secret_files: vec![path],
+            execution_endpoint: Some(url),
+            secret_file: Some(path),
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
@@ -138,7 +138,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                ForkName::Merge,
+                ForkName::Bellatrix,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,
@@ -178,7 +178,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                ForkName::Merge,
+                ForkName::Bellatrix,
                 &self.spec,
                 None,
                 BlockProductionVersion::BlindedV2,

@@ -855,6 +855,7 @@ impl<E: EthSpec> UnsignedBlock<E> {
     }
 }
 
+#[derive(Debug)]
 pub enum SignedBlock<E: EthSpec> {
     Full(PublishBlockRequest<E>),
     Blinded(Arc<SignedBlindedBeaconBlock<E>>),

@@ -2,7 +2,7 @@ use crate::local_network::LocalNetwork;
 use crate::ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE;
 use node_test_rig::eth2::types::{BlockId, FinalityCheckpointsData, StateId};
 use std::time::Duration;
-use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, Slot, Unsigned};
+use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Slot, Unsigned};
 
 /// Checks that all of the validators have on-boarded by the start of the second eth1 voting
 /// period.
@@ -235,7 +235,7 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
     }
 
     let first = block_hashes[0];
-    if first.into_root() != Hash256::zero() && block_hashes.iter().all(|&item| item == first) {
+    if block_hashes.iter().all(|&item| item == first) {
         Ok(())
     } else {
         Err(format!(
@@ -335,17 +335,80 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
     Ok(())
 }
 
-// Causes the execution node at `node_index` to disconnect from the execution layer 1 epoch after
-// the merge transition.
+/// Checks that a node is synced with the network.
+/// Useful for ensuring that a node which started after genesis is able to sync to the head.
+pub async fn ensure_node_synced_up_to_slot<E: EthSpec>(
+    network: LocalNetwork<E>,
+    node_index: usize,
+    upto_slot: Slot,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    slot_delay(upto_slot, slot_duration).await;
+    let node = &network
+        .remote_nodes()?
+        .get(node_index)
+        .expect("Should get node")
+        .clone();
+
+    let head = node
+        .get_beacon_blocks::<E>(BlockId::Head)
+        .await
+        .ok()
+        .flatten()
+        .ok_or(format!("No head block exists on node {node_index}"))?
+        .data;
+
+    // Check the head block is synced with the rest of the network.
+    if head.slot() >= upto_slot {
+        Ok(())
+    } else {
+        Err(format!(
+            "Head not synced for node {node_index}. Found {}; Should be {upto_slot}",
+            head.slot()
+        ))
+    }
+}
+
+/// Verifies that there's been blobs produced at every slot with a block from `blob_start_slot` up
+/// to and including `upto_slot`.
+pub async fn verify_full_blob_production_up_to<E: EthSpec>(
+    network: LocalNetwork<E>,
+    blob_start_slot: Slot,
+    upto_slot: Slot,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    slot_delay(upto_slot, slot_duration).await;
+    let remote_nodes = network.remote_nodes()?;
+    let remote_node = remote_nodes.first().unwrap();
+
+    for slot in blob_start_slot.as_u64()..=upto_slot.as_u64() {
+        // Ensure block exists.
+        let block = remote_node
+            .get_beacon_blocks::<E>(BlockId::Slot(Slot::new(slot)))
+            .await
+            .ok()
+            .flatten();
+
+        // Only check blobs if the block exists. If you also want to ensure full block production, use
+        // the `verify_full_block_production_up_to` function.
+        if block.is_some() {
+            remote_node
+                .get_blobs::<E>(BlockId::Slot(Slot::new(slot)), None)
+                .await
+                .map_err(|e| format!("Failed to get blobs at slot {slot:?}: {e:?}"))?
+                .ok_or_else(|| format!("No blobs available at slot {slot:?}"))?;
+        }
+    }
+
+    Ok(())
+}
+
+// Causes the beacon node at `node_index` to disconnect from the execution layer.
 pub async fn disconnect_from_execution_layer<E: EthSpec>(
     network: LocalNetwork<E>,
-    transition_epoch: Epoch,
-    slot_duration: Duration,
     node_index: usize,
 ) -> Result<(), String> {
-    epoch_delay(transition_epoch + 1, slot_duration, E::slots_per_epoch()).await;
-
-    eprintln!("Disabling Execution Layer");
+    eprintln!("Disabling Execution Node {node_index}");
 
     // Force the execution node to return the `syncing` status.
     network.execution_nodes.read()[node_index]
@@ -354,50 +417,37 @@ pub async fn disconnect_from_execution_layer<E: EthSpec>(
     Ok(())
 }
 
+// Causes the beacon node at `node_index` to reconnect from the execution layer.
 pub async fn reconnect_to_execution_layer<E: EthSpec>(
     network: LocalNetwork<E>,
-    transition_epoch: Epoch,
-    slot_duration: Duration,
     node_index: usize,
-    epochs_offline: u64,
 ) -> Result<(), String> {
-    // Ensure this is configurable by only reconnecting after `epoch_offline`.
-    epoch_delay(
-        transition_epoch + epochs_offline,
-        slot_duration,
-        E::slots_per_epoch(),
-    )
-    .await;
-
-    // Restore the functionality of the execution node.
     network.execution_nodes.read()[node_index]
         .server
         .all_payloads_valid();
 
-    eprintln!("Re-enabling Execution Layer");
+    eprintln!("Enabling Execution Node {node_index}");
     Ok(())
 }
 
 /// Ensure all validators have attested correctly.
 pub async fn check_attestation_correctness<E: EthSpec>(
     network: LocalNetwork<E>,
-    start_epoch: Epoch,
-    // Must be 2 epochs less than the end of the simulation.
-    upto_epoch: Epoch,
-    slots_per_epoch: u64,
+    start_epoch: u64,
+    upto_epoch: u64,
     slot_duration: Duration,
     // Select which node to query. Will use this node to determine the global network performance.
     node_index: usize,
+    acceptable_attestation_performance: f64,
 ) -> Result<(), String> {
-    let upto_slot = upto_epoch.start_slot(slots_per_epoch);
-    slot_delay(upto_slot, slot_duration).await;
+    epoch_delay(Epoch::new(upto_epoch), slot_duration, E::slots_per_epoch()).await;
 
     let remote_node = &network.remote_nodes()?[node_index];
 
     let results = remote_node
         .get_lighthouse_analysis_attestation_performance(
-            start_epoch,
-            upto_epoch - 2,
+            Epoch::new(start_epoch),
+            Epoch::new(upto_epoch - 2),
             "global".to_string(),
         )
         .await
@@ -439,16 +489,16 @@ pub async fn check_attestation_correctness<E: EthSpec>(
     eprintln!("Target: {}: {}%", target_successes, target_percent);
     eprintln!("Source: {}: {}%", source_successes, source_percent);
 
-    if active_percent < ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE {
+    if active_percent < acceptable_attestation_performance {
         return Err("Active percent was below required level".to_string());
     }
-    if head_percent < ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE {
+    if head_percent < acceptable_attestation_performance {
         return Err("Head percent was below required level".to_string());
     }
-    if target_percent < ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE {
+    if target_percent < acceptable_attestation_performance {
         return Err("Target percent was below required level".to_string());
     }
-    if source_percent < ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE {
+    if source_percent < acceptable_attestation_performance {
         return Err("Source percent was below required level".to_string());
     }
 

@@ -18,8 +18,8 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::{
     BlobSidecar, ChainSpec, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockMerge,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -403,8 +403,8 @@ fn context_bytes<E: EthSpec>(
                         SignedBeaconBlock::Capella { .. } => {
                             fork_context.to_context_bytes(ForkName::Capella)
                         }
-                        SignedBeaconBlock::Merge { .. } => {
-                            fork_context.to_context_bytes(ForkName::Merge)
+                        SignedBeaconBlock::Bellatrix { .. } => {
+                            fork_context.to_context_bytes(ForkName::Bellatrix)
                         }
                         SignedBeaconBlock::Altair { .. } => {
                             fork_context.to_context_bytes(ForkName::Altair)
@@ -658,8 +658,10 @@ fn handle_rpc_response<E: EthSpec>(
             Some(ForkName::Base) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                 SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
             )))),
-            Some(ForkName::Merge) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(decoded_buffer)?),
+            Some(ForkName::Bellatrix) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
             )))),
             Some(ForkName::Capella) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                 SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
@@ -689,8 +691,10 @@ fn handle_rpc_response<E: EthSpec>(
             Some(ForkName::Base) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                 SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
             )))),
-            Some(ForkName::Merge) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(decoded_buffer)?),
+            Some(ForkName::Bellatrix) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
             )))),
             Some(ForkName::Capella) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                 SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
@@ -743,7 +747,7 @@ mod tests {
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockMerge, EmptyBlock, Epoch, FullPayload, Signature, Slot,
+        BeaconBlockBellatrix, EmptyBlock, Epoch, FullPayload, Signature, Slot,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -751,13 +755,13 @@ mod tests {
     fn fork_context(fork_name: ForkName) -> ForkContext {
         let mut chain_spec = Spec::default_spec();
         let altair_fork_epoch = Epoch::new(1);
-        let merge_fork_epoch = Epoch::new(2);
+        let bellatrix_fork_epoch = Epoch::new(2);
         let capella_fork_epoch = Epoch::new(3);
         let deneb_fork_epoch = Epoch::new(4);
         let electra_fork_epoch = Epoch::new(5);
 
         chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
-        chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
+        chain_spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
         chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
         chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
         chain_spec.electra_fork_epoch = Some(electra_fork_epoch);
@@ -765,7 +769,7 @@ mod tests {
         let current_slot = match fork_name {
             ForkName::Base => Slot::new(0),
             ForkName::Altair => altair_fork_epoch.start_slot(Spec::slots_per_epoch()),
-            ForkName::Merge => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Bellatrix => bellatrix_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Deneb => deneb_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Electra => electra_fork_epoch.start_slot(Spec::slots_per_epoch()),
@@ -790,32 +794,38 @@ mod tests {
         Arc::new(BlobSidecar::empty())
     }
 
-    /// Merge block with length < max_rpc_size.
-    fn merge_block_small(fork_context: &ForkContext, spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
-        let mut block: BeaconBlockMerge<_, FullPayload<Spec>> =
-            BeaconBlockMerge::empty(&Spec::default_spec());
+    /// Bellatrix block with length < max_rpc_size.
+    fn bellatrix_block_small(
+        fork_context: &ForkContext,
+        spec: &ChainSpec,
+    ) -> SignedBeaconBlock<Spec> {
+        let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
+            BeaconBlockBellatrix::empty(&Spec::default_spec());
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat(tx).take(5000).collect::<Vec<_>>());
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
-        let block = BeaconBlock::Merge(block);
+        let block = BeaconBlock::Bellatrix(block);
         assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec.max_chunk_size as usize));
         SignedBeaconBlock::from_block(block, Signature::empty())
     }
 
-    /// Merge block with length > MAX_RPC_SIZE.
-    /// The max limit for a merge block is in the order of ~16GiB which wouldn't fit in memory.
-    /// Hence, we generate a merge block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
-    fn merge_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
-        let mut block: BeaconBlockMerge<_, FullPayload<Spec>> =
-            BeaconBlockMerge::empty(&Spec::default_spec());
+    /// Bellatrix block with length > MAX_RPC_SIZE.
+    /// The max limit for a Bellatrix block is in the order of ~16GiB which wouldn't fit in memory.
+    /// Hence, we generate a Bellatrix block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
+    fn bellatrix_block_large(
+        fork_context: &ForkContext,
+        spec: &ChainSpec,
+    ) -> SignedBeaconBlock<Spec> {
+        let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
+            BeaconBlockBellatrix::empty(&Spec::default_spec());
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat(tx).take(100000).collect::<Vec<_>>());
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
-        let block = BeaconBlock::Merge(block);
+        let block = BeaconBlock::Bellatrix(block);
         assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec.max_chunk_size as usize));
         SignedBeaconBlock::from_block(block, Signature::empty())
     }
@@ -1172,25 +1182,27 @@ mod tests {
             Ok(Some(RPCResponse::BlocksByRange(Arc::new(altair_block()))))
         );
 
-        let merge_block_small = merge_block_small(&fork_context(ForkName::Merge), &chain_spec);
-        let merge_block_large = merge_block_large(&fork_context(ForkName::Merge), &chain_spec);
+        let bellatrix_block_small =
+            bellatrix_block_small(&fork_context(ForkName::Bellatrix), &chain_spec);
+        let bellatrix_block_large =
+            bellatrix_block_large(&fork_context(ForkName::Bellatrix), &chain_spec);
 
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlocksByRangeV2,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(
-                    merge_block_small.clone()
+                    bellatrix_block_small.clone()
                 ))),
-                ForkName::Merge,
+                ForkName::Bellatrix,
                 &chain_spec,
             ),
             Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-                merge_block_small.clone()
+                bellatrix_block_small.clone()
             ))))
         );
 
         let mut encoded =
-            encode_without_length_checks(merge_block_large.as_ssz_bytes(), ForkName::Merge)
+            encode_without_length_checks(bellatrix_block_large.as_ssz_bytes(), ForkName::Bellatrix)
                 .unwrap();
 
         assert!(
@@ -1198,7 +1210,7 @@ mod tests {
                 decode_response(
                     SupportedProtocol::BlocksByRangeV2,
                     &mut encoded,
-                    ForkName::Merge,
+                    ForkName::Bellatrix,
                     &chain_spec,
                 )
                 .unwrap_err(),
@@ -1248,16 +1260,18 @@ mod tests {
             encode_then_decode_response(
                 SupportedProtocol::BlocksByRootV2,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(
-                    merge_block_small.clone()
+                    bellatrix_block_small.clone()
                 ))),
-                ForkName::Merge,
+                ForkName::Bellatrix,
                 &chain_spec,
             ),
-            Ok(Some(RPCResponse::BlocksByRoot(Arc::new(merge_block_small))))
+            Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                bellatrix_block_small
+            ))))
         );
 
         let mut encoded =
-            encode_without_length_checks(merge_block_large.as_ssz_bytes(), ForkName::Merge)
+            encode_without_length_checks(bellatrix_block_large.as_ssz_bytes(), ForkName::Bellatrix)
                 .unwrap();
 
         assert!(
@@ -1265,7 +1279,7 @@ mod tests {
                 decode_response(
                     SupportedProtocol::BlocksByRootV2,
                     &mut encoded,
-                    ForkName::Merge,
+                    ForkName::Bellatrix,
                     &chain_spec,
                 )
                 .unwrap_err(),
