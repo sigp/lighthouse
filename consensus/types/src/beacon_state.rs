@@ -467,6 +467,40 @@ where
     #[test_random(default)]
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
+    // Electra
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub deposit_receipts_start_index: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub deposit_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub exit_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    pub earliest_exit_epoch: Epoch,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub consolidation_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    pub earliest_consolidation_epoch: Epoch,
+    #[test_random(default)]
+    #[superstruct(only(Electra))]
+    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    #[test_random(default)]
+    #[superstruct(only(Electra))]
+    pub pending_partial_withdrawals:
+        List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
+    #[test_random(default)]
+    #[superstruct(only(Electra))]
+    pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
+
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -2031,6 +2065,83 @@ impl<E: EthSpec> BeaconState<E> {
         self.epoch_cache().get_base_reward(validator_index)
     }
 
+    // ******* Electra accessors *******
+
+    /// Return the churn limit for the current epoch.
+    pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        let total_active_balance = self.get_total_active_balance()?;
+        let churn = std::cmp::max(
+            spec.min_per_epoch_churn_limit_electra,
+            total_active_balance.safe_div(spec.churn_limit_quotient)?,
+        );
+
+        Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
+    }
+
+    /// Return the churn limit for the current epoch dedicated to activations and exits.
+    pub fn get_activation_exit_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        Ok(std::cmp::min(
+            spec.max_per_epoch_activation_exit_churn_limit,
+            self.get_balance_churn_limit(spec)?,
+        ))
+    }
+
+    pub fn get_consolidation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        self.get_balance_churn_limit(spec)?
+            .safe_sub(self.get_activation_exit_churn_limit(spec)?)
+            .map_err(Into::into)
+    }
+
+    // ******* Electra mutators *******
+
+    pub fn queue_excess_active_balance(
+        &mut self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let balance = self
+            .balances_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        if *balance > spec.min_activation_balance {
+            let excess_balance = balance.safe_sub(spec.min_activation_balance)?;
+            *balance = spec.min_activation_balance;
+            self.pending_balance_deposits_mut()?
+                .push(PendingBalanceDeposit {
+                    index: validator_index as u64,
+                    amount: excess_balance,
+                })?;
+        }
+        Ok(())
+    }
+
+    pub fn queue_entire_balance_and_reset_validator(
+        &mut self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let balance = self
+            .balances_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        let balance_copy = *balance;
+        *balance = 0_u64;
+
+        let validator = self
+            .validators_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        validator.effective_balance = 0;
+        validator.activation_eligibility_epoch = spec.far_future_epoch;
+
+        self.pending_balance_deposits_mut()?
+            .push(PendingBalanceDeposit {
+                index: validator_index as u64,
+                amount: balance_copy,
+            })
+            .map_err(Into::into)
+    }
+
     #[allow(clippy::arithmetic_side_effects)]
     pub fn rebase_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
         // Required for macros (which use type-hints internally).
@@ -2147,10 +2258,17 @@ impl<E: EthSpec> BeaconState<E> {
     /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
     ///
     /// This is relevant to tree-hashing of the `BeaconState`.
-    ///
-    /// We assume this value is stable across forks. This assumption is checked in the
-    /// `check_num_fields_pow2` test.
-    pub const NUM_FIELDS_POW2: usize = BeaconStateBellatrix::<E>::NUM_FIELDS.next_power_of_two();
+    pub fn num_fields_pow2(&self) -> usize {
+        let fork_name = self.fork_name_unchecked();
+        match fork_name {
+            ForkName::Base => BeaconStateBase::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Bellatrix => BeaconStateBellatrix::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS.next_power_of_two(),
+        }
+    }
 
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
     #[allow(clippy::arithmetic_side_effects)]
@@ -2211,7 +2329,7 @@ impl<E: EthSpec> BeaconState<E> {
                 // in the `BeaconState`:
                 // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
                 generalized_index
-                    .checked_sub(Self::NUM_FIELDS_POW2)
+                    .checked_sub(self.num_fields_pow2())
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
             light_client_update::FINALIZED_ROOT_INDEX => {
@@ -2221,7 +2339,7 @@ impl<E: EthSpec> BeaconState<E> {
                 // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 which matches
                 // position of `finalized_checkpoint` in `BeaconState`.
                 finalized_checkpoint_generalized_index
-                    .checked_sub(Self::NUM_FIELDS_POW2)
+                    .checked_sub(self.num_fields_pow2())
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
             _ => return Err(Error::IndexNotSupported(generalized_index)),
