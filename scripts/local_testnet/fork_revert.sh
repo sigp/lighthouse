@@ -33,7 +33,13 @@ for ((i = 0; i < n; i++)); do
     tail ~/.lighthouse/local-testnet/testnet/PIDS.pid --lines 2 >> $stale_testnet_dir/stale_pids.pid
 done
 
+# Wait for the two chains to split
 sleeping $(($DENEB_FORK_EPOCH*32*$SECONDS_PER_SLOT))
+
+echo "Sending a transaction on the stale chain"
+./transaction.sh
+
+sleeping 30
 
 ./kill_processes.sh $stale_testnet_dir/stale_pids.pid
 
