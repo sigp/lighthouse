@@ -2258,10 +2258,17 @@ impl<E: EthSpec> BeaconState<E> {
     /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
     ///
     /// This is relevant to tree-hashing of the `BeaconState`.
-    ///
-    /// We assume this value is stable across forks. This assumption is checked in the
-    /// `check_num_fields_pow2` test.
-    pub const NUM_FIELDS_POW2: usize = BeaconStateMerge::<E>::NUM_FIELDS.next_power_of_two();
+    pub fn num_fields_pow2(&self) -> usize {
+        let fork_name = self.fork_name_unchecked();
+        match fork_name {
+            ForkName::Base => BeaconStateBase::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Merge => BeaconStateMerge::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS.next_power_of_two(),
+        }
+    }
 
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
     #[allow(clippy::arithmetic_side_effects)]
@@ -2322,7 +2329,7 @@ impl<E: EthSpec> BeaconState<E> {
                 // in the `BeaconState`:
                 // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
                 generalized_index
-                    .checked_sub(Self::NUM_FIELDS_POW2)
+                    .checked_sub(self.num_fields_pow2())
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
             light_client_update::FINALIZED_ROOT_INDEX => {
@@ -2332,7 +2339,7 @@ impl<E: EthSpec> BeaconState<E> {
                 // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 which matches
                 // position of `finalized_checkpoint` in `BeaconState`.
                 finalized_checkpoint_generalized_index
-                    .checked_sub(Self::NUM_FIELDS_POW2)
+                    .checked_sub(self.num_fields_pow2())
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
             _ => return Err(Error::IndexNotSupported(generalized_index)),

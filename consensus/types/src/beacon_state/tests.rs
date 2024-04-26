@@ -403,24 +403,3 @@ fn decode_base_and_altair() {
             .expect_err("bad altair state cannot be decoded");
     }
 }
-
-#[test]
-fn check_num_fields_pow2() {
-    use metastruct::NumFields;
-    pub type E = MainnetEthSpec;
-
-    for fork_name in ForkName::list_all() {
-        let num_fields = match fork_name {
-            ForkName::Base => BeaconStateBase::<E>::NUM_FIELDS,
-            ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS,
-            ForkName::Merge => BeaconStateMerge::<E>::NUM_FIELDS,
-            ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS,
-            ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS,
-            ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS,
-        };
-        assert_eq!(
-            num_fields.next_power_of_two(),
-            BeaconState::<E>::NUM_FIELDS_POW2
-        );
-    }
-}
