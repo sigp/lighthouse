@@ -620,7 +620,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Result<(), &'static str> {
         match self.beacon_processor_if_enabled() {
             Some(beacon_processor) => {
-                trace!(self.log, "Sending blobs for processing"; "block" => ?block_root, "process_type" => ?process_type);
+                debug!(self.log, "Sending blobs for processing"; "block" => ?block_root, "process_type" => ?process_type);
                 if let Err(e) =
                     beacon_processor.send_rpc_blobs(block_root, blobs, duration, process_type)
                 {

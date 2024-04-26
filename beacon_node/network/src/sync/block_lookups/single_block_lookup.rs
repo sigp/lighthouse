@@ -67,8 +67,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
     /// Mark this lookup as no longer awaiting a parent lookup. Components can be sent for
     /// processing.
-    pub fn resolve_awaiting_parent(&mut self) -> Option<Hash256> {
-        self.awaiting_parent.take()
+    pub fn resolve_awaiting_parent(&mut self) {
+        self.awaiting_parent = None;
     }
 
     pub fn add_child_components(&mut self, block_component: BlockComponent<T::EthSpec>) {
@@ -106,7 +106,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_request_state
             .state
             .get_available_peers()
-            .chain(self.blob_request_state.state.get_used_peers())
+            .chain(self.blob_request_state.state.get_available_peers())
             .unique()
     }
 
@@ -131,10 +131,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             .state
             .peek_downloaded_data()
             .map(|block| block.num_expected_blobs());
+        let block_is_processed = self.block_request_state.state.is_processed();
         R::request_state_mut(self).continue_request(
             id,
             awaiting_parent,
             downloaded_block_expected_blobs,
+            block_is_processed,
             cx,
         )
     }
@@ -214,7 +216,7 @@ pub enum State<T: Clone> {
     Downloading,
     AwaitingProcess(DownloadResult<T>),
     Processing(DownloadResult<T>),
-    Processed { peer_id: PeerId },
+    Processed(PeerId),
 }
 
 /// Object representing the state of a single block or blob lookup request.
@@ -294,7 +296,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
-                "request bad state, expected AwaitingDownload got {other}"
+                "Bad state on_download_start expected AwaitingDownload got {other}"
             ))),
         }
     }
@@ -309,7 +311,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
-                "request bad state, expected Downloading got {other}"
+                "Bad state on_download_failure expected Downloading got {other}"
             ))),
         }
     }
@@ -324,7 +326,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
-                "request bad state, expected Downloading got {other}"
+                "Bad state on_download_success expected Downloading got {other}"
             ))),
         }
     }
@@ -351,7 +353,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
-                "request bad state, expected Processing got {other}"
+                "Bad state on revert_to_awaiting_processing expected Processing got {other}"
             ))),
         }
     }
@@ -366,19 +368,34 @@ impl<T: Clone> SingleLookupRequestState<T> {
                 Ok(peer_id)
             }
             other => Err(LookupRequestError::BadState(format!(
-                "request bad state, expected Processing got {other}"
+                "Bad state on_processing_failure expected Processing got {other}"
             ))),
         }
     }
 
-    pub fn on_processing_success(&mut self) -> Result<(), LookupRequestError> {
+    pub fn on_processing_success(&mut self) -> Result<PeerId, LookupRequestError> {
         match &self.state {
             State::Processing(result) => {
-                self.state = State::Processed { peer_id: result.3 };
-                Ok(())
+                let peer_id = result.3;
+                self.state = State::Processed(peer_id);
+                Ok(peer_id)
             }
             other => Err(LookupRequestError::BadState(format!(
-                "request bad state, expected Processing got {other}"
+                "Bad state on_processing_success expected Processing got {other}"
+            ))),
+        }
+    }
+
+    pub fn on_post_process_validation_failure(&mut self) -> Result<PeerId, LookupRequestError> {
+        match &self.state {
+            State::Processed(peer_id) => {
+                let peer_id = *peer_id;
+                self.failed_processing = self.failed_processing.saturating_add(1);
+                self.state = State::AwaitingDownload;
+                Ok(peer_id)
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on_post_process_validation_failure expected Processed got {other}"
             ))),
         }
     }

@@ -2918,6 +2918,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
+            // TODO: Should also check for:
+            // - Parent block is known
+            // - Slot is not in the future
             return Err(BlockError::BlockIsAlreadyKnown(block_root));
         }
 

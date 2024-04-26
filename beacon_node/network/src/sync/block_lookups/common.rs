@@ -49,6 +49,7 @@ pub trait RequestState<T: BeaconChainTypes> {
         id: Id,
         awaiting_parent: bool,
         downloaded_block_expected_blobs: Option<usize>,
+        block_is_processed: bool,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         // Attempt to progress awaiting downloads
@@ -75,7 +76,12 @@ pub trait RequestState<T: BeaconChainTypes> {
         // Otherwise, attempt to progress awaiting processing
         // If this request is awaiting a parent lookup to be processed, do not send for processing.
         // The request will be rejected with unknown parent error.
-        } else if !awaiting_parent {
+        } else if !awaiting_parent &&
+            // TODO: Blob processing / import does not check for unknown parent. As a temporary fix
+            // and to emulate the behaviour before this PR, hold blobs for processing until the
+            // block has been processed i.e. it has a known parent.
+             (block_is_processed || matches!(Self::response_type(), ResponseType::Block))
+        {
             // maybe_start_processing returns Some if state == AwaitingProcess. This pattern is
             // useful to conditionally access the result data.
             if let Some(result) = self.get_state_mut().maybe_start_processing() {

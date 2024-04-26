@@ -151,6 +151,21 @@ pub enum BlockProcessType {
     SingleBlob { id: Id },
 }
 
+impl BlockProcessType {
+    pub fn component(&self) -> &'static str {
+        match self {
+            BlockProcessType::SingleBlock { .. } => "block",
+            BlockProcessType::SingleBlob { .. } => "blob",
+        }
+    }
+
+    pub fn id(&self) -> Id {
+        match self {
+            BlockProcessType::SingleBlock { id } | BlockProcessType::SingleBlob { id } => *id,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum BlockProcessingResult<E: EthSpec> {
     Ok(AvailabilityProcessingStatus),
@@ -261,12 +276,21 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     #[cfg(test)]
     pub(crate) fn active_parent_lookups(&self) -> Vec<Vec<Hash256>> {
-        self.block_lookups.active_parent_lookups()
+        self.block_lookups
+            .active_parent_lookups()
+            .iter()
+            .map(|c| c.chain.clone())
+            .collect()
     }
 
     #[cfg(test)]
-    pub(crate) fn failed_chains_contains(&mut self, chain_hash: &Hash256) -> bool {
-        self.block_lookups.failed_chains_contains(chain_hash)
+    pub(crate) fn get_failed_chains(&mut self) -> Vec<Hash256> {
+        self.block_lookups.get_failed_chains()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_failed_chain(&mut self, block_root: Hash256) {
+        self.block_lookups.insert_failed_chain(block_root);
     }
 
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -648,13 +672,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         match self.should_search_for_block(Some(slot), &peer_id) {
             Ok(_) => {
-                self.block_lookups.search_parent_of_child(
-                    parent_root,
-                    block_root,
-                    &[peer_id],
-                    &mut self.network,
-                );
-                self.block_lookups.search_child_of_parent(
+                self.block_lookups.search_child_and_parent(
                     block_root,
                     block_component,
                     peer_id,
