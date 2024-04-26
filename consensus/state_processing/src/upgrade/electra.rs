@@ -15,7 +15,6 @@ pub fn upgrade_to_electra<E: EthSpec>(
     // The total active balance cache must be built before the consolidation churn limit
     // is calculated.
     pre_state.build_total_active_balance_cache(spec)?;
-    let exit_balance_to_consume = pre_state.get_activation_exit_churn_limit(spec)?;
     let earliest_exit_epoch = pre_state
         .validators()
         .iter()
@@ -25,7 +24,6 @@ pub fn upgrade_to_electra<E: EthSpec>(
         .unwrap_or(epoch)
         .safe_add(1)?;
 
-    let consolidation_balance_to_consume = pre_state.get_consolidation_churn_limit(spec)?;
     let earliest_consolidation_epoch = spec.compute_activation_exit_epoch(epoch)?;
 
     let pre = pre_state.as_deneb_mut()?;
@@ -82,9 +80,9 @@ pub fn upgrade_to_electra<E: EthSpec>(
         // Electra
         deposit_receipts_start_index: spec.unset_deposit_receipts_start_index,
         deposit_balance_to_consume: 0,
-        exit_balance_to_consume,
+        exit_balance_to_consume: 0,
         earliest_exit_epoch,
-        consolidation_balance_to_consume,
+        consolidation_balance_to_consume: 0,
         earliest_consolidation_epoch,
         pending_balance_deposits: Default::default(),
         pending_partial_withdrawals: Default::default(),
@@ -98,6 +96,8 @@ pub fn upgrade_to_electra<E: EthSpec>(
         slashings_cache: mem::take(&mut pre.slashings_cache),
         epoch_cache: EpochCache::default(),
     });
+    *post.exit_balance_to_consume_mut()? = post.get_activation_exit_churn_limit(spec)?;
+    *post.consolidation_balance_to_consume_mut()? = post.get_consolidation_churn_limit(spec)?;
 
     // Add validators that are not yet active to pending balance deposits
     let validators = post.validators().clone();
