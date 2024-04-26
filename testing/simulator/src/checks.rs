@@ -1,5 +1,4 @@
 use crate::local_network::LocalNetwork;
-use crate::ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE;
 use node_test_rig::eth2::types::{BlockId, FinalityCheckpointsData, StateId};
 use std::time::Duration;
 use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Slot, Unsigned};

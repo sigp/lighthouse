@@ -3,7 +3,6 @@ use crate::local_network::TERMINAL_BLOCK;
 use crate::{checks, LocalNetwork};
 use clap::ArgMatches;
 
-use crate::common::{create_local_network, LocalNetworkParams};
 use crate::retry::with_retry;
 use futures::prelude::*;
 use node_test_rig::{
