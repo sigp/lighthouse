@@ -2113,17 +2113,15 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     pub fn get_pending_balance_to_withdraw(&self, validator_index: usize) -> Result<u64, Error> {
-        Ok(self
+        let mut pending_balance = 0;
+        for withdrawal in self
             .pending_partial_withdrawals()?
             .iter()
-            .filter_map(|withdrawal| {
-                if withdrawal.index as usize == validator_index {
-                    Some(withdrawal.amount)
-                } else {
-                    None
-                }
-            })
-            .sum())
+            .filter(|withdrawal| withdrawal.index as usize == validator_index)
+        {
+            pending_balance.safe_add_assign(withdrawal.amount)?;
+        }
+        Ok(pending_balance)
     }
 
     // ******* Electra mutators *******
