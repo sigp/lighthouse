@@ -12,7 +12,7 @@ use smallvec::{smallvec, SmallVec};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
-use types::{AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingRef};
+use types::AttesterSlashingOnDisk;
 use types::{
     BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
     SignedBlsToExecutionChange, SignedVoluntaryExit,
@@ -145,7 +145,7 @@ impl<E: EthSpec> VerifyOperation<E> for SignedVoluntaryExit {
     }
 }
 
-impl<E: EthSpec> VerifyOperation<E> for AttesterSlashingBase<E> {
+impl<E: EthSpec> VerifyOperation<E> for AttesterSlashingOnDisk<E> {
     type Error = AttesterSlashingValidationError;
 
     fn validate(
@@ -153,20 +153,15 @@ impl<E: EthSpec> VerifyOperation<E> for AttesterSlashingBase<E> {
         state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<SigVerifiedOp<Self, E>, Self::Error> {
-        verify_attester_slashing(
-            state,
-            AttesterSlashingRef::Base(&self),
-            VerifySignatures::True,
-            spec,
-        )?;
+        verify_attester_slashing(state, self.to_ref(), VerifySignatures::True, spec)?;
         Ok(SigVerifiedOp::new(self, state))
     }
 
     #[allow(clippy::arithmetic_side_effects)]
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         smallvec![
-            self.attestation_1.data.target.epoch,
-            self.attestation_2.data.target.epoch
+            self.attestation_1().data().target.epoch,
+            self.attestation_2().data().target.epoch
         ]
     }
 }
@@ -191,8 +186,8 @@ impl<E: EthSpec> VerifyOperation<E> for AttesterSlashingElectra<E> {
     #[allow(clippy::arithmetic_side_effects)]
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         smallvec![
-            self.attestation_1.data().target.epoch,
-            self.attestation_2.data().target.epoch
+            self.attestation_1().data().target.epoch,
+            self.attestation_2().data().target.epoch
         ]
     }
 }

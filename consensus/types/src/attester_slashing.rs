@@ -24,7 +24,8 @@ use tree_hash_derive::TreeHash;
         derivative(PartialEq, Eq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec"),
         arbitrary(bound = "E: EthSpec")
-    )
+    ),
+    ref_attributes(derive(Debug))
 )]
 #[derive(
     Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Derivative, arbitrary::Arbitrary,
@@ -37,6 +38,61 @@ use tree_hash_derive::TreeHash;
 pub struct AttesterSlashing<E: EthSpec> {
     pub attestation_1: IndexedAttestation<E>,
     pub attestation_2: IndexedAttestation<E>,
+}
+
+/// This is a copy of the `AttesterSlashing` enum but with `Encode` and `Decode` derived
+/// using the `union` behavior for the purposes of persistence on disk. We use a separate
+/// type so that we don't accidentally use this non-spec encoding in consensus objects.
+#[derive(Debug, Clone, Encode, Decode, Derivative)]
+#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[ssz(enum_behaviour = "union")]
+pub enum AttesterSlashingOnDisk<E: EthSpec> {
+    Base(AttesterSlashingBase<E>),
+    Electra(AttesterSlashingElectra<E>),
+}
+
+impl<E: EthSpec> From<AttesterSlashing<E>> for AttesterSlashingOnDisk<E> {
+    fn from(attester_slashing: AttesterSlashing<E>) -> Self {
+        match attester_slashing {
+            AttesterSlashing::Base(attester_slashing) => Self::Base(attester_slashing),
+            AttesterSlashing::Electra(attester_slashing) => Self::Electra(attester_slashing),
+        }
+    }
+}
+
+impl<E: EthSpec> From<AttesterSlashingOnDisk<E>> for AttesterSlashing<E> {
+    fn from(attester_slashing: AttesterSlashingOnDisk<E>) -> Self {
+        match attester_slashing {
+            AttesterSlashingOnDisk::Base(attester_slashing) => Self::Base(attester_slashing),
+            AttesterSlashingOnDisk::Electra(attester_slashing) => Self::Electra(attester_slashing),
+        }
+    }
+}
+
+impl<E: EthSpec> AttesterSlashingOnDisk<E> {
+    pub fn to_ref(&self) -> AttesterSlashingRef<'_, E> {
+        match self {
+            AttesterSlashingOnDisk::Base(attester_slashing) => {
+                AttesterSlashingRef::Base(attester_slashing)
+            }
+            AttesterSlashingOnDisk::Electra(attester_slashing) => {
+                AttesterSlashingRef::Electra(attester_slashing)
+            }
+        }
+    }
+}
+
+impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
+    pub fn clone_as_attester_slashing(self) -> AttesterSlashing<E> {
+        match self {
+            AttesterSlashingRef::Base(attester_slashing) => {
+                AttesterSlashing::Base(attester_slashing.clone())
+            }
+            AttesterSlashingRef::Electra(attester_slashing) => {
+                AttesterSlashing::Electra(attester_slashing.clone())
+            }
+        }
+    }
 }
 
 #[cfg(test)]

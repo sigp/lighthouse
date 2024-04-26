@@ -39,9 +39,10 @@ use std::marker::PhantomData;
 use std::ptr;
 use types::{
     sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, AbstractExecPayload,
-    Attestation, AttestationData, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    Epoch, EthSpec, ProposerSlashing, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
+    Attestation, AttestationData, AttesterSlashing, AttesterSlashingOnDisk, BeaconState,
+    BeaconStateError, ChainSpec, Epoch, EthSpec, ProposerSlashing, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate,
+    SyncCommitteeContribution, Validator,
 };
 
 type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<E>>>>;
@@ -53,7 +54,7 @@ pub struct OperationPool<E: EthSpec + Default> {
     /// Map from sync aggregate ID to the best `SyncCommitteeContribution`s seen for that ID.
     sync_contributions: SyncContributions<E>,
     /// Set of attester slashings, and the fork version they were verified against.
-    attester_slashings: RwLock<HashSet<SigVerifiedOp<AttesterSlashing<E>, E>>>,
+    attester_slashings: RwLock<HashSet<SigVerifiedOp<AttesterSlashingOnDisk<E>, E>>>,
     /// Map from proposer index to slashing.
     proposer_slashings: RwLock<HashMap<u64, SigVerifiedOp<ProposerSlashing, E>>>,
     /// Map from exiting validator to their exit data.
@@ -366,7 +367,7 @@ impl<E: EthSpec> OperationPool<E> {
     /// Insert an attester slashing into the pool.
     pub fn insert_attester_slashing(
         &self,
-        verified_slashing: SigVerifiedOp<AttesterSlashing<E>, E>,
+        verified_slashing: SigVerifiedOp<AttesterSlashingOnDisk<E>, E>,
     ) {
         self.attester_slashings.write().insert(verified_slashing);
     }
@@ -428,7 +429,7 @@ impl<E: EthSpec> OperationPool<E> {
 
         let relevant_attester_slashings = reader.iter().flat_map(|slashing| {
             if slashing.signature_is_still_valid(&state.fork()) {
-                AttesterSlashingMaxCover::new(slashing.as_inner(), to_be_slashed, state)
+                AttesterSlashingMaxCover::new(slashing.as_inner().to_ref(), to_be_slashed, state)
             } else {
                 None
             }
@@ -442,7 +443,7 @@ impl<E: EthSpec> OperationPool<E> {
         .into_iter()
         .map(|cover| {
             to_be_slashed.extend(cover.covering_set().keys());
-            cover.intermediate().clone()
+            AttesterSlashingMaxCover::convert_to_object(cover.intermediate())
         })
         .collect()
     }
@@ -463,16 +464,19 @@ impl<E: EthSpec> OperationPool<E> {
             // Check that the attestation's signature is still valid wrt the fork version.
             let signature_ok = slashing.signature_is_still_valid(&head_state.fork());
             // Slashings that don't slash any validators can also be dropped.
-            let slashing_ok =
-                get_slashable_indices_modular(head_state, slashing.as_inner(), |_, validator| {
+            let slashing_ok = get_slashable_indices_modular(
+                head_state,
+                slashing.as_inner().to_ref(),
+                |_, validator| {
                     // Declare that a validator is still slashable if they have not exited prior
                     // to the finalized epoch.
                     //
                     // We cannot check the `slashed` field since the `head` is not finalized and
                     // a fork could un-slash someone.
                     validator.exit_epoch > head_state.finalized_checkpoint().epoch
-                })
-                .map_or(false, |indices| !indices.is_empty());
+                },
+            )
+            .map_or(false, |indices| !indices.is_empty());
 
             signature_ok && slashing_ok
         });
@@ -683,6 +687,7 @@ impl<E: EthSpec> OperationPool<E> {
             .read()
             .iter()
             .map(|slashing| slashing.as_inner().clone())
+            .map(Into::into)
             .collect()
     }
 
