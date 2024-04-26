@@ -48,15 +48,6 @@ pub struct Config {
     /// Disables publishing http api requests to all beacon nodes for select api calls.
     pub disable_run_on_all: bool,
     pub sync_tolerances: BeaconNodeSyncDistanceTiers,
-    // Sets the number of slots behind the head a beacon node is allowed to be to still be
-    // considered `synced`.
-    //pub sync_tolerance: Option<u64>,
-    // Sets the size of the range of the `small` sync distance tier. This range starts immediately
-    // after `sync_tolerance`.
-    //pub small_sync_distance_modifier: Option<u64>,
-    // Sets the size of the range of the `medium` sync distance tier. This range starts immediately
-    // after the `small` range.
-    //pub medium_sync_distance_modifier: Option<u64>,
 }
 
 /// Indicates a measurement of latency between the VC and a BN.
