@@ -1,10 +1,10 @@
 #![cfg(test)]
-use crate::{test_utils::*, ForkName};
+use crate::test_utils::*;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
-    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateBellatrix,
-    BeaconStateCapella, BeaconStateDeneb, BeaconStateElectra, BeaconStateError, ChainSpec, Domain,
-    Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot, Vector,
+    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
+    ChainSpec, Domain, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec,
+    RelativeEpoch, Slot, Vector,
 };
 use ssz::Encode;
 use std::ops::Mul;
