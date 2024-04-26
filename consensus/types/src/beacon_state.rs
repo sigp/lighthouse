@@ -2112,12 +2112,12 @@ impl<E: EthSpec> BeaconState<E> {
         ))
     }
 
-    pub fn get_pending_balance_to_withdraw(&self, validator_index: u64) -> Result<u64, Error> {
+    pub fn get_pending_balance_to_withdraw(&self, validator_index: usize) -> Result<u64, Error> {
         Ok(self
             .pending_partial_withdrawals()?
             .iter()
             .filter_map(|withdrawal| {
-                if withdrawal.index == validator_index {
+                if withdrawal.index as usize == validator_index {
                     Some(withdrawal.amount)
                 } else {
                     None
@@ -2179,7 +2179,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Change the withdrawal prefix of the given `validator_index` to the compounding withdrawal validator prefix.
     pub fn switch_to_compounding_validator(
         &mut self,
-        validator_index: u64,
+        validator_index: usize,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let validator = self
@@ -2187,21 +2187,21 @@ impl<E: EthSpec> BeaconState<E> {
             .get_mut(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))?;
         if validator.has_eth1_withdrawal_credential(spec) {
-            validator.withdrawal_credentials =
-                spec.compounding_withdrawal_prefix_byte + validator.withdrawal_credentials[1..];
+            validator.withdrawal_credentials.as_fixed_bytes_mut()[0] =
+                spec.compounding_withdrawal_prefix_byte;
             self.queue_excess_active_balance(validator_index, spec)?;
         }
         Ok(())
     }
 
     pub fn compute_exit_epoch_and_update_churn(
-        &self,
+        &mut self,
         exit_balance: u64,
         spec: &ChainSpec,
     ) -> Result<Epoch, Error> {
         let mut earliest_exit_epoch = std::cmp::max(
             self.earliest_exit_epoch()?,
-            self.compute_activation_exit_epoch(self.current_epoch()),
+            self.compute_activation_exit_epoch(self.current_epoch(), spec)?,
         );
 
         let per_epoch_churn = self.get_activation_exit_churn_limit(spec)?;
@@ -2214,20 +2214,21 @@ impl<E: EthSpec> BeaconState<E> {
 
         // Exit doesn't fit in the current earliest epoch
         if exit_balance > exit_balance_to_consume {
-            let balance_to_process = exit_balance - exit_balance_to_consume;
+            let balance_to_process = exit_balance.safe_sub(exit_balance_to_consume)?;
             let additional_epochs = balance_to_process
-                .safe_sub(1)
+                .safe_sub(1)?
                 .safe_div(per_epoch_churn)?
-                .safe_add(1);
+                .safe_add(1)?;
             earliest_exit_epoch.safe_add_assign(additional_epochs)?;
             exit_balance_to_consume
                 .safe_add_assign(additional_epochs.safe_mul(per_epoch_churn)?)?;
         }
+        let state = self.as_electra_mut()?;
         // Consume the balance and update state variables
-        self.exit_balance_to_consume_mut() = exit_balance_to_consume.safe_sub(exit_balance)?;
-        self.earliest_exit_epoch_mut() = earliest_exit_epoch;
+        state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
+        state.earliest_exit_epoch = earliest_exit_epoch;
 
-        Ok(self.earliest_exit_epoch())
+        Ok(state.earliest_exit_epoch)
     }
 
     pub fn compute_consolidation_epoch_and_update_churn(
@@ -2247,7 +2248,7 @@ impl<E: EthSpec> BeaconState<E> {
             if self.earliest_consolidation_epoch()? < earliest_consolidation_epoch {
                 per_epoch_consolidation_churn
             } else {
-                self.consolidation_balance_to_consume()
+                self.consolidation_balance_to_consume()?
             };
         // Consolidation doesn't fit in the current earliest epoch
         if consolidation_balance > consolidation_balance_to_consume {
@@ -2260,13 +2261,14 @@ impl<E: EthSpec> BeaconState<E> {
             earliest_consolidation_epoch.safe_add_assign(additional_epochs)?;
             consolidation_balance_to_consume
                 .safe_add_assign(additional_epochs.safe_mul(per_epoch_consolidation_churn)?)?;
-            // Consume the balance and update state variables
-            self.consolidation_balance_to_consume_mut() =
-                consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
-            self.earliest_consolidation_epoch_mut() = earliest_consolidation_epoch;
-
-            Ok(self.earliest_consolidation_epoch())
         }
+        // Consume the balance and update state variables
+        let state = self.as_electra_mut()?;
+        state.consolidation_balance_to_consume =
+            consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
+        state.earliest_consolidation_epoch = earliest_consolidation_epoch;
+
+        Ok(state.earliest_consolidation_epoch)
     }
 
     #[allow(clippy::arithmetic_side_effects)]

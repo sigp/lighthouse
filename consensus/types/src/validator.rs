@@ -153,6 +153,8 @@ impl Validator {
     }
 
     /// Returns `true` if the validator if fully withdrawable.
+    /// 
+    /// Modified in electra.
     pub fn is_fully_withdrawable_validator(
         &self,
         balance: u64,
