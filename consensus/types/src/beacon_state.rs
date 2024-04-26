@@ -2092,6 +2092,7 @@ impl<E: EthSpec> BeaconState<E> {
             .map_err(Into::into)
     }
 
+    /// Get active balance for the given `validator_index`.
     pub fn get_active_balance(
         &self,
         validator_index: usize,
@@ -2102,7 +2103,6 @@ impl<E: EthSpec> BeaconState<E> {
             .get(validator_index)
             .map(|validator| validator.get_validator_max_effective_balance(spec))
             .ok_or(Error::UnknownValidator(validator_index))?;
-        // TODO(pawan): this is assuming balances and validat
         Ok(std::cmp::min(
             *self
                 .balances()
@@ -2176,6 +2176,7 @@ impl<E: EthSpec> BeaconState<E> {
             .map_err(Into::into)
     }
 
+    /// Change the withdrawal prefix of the given `validator_index` to the compounding withdrawal validator prefix.
     pub fn switch_to_compounding_validator(
         &mut self,
         validator_index: u64,
@@ -2188,10 +2189,9 @@ impl<E: EthSpec> BeaconState<E> {
         if validator.has_eth1_withdrawal_credential(spec) {
             validator.withdrawal_credentials =
                 spec.compounding_withdrawal_prefix_byte + validator.withdrawal_credentials[1..];
-            self.queue_excess_active_balance(validator_index, spec)
-        } else {
-            Ok(())
+            self.queue_excess_active_balance(validator_index, spec)?;
         }
+        Ok(())
     }
 
     pub fn compute_exit_epoch_and_update_churn(
