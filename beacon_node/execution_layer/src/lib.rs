@@ -2003,7 +2003,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     withdrawals,
                     blob_gas_used: electra_block.blob_gas_used,
                     excess_blob_gas: electra_block.excess_blob_gas,
-                    // TODO(elecrta)
+                    // TODO(electra)
                     // deposit_receipts: electra_block.deposit_receipts,
                     // withdrawal_requests: electra_block.withdrawal_requests,
                     deposit_receipts: <_>::default(),
