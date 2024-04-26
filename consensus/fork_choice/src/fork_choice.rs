@@ -14,8 +14,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
-    AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
-    EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
+    AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
+    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
     SignedBeaconBlock, Slot,
 };
 
@@ -1086,7 +1086,7 @@ where
     /// Apply an attester slashing to fork choice.
     ///
     /// We assume that the attester slashing provided to this function has already been verified.
-    pub fn on_attester_slashing(&mut self, slashing: &AttesterSlashing<E>) {
+    pub fn on_attester_slashing(&mut self, slashing: AttesterSlashingRef<'_, E>) {
         let attesting_indices_set = |att: &IndexedAttestation<E>| {
             att.attesting_indices_iter()
                 .copied()

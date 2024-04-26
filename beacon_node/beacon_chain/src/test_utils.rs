@@ -1534,10 +1534,11 @@ where
             }
         }
 
-        AttesterSlashing {
+        // TODO(electra): fix this test
+        AttesterSlashing::Base(AttesterSlashingBase {
             attestation_1,
             attestation_2,
-        }
+        })
     }
 
     pub fn make_attester_slashing_different_indices(
@@ -1592,10 +1593,11 @@ where
             }
         }
 
-        AttesterSlashing {
+        // TODO(electra): fix this test
+        AttesterSlashing::Base(AttesterSlashingBase {
             attestation_1,
             attestation_2,
-        }
+        })
     }
 
     pub fn make_proposer_slashing(&self, validator_index: u64) -> ProposerSlashing {

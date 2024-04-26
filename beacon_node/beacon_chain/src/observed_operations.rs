@@ -5,7 +5,7 @@ use state_processing::{SigVerifiedOp, VerifyOperation, VerifyOperationAt};
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use types::{
-    AttesterSlashing, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, ProposerSlashing,
+    AttesterSlashingOnDisk, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, ProposerSlashing,
     SignedBlsToExecutionChange, SignedVoluntaryExit, Slot,
 };
 
@@ -59,15 +59,16 @@ impl<E: EthSpec> ObservableOperation<E> for ProposerSlashing {
     }
 }
 
-impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
+impl<E: EthSpec> ObservableOperation<E> for AttesterSlashingOnDisk<E> {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
-        let attestation_1_indices = self
-            .attestation_1
+        let slashing_ref = self.to_ref();
+        let attestation_1_indices = slashing_ref
+            .attestation_1()
             .attesting_indices_iter()
             .copied()
             .collect::<HashSet<u64>>();
-        let attestation_2_indices = self
-            .attestation_2
+        let attestation_2_indices = slashing_ref
+            .attestation_2()
             .attesting_indices_iter()
             .copied()
             .collect::<HashSet<u64>>();
