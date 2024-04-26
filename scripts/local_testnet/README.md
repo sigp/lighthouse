@@ -8,8 +8,6 @@ This setup can be useful for testing and development.
 The scripts require `lcli`, `lighthouse`, `geth`, `bootnode` to be installed on `PATH` (run `echo $PATH` to view all `PATH` directories).
 
 
-MacOS users need to install GNU `sed` and GNU `grep`, and add them both to `PATH` as well.
-
 The first step is to install Rust and dependencies. Refer to the [Lighthouse Book](https://lighthouse-book.sigmaprime.io/installation-source.html#dependencies) for installation. We will also need [jq](https://jqlang.github.io/jq/), which can be installed with `sudo apt install jq`.
 
 Then, we clone the Lighthouse repository:
