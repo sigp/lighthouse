@@ -130,8 +130,12 @@ impl Validator {
     }
 
     /// Returns `true` if the validator is fully withdrawable at some epoch.
+    ///
+    /// Note: Modified in electra.
     pub fn is_fully_withdrawable_at(&self, balance: u64, epoch: Epoch, spec: &ChainSpec) -> bool {
-        self.has_eth1_withdrawal_credential(spec) && self.withdrawable_epoch <= epoch && balance > 0
+        self.has_execution_withdrawal_credential(spec)
+            && self.withdrawable_epoch <= epoch
+            && balance > 0
     }
 
     /// Returns `true` if the validator is partially withdrawable.
@@ -150,20 +154,6 @@ impl Validator {
     pub fn has_execution_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
         self.has_compounding_withdrawal_credential(spec)
             || self.has_eth1_withdrawal_credential(spec)
-    }
-
-    /// Returns `true` if the validator if fully withdrawable.
-    ///
-    /// Modified in electra.
-    pub fn is_fully_withdrawable_validator(
-        &self,
-        balance: u64,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> bool {
-        self.has_execution_withdrawal_credential(spec)
-            && self.withdrawable_epoch <= epoch
-            && balance > 0
     }
 
     /// Returns the max effective balance for a validator in gwei.
