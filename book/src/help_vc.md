@@ -171,7 +171,7 @@ Options:
           the validator_definitions.yml
       --web3-signer-keep-alive-timeout <MILLIS>
           Keep-alive timeout for each web3signer connection. Set to 'null' to
-          never timeout [default: 90000]
+          never timeout [default: 20000]
       --web3-signer-max-idle-connections <COUNT>
           Maximum number of idle connections to maintain per web3signer host.
           Default is unlimited.
