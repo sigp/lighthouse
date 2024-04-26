@@ -247,61 +247,8 @@ jobs:
       with:
           channel: stable
           cache-target: release
-<<<<<<< HEAD
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the beacon chain sim and go through the merge transition
-      run: cargo run --release --bin simulator eth1-sim --post-merge
-  no-eth1-simulator-ubuntu:
-    name: no-eth1-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Run the beacon chain sim without an eth1 connection
-      run: cargo run --release --bin simulator no-eth1-sim
-  fallback-simulator-ubuntu:
-    name: fallback-simulator-ubuntu
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-    - name: Run the fallback simulator
-      run: cargo run --release --bin simulator fallback-sim
-  syncing-simulator-ubuntu:
-    name: syncing-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the syncing simulator
-      run: cargo run --release --bin simulator syncing-sim
-=======
     - name: Run a beacon chain sim which tests VC fallback behaviour
       run: cargo run --release --bin simulator fallback-sim
->>>>>>> unstable
   doppelganger-protection-test:
     name: doppelganger-protection-test
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
