@@ -67,8 +67,17 @@ done
 
 # Sleep with a message
 sleeping() {
-   echo sleeping $1
-   sleep $1
+    local sleep_time=$1
+    local start_time=$(date +%s)
+    local end_time=$((start_time + sleep_time))
+
+    while [ $(date +%s) -lt $end_time ]; do
+        local current_time=$(date +%s)
+        local time_left=$((end_time - current_time))
+        echo -ne "Sleeping for $time_left more seconds...\r"
+        sleep 1
+    done
+    echo -ne "\n"
 }
 
 # Execute the command with logs saved to a file.
