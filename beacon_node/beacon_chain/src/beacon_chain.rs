@@ -30,6 +30,7 @@ use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
+use crate::graffiti_calculator::GraffitiCalculator;
 use crate::head_tracker::{HeadTracker, HeadTrackerReader, SszHeadTracker};
 use crate::historical_blocks::HistoricalBlockError;
 use crate::light_client_finality_update_verification::{
@@ -58,7 +59,6 @@ use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_B
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::snapshot_cache::{BlockProductionPreState, SnapshotCache};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -103,8 +103,7 @@ use state_processing::{
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, StateProcessingStrategy,
-    VerifyBlockRoot, VerifyOperation,
+    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -130,9 +129,6 @@ pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 /// Alias to appease clippy.
 type HashBlockTuple<E> = (Hash256, RpcBlock<E>);
 
-/// The time-out before failure during an operation to take a read/write RwLock on the block
-/// processing cache.
-pub const BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// attestation cache.
 pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
@@ -176,6 +172,7 @@ pub const INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON: &str =
     "Finalized merge transition block is invalid.";
 
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WhenSlotSkipped {
     /// If the slot is a skip slot, return `None`.
     ///
@@ -450,8 +447,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: Arc<HeadTracker>,
-    /// A cache dedicated to block processing.
-    pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// A cache of eth1 deposit data at epoch boundaries for deposit finalization
@@ -480,7 +475,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
-    pub(crate) graffiti: Graffiti,
+    pub(crate) graffiti_calculator: GraffitiCalculator<T>,
     /// Optional slasher.
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
     /// Provides monitoring of a set of explicitly defined validators.
@@ -492,11 +487,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     /// The KZG trusted setup used by this chain.
     pub kzg: Option<Arc<Kzg>>,
-    /// State with complete tree hash cache, ready for block production.
-    ///
-    /// NB: We can delete this once we have tree-states.
-    #[allow(clippy::type_complexity)]
-    pub block_production_state: Arc<Mutex<Option<(Hash256, BlockProductionPreState<T::EthSpec>)>>>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {
@@ -773,7 +763,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let iter = self.store.forwards_block_roots_iterator(
             start_slot,
-            local_head.beacon_state.clone_with(CloneConfig::none()),
+            local_head.beacon_state.clone(),
             local_head.beacon_block_root,
             &self.spec,
         )?;
@@ -803,12 +793,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let iter = self.store.forwards_block_roots_iterator_until(
                 start_slot,
                 end_slot,
-                || {
-                    Ok((
-                        head.beacon_state.clone_with_only_committee_caches(),
-                        head.beacon_block_root,
-                    ))
-                },
+                || Ok((head.beacon_state.clone(), head.beacon_block_root)),
                 &self.spec,
             )?;
             Ok(iter
@@ -879,7 +864,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let iter = self.store.forwards_state_roots_iterator(
             start_slot,
             local_head.beacon_state_root(),
-            local_head.beacon_state.clone_with(CloneConfig::none()),
+            local_head.beacon_state.clone(),
             &self.spec,
         )?;
 
@@ -900,12 +885,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let iter = self.store.forwards_state_roots_iterator_until(
                 start_slot,
                 end_slot,
-                || {
-                    Ok((
-                        head.beacon_state.clone_with_only_committee_caches(),
-                        head.beacon_state_root(),
-                    ))
-                },
+                || Ok((head.beacon_state.clone(), head.beacon_state_root())),
                 &self.spec,
             )?;
             Ok(iter
@@ -2541,7 +2521,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Check if the current slot is greater than or equal to the Capella fork epoch.
     pub fn current_slot_is_post_capella(&self) -> Result<bool, Error> {
         let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
-        if let ForkName::Base | ForkName::Altair | ForkName::Merge = current_fork {
+        if let ForkName::Base | ForkName::Altair | ForkName::Bellatrix = current_fork {
             Ok(false)
         } else {
             Ok(true)
@@ -2956,7 +2936,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Wraps `process_block` in logic to cache the block's commitments in the processing cache
-    /// and evict if the block was imported or erred.
+    /// and evict if the block was imported or errored.
     pub async fn process_block_with_early_caching<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         block_root: Hash256,
@@ -3001,21 +2981,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Increment the Prometheus counter for block processing requests.
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
 
+        let block_slot = unverified_block.block().slot();
+
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
-        if let (Some(seen_timestamp), Some(current_slot)) =
-            (self.slot_clock.now_duration(), self.slot_clock.now())
-        {
+        if let Some(seen_timestamp) = self.slot_clock.now_duration() {
             self.block_times_cache.write().set_time_observed(
                 block_root,
-                current_slot,
+                block_slot,
                 seen_timestamp,
                 None,
                 None,
             );
         }
-
-        let block_slot = unverified_block.block().slot();
 
         // A small closure to group the verification and import errors.
         let chain = self.clone();
@@ -3027,6 +3005,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )?;
             publish_fn()?;
             let executed_block = chain.into_executed_block(execution_pending).await?;
+            // Record the time it took to ask the execution layer.
+            if let Some(seen_timestamp) = self.slot_clock.now_duration() {
+                self.block_times_cache.write().set_execution_time(
+                    block_root,
+                    block_slot,
+                    seen_timestamp,
+                )
+            }
+
             match executed_block {
                 ExecutedBlock::Available(block) => {
                     self.import_available_block(Box::new(block)).await
@@ -3093,8 +3080,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Accepts a fully-verified block and awaits on it's payload verification handle to
-    /// get a fully `ExecutedBlock`
+    /// Accepts a fully-verified block and awaits on its payload verification handle to
+    /// get a fully `ExecutedBlock`.
     ///
     /// An error is returned if the verification handle couldn't be awaited.
     pub async fn into_executed_block(
@@ -3227,10 +3214,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         match availability {
             Availability::Available(block) => {
-                // This is the time since start of the slot where all the components of the block have become available
-                let delay =
-                    get_slot_delay_ms(timestamp_now(), block.block.slot(), &self.slot_clock);
-                metrics::observe_duration(&metrics::BLOCK_AVAILABILITY_DELAY, delay);
                 // Block is fully available, import into fork choice
                 self.import_available_block(block).await
             }
@@ -3258,6 +3241,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             confirmed_state_roots,
             consensus_context,
         } = import_data;
+
+        // Record the time at which this block's blobs became available.
+        if let Some(blobs_available) = block.blobs_available_timestamp() {
+            self.block_times_cache.write().set_time_blob_observed(
+                block_root,
+                block.slot(),
+                blobs_available,
+            );
+        }
 
         // import
         let chain = self.clone();
@@ -3399,6 +3391,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 "Early attester cache insert failed";
                                 "error" => ?e
                             );
+                        } else {
+                            let attestable_timestamp =
+                                self.slot_clock.now_duration().unwrap_or_default();
+                            self.block_times_cache.write().set_time_attestable(
+                                block_root,
+                                signed_block.slot(),
+                                attestable_timestamp,
+                            )
                         }
                     } else {
                         warn!(
@@ -3543,29 +3543,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     error!(self.log, "error caching light_client data {:?}", e);
                 });
         }
-
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::SnapshotCacheLockTimeout)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.insert(
-                    BeaconSnapshot {
-                        beacon_state: state,
-                        beacon_block: signed_block.clone(),
-                        beacon_block_root: block_root,
-                    },
-                    None,
-                    &self.spec,
-                )
-            })
-            .unwrap_or_else(|e| {
-                error!(
-                    self.log,
-                    "Failed to insert snapshot";
-                    "error" => ?e,
-                    "task" => "process block"
-                );
-            });
 
         self.head_tracker
             .register_block(block_root, parent_root, slot);
@@ -3888,25 +3865,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
-        // sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 4 {
-            // Observe the delay between when we observed the block and when we imported it.
-            let block_delays = self.block_times_cache.read().get_block_delays(
-                block_root,
-                self.slot_clock
-                    .start_of(current_slot)
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-
-            metrics::observe_duration(
-                &metrics::BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME,
-                block_delays
-                    .imported
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-        }
-
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_block_subscribers() {
                 event_handler.register(EventKind::Block(SseBlock {
@@ -4147,22 +4105,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.wait_for_fork_choice_before_block_production(slot)?;
         drop(fork_choice_timer);
 
-        // Producing a block requires the tree hash cache, so clone a full state corresponding to
-        // the head from the snapshot cache. Unfortunately we can't move the snapshot out of the
-        // cache (which would be fast), because we need to re-process the block after it has been
-        // signed. If we miss the cache or we're producing a block that conflicts with the head,
-        // fall back to getting the head from `slot - 1`.
         let state_load_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_LOAD_TIMES);
 
         // Atomically read some values from the head whilst avoiding holding cached head `Arc` any
         // longer than necessary.
-        let (head_slot, head_block_root) = {
+        let (head_slot, head_block_root, head_state_root) = {
             let head = self.canonical_head.cached_head();
-            (head.head_slot(), head.head_block_root())
+            (
+                head.head_slot(),
+                head.head_block_root(),
+                head.head_state_root(),
+            )
         };
         let (state, state_root_opt) = if head_slot < slot {
             // Attempt an aggressive re-org if configured and the conditions are right.
-            if let Some(re_org_state) = self.get_state_for_re_org(slot, head_slot, head_block_root)
+            if let Some((re_org_state, re_org_state_root)) =
+                self.get_state_for_re_org(slot, head_slot, head_block_root)
             {
                 info!(
                     self.log,
@@ -4170,37 +4128,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "slot" => slot,
                     "head_to_reorg" => %head_block_root,
                 );
-                (re_org_state.pre_state, re_org_state.state_root)
-            }
-            // Normal case: proposing a block atop the current head using the cache.
-            else if let Some((_, cached_state)) =
-                self.get_state_from_block_production_cache(head_block_root)
-            {
-                (cached_state.pre_state, cached_state.state_root)
-            }
-            // Fall back to a direct read of the snapshot cache.
-            else if let Some(pre_state) =
-                self.get_state_from_snapshot_cache_for_block_production(head_block_root)
-            {
-                warn!(
-                    self.log,
-                    "Block production cache miss";
-                    "message" => "falling back to snapshot cache clone",
-                    "slot" => slot
-                );
-                (pre_state.pre_state, pre_state.state_root)
+                (re_org_state, Some(re_org_state_root))
             } else {
-                warn!(
-                    self.log,
-                    "Block production cache miss";
-                    "message" => "this block is more likely to be orphaned",
-                    "slot" => slot,
-                );
-                let state = self
-                    .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-                    .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
-
-                (state, None)
+                // Fetch the head state advanced through to `slot`, which should be present in the
+                // state cache thanks to the state advance timer.
+                let (state_root, state) = self
+                    .store
+                    .get_advanced_hot_state(head_block_root, slot, head_state_root)
+                    .map_err(BlockProductionError::FailedToLoadState)?
+                    .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
+                (state, Some(state_root))
             }
         } else {
             warn!(
@@ -4221,40 +4158,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((state, state_root_opt))
     }
 
-    /// Get the state cached for block production *if* it matches `head_block_root`.
-    ///
-    /// This will clear the cache regardless of whether the block root matches, so only call this if
-    /// you think the `head_block_root` is likely to match!
-    fn get_state_from_block_production_cache(
-        &self,
-        head_block_root: Hash256,
-    ) -> Option<(Hash256, BlockProductionPreState<T::EthSpec>)> {
-        // Take care to drop the lock as quickly as possible.
-        let mut lock = self.block_production_state.lock();
-        let result = lock
-            .take()
-            .filter(|(cached_block_root, _)| *cached_block_root == head_block_root);
-        drop(lock);
-        result
-    }
-
-    /// Get a state for block production from the snapshot cache.
-    fn get_state_from_snapshot_cache_for_block_production(
-        &self,
-        head_block_root: Hash256,
-    ) -> Option<BlockProductionPreState<T::EthSpec>> {
-        if let Some(lock) = self
-            .snapshot_cache
-            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-        {
-            let result = lock.get_state_for_block_production(head_block_root);
-            drop(lock);
-            result
-        } else {
-            None
-        }
-    }
-
     /// Fetch the beacon state to use for producing a block if a 1-slot proposer re-org is viable.
     ///
     /// This function will return `None` if proposer re-orgs are disabled.
@@ -4263,7 +4166,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         head_slot: Slot,
         canonical_head: Hash256,
-    ) -> Option<BlockProductionPreState<T::EthSpec>> {
+    ) -> Option<(BeaconState<T::EthSpec>, Hash256)> {
         let re_org_head_threshold = self.config.re_org_head_threshold?;
         let re_org_parent_threshold = self.config.re_org_parent_threshold?;
 
@@ -4347,26 +4250,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(proposer_head_timer);
         let re_org_parent_block = proposer_head.parent_node.root;
 
-        // Only attempt a re-org if we hit the block production cache or snapshot cache.
-        let pre_state = self
-            .get_state_from_block_production_cache(re_org_parent_block)
-            .map(|(_, state)| state)
+        let (state_root, state) = self
+            .store
+            .get_advanced_hot_state_from_cache(re_org_parent_block, slot)
             .or_else(|| {
                 warn!(
                     self.log,
-                    "Block production cache miss";
-                    "message" => "falling back to snapshot cache during re-org",
-                    "slot" => slot,
-                    "block_root" => ?re_org_parent_block
-                );
-                self.get_state_from_snapshot_cache_for_block_production(re_org_parent_block)
-            })
-            .or_else(|| {
-                debug!(
-                    self.log,
                     "Not attempting re-org";
-                    "reason" => "missed snapshot cache",
-                    "parent_block" => ?re_org_parent_block,
+                    "reason" => "no state in cache"
                 );
                 None
             })?;
@@ -4380,7 +4271,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "threshold_weight" => proposer_head.re_org_head_weight_threshold
         );
 
-        Some(pre_state)
+        Some((state, state_root))
     }
 
     /// Get the proposer index and `prev_randao` value for a proposal at slot `proposal_slot`.
@@ -4508,20 +4399,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (unadvanced_state, unadvanced_state_root) =
             if cached_head.head_block_root() == parent_block_root {
                 (Cow::Borrowed(head_state), cached_head.head_state_root())
-            } else if let Some(snapshot) = self
-                .snapshot_cache
-                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .ok_or(Error::SnapshotCacheLockTimeout)?
-                .get_cloned(parent_block_root, CloneConfig::none())
-            {
-                debug!(
-                    self.log,
-                    "Hit snapshot cache during withdrawals calculation";
-                    "slot" => proposal_slot,
-                    "parent_block_root" => ?parent_block_root,
-                );
-                let state_root = snapshot.beacon_state_root();
-                (Cow::Owned(snapshot.beacon_state), state_root)
             } else {
                 info!(
                     self.log,
@@ -4532,10 +4409,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let block = self
                     .get_blinded_block(&parent_block_root)?
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
-                let state = self
-                    .get_state(&block.state_root(), Some(block.slot()))?
+                let (state_root, state) = self
+                    .store
+                    .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
-                (Cow::Owned(state), block.state_root())
+                (Cow::Owned(state), state_root)
             };
 
         // Parent state epoch is the same as the proposal, we don't need to advance because the
@@ -4780,6 +4658,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Perform the state advance and block-packing functions.
         let chain = self.clone();
+        let graffiti = self
+            .graffiti_calculator
+            .get_graffiti(validator_graffiti)
+            .await;
         let mut partial_beacon_block = self
             .task_executor
             .spawn_blocking_handle(
@@ -4789,7 +4671,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         state_root_opt,
                         produce_at_slot,
                         randao_reveal,
-                        validator_graffiti,
+                        graffiti,
                         builder_boost_factor,
                         block_production_version,
                     )
@@ -4887,7 +4769,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state_root_opt: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
-        validator_graffiti: Option<Graffiti>,
+        graffiti: Graffiti,
         builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<PartialBeaconBlock<T::EthSpec>, BlockProductionError> {
@@ -4912,6 +4794,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(slot_timer);
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        state.apply_pending_mutations()?;
 
         let parent_root = if state.slot() > 0 {
             *state
@@ -4943,7 +4826,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_)
+            BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_) => {
@@ -4991,12 +4874,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
         drop(unagg_import_timer);
-
-        // Override the beacon node's graffiti with graffiti from the validator, if present.
-        let graffiti = match validator_graffiti {
-            Some(graffiti) => graffiti,
-            None => self.graffiti,
-        };
 
         let attestation_packing_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
@@ -5209,17 +5086,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None,
                 Uint256::zero(),
             ),
-            BeaconState::Merge(_) => {
+            BeaconState::Bellatrix(_) => {
                 let block_proposal_contents =
                     block_contents.ok_or(BlockProductionError::MissingExecutionPayload)?;
                 let execution_payload_value = block_proposal_contents.block_value().to_owned();
                 (
-                    BeaconBlock::Merge(BeaconBlockMerge {
+                    BeaconBlock::Bellatrix(BeaconBlockBellatrix {
                         slot,
                         proposer_index,
                         parent_root,
                         state_root: Hash256::zero(),
-                        body: BeaconBlockBodyMerge {
+                        body: BeaconBlockBodyBellatrix {
                             randao_reveal,
                             eth1_data,
                             graffiti,
@@ -5385,7 +5262,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &block,
             signature_strategy,
-            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut ctxt,
             &self.spec,
@@ -5668,7 +5544,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
             let withdrawals = match prepare_slot_fork {
-                ForkName::Base | ForkName::Altair | ForkName::Merge => None,
+                ForkName::Base | ForkName::Altair | ForkName::Bellatrix => None,
                 ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                     let chain = self.clone();
                     self.spawn_blocking_handle(
@@ -5683,7 +5559,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             let parent_beacon_block_root = match prepare_slot_fork {
-                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => None,
+                ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => None,
                 ForkName::Deneb | ForkName::Electra => {
                     Some(pre_payload_attributes.parent_beacon_block_root)
                 }
@@ -6310,6 +6186,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "head_block_root" => head_block_root.to_string(),
             );
 
+            // If the block's state will be so far ahead of `shuffling_epoch` that even its
+            // previous epoch committee cache will be too new, then error. Callers of this function
+            // shouldn't be requesting such old shufflings for this `head_block_root`.
+            let head_block_epoch = head_block.slot.epoch(T::EthSpec::slots_per_epoch());
+            if head_block_epoch > shuffling_epoch + 1 {
+                return Err(Error::InvalidStateForShuffling {
+                    state_epoch: head_block_epoch,
+                    shuffling_epoch,
+                });
+            }
+
             let state_read_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
@@ -6320,71 +6207,52 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // to copy the head is liable to race-conditions.
             let head_state_opt = self.with_head(|head| {
                 if head.beacon_block_root == head_block_root {
-                    Ok(Some((
-                        head.beacon_state
-                            .clone_with(CloneConfig::committee_caches_only()),
-                        head.beacon_state_root(),
-                    )))
+                    Ok(Some((head.beacon_state.clone(), head.beacon_state_root())))
                 } else {
                     Ok::<_, Error>(None)
                 }
             })?;
 
+            // Compute the `target_slot` to advance the block's state to.
+            //
+            // Since there's a one-epoch look-ahead on the attester shuffling, it suffices to
+            // only advance into the first slot of the epoch prior to `shuffling_epoch`.
+            //
+            // If the `head_block` is already ahead of that slot, then we should load the state
+            // at that slot, as we've determined above that the `shuffling_epoch` cache will
+            // not be too far in the past.
+            let target_slot = std::cmp::max(
+                shuffling_epoch
+                    .saturating_sub(1_u64)
+                    .start_slot(T::EthSpec::slots_per_epoch()),
+                head_block.slot,
+            );
+
             // If the head state is useful for this request, use it. Otherwise, read a state from
-            // disk.
+            // disk that is advanced as close as possible to `target_slot`.
             let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
                 (state, state_root)
             } else {
-                let block_state_root = head_block.state_root;
-                let max_slot = shuffling_epoch.start_slot(T::EthSpec::slots_per_epoch());
                 let (state_root, state) = self
                     .store
-                    .get_inconsistent_state_for_attestation_verification_only(
-                        &head_block_root,
-                        max_slot,
-                        block_state_root,
-                    )?
-                    .ok_or(Error::MissingBeaconState(block_state_root))?;
+                    .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)?
+                    .ok_or(Error::MissingBeaconState(head_block.state_root))?;
                 (state, state_root)
             };
-
-            /*
-             * IMPORTANT
-             *
-             * Since it's possible that
-             * `Store::get_inconsistent_state_for_attestation_verification_only` was used to obtain
-             * the state, we cannot rely upon the following fields:
-             *
-             * - `state.state_roots`
-             * - `state.block_roots`
-             *
-             * These fields should not be used for the rest of this function.
-             */
 
             metrics::stop_timer(state_read_timer);
             let state_skip_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
 
-            // If the state is in an earlier epoch, advance it. If it's from a later epoch, reject
-            // it.
+            // If the state is still in an earlier epoch, advance it to the `target_slot` so
+            // that its next epoch committee cache matches the `shuffling_epoch`.
             if state.current_epoch() + 1 < shuffling_epoch {
-                // Since there's a one-epoch look-ahead on the attester shuffling, it suffices to
-                // only advance into the slot prior to the `shuffling_epoch`.
-                let target_slot = shuffling_epoch
-                    .saturating_sub(1_u64)
-                    .start_slot(T::EthSpec::slots_per_epoch());
-
-                // Advance the state into the required slot, using the "partial" method since the state
-                // roots are not relevant for the shuffling.
+                // Advance the state into the required slot, using the "partial" method since the
+                // state roots are not relevant for the shuffling.
                 partial_state_advance(&mut state, Some(state_root), target_slot, &self.spec)?;
-            } else if state.current_epoch() > shuffling_epoch {
-                return Err(Error::InvalidStateForShuffling {
-                    state_epoch: state.current_epoch(),
-                    shuffling_epoch,
-                });
             }
-
             metrics::stop_timer(state_skip_timer);
+
             let committee_building_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
 
@@ -6393,8 +6261,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             state.build_committee_cache(relative_epoch, &self.spec)?;
 
-            let committee_cache = state.take_committee_cache(relative_epoch)?;
-            let committee_cache = Arc::new(committee_cache);
+            let committee_cache = state.committee_cache(relative_epoch)?.clone();
             let shuffling_decision_block = shuffling_id.shuffling_decision_block;
 
             self.shuffling_cache
@@ -6414,29 +6281,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// This could be a very expensive operation and should only be done in testing/analysis
     /// activities.
+    ///
+    /// This dump function previously used a backwards iterator but has been swapped to a forwards
+    /// iterator as it allows for MUCH better caching and rebasing. Memory usage of some tests went
+    /// from 5GB per test to 90MB.
     #[allow(clippy::type_complexity)]
     pub fn chain_dump(
         &self,
     ) -> Result<Vec<BeaconSnapshot<T::EthSpec, BlindedPayload<T::EthSpec>>>, Error> {
         let mut dump = vec![];
 
-        let mut last_slot = {
-            let head = self.canonical_head.cached_head();
-            BeaconSnapshot {
-                beacon_block: Arc::new(head.snapshot.beacon_block.clone_as_blinded()),
-                beacon_block_root: head.snapshot.beacon_block_root,
-                beacon_state: head.snapshot.beacon_state.clone(),
+        let mut prev_block_root = None;
+        let mut prev_beacon_state = None;
+
+        for res in self.forwards_iter_block_roots(Slot::new(0))? {
+            let (beacon_block_root, _) = res?;
+
+            // Do not include snapshots at skipped slots.
+            if Some(beacon_block_root) == prev_block_root {
+                continue;
             }
-        };
-
-        dump.push(last_slot.clone());
-
-        loop {
-            let beacon_block_root = last_slot.beacon_block.parent_root();
-
-            if beacon_block_root == Hash256::zero() {
-                break; // Genesis has been reached.
-            }
+            prev_block_root = Some(beacon_block_root);
 
             let beacon_block = self
                 .store
@@ -6445,25 +6310,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
                 })?;
             let beacon_state_root = beacon_block.state_root();
-            let beacon_state = self
+
+            let mut beacon_state = self
                 .store
                 .get_state(&beacon_state_root, Some(beacon_block.slot()))?
                 .ok_or_else(|| {
                     Error::DBInconsistent(format!("Missing state {:?}", beacon_state_root))
                 })?;
 
-            let slot = BeaconSnapshot {
+            // This beacon state might come from the freezer DB, which means it could have pending
+            // updates or lots of untethered memory. We rebase it on the previous state in order to
+            // address this.
+            beacon_state.apply_pending_mutations()?;
+            if let Some(prev) = prev_beacon_state {
+                beacon_state.rebase_on(&prev, &self.spec)?;
+            }
+            beacon_state.build_caches(&self.spec)?;
+            prev_beacon_state = Some(beacon_state.clone());
+
+            let snapshot = BeaconSnapshot {
                 beacon_block: Arc::new(beacon_block),
                 beacon_block_root,
                 beacon_state,
             };
-
-            dump.push(slot.clone());
-            last_slot = slot;
+            dump.push(snapshot);
         }
-
-        dump.reverse();
-
         Ok(dump)
     }
 
@@ -6698,6 +6569,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.data_availability_checker.data_availability_boundary()
     }
 
+    pub fn logger(&self) -> &Logger {
+        &self.log
+    }
+
     /// Gets the `LightClientBootstrap` object for a requested block root.
     ///
     /// Returns `None` when the state or block is not found in the database.
@@ -6727,7 +6602,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match fork_name {
             ForkName::Altair
-            | ForkName::Merge
+            | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb
             | ForkName::Electra => {

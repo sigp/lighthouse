@@ -11,6 +11,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::Duration;
 use task_executor::TaskExecutor;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
@@ -131,8 +132,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
 
-        let verified_blobs = KzgVerifiedBlobList::new(Vec::from(blobs).into_iter().flatten(), kzg)
-            .map_err(AvailabilityCheckError::Kzg)?;
+        let seen_timestamp = self
+            .slot_clock
+            .now_duration()
+            .ok_or(AvailabilityCheckError::SlotClockError)?;
+
+        let verified_blobs =
+            KzgVerifiedBlobList::new(Vec::from(blobs).into_iter().flatten(), kzg, seen_timestamp)
+                .map_err(AvailabilityCheckError::Kzg)?;
 
         self.availability_cache
             .put_kzg_verified_blobs(block_root, verified_blobs)
@@ -180,6 +187,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block_root,
                         block,
                         blobs: None,
+                        blobs_available_timestamp: None,
                     }))
                 }
             }
@@ -199,6 +207,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     block_root,
                     block,
                     blobs: verified_blobs,
+                    blobs_available_timestamp: None,
                 }))
             }
         }
@@ -244,6 +253,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                             block_root,
                             block,
                             blobs: None,
+                            blobs_available_timestamp: None,
                         }))
                     }
                 }
@@ -258,6 +268,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block_root,
                         block,
                         blobs: verified_blobs,
+                        blobs_available_timestamp: None,
                     }))
                 }
             }
@@ -429,6 +440,8 @@ pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
+    /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
+    blobs_available_timestamp: Option<Duration>,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
@@ -441,6 +454,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             block_root,
             block,
             blobs,
+            blobs_available_timestamp: None,
         }
     }
 
@@ -455,6 +469,10 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs.as_ref()
     }
 
+    pub fn blobs_available_timestamp(&self) -> Option<Duration> {
+        self.blobs_available_timestamp
+    }
+
     pub fn deconstruct(
         self,
     ) -> (
@@ -466,6 +484,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             block_root,
             block,
             blobs,
+            blobs_available_timestamp: _,
         } = self;
         (block_root, block, blobs)
     }

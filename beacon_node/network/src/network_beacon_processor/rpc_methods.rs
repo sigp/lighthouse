@@ -433,9 +433,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         ForkName::Deneb | ForkName::Electra => {
                             self.chain.spec.max_request_blocks_deneb
                         }
-                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                            self.chain.spec.max_request_blocks
-                        }
+                        ForkName::Base
+                        | ForkName::Altair
+                        | ForkName::Bellatrix
+                        | ForkName::Capella => self.chain.spec.max_request_blocks,
                     }
                 });
         if *req.count() > max_request_size {

@@ -103,8 +103,8 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub excess_blob_gas: u64,
 }
 
-impl<E: EthSpec> From<ExecutionPayloadMerge<E>> for JsonExecutionPayloadV1<E> {
-    fn from(payload: ExecutionPayloadMerge<E>) -> Self {
+impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadV1<E> {
+    fn from(payload: ExecutionPayloadBellatrix<E>) -> Self {
         JsonExecutionPayloadV1 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -210,7 +210,7 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
 impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
     fn from(execution_payload: ExecutionPayload<E>) -> Self {
         match execution_payload {
-            ExecutionPayload::Merge(payload) => JsonExecutionPayload::V1(payload.into()),
+            ExecutionPayload::Bellatrix(payload) => JsonExecutionPayload::V1(payload.into()),
             ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
             ExecutionPayload::Deneb(payload) => JsonExecutionPayload::V3(payload.into()),
             ExecutionPayload::Electra(payload) => JsonExecutionPayload::V4(payload.into()),
@@ -218,9 +218,9 @@ impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadV1<E>> for ExecutionPayloadMerge<E> {
+impl<E: EthSpec> From<JsonExecutionPayloadV1<E>> for ExecutionPayloadBellatrix<E> {
     fn from(payload: JsonExecutionPayloadV1<E>) -> Self {
-        ExecutionPayloadMerge {
+        ExecutionPayloadBellatrix {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -319,6 +319,9 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
                 .into(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
+            // TODO(electra)
+            deposit_receipts: Default::default(),
+            withdrawal_requests: Default::default(),
         }
     }
 }
@@ -326,7 +329,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
 impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
     fn from(json_execution_payload: JsonExecutionPayload<E>) -> Self {
         match json_execution_payload {
-            JsonExecutionPayload::V1(payload) => ExecutionPayload::Merge(payload.into()),
+            JsonExecutionPayload::V1(payload) => ExecutionPayload::Bellatrix(payload.into()),
             JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
             JsonExecutionPayload::V3(payload) => ExecutionPayload::Deneb(payload.into()),
             JsonExecutionPayload::V4(payload) => ExecutionPayload::Electra(payload.into()),
@@ -366,7 +369,7 @@ impl<E: EthSpec> From<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
     fn from(json_get_payload_response: JsonGetPayloadResponse<E>) -> Self {
         match json_get_payload_response {
             JsonGetPayloadResponse::V1(response) => {
-                GetPayloadResponse::Merge(GetPayloadResponseMerge {
+                GetPayloadResponse::Bellatrix(GetPayloadResponseBellatrix {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                 })
@@ -745,5 +748,38 @@ pub mod serde_logs_bloom {
 
         FixedVector::new(vec)
             .map_err(|e| serde::de::Error::custom(format!("invalid logs bloom: {:?}", e)))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonClientVersionV1 {
+    pub code: String,
+    pub name: String,
+    pub version: String,
+    pub commit: String,
+}
+
+impl From<ClientVersionV1> for JsonClientVersionV1 {
+    fn from(client_version: ClientVersionV1) -> Self {
+        Self {
+            code: client_version.code.to_string(),
+            name: client_version.name,
+            version: client_version.version,
+            commit: client_version.commit.to_string(),
+        }
+    }
+}
+
+impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
+    type Error = String;
+
+    fn try_from(json: JsonClientVersionV1) -> Result<Self, Self::Error> {
+        Ok(Self {
+            code: json.code.try_into()?,
+            name: json.name,
+            version: json.version,
+            commit: json.commit.try_into()?,
+        })
     }
 }
