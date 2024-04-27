@@ -120,7 +120,7 @@ pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingOnDisk,
-    AttesterSlashingRef,
+    AttesterSlashingRef, AttesterSlashingRefOnDisk,
 };
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockDeneb,

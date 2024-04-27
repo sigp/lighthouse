@@ -420,7 +420,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub observed_proposer_slashings: Mutex<ObservedOperations<ProposerSlashing, T::EthSpec>>,
     /// Maintains a record of which validators we've seen attester slashings for.
     pub observed_attester_slashings:
-        Mutex<ObservedOperations<AttesterSlashingOnDisk<T::EthSpec>, T::EthSpec>>,
+        Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of which validators we've seen BLS to execution changes for.
     pub observed_bls_to_execution_changes:
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
@@ -2445,10 +2445,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_attester_slashing_for_gossip(
         &self,
         attester_slashing: AttesterSlashing<T::EthSpec>,
-    ) -> Result<ObservationOutcome<AttesterSlashingOnDisk<T::EthSpec>, T::EthSpec>, Error> {
+    ) -> Result<ObservationOutcome<AttesterSlashing<T::EthSpec>, T::EthSpec>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
         Ok(self.observed_attester_slashings.lock().verify_and_observe(
-            attester_slashing.into(),
+            attester_slashing,
             &wall_clock_state,
             &self.spec,
         )?)
@@ -2460,7 +2460,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// 2. Add it to the op pool.
     pub fn import_attester_slashing(
         &self,
-        attester_slashing: SigVerifiedOp<AttesterSlashingOnDisk<T::EthSpec>, T::EthSpec>,
+        attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>, T::EthSpec>,
     ) {
         // Add to fork choice.
         self.canonical_head
@@ -4943,7 +4943,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
 
             attester_slashings.retain(|slashing| {
-                AttesterSlashingOnDisk::from(slashing.clone())
+                AttesterSlashing::from(slashing.clone())
                     .validate(&state, &self.spec)
                     .map_err(|e| {
                         warn!(

@@ -1801,13 +1801,13 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     fn register_attester_slashing(&self, src: &str, slashing: AttesterSlashingRef<'_, E>) {
         let data = slashing.attestation_1().data();
         let attestation_1_indices: HashSet<u64> = slashing
-            .attestation_1
+            .attestation_1()
             .attesting_indices_iter()
             .copied()
             .collect();
 
         slashing
-            .attestation_2
+            .attestation_2()
             .attesting_indices_iter()
             .filter(|index| attestation_1_indices.contains(index))
             .filter_map(|index| self.get_validator(*index))

@@ -347,14 +347,14 @@ where
             state,
             get_pubkey.clone(),
             &attester_slashing.attestation_1().signature,
-            &attester_slashing.attestation_1(),
+            attester_slashing.attestation_1(),
             spec,
         )?,
         indexed_attestation_signature_set(
             state,
             get_pubkey,
             &attester_slashing.attestation_2().signature,
-            &attester_slashing.attestation_2(),
+            attester_slashing.attestation_2(),
             spec,
         )?,
     ))

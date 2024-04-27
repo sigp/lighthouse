@@ -51,6 +51,13 @@ pub enum AttesterSlashingOnDisk<E: EthSpec> {
     Electra(AttesterSlashingElectra<E>),
 }
 
+#[derive(Debug, Clone, Encode)]
+#[ssz(enum_behaviour = "union")]
+pub enum AttesterSlashingRefOnDisk<'a, E: EthSpec> {
+    Base(&'a AttesterSlashingBase<E>),
+    Electra(&'a AttesterSlashingElectra<E>),
+}
+
 impl<E: EthSpec> From<AttesterSlashing<E>> for AttesterSlashingOnDisk<E> {
     fn from(attester_slashing: AttesterSlashing<E>) -> Self {
         match attester_slashing {
@@ -69,15 +76,22 @@ impl<E: EthSpec> From<AttesterSlashingOnDisk<E>> for AttesterSlashing<E> {
     }
 }
 
-impl<E: EthSpec> AttesterSlashingOnDisk<E> {
-    pub fn to_ref(&self) -> AttesterSlashingRef<'_, E> {
-        match self {
-            AttesterSlashingOnDisk::Base(attester_slashing) => {
-                AttesterSlashingRef::Base(attester_slashing)
+impl<'a, E: EthSpec> From<AttesterSlashingRefOnDisk<'a, E>> for AttesterSlashingRef<'a, E> {
+    fn from(attester_slashing: AttesterSlashingRefOnDisk<'a, E>) -> Self {
+        match attester_slashing {
+            AttesterSlashingRefOnDisk::Base(attester_slashing) => Self::Base(attester_slashing),
+            AttesterSlashingRefOnDisk::Electra(attester_slashing) => {
+                Self::Electra(attester_slashing)
             }
-            AttesterSlashingOnDisk::Electra(attester_slashing) => {
-                AttesterSlashingRef::Electra(attester_slashing)
-            }
+        }
+    }
+}
+
+impl<'a, E: EthSpec> From<AttesterSlashingRef<'a, E>> for AttesterSlashingRefOnDisk<'a, E> {
+    fn from(attester_slashing: AttesterSlashingRef<'a, E>) -> Self {
+        match attester_slashing {
+            AttesterSlashingRef::Base(attester_slashing) => Self::Base(attester_slashing),
+            AttesterSlashingRef::Electra(attester_slashing) => Self::Electra(attester_slashing),
         }
     }
 }

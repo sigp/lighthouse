@@ -42,7 +42,7 @@ pub struct PersistedOperationPool<E: EthSpec> {
     /// TODO(electra): we've made a DB change here!!!
     /// Attester slashings.
     #[superstruct(only(V12, V14, V15))]
-    pub attester_slashings: Vec<SigVerifiedOp<AttesterSlashingOnDisk<E>, E>>,
+    pub attester_slashings: Vec<SigVerifiedOp<AttesterSlashing<E>, E>>,
     /// [DEPRECATED] Proposer slashings.
     #[superstruct(only(V5))]
     pub proposer_slashings_v5: Vec<ProposerSlashing>,
