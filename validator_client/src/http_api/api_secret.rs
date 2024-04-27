@@ -1,8 +1,7 @@
 use eth2::lighthouse_vc::{PK_LEN, SECRET_PREFIX as PK_PREFIX};
 use filesystem::create_with_600_perms;
-use libsecp256k1::{Message, PublicKey, SecretKey};
+use libsecp256k1::{PublicKey, SecretKey};
 use rand::thread_rng;
-use ring::digest::{digest, SHA256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use warp::Filter;

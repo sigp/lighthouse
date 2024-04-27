@@ -1,10 +1,10 @@
+mod api_secret;
 mod create_signed_voluntary_exit;
 mod create_validator;
 mod graffiti;
 mod keystores;
 mod remotekeys;
 mod tests;
-mod api_secret;
 
 pub mod test_utils;
 
@@ -16,6 +16,7 @@ use account_utils::{
     mnemonic_from_phrase,
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
 };
+pub use api_secret::ApiSecret;
 use create_validator::{
     create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
 };
@@ -30,7 +31,7 @@ use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use slog::{warn, crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::future::Future;
@@ -44,17 +45,8 @@ use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
-use warp::{
-    http::{
-        header::{HeaderValue, CONTENT_TYPE},
-        StatusCode,
-    },
-    reply::Response,
-    sse::Event,
-    Filter,
-};
-use warp_utils::reject::convert_rejection;
-pub use api_secret::ApiSecret;
+use warp::{sse::Event, Filter};
+use warp_utils::task::blocking_json_task;
 
 #[derive(Debug)]
 pub enum Error {
@@ -760,18 +752,18 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 })
             },
         );
-    
-     // GET /lighthouse/auth
-     let get_auth = warp::path("lighthouse").and(warp::path("auth").and(warp::path::end()));
-     let get_auth = get_auth
-         .and(api_token_path_filter)
-         .then( move|token_path: PathBuf| {
-             blocking_json_task(move || {
-                 Ok(AuthResponse {
-                     token_path: token_path.display().to_string(),
-                 })
-             })
-         });
+
+    // GET /lighthouse/auth
+    let get_auth = warp::path("lighthouse").and(warp::path("auth").and(warp::path::end()));
+    let get_auth = get_auth
+        .and(api_token_path_filter)
+        .then(move |token_path: PathBuf| {
+            blocking_json_task(move || {
+                Ok(AuthResponse {
+                    token_path: token_path.display().to_string(),
+                })
+            })
+        });
 
     // DELETE /lighthouse/keystores
     let delete_lighthouse_keystores = warp::path("lighthouse")
@@ -1316,33 +1308,3 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     Ok((listening_socket, server))
 }
-
-/// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
-/// JSON-encodes the return value of `func`.
-// pub async fn blocking_json_task<F, T>(func: F) -> Response
-// where
-//     F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
-//     T: Serialize + Send + 'static,
-// {
-//     let result = warp_utils::task::blocking_task(func)
-//         .await
-//         .map(|func_output| {
-//             let response = match serde_json::to_vec(&func_output) {
-//                 Ok(body) => {
-//                     let mut res = Response::new(body.into());
-//                     res.headers_mut()
-//                         .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-//                     res
-//                 }
-//                 Err(_) => {
-//                     let res = Response::new(vec![].into());
-//                     let (mut parts, body) = res.into_parts();
-//                     parts.status = StatusCode::INTERNAL_SERVER_ERROR;
-//                     Response::from_parts(parts, body)
-//                 }
-//             };
-
-//             response
-//         });
-//     convert_rejection(result).await
-// }

@@ -1,6 +1,6 @@
+use crate::reject::convert_rejection;
 use serde::Serialize;
 use warp::reply::{Reply, Response};
-use crate::reject::convert_rejection;
 
 /// A convenience wrapper around `blocking_task`.
 pub async fn blocking_task<F, T>(func: F) -> Result<T, warp::Rejection>

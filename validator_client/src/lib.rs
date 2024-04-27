@@ -64,7 +64,6 @@ use tokio::{
 };
 use types::{EthSpec, Hash256, PublicKeyBytes};
 use validator_store::ValidatorStore;
-use http_api::ApiSecret;
 
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
