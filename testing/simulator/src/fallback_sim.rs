@@ -34,13 +34,13 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
-    let vc_count =  matches
+    let vc_count = matches
         .get_one::<String>("vc-count")
         .unwrap()
         .parse::<usize>()
         .unwrap();
-    
-    let validators_per_vc =  matches
+
+    let validators_per_vc = matches
         .get_one::<String>("validators-per-vc")
         .unwrap()
         .parse::<usize>()
@@ -50,17 +50,15 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         .unwrap()
         .parse::<usize>()
         .unwrap();
-    
+
     assert!(bns_per_vc > 1);
     let speed_up_factor = matches
         .get_one::<String>("speed-up-factor")
         .unwrap()
         .parse::<u64>()
         .unwrap();
-    let log_level =  matches
-        .get_one::<String>("debug-level")
-        .unwrap();
-    
+    let log_level = matches.get_one::<String>("debug-level").unwrap();
+
     let continue_after_checks = matches.get_flag("continue-after-checks");
 
     println!("Fallback Simulator:");
