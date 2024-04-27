@@ -1304,6 +1304,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         log,
         "HTTP API started";
         "listen_address" => listening_socket.to_string(),
+        "api_token_file" => ?api_token_path,
     );
 
     Ok((listening_socket, server))
