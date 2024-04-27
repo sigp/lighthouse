@@ -1074,9 +1074,8 @@ mod tests {
                     .expect("good electra block can be decoded"),
                 good_block
             );
-            // TODO(electra): once the Electra block is changed from Deneb, update this to match
-            // the other forks.
-            assert!(BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec).is_ok());
+            BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
+                .expect_err("bad electra block cannot be decoded");
         }
     }
 }

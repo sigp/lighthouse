@@ -319,6 +319,9 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
                 .into(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
+            // TODO(electra)
+            deposit_receipts: Default::default(),
+            withdrawal_requests: Default::default(),
         }
     }
 }
