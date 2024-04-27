@@ -1,13 +1,11 @@
 use super::{types::*, PK_LEN, SECRET_PREFIX};
 use crate::Error;
 use account_utils::ZeroizeString;
-use bytes::Bytes;
-use libsecp256k1::{Message, PublicKey, Signature};
+use libsecp256k1::PublicKey;
 use reqwest::{
     header::{HeaderMap, HeaderValue},
     IntoUrl,
 };
-use ring::digest::{digest, SHA256};
 use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::{self, Display};
@@ -160,38 +158,6 @@ impl ValidatorClientHttpClient {
         self.authorization_header = AuthorizationHeader::Basic;
     }
 
-    async fn signed_body(&self, response: Response) -> Result<Bytes, Error> {
-        let server_pubkey = self.server_pubkey.as_ref().ok_or(Error::NoServerPubkey)?;
-        let sig = response
-            .headers()
-            .get("Signature")
-            .ok_or(Error::MissingSignatureHeader)?
-            .to_str()
-            .map_err(|_| Error::InvalidSignatureHeader)?
-            .to_string();
-
-        let body = response.bytes().await.map_err(Error::from)?;
-
-        let message =
-            Message::parse_slice(digest(&SHA256, &body).as_ref()).expect("sha256 is 32 bytes");
-
-        serde_utils::hex::decode(&sig)
-            .ok()
-            .and_then(|bytes| {
-                let sig = Signature::parse_der(&bytes).ok()?;
-                Some(libsecp256k1::verify(&message, &sig, server_pubkey))
-            })
-            .filter(|is_valid| *is_valid)
-            .ok_or(Error::InvalidSignatureHeader)?;
-
-        Ok(body)
-    }
-
-    async fn signed_json<T: DeserializeOwned>(&self, response: Response) -> Result<T, Error> {
-        let body = self.signed_body(response).await?;
-        serde_json::from_slice(&body).map_err(Error::InvalidJson)
-    }
-
     fn headers(&self) -> Result<HeaderMap, Error> {
         let mut headers = HeaderMap::new();
 
@@ -240,7 +206,8 @@ impl ValidatorClientHttpClient {
 
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
         let response = self.get_response(url).await?;
-        self.signed_json(response).await
+        let body = response.bytes().await.map_err(Error::from)?;
+        serde_json::from_slice(&body).map_err(Error::InvalidJson)
     }
 
     async fn delete<U: IntoUrl>(&self, url: U) -> Result<(), Error> {
@@ -263,7 +230,10 @@ impl ValidatorClientHttpClient {
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
         match self.get_response(url).await {
-            Ok(resp) => self.signed_json(resp).await.map(Option::Some),
+            Ok(resp) => {
+                let body = resp.bytes().await.map_err(Error::from)?;
+                serde_json::from_slice(&body).map_err(Error::InvalidJson)
+            }
             Err(err) => {
                 if err.status() == Some(StatusCode::NOT_FOUND) {
                     Ok(None)
@@ -297,7 +267,8 @@ impl ValidatorClientHttpClient {
         body: &T,
     ) -> Result<V, Error> {
         let response = self.post_with_raw_response(url, body).await?;
-        self.signed_json(response).await
+        let body = response.bytes().await.map_err(Error::from)?;
+        serde_json::from_slice(&body).map_err(Error::InvalidJson)
     }
 
     async fn post_with_unsigned_response<T: Serialize, U: IntoUrl, V: DeserializeOwned>(
@@ -319,8 +290,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        let response = ok_or_error(response).await?;
-        self.signed_body(response).await?;
+        ok_or_error(response).await?;
         Ok(())
     }
 
