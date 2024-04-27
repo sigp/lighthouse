@@ -269,7 +269,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("version"))
         .and(warp::path::end())
         .then(|| {
-            blocking_signed_json_task(move || {
+            blocking_json_task(move || {
                 Ok(api_types::GenericResponse::from(api_types::VersionData {
                     version: version_with_platform(),
                 }))
@@ -281,7 +281,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("health"))
         .and(warp::path::end())
         .then(|| {
-            blocking_signed_json_task(move || {
+            blocking_json_task(move || {
                 eth2::lighthouse::Health::observe()
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
@@ -294,7 +294,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(spec_filter.clone())
         .then(|spec: Arc<_>| {
-            blocking_signed_json_task(move || {
+            blocking_json_task(move || {
                 let config = ConfigAndPreset::from_chain_spec::<E>(&spec, None);
                 Ok(api_types::GenericResponse::from(config))
             })
@@ -306,7 +306,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .then(|validator_store: Arc<ValidatorStore<T, E>>| {
-            blocking_signed_json_task(move || {
+            blocking_json_task(move || {
                 let validators = validator_store
                     .initialized_validators()
                     .read()
@@ -331,7 +331,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     let validator = validator_store
                         .initialized_validators()
                         .read()
@@ -364,7 +364,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(app_start_filter)
         .and(validator_dir_filter.clone())
         .then(|sysinfo, app_start: std::time::Instant, val_dir| {
-            blocking_signed_json_task(move || {
+            blocking_json_task(move || {
                 let app_uptime = app_start.elapsed().as_secs();
                 Ok(api_types::GenericResponse::from(observe_system_health_vc(
                     sysinfo, val_dir, app_uptime,
@@ -385,7 +385,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              graffiti_file: Option<GraffitiFile>,
              graffiti_flag: Option<Graffiti>,
              log| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     let mut result = HashMap::new();
                     for (key, graffiti_definition) in validator_store
                         .initialized_validators()
@@ -423,7 +423,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                   validator_store: Arc<ValidatorStore<T, E>>,
                   spec: Arc<ChainSpec>,
                   task_executor: TaskExecutor| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                     if let Some(handle) = task_executor.handle() {
                         let (validators, mnemonic) =
@@ -468,7 +468,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                   validator_store: Arc<ValidatorStore<T, E>>,
                   spec: Arc<ChainSpec>,
                   task_executor: TaskExecutor| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                     if let Some(handle) = task_executor.handle() {
                         let mnemonic =
@@ -514,7 +514,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                   secrets_dir: PathBuf,
                   validator_store: Arc<ValidatorStore<T, E>>,
                   task_executor: TaskExecutor| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     // Check to ensure the password is correct.
                     let keypair = body
                         .keystore
@@ -600,7 +600,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             |body: Vec<api_types::Web3SignerValidatorRequest>,
              validator_store: Arc<ValidatorStore<T, E>>,
              task_executor: TaskExecutor| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if let Some(handle) = task_executor.handle() {
                         let web3signers: Vec<ValidatorDefinition> = body
                             .into_iter()
@@ -655,7 +655,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>,
              task_executor: TaskExecutor| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if body.graffiti.is_some() && graffiti_file.is_some() {
                         return Err(warp_utils::reject::custom_bad_request(
                             "Unable to update graffiti as the \"--graffiti-file\" flag is set"
@@ -766,7 +766,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
      let get_auth = get_auth
          .and(api_token_path_filter)
          .then( move|token_path: PathBuf| {
-             blocking_signed_json_task(move || {
+             blocking_json_task(move || {
                  Ok(AuthResponse {
                      token_path: token_path.display().to_string(),
                  })
@@ -782,7 +782,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
         .then(move |request, validator_store, task_executor, log| {
-            blocking_signed_json_task(move || {
+            blocking_json_task(move || {
                 if allow_keystore_export {
                     keystores::export(request, validator_store, task_executor, log)
                 } else {
@@ -807,7 +807,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
                         .read()
@@ -848,7 +848,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             |validator_pubkey: PublicKey,
              request: api_types::UpdateFeeRecipientRequest,
              validator_store: Arc<ValidatorStore<T, E>>| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
                         .read()
@@ -884,7 +884,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
                         .read()
@@ -920,7 +920,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
                         .read()
@@ -953,7 +953,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             |validator_pubkey: PublicKey,
              request: api_types::UpdateGasLimitRequest,
              validator_store: Arc<ValidatorStore<T, E>>| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
                         .read()
@@ -989,7 +989,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
                         .read()
@@ -1034,7 +1034,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              slot_clock: T,
              log,
              task_executor: TaskExecutor| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if let Some(handle) = task_executor.handle() {
                         let signed_voluntary_exit =
                             handle.block_on(create_signed_voluntary_exit(
@@ -1066,7 +1066,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             |pubkey: PublicKey,
              validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_flag: Option<Graffiti>| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     let graffiti = get_graffiti(pubkey.clone(), validator_store, graffiti_flag)?;
                     Ok(GenericResponse::from(GetGraffitiResponse {
                         pubkey: pubkey.into(),
@@ -1090,7 +1090,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              query: SetGraffitiRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if graffiti_file.is_some() {
                         return Err(warp_utils::reject::invalid_auth(
                             "Unable to update graffiti as the \"--graffiti-file\" flag is set"
@@ -1115,7 +1115,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             |pubkey: PublicKey,
              validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>| {
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     if graffiti_file.is_some() {
                         return Err(warp_utils::reject::invalid_auth(
                             "Unable to delete graffiti as the \"--graffiti-file\" flag is set"
@@ -1131,7 +1131,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores.and(validator_store_filter.clone()).then(
         |validator_store: Arc<ValidatorStore<T, E>>| {
-            blocking_signed_json_task(move || Ok(keystores::list(validator_store)))
+            blocking_json_task(move || Ok(keystores::list(validator_store)))
         },
     );
 
@@ -1146,7 +1146,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(
             move |request, validator_dir, secrets_dir, validator_store, task_executor, log| {
                 let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
-                blocking_signed_json_task(move || {
+                blocking_json_task(move || {
                     keystores::import(
                         request,
                         validator_dir,
@@ -1166,7 +1166,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
         .then(|request, validator_store, task_executor, log| {
-            blocking_signed_json_task(move || {
+            blocking_json_task(move || {
                 keystores::delete(request, validator_store, task_executor, log)
             })
         });
@@ -1174,7 +1174,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     // GET /eth/v1/remotekeys
     let get_std_remotekeys = std_remotekeys.and(validator_store_filter.clone()).then(
         |validator_store: Arc<ValidatorStore<T, E>>| {
-            blocking_signed_json_task(move || Ok(remotekeys::list(validator_store)))
+            blocking_json_task(move || Ok(remotekeys::list(validator_store)))
         },
     );
 
@@ -1185,7 +1185,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
         .then(|request, validator_store, task_executor, log| {
-            blocking_signed_json_task(move || {
+            blocking_json_task(move || {
                 remotekeys::import(request, validator_store, task_executor, log)
             })
         });
@@ -1197,7 +1197,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(task_executor_filter)
         .and(log_filter.clone())
         .then(|request, validator_store, task_executor, log| {
-            blocking_signed_json_task(move || {
+            blocking_json_task(move || {
                 remotekeys::delete(request, validator_store, task_executor, log)
             })
         });
@@ -1319,30 +1319,30 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
 /// Executes `func` in blocking tokio task (i.e., where long-running tasks are permitted).
 /// JSON-encodes the return value of `func`.
-pub async fn blocking_signed_json_task<F, T>(func: F) -> Response
-where
-    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
-    T: Serialize + Send + 'static,
-{
-    let result = warp_utils::task::blocking_task(func)
-        .await
-        .map(|func_output| {
-            let response = match serde_json::to_vec(&func_output) {
-                Ok(body) => {
-                    let mut res = Response::new(body.into());
-                    res.headers_mut()
-                        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-                    res
-                }
-                Err(_) => {
-                    let res = Response::new(vec![].into());
-                    let (mut parts, body) = res.into_parts();
-                    parts.status = StatusCode::INTERNAL_SERVER_ERROR;
-                    Response::from_parts(parts, body)
-                }
-            };
+// pub async fn blocking_json_task<F, T>(func: F) -> Response
+// where
+//     F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
+//     T: Serialize + Send + 'static,
+// {
+//     let result = warp_utils::task::blocking_task(func)
+//         .await
+//         .map(|func_output| {
+//             let response = match serde_json::to_vec(&func_output) {
+//                 Ok(body) => {
+//                     let mut res = Response::new(body.into());
+//                     res.headers_mut()
+//                         .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+//                     res
+//                 }
+//                 Err(_) => {
+//                     let res = Response::new(vec![].into());
+//                     let (mut parts, body) = res.into_parts();
+//                     parts.status = StatusCode::INTERNAL_SERVER_ERROR;
+//                     Response::from_parts(parts, body)
+//                 }
+//             };
 
-            response
-        });
-    convert_rejection(result).await
-}
+//             response
+//         });
+//     convert_rejection(result).await
+// }

@@ -7,15 +7,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use warp::Filter;
 
-/// The name of the file which stores the secret key.
-///
-/// It is purposefully opaque to prevent users confusing it with the "secret" that they need to
-/// share with API consumers (which is actually the public key).
-pub const SK_FILENAME: &str = ".secp-sk";
-
-/// Length of the raw secret key, in bytes.
-pub const SK_LEN: usize = 32;
-
 /// The name of the file which stores the public key.
 ///
 /// For users, this public key is a "secret" that can be shared with API consumers to provide them
@@ -28,46 +19,33 @@ pub const PK_FILENAME: &str = "api-token.txt";
 ///
 /// Provides convenience functions to ultimately provide:
 ///
-///  - A signature across outgoing HTTP responses, applied to the `Signature` header.
 ///  - Verification of proof-of-knowledge of the public key in `self` for incoming HTTP requests,
 ///  via the `Authorization` header.
 ///
 ///  The aforementioned scheme was first defined here:
 ///
 ///  https://github.com/sigp/lighthouse/issues/1269#issuecomment-649879855
+///  
+///  This scheme has since been tweaked to remove VC response signing
+///  https://github.com/sigp/lighthouse/issues/5423
 pub struct ApiSecret {
     pk: PublicKey,
-    sk: SecretKey,
     pk_path: PathBuf,
 }
 
 impl ApiSecret {
-    /// If both the secret and public keys are already on-disk, parse them and ensure they're both
-    /// from the same keypair.
+    /// If the public key is already on-disk, use it.
     ///
-    /// The provided `dir` is a directory containing two files, `SK_FILENAME` and `PK_FILENAME`.
+    /// The provided `dir` is a directory containing `PK_FILENAME`.
     ///
-    /// If either the secret or public key files are missing on disk, create a new keypair and
+    /// If the public key file is missing on disk, create a new key and
     /// write it to disk (over-writing any existing files).
     pub fn create_or_open<P: AsRef<Path>>(dir: P) -> Result<Self, String> {
-        let sk_path = dir.as_ref().join(SK_FILENAME);
         let pk_path = dir.as_ref().join(PK_FILENAME);
 
-        if !(sk_path.exists() && pk_path.exists()) {
+        if !pk_path.exists() {
             let sk = SecretKey::random(&mut thread_rng());
             let pk = PublicKey::from_secret_key(&sk);
-
-            // Create and write the secret key to file with appropriate permissions
-            create_with_600_perms(
-                &sk_path,
-                serde_utils::hex::encode(sk.serialize()).as_bytes(),
-            )
-            .map_err(|e| {
-                format!(
-                    "Unable to create file with permissions for {:?}: {:?}",
-                    sk_path, e
-                )
-            })?;
 
             // Create and write the public key to file with appropriate permissions
             create_with_600_perms(
@@ -87,37 +65,16 @@ impl ApiSecret {
             })?;
         }
 
-        let sk = fs::read(&sk_path)
-            .map_err(|e| format!("cannot read {}: {}", SK_FILENAME, e))
-            .and_then(|bytes| {
-                serde_utils::hex::decode(&String::from_utf8_lossy(&bytes))
-                    .map_err(|_| format!("{} should be 0x-prefixed hex", PK_FILENAME))
-            })
-            .and_then(|bytes| {
-                if bytes.len() == SK_LEN {
-                    let mut array = [0; SK_LEN];
-                    array.copy_from_slice(&bytes);
-                    SecretKey::parse(&array).map_err(|e| format!("invalid {}: {}", SK_FILENAME, e))
-                } else {
-                    Err(format!(
-                        "{} expected {} bytes not {}",
-                        SK_FILENAME,
-                        SK_LEN,
-                        bytes.len()
-                    ))
-                }
-            })?;
-
         let pk = fs::read(&pk_path)
             .map_err(|e| format!("cannot read {}: {}", PK_FILENAME, e))
             .and_then(|bytes| {
                 let hex =
-                    String::from_utf8(bytes).map_err(|_| format!("{} is not utf8", SK_FILENAME))?;
+                    String::from_utf8(bytes).map_err(|_| format!("{} is not utf8", PK_FILENAME))?;
                 if let Some(stripped) = hex.strip_prefix(PK_PREFIX) {
                     serde_utils::hex::decode(stripped)
-                        .map_err(|_| format!("{} should be 0x-prefixed hex", SK_FILENAME))
+                        .map_err(|_| format!("{} should be 0x-prefixed hex", PK_FILENAME))
                 } else {
-                    Err(format!("unable to parse {}", SK_FILENAME))
+                    Err(format!("unable to parse {}", PK_FILENAME))
                 }
             })
             .and_then(|bytes| {
@@ -136,19 +93,7 @@ impl ApiSecret {
                 }
             })?;
 
-        // Ensure that the keys loaded from disk are indeed a pair.
-        if PublicKey::from_secret_key(&sk) != pk {
-            fs::remove_file(&sk_path)
-                .map_err(|e| format!("unable to remove {}: {}", SK_FILENAME, e))?;
-            fs::remove_file(&pk_path)
-                .map_err(|e| format!("unable to remove {}: {}", PK_FILENAME, e))?;
-            return Err(format!(
-                "{:?} does not match {:?} and the files have been deleted. Please try again.",
-                sk_path, pk_path
-            ));
-        }
-
-        Ok(Self { pk, sk, pk_path })
+        Ok(Self { pk, pk_path })
     }
 
     /// Returns the public key of `self` as a 0x-prefixed hex string.
@@ -195,17 +140,5 @@ impl ApiSecret {
             })
             .untuple_one()
             .boxed()
-    }
-
-    /// Returns a closure which produces a signature over some bytes using the secret key in
-    /// `self`. The signature is a 32-byte hash formatted as a 0x-prefixed string.
-    pub fn signer(&self) -> impl Fn(&[u8]) -> String + Clone {
-        let sk = self.sk;
-        move |input: &[u8]| -> String {
-            let message =
-                Message::parse_slice(digest(&SHA256, input).as_ref()).expect("sha256 is 32 bytes");
-            let (signature, _) = libsecp256k1::sign(&message, &sk);
-            serde_utils::hex::encode(signature.serialize_der().as_ref())
-        }
     }
 }
