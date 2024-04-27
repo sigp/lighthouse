@@ -69,7 +69,7 @@ pub fn cli_app() -> Command {
                       - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
                       Ipv4 and Ipv6. The order of the given addresses is not relevant. However, \
                       multiple Ipv4, or multiple Ipv6 addresses will not be accepted.")
-                .num_args(0..=2)
+                .num_args(1..=2)
                 .default_value("0.0.0.0")
                 .action(ArgAction::Append)
                 .display_order(0)

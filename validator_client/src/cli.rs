@@ -399,7 +399,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-           // TODO take note here 
             Arg::new("disable-latency-measurement-service")
                 .long("disable-latency-measurement-service")
                 .help("Disables the service that periodically attempts to measure latency to BNs.")
