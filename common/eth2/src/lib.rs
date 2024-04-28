@@ -735,7 +735,7 @@ impl BeaconNodeHttpClient {
     /// `GET beacon/light_client/updates`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_light_client_updates<E: EthSpec>(
+    pub async fn get_beacon_light_client_updates<E: EthSpec>(
         &self,
         start_period: u64,
         count: u64,

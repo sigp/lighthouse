@@ -329,6 +329,10 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
                 "Existing finality update too old: signature slot {signature_slot}, current slot {slot:?}"
             ));
         }
+
+        client
+            .get_beacon_light_client_updates::<E>(1, 1)
+            .await;
     }
 
     Ok(())
