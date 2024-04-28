@@ -1366,9 +1366,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         sync_committee_period: u64,
         count: u64,
-    ) -> Vec<LightClientUpdate<T::EthSpec>> {
-        self.light_client_server_cache
-            .get_light_client_updates(sync_committee_period, count)
+    ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, Error> {
+        self.light_client_server_cache.get_light_client_updates(
+            &self.store,
+            sync_committee_period,
+            count,
+            &self.spec,
+        )
     }
 
     /// Returns the current heads of the `BeaconChain`. For the canonical head, see `Self::head`.

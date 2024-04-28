@@ -1702,6 +1702,29 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_beacon_light_client_updates(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap();
+        let current_sync_committee_period = current_epoch.sync_committee_period(&self.chain.spec).unwrap();
+
+        let result = match self
+            .client
+            .get_light_client_updates::<E>(current_sync_committee_period as u64, 1)
+            .await
+        {
+            Ok(result) => result.map(|res| res.data).collect(),
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        let expected = self
+            .chain
+            .light_client_server_cache
+            .get_light_client_updates(&self.chain.store, current_sync_committee_period as u64, 1, &self.chain.spec).unwrap();
+
+        assert_eq!(result, expected);
+
+        self
+    }
+
     pub async fn test_get_beacon_light_client_bootstrap(self) -> Self {
         let block_id = BlockId(CoreBlockId::Finalized);
         let (block_root, _, _) = block_id.root(&self.chain).unwrap();
@@ -5777,6 +5800,18 @@ async fn node_get() {
         .test_get_node_peers()
         .await
         .test_get_node_peer_count()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_light_client_updates() {
+    let config = ApiTesterConfig {
+        spec: ForkName::Altair.make_genesis_spec(E::default_spec()),
+        ..<_>::default()
+    };
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_beacon_light_client_updates()
         .await;
 }
 

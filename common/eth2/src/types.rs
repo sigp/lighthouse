@@ -773,6 +773,18 @@ pub struct LightClientUpdatesQuery {
     pub count: u64,
 }
 
+#[derive(Encode, Decode)]
+pub struct LightClientUpdateSszResponse {
+    pub response_chunk_len: Vec<u8>,
+    pub response_chunk: Vec<u8>,
+}
+
+#[derive(Encode, Decode)]
+pub struct LightClientUpdateResponseChunk {
+    pub context: [u8; 4],
+    pub payload: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct BeaconCommitteeSubscription {
     #[serde(with = "serde_utils::quoted_u64")]

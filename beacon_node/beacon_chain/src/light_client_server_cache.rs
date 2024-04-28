@@ -3,9 +3,13 @@ use crate::{metrics, BeaconChainTypes, BeaconStore};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::{ArithError, SafeArith};
 use slog::{debug, Logger};
+use ssz::Decode;
+use ssz::Encode;
 use ssz_types::FixedVector;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use store::DBColumn;
+use store::KeyValueStore;
 use types::light_client_update::{
     FinalizedRootProofLen, NextSyncCommitteeProofLen, FINALIZED_ROOT_INDEX,
     NEXT_SYNC_COMMITTEE_INDEX,
@@ -23,9 +27,6 @@ use types::{
 // TODO(lightclientupdate) this cache size has now increased
 const PREV_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(32);
 
-// TODO(lightclientupdate) we want to cache 6 months worth of light client updates
-pub const LIGHT_CLIENT_UPDATES_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(180);
-
 /// This cache computes light client messages ahead of time, required to satisfy p2p and API
 /// requests. These messages include proofs on historical states, so on-demand computation is
 /// expensive.
@@ -42,8 +43,6 @@ pub struct LightClientServerCache<T: BeaconChainTypes> {
     latest_optimistic_update: RwLock<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
     /// Caches state proofs by block root
     prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData<T::EthSpec>>>,
-    /// Caches `LightClientUpdate`'s by sync committee period
-    light_client_updates_cache: Mutex<lru::LruCache<u64, LightClientUpdate<T::EthSpec>>>,
 }
 
 impl<T: BeaconChainTypes> LightClientServerCache<T> {
@@ -52,7 +51,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             latest_finality_update: None.into(),
             latest_optimistic_update: None.into(),
             prev_block_cache: lru::LruCache::new(PREV_BLOCK_CACHE_SIZE).into(),
-            light_client_updates_cache: lru::LruCache::new(LIGHT_CLIENT_UPDATES_CACHE_SIZE).into(),
         }
     }
 
@@ -169,7 +167,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                     .epoch(T::EthSpec::slots_per_epoch())
                     .sync_committee_period(chain_spec)?;
 
-                let prev_light_client_update = self.get_light_client_update(sync_period);
+                let prev_light_client_update =
+                    self.get_light_client_update(&store, sync_period, chain_spec)?;
 
                 if let Some(prev_light_client_update) = prev_light_client_update {
                     if is_better_light_client_update(
@@ -177,14 +176,14 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                         &new_light_client_update,
                         chain_spec,
                     )? {
-                        self.light_client_updates_cache
-                            .lock()
-                            .put(sync_period, new_light_client_update);
+                        self.store_light_client_update(
+                            &store,
+                            sync_period,
+                            &new_light_client_update,
+                        )?;
                     }
                 } else {
-                    self.light_client_updates_cache
-                        .lock()
-                        .put(sync_period, new_light_client_update);
+                    self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
                 }
             } else {
                 debug!(
@@ -196,6 +195,84 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         }
 
         Ok(())
+    }
+
+    pub fn store_light_client_update(
+        &self,
+        store: &BeaconStore<T>,
+        sync_committee_period: u64,
+        light_client_update: &LightClientUpdate<T::EthSpec>,
+    ) -> Result<(), BeaconChainError> {
+        let column = DBColumn::LightClientUpdate;
+
+        store.hot_db.put_bytes(
+            column.into(),
+            &sync_committee_period.to_le_bytes(),
+            &light_client_update.as_ssz_bytes(),
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_light_client_update(
+        &self,
+        store: &BeaconStore<T>,
+        sync_committee_period: u64,
+        chain_spec: &ChainSpec,
+    ) -> Result<Option<LightClientUpdate<T::EthSpec>>, BeaconChainError> {
+        let column = DBColumn::LightClientUpdate;
+        let res = store
+            .hot_db
+            .get_bytes(column.into(), &sync_committee_period.to_le_bytes())?;
+
+        if let Some(light_client_update_bytes) = res {
+            let epoch = sync_committee_period
+                .safe_mul(chain_spec.epochs_per_sync_committee_period.into())?;
+
+            let fork_name = chain_spec.fork_name_at_epoch(epoch.into());
+
+            let light_client_update =
+                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, fork_name)
+                    .map_err(store::errors::Error::SszDecodeError)?;
+
+            return Ok(Some(light_client_update));
+        }
+
+        Ok(None)
+    }
+
+    pub fn get_light_client_updates(
+        &self,
+        store: &BeaconStore<T>,
+        start_period: u64,
+        count: u64,
+        chain_spec: &ChainSpec,
+    ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, BeaconChainError> {
+        let column = DBColumn::LightClientUpdate;
+        let mut light_client_updates = vec![];
+        for res in store
+            .hot_db
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+        {
+            let (sync_committee_bytes, light_client_update_bytes) = res?;
+            let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)
+                .map_err(store::errors::Error::SszDecodeError)?;
+            let epoch = sync_committee_period
+                .safe_mul(chain_spec.epochs_per_sync_committee_period.into())?;
+
+            let fork_name = chain_spec.fork_name_at_epoch(epoch.into());
+
+            let light_client_update =
+                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, fork_name)
+                    .map_err(store::errors::Error::SszDecodeError)?;
+
+            light_client_updates.push(light_client_update);
+
+            if sync_committee_period >= start_period + count {
+                break;
+            }
+        }
+        Ok(light_client_updates)
     }
 
     /// Retrieves prev block cached data from cache. If not present re-computes by retrieving the
@@ -236,34 +313,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
     pub fn get_latest_optimistic_update(&self) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
         self.latest_optimistic_update.read().clone()
-    }
-
-    pub fn get_light_client_update(
-        &self,
-        sync_committee_period: u64,
-    ) -> Option<LightClientUpdate<T::EthSpec>> {
-        let mut mutex = self.light_client_updates_cache.lock();
-        if let Some(light_client_update) = mutex.get(&sync_committee_period) {
-            return Some(light_client_update.clone());
-        }
-
-        None
-    }
-
-    pub fn get_light_client_updates(
-        &self,
-        sync_committee_period: u64,
-        count: u64,
-    ) -> Vec<LightClientUpdate<T::EthSpec>> {
-        let mut light_client_updates = vec![];
-        let mut mutex = self.light_client_updates_cache.lock();
-        for slot in sync_committee_period..=sync_committee_period + count {
-            if let Some(light_client_update) = mutex.get(&slot) {
-                light_client_updates.push(light_client_update.clone());
-            }
-        }
-
-        light_client_updates
     }
 }
 

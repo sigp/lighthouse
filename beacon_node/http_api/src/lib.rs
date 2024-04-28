@@ -31,6 +31,7 @@ mod validator_inclusion;
 mod validators;
 mod version;
 
+use crate::light_client::get_light_client_updates;
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
@@ -44,8 +45,8 @@ use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
-    PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId, ValidatorStatus,
-    ValidatorsRequestBody,
+    LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId,
+    ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
@@ -2422,37 +2423,7 @@ pub fn serve<T: BeaconChainTypes>(
              query: LightClientUpdatesQuery,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
-                    let updates = chain
-                        .light_client_server_cache
-                        .get_light_client_updates(query.start_period, count)
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(
-                                "No LightClientUpdates found".to_string(),
-                            )
-                        })?;
-
-                    let fork_name = chain
-                        .spec
-                        .fork_name_at_slot::<T::EthSpec>(*update.signature_slot());
-                    match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
-                            .status(200)
-                            .body(update.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
-                            .map_err(|e| {
-                                warp_utils::reject::custom_server_error(format!(
-                                    "failed to create response: {}",
-                                    e
-                                ))
-                            }),
-                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
-                            version: Some(fork_name),
-                            metadata: EmptyMetadata {},
-                            data: update,
-                        })
-                        .into_response()),
-                    }
-                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                    get_light_client_updates::<T>(chain, query, accept_header)
                 })
             },
         );

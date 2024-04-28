@@ -1933,33 +1933,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(ops)
     }
 
-    pub fn store_light_client_update(
-        &self,
-        sync_committee_period: u64,
-        light_client_update: &LightClientUpdate<E>,
-    ) -> Result<(), Error> {
-        let column = DBColumn::LightClientUpdate;
-
-        self.hot_db.put_bytes(
-            column.into(),
-            &sync_committee_period.to_le_bytes(),
-            &light_client_update.as_ssz_bytes(),
-        )
-    }
-
-    pub fn get_light_client_updates(
-        &self,
-        start_period: u64,
-        count: u64
-    ) -> Result<(), Error> {
-        let column = DBColumn::LightClientUpdate;
-        for res in self.hot_db.iter_raw_entries(column, &start_period.to_le_bytes()) {
-            let (key_bytes, value_bytes) = res?;
-        }
-
-        Ok(())
-    }
-
     /// Try to prune all execution payloads, returning early if there is no need to prune.
     pub fn try_prune_execution_payloads(&self, force: bool) -> Result<(), Error> {
         let split = self.get_split_info();
