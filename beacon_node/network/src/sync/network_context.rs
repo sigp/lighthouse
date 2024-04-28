@@ -20,7 +20,9 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
-use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
+use lighthouse_network::{
+    Client, Eth2Enr, NetworkGlobals, PeerAction, PeerId, ReportSource, Request,
+};
 pub use requests::LookupVerifyError;
 use slog::{debug, trace, warn};
 use std::collections::hash_map::Entry;
@@ -59,7 +61,7 @@ pub enum RpcEvent<T> {
     RPCError(RPCError),
 }
 
-pub type RpcProcessingResult<T, ID> = Option<(ID, Result<(T, Duration), LookupFailure>)>;
+pub type RpcProcessingResult<ID, T> = Option<(ID, Result<(T, Duration), LookupFailure>)>;
 
 pub enum LookupFailure {
     RpcError(RPCError),
@@ -163,10 +165,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn get_custodial_peers(&self, _epoch: Epoch, column_index: ColumnIndex) -> Vec<PeerId> {
         let mut peer_ids = vec![];
 
-        for (peer_id, peer_info) in self.network_globals().peers.read().peers() {
+        for (peer_id, peer_info) in self.network_globals().peers.read().connected_peers() {
             if let Some(enr) = peer_info.enr() {
-                // TODO(das): do not hardcode `custody_subnet_count`
-                let custody_subnet_count = 2;
+                // TODO(das): ignores decode errors
+                let custody_subnet_count = enr
+                    .custody_subnet_count::<T::EthSpec>()
+                    .unwrap_or(T::EthSpec::min_custody_requirement() as u64);
                 // TODO(das): consider caching a map of subnet -> Vec<PeerId> and invalidating
                 // whenever a peer connected or disconnect event in received
                 let mut subnets = DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
@@ -551,7 +555,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         request_id: SingleLookupReqId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
-    ) -> RpcProcessingResult<Arc<SignedBeaconBlock<T::EthSpec>>, ()> {
+    ) -> RpcProcessingResult<(), Arc<SignedBeaconBlock<T::EthSpec>>> {
         let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
             return None;
         };
@@ -583,7 +587,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         request_id: SingleLookupReqId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
-    ) -> RpcProcessingResult<FixedBlobSidecarList<T::EthSpec>, ()> {
+    ) -> RpcProcessingResult<(), FixedBlobSidecarList<T::EthSpec>> {
         let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
             return None;
         };
@@ -620,7 +624,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: Id,
         item: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
-    ) -> RpcProcessingResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>, DataColumnsByRootRequester>
+    ) -> RpcProcessingResult<DataColumnsByRootRequester, Vec<Arc<DataColumnSidecar<T::EthSpec>>>>
     {
         let Entry::Occupied(mut request) = self.data_columns_by_root_requests.entry(id) else {
             return None;

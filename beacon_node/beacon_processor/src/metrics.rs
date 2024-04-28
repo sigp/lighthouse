@@ -86,6 +86,16 @@ lazy_static::lazy_static! {
         "beacon_processor_rpc_blob_queue_total",
         "Count of blobs from the rpc waiting to be verified."
     );
+    // Rpc verify data columns
+    pub static ref BEACON_PROCESSOR_RPC_VERIFY_DATA_COLUMN_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_rpc_verify_data_column_queue_total",
+        "Count of data columns from the rpc waiting to be verified."
+    );
+    // Sampling result
+    pub static ref BEACON_PROCESSOR_SAMPLING_RESULT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_rpc_blob_queue_total",
+        "Count of sampling results waiting to be processed."
+    );
     // Chain segments.
     pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_chain_segment_queue_total",

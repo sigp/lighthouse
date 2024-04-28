@@ -10,7 +10,7 @@ use std::{
     collections::hash_map::Entry, collections::HashMap, marker::PhantomData, sync::Arc,
     time::Duration,
 };
-use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256, Slot};
+use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, EthSpec, Hash256, Slot};
 
 pub type SamplingResult = Result<(), SamplingError>;
 
@@ -48,6 +48,12 @@ impl<T: BeaconChainTypes> Sampling<T> {
         self.requests.values().map(|r| r.block_root).collect()
     }
 
+    /// Create a new sampling request for a known block
+    ///
+    /// ### Returns
+    ///
+    /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
+    /// - `None`: Request still active, requester should do no action
     pub fn on_new_sample_request(
         &mut self,
         block_root: Hash256,
@@ -81,6 +87,13 @@ impl<T: BeaconChainTypes> Sampling<T> {
             .map(|result| (requester, result))
     }
 
+    /// Insert a downloaded column into an active sampling request. Then make progress on the
+    /// entire request.
+    ///
+    /// ### Returns
+    ///
+    /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
+    /// - `None`: Request still active, requester should do no action
     pub fn on_sample_downloaded(
         &mut self,
         id: SamplingId,
@@ -98,6 +111,13 @@ impl<T: BeaconChainTypes> Sampling<T> {
         self.handle_sampling_result(result, &id.id)
     }
 
+    /// Insert a downloaded column into an active sampling request. Then make progress on the
+    /// entire request.
+    ///
+    /// ### Returns
+    ///
+    /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
+    /// - `None`: Request still active, requester should do no action
     pub fn on_sample_verified(
         &mut self,
         id: SamplingId,
@@ -114,6 +134,9 @@ impl<T: BeaconChainTypes> Sampling<T> {
         self.handle_sampling_result(result, &id.id)
     }
 
+    /// Converts a result from the internal format of `ActiveSamplingRequest` (error first to use ?
+    /// conveniently), to an Option first format to use an `if let Some() { act on result }` pattern
+    /// in the sync manager.
     fn handle_sampling_result(
         &mut self,
         result: Result<Option<()>, SamplingError>,
@@ -121,7 +144,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ) -> Option<SamplingResult> {
         let result = result.transpose();
         if result.is_some() {
-            debug!(self.log, "Removed sampling request"; "id" => ?id);
+            debug!(self.log, "Remove completed sampling request"; "id" => ?id, "result" => ?result);
             self.requests.remove(id);
         }
         result
@@ -146,6 +169,7 @@ pub enum SamplingError {
     ProcessorUnavailable,
     TooManyFailures,
     BadState(String),
+    ColumnIndexOutOfBounds,
 }
 
 /// Required success index by current failures, with p_target=5.00E-06
@@ -170,7 +194,8 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         log: slog::Logger,
     ) -> Self {
         // Select ahead of time the full list of to-sample columns
-        let mut column_shuffle = (0..64).collect::<Vec<ColumnIndex>>();
+        let mut column_shuffle = (0..<T::EthSpec as EthSpec>::number_of_columns() as ColumnIndex)
+            .collect::<Vec<ColumnIndex>>();
         let mut rng = thread_rng();
         column_shuffle.shuffle(&mut rng);
 
@@ -189,9 +214,15 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         }
     }
 
-    // TODO: When is a fork and only a subset of your peers know about a block, sampling should only
-    // be queried on the peers on that fork. Should this case be handled? How to handle it?
-    fn on_sample_downloaded(
+    /// Insert a downloaded column into an active sampling request. Then make progress on the
+    /// entire request.
+    ///
+    /// ### Returns
+    ///
+    /// - `Err`: Sampling request has failed and will be dropped
+    /// - `Ok(Some)`: Sampling request has successfully completed and will be dropped
+    /// - `Ok(None)`: Sampling request still active
+    pub(crate) fn on_sample_downloaded(
         &mut self,
         _peer_id: PeerId,
         column_index: ColumnIndex,
@@ -258,6 +289,14 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         self.continue_sampling(cx)
     }
 
+    /// Insert a column verification result into an active sampling request. Then make progress
+    /// on the entire request.
+    ///
+    /// ### Returns
+    ///
+    /// - `Err`: Sampling request has failed and will be dropped
+    /// - `Ok(Some)`: Sampling request has successfully completed and will be dropped
+    /// - `Ok(None)`: Sampling request still active
     pub(crate) fn on_sample_verified(
         &mut self,
         column_index: ColumnIndex,
@@ -301,7 +340,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         self.continue_sampling(cx)
     }
 
-    fn continue_sampling(
+    pub(crate) fn continue_sampling(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<Option<()>, SamplingError> {
@@ -337,8 +376,11 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         // First, attempt to progress sampling by requesting more columns, so that request failures
         // are accounted for below.
         for idx in 0..*required_successes {
-            // Re-request columns
-            let column_index = self.column_shuffle[idx];
+            // Re-request columns. Note: out of bounds error should never happen, inputs are hardcoded
+            let column_index = *self
+                .column_shuffle
+                .get(idx)
+                .ok_or(SamplingError::ColumnIndexOutOfBounds)?;
             let request = self
                 .column_requests
                 .entry(column_index)
@@ -431,6 +473,8 @@ mod request {
                 Status::Verified => return Ok(false),      // Already completed
             }
 
+            // TODO: When is a fork and only a subset of your peers know about a block, sampling should only
+            // be queried on the peers on that fork. Should this case be handled? How to handle it?
             let peer_ids = cx.get_custodial_peers(
                 block_slot.epoch(<T::EthSpec as EthSpec>::slots_per_epoch()),
                 self.column_index,

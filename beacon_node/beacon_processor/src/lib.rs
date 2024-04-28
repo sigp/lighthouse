@@ -1000,6 +1000,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = rpc_blob_queue.pop() {
                             self.spawn_worker(item, idle_tx);
+                        // TODO(das): decide proper priorization for sampling columns
+                        } else if let Some(item) = rpc_verify_data_column_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = sampling_result_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
                         } else if let Some(item) = delayed_block_queue.pop() {
@@ -1387,6 +1392,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_RPC_BLOB_QUEUE_TOTAL,
+                    rpc_blob_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_RPC_VERIFY_DATA_COLUMN_QUEUE_TOTAL,
+                    rpc_blob_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_SAMPLING_RESULT_QUEUE_TOTAL,
                     rpc_blob_queue.len() as i64,
                 );
                 metrics::set_gauge(

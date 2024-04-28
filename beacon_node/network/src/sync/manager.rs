@@ -125,6 +125,7 @@ pub enum SyncMessage<E: EthSpec> {
         seen_timestamp: Duration,
     },
 
+    /// A data columns has been received from the RPC
     RpcDataColumn {
         request_id: RequestId,
         peer_id: PeerId,
@@ -1044,25 +1045,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         data_column: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        let Some((requester, resp)) = self
+        if let Some((requester, resp)) = self
             .network
             .on_data_columns_by_root_response(id, data_column)
-        else {
-            // TOOD(das): error o log
-            return;
-        };
-
-        match requester {
-            DataColumnsByRootRequester::Sampling(id) => {
-                if let Some(result) =
-                    self.sampling
-                        .on_sample_downloaded(id, peer_id, resp, &mut self.network)
-                {
-                    self.on_sampling_result(id.id, result)
+        {
+            match requester {
+                DataColumnsByRootRequester::Sampling(id) => {
+                    if let Some(result) =
+                        self.sampling
+                            .on_sample_downloaded(id, peer_id, resp, &mut self.network)
+                    {
+                        self.on_sampling_result(id.id, result)
+                    }
                 }
-            }
-            DataColumnsByRootRequester::Custody => {
-                todo!("TODO(das): handle custody requests");
+                DataColumnsByRootRequester::Custody => {
+                    todo!("TODO(das): handle custody requests");
+                }
             }
         }
     }
