@@ -39,6 +39,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
          * Network parameters.
          */
         .arg(
+            Arg::with_name("subscribe-all-data-column-subnets")
+                .long("subscribe-all-data-column-subnets")
+                .help("Subscribe to all data column subnets and participate in data custody for \
+                        all columns. This will also advertise the beacon node as being long-lived \
+                        subscribed to all data column subnets.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("subscribe-all-subnets")
                 .long("subscribe-all-subnets")
                 .help("Subscribe to all subnets regardless of validator count. \

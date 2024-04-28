@@ -17,3 +17,4 @@ ethereum_serde_utils = { workspace = true }
 hex = { workspace = true }
 ethereum_hashing = { workspace = true }
 c-kzg = { workspace = true }
+mockall = { workspace = true }

@@ -7,9 +7,13 @@ use crate::{
 };
 use bls::Signature;
 use derivative::Derivative;
-use kzg::{Blob as KzgBlob, Error as KzgError, Kzg};
+#[cfg_attr(test, double)]
+use kzg::Kzg;
+use kzg::{Blob as KzgBlob, Error as KzgError};
 use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::MerkleTreeError;
+#[cfg(test)]
+use mockall_double::double;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -83,6 +87,9 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         block: &SignedBeaconBlock<E>,
         kzg: &Kzg,
     ) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
+        if blobs.is_empty() {
+            return Ok(DataColumnSidecarList::empty());
+        }
         let kzg_commitments = block
             .message()
             .body()
@@ -246,6 +253,7 @@ pub type FixedDataColumnSidecarList<E> =
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::beacon_block::EmptyBlock;
     use crate::beacon_block_body::KzgCommitments;
     use crate::eth_spec::EthSpec;
@@ -254,9 +262,23 @@ mod test {
         DataColumnSidecar, MainnetEthSpec, SignedBeaconBlock,
     };
     use bls::Signature;
-    use eth2_network_config::TRUSTED_SETUP_BYTES;
-    use kzg::{Kzg, KzgCommitment, KzgProof, TrustedSetup};
+    use kzg::{KzgCommitment, KzgProof};
     use std::sync::Arc;
+
+    #[test]
+    fn test_build_sidecars_empty() {
+        type E = MainnetEthSpec;
+        let num_of_blobs = 0;
+        let spec = E::default_spec();
+        let (signed_block, blob_sidecars) =
+            create_test_block_and_blob_sidecars::<E>(num_of_blobs, &spec);
+
+        let mock_kzg = Arc::new(Kzg::default());
+        let column_sidecars =
+            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &mock_kzg).unwrap();
+
+        assert!(column_sidecars.is_empty());
+    }
 
     #[test]
     fn test_build_sidecars() {
@@ -266,11 +288,13 @@ mod test {
         let (signed_block, blob_sidecars) =
             create_test_block_and_blob_sidecars::<E>(num_of_blobs, &spec);
 
-        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES).unwrap();
-        let kzg = Arc::new(Kzg::new_from_trusted_setup(trusted_setup).unwrap());
+        let mut mock_kzg = Kzg::default();
+        mock_kzg
+            .expect_compute_cells_and_proofs()
+            .returning(kzg::mock::compute_cells_and_proofs);
 
         let column_sidecars =
-            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &kzg).unwrap();
+            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &mock_kzg).unwrap();
 
         let block_kzg_commitments = signed_block
             .message()

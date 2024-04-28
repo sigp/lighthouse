@@ -1129,6 +1129,10 @@ pub fn set_network_config(
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
+    if cli_args.is_present("subscribe-all-data-column-subnets") {
+        config.subscribe_all_data_column_subnets = true;
+    }
+
     if cli_args.is_present("subscribe-all-subnets") {
         config.subscribe_all_subnets = true;
     }

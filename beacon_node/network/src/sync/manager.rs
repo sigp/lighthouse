@@ -722,11 +722,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
             SyncMessage::SampleVerified { id, result } => {
-                if let Some(result) =
+                if let Some((requester, result)) =
                     self.sampling
                         .on_sample_verified(id, result, &mut self.network)
                 {
-                    self.on_sampling_result(id.id, result)
+                    self.on_sampling_result(requester, result)
                 }
             }
         }
@@ -1051,11 +1051,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             match requester {
                 DataColumnsByRootRequester::Sampling(id) => {
-                    if let Some(result) =
+                    if let Some((requester, result)) =
                         self.sampling
                             .on_sample_downloaded(id, peer_id, resp, &mut self.network)
                     {
-                        self.on_sampling_result(id.id, result)
+                        self.on_sampling_result(requester, result)
                     }
                 }
                 DataColumnsByRootRequester::Custody => {

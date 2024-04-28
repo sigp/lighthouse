@@ -14,6 +14,8 @@ pub use c_kzg::{
     BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
 };
 use c_kzg::{Cell, CELLS_PER_BLOB};
+use mockall::automock;
+
 #[derive(Debug)]
 pub enum Error {
     /// An error from the underlying kzg library.
@@ -34,6 +36,7 @@ pub struct Kzg {
     trusted_setup: KzgSettings,
 }
 
+#[automock]
 impl Kzg {
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
     pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
@@ -188,6 +191,24 @@ impl Kzg {
         } else {
             Ok(())
         }
+    }
+}
+
+pub mod mock {
+    use crate::{Error, KzgProof};
+    use c_kzg::{Blob, Cell, CELLS_PER_BLOB};
+
+    pub const MOCK_KZG_BYTES_PER_CELL: usize = 2048;
+
+    #[allow(clippy::type_complexity)]
+    pub fn compute_cells_and_proofs(
+        _blob: &Blob,
+    ) -> Result<(Box<[Cell; CELLS_PER_BLOB]>, Box<[KzgProof; CELLS_PER_BLOB]>), Error> {
+        let empty_cell = Cell::new([0; MOCK_KZG_BYTES_PER_CELL]);
+        Ok((
+            Box::new([empty_cell; CELLS_PER_BLOB]),
+            Box::new([KzgProof::empty(); CELLS_PER_BLOB]),
+        ))
     }
 }
 

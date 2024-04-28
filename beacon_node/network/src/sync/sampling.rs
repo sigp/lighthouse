@@ -1,6 +1,6 @@
 use self::request::ActiveColumnSampleRequest;
-
 use super::network_context::{LookupFailure, SyncNetworkContext};
+use crate::metrics;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
@@ -60,31 +60,29 @@ impl<T: BeaconChainTypes> Sampling<T> {
         block_slot: Slot,
         cx: &mut SyncNetworkContext<T>,
     ) -> Option<(SamplingRequester, SamplingResult)> {
-        let requester = SamplingRequester::ImportedBlock(block_root);
+        let id = SamplingRequester::ImportedBlock(block_root);
 
-        let request = match self.requests.entry(requester) {
+        let request = match self.requests.entry(id) {
             Entry::Vacant(e) => e.insert(ActiveSamplingRequest::new(
                 block_root,
                 block_slot,
-                requester,
+                id,
                 &self.sampling_config,
                 self.log.clone(),
             )),
             Entry::Occupied(_) => {
-                warn!(self.log, "Ignoring duplicate sampling request"; "id" => ?requester);
+                warn!(self.log, "Ignoring duplicate sampling request"; "id" => ?id);
                 return None;
             }
         };
 
-        debug!(self.log, "Created new sample request"; "id" => ?requester);
+        debug!(self.log, "Created new sample request"; "id" => ?id);
 
         // TOOD(das): If a node has very little peers, continue_sampling() will attempt to find enough
         // to sample here, immediately failing the sampling request. There should be some grace
         // period to allow the peer manager to find custody peers.
-        request
-            .continue_sampling(cx)
-            .transpose()
-            .map(|result| (requester, result))
+        let result = request.continue_sampling(cx);
+        self.handle_sampling_result(result, &id)
     }
 
     /// Insert a downloaded column into an active sampling request. Then make progress on the
@@ -100,7 +98,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
         peer_id: PeerId,
         resp: Result<(DataColumnSidecarList<T::EthSpec>, Duration), LookupFailure>,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Option<SamplingResult> {
+    ) -> Option<(SamplingRequester, SamplingResult)> {
         let Some(request) = self.requests.get_mut(&id.id) else {
             // TOOD(das): This log can happen if the request is error'ed early and dropped
             debug!(self.log, "Sample downloaded event for unknown request"; "id" => ?id);
@@ -123,7 +121,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
         id: SamplingId,
         result: Result<(), String>,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Option<SamplingResult> {
+    ) -> Option<(SamplingRequester, SamplingResult)> {
         let Some(request) = self.requests.get_mut(&id.id) else {
             // TOOD(das): This log can happen if the request is error'ed early and dropped
             debug!(self.log, "Sample verified event for unknown request"; "id" => ?id);
@@ -141,13 +139,19 @@ impl<T: BeaconChainTypes> Sampling<T> {
         &mut self,
         result: Result<Option<()>, SamplingError>,
         id: &SamplingRequester,
-    ) -> Option<SamplingResult> {
+    ) -> Option<(SamplingRequester, SamplingResult)> {
         let result = result.transpose();
-        if result.is_some() {
-            debug!(self.log, "Remove completed sampling request"; "id" => ?id, "result" => ?result);
+        if let Some(result) = result {
+            debug!(self.log, "Sampling request completed, removing"; "id" => ?id, "result" => ?result);
+            metrics::inc_counter_vec(
+                &metrics::SAMPLING_REQUEST_RESULT,
+                &[metrics::from_result(&result)],
+            );
             self.requests.remove(id);
+            Some((*id, result))
+        } else {
+            None
         }
-        result
     }
 }
 
@@ -245,6 +249,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         match resp {
             Ok((mut data_columns, seen_timestamp)) => {
                 debug!(self.log, "Sample download success"; "block_root" => %self.block_root, "column_index" => column_index, "count" => data_columns.len());
+                metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::SUCCESS]);
 
                 // No need to check data_columns has len > 1, as the SyncNetworkContext ensure that
                 // only requested is returned (or none);
@@ -279,6 +284,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
             }
             Err(err) => {
                 debug!(self.log, "Sample download error"; "block_root" => %self.block_root, "column_index" => column_index, "error" => %err);
+                metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::FAILURE]);
 
                 // Error downloading, maybe penalize peer and retry again.
                 // TODO(das) with different peer or different peer?
@@ -319,12 +325,14 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         match result {
             Ok(_) => {
                 debug!(self.log, "Sample verification success"; "block_root" => %self.block_root, "column_index" => column_index);
+                metrics::inc_counter_vec(&metrics::SAMPLE_VERIFY_RESULT, &[metrics::SUCCESS]);
 
                 // Valid, continue_sampling will maybe consider sampling succees
                 request.on_sampling_success()?;
             }
             Err(err) => {
                 debug!(self.log, "Sample verification failure"; "block_root" => %self.block_root, "column_index" => column_index, "reason" => ?err);
+                metrics::inc_counter_vec(&metrics::SAMPLE_VERIFY_RESULT, &[metrics::FAILURE]);
 
                 // TODO(das): Peer sent invalid data, penalize and try again from different peer
                 // TODO(das): Count individual failures
