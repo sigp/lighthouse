@@ -95,7 +95,7 @@ pub enum BackFillError {
     /// A batch could not be processed.
     BatchProcessingFailed(#[allow(dead_code)] BatchId),
     /// A batch entered an invalid state.
-    BatchInvalidState(#[allow(dead_code)] BatchId, String),
+    BatchInvalidState(#[allow(dead_code)] BatchId, #[allow(dead_code)] String),
     /// The sync algorithm entered an invalid state.
     InvalidSyncState(#[allow(dead_code)] String),
     /// The chain became paused.
