@@ -14,6 +14,9 @@ use std::sync::Arc;
 use strum::IntoEnumIterator;
 use types::EthSpec;
 
+pub const SUCCESS: &str = "SUCCESS";
+pub const FAILURE: &str = "FAILURE";
+
 lazy_static! {
 
     pub static ref BEACON_BLOCK_MESH_PEERS_PER_CLIENT: Result<IntGaugeVec> =
@@ -344,6 +347,25 @@ lazy_static! {
         "beacon_processor_reprocessing_queue_sent_optimistic_updates",
         "Number of queued light client optimistic updates where as matching block has been imported."
     );
+
+    /*
+     * Sampling
+     */
+    pub static ref SAMPLE_DOWNLOAD_RESULT: Result<IntCounterVec> = try_create_int_counter_vec(
+        "beacon_sampling_sample_verify_result_total",
+        "Total count of individual sample download results",
+        &["result"]
+    );
+    pub static ref SAMPLE_VERIFY_RESULT: Result<IntCounterVec> = try_create_int_counter_vec(
+        "beacon_sampling_sample_verify_result_total",
+        "Total count of individual sample verify results",
+        &["result"]
+    );
+    pub static ref SAMPLING_REQUEST_RESULT: Result<IntCounterVec> = try_create_int_counter_vec(
+        "beacon_sampling_request_result_total",
+        "Total count of sample request results",
+        &["result"]
+    );
 }
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
@@ -360,6 +382,13 @@ pub fn register_attestation_error(error: &AttnError) {
 
 pub fn register_sync_committee_error(error: &SyncCommitteeError) {
     inc_counter_vec(&GOSSIP_SYNC_COMMITTEE_ERRORS_PER_TYPE, &[error.as_ref()]);
+}
+
+pub fn from_result<T, E>(result: &std::result::Result<T, E>) -> &str {
+    match result {
+        Ok(_) => SUCCESS,
+        Err(_) => FAILURE,
+    }
 }
 
 pub fn update_gossip_metrics<E: EthSpec>(

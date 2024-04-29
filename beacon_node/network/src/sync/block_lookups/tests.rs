@@ -2,7 +2,8 @@ use crate::network_beacon_processor::NetworkBeaconProcessor;
 
 use crate::service::RequestId;
 use crate::sync::manager::{RequestId as SyncRequestId, SingleLookupReqId, SyncManager};
-use crate::sync::SyncMessage;
+use crate::sync::sampling::{SamplingConfig, SamplingRequester};
+use crate::sync::{SamplingId, SyncMessage};
 use crate::NetworkMessage;
 use std::sync::Arc;
 
@@ -12,7 +13,8 @@ use crate::sync::block_lookups::common::ResponseType;
 use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_chain::test_utils::{
-    build_log, generate_rand_block_and_blobs, BeaconChainHarness, EphemeralHarnessType, NumBlobs,
+    build_log, generate_rand_block_and_blobs, generate_rand_block_and_data_columns,
+    BeaconChainHarness, EphemeralHarnessType, NumBlobs,
 };
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
@@ -22,6 +24,8 @@ use slog::info;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
+use types::data_column_sidecar::ColumnIndex;
+use types::DataColumnSidecar;
 use types::{
     test_utils::{SeedableRng, XorShiftRng},
     BlobSidecar, ForkName, MinimalEthSpec as E, SignedBeaconBlock,
@@ -57,6 +61,7 @@ type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, Memo
 struct TestRig {
     /// Receiver for `BeaconProcessor` events (e.g. block processing results).
     beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
+    beacon_processor_rx_queue: Vec<WorkEvent<E>>,
     /// Receiver for `NetworkMessage` (e.g. outgoing RPC requests from sync)
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     /// Stores all `NetworkMessage`s received from `network_recv`. (e.g. outgoing RPC requests)
@@ -72,6 +77,9 @@ struct TestRig {
 }
 
 const D: Duration = Duration::new(0, 0);
+const SAMPLING_REQUIRED_SUCCESSES: usize = 2;
+
+type SamplingIds = Vec<(Id, ColumnIndex)>;
 
 impl TestRig {
     fn test_setup() -> Self {
@@ -114,6 +122,7 @@ impl TestRig {
         let rng = XorShiftRng::from_seed([42; 16]);
         TestRig {
             beacon_processor_rx,
+            beacon_processor_rx_queue: vec![],
             network_rx,
             network_rx_queue: vec![],
             rng,
@@ -123,6 +132,9 @@ impl TestRig {
                 network_tx,
                 beacon_processor.into(),
                 sync_recv,
+                SamplingConfig::Custom {
+                    required_successes: vec![SAMPLING_REQUIRED_SUCCESSES],
+                },
                 log.clone(),
             ),
             fork_name,
@@ -166,6 +178,10 @@ impl TestRig {
         ));
     }
 
+    fn trigger_sample_block(&mut self, block_root: Hash256, block_slot: Slot) {
+        self.send_sync_message(SyncMessage::SampleBlock(block_root, block_slot))
+    }
+
     fn rand_block(&mut self) -> SignedBeaconBlock<E> {
         self.rand_block_and_blobs(NumBlobs::None).0
     }
@@ -177,6 +193,11 @@ impl TestRig {
         let fork_name = self.fork_name;
         let rng = &mut self.rng;
         generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
+    }
+
+    fn rand_block_and_data_columns(&mut self) -> (SignedBeaconBlock<E>, Vec<DataColumnSidecar<E>>) {
+        let num_blobs = NumBlobs::Number(1);
+        generate_rand_block_and_data_columns::<E>(self.fork_name, num_blobs, &mut self.rng)
     }
 
     pub fn rand_block_and_parent(
@@ -210,6 +231,20 @@ impl TestRig {
         self.sync_manager.failed_chains_contains(chain_hash)
     }
 
+    fn expect_no_active_sampling(&mut self) {
+        assert_eq!(
+            self.sync_manager.active_sampling_requests(),
+            vec![],
+            "expected no active sampling"
+        );
+    }
+
+    fn expect_clean_finished_sampling(&mut self) {
+        self.expect_empty_network();
+        self.expect_sampling_result_work();
+        self.expect_no_active_sampling();
+    }
+
     #[track_caller]
     fn assert_parent_lookups_consistency(&self) {
         let hashes = self.active_parent_lookups();
@@ -231,6 +266,10 @@ impl TestRig {
             .write()
             .__add_connected_peer_testing_only(&peer_id);
         peer_id
+    }
+
+    fn new_connected_peers(&mut self, count: usize) -> Vec<PeerId> {
+        (0..count).map(|_| self.new_connected_peer()).collect()
     }
 
     fn parent_chain_processed(&mut self, chain_hash: Hash256, result: BatchProcessResult) {
@@ -379,6 +418,77 @@ impl TestRig {
         })
     }
 
+    fn return_empty_sampling_requests(&mut self, sampling_ids: SamplingIds) {
+        for (id, column_index) in sampling_ids {
+            self.log(&format!("return empty data column for {column_index}"));
+            self.return_empty_sampling_request(id)
+        }
+    }
+
+    fn return_empty_sampling_request(&mut self, id: Id) {
+        let peer_id = PeerId::random();
+        // Send stream termination
+        self.send_sync_message(SyncMessage::RpcDataColumn {
+            request_id: SyncRequestId::DataColumnsByRoot(id),
+            peer_id,
+            data_column: None,
+            seen_timestamp: timestamp_now(),
+        });
+    }
+
+    fn complete_valid_sampling_column_requests(
+        &mut self,
+        sampling_ids: SamplingIds,
+        data_columns: Vec<DataColumnSidecar<E>>,
+    ) {
+        for (id, column_index) in sampling_ids {
+            self.log(&format!("return valid data column for {column_index}"));
+            self.complete_valid_sampling_column_request(
+                id,
+                data_columns[column_index as usize].clone(),
+            );
+        }
+    }
+
+    fn complete_valid_sampling_column_request(
+        &mut self,
+        id: Id,
+        data_column: DataColumnSidecar<E>,
+    ) {
+        let peer_id = PeerId::random();
+        let block_root = data_column.block_root();
+        let column_index = data_column.index;
+
+        // Send chunk
+        self.send_sync_message(SyncMessage::RpcDataColumn {
+            request_id: SyncRequestId::DataColumnsByRoot(id),
+            peer_id,
+            data_column: Some(Arc::new(data_column)),
+            seen_timestamp: timestamp_now(),
+        });
+
+        // Send stream termination
+        self.send_sync_message(SyncMessage::RpcDataColumn {
+            request_id: SyncRequestId::DataColumnsByRoot(id),
+            peer_id,
+            data_column: None,
+            seen_timestamp: timestamp_now(),
+        });
+
+        // Expect work event
+        // TODO(das): worth it to append sender id to the work event for stricter assertion?
+        self.expect_sample_verify_request();
+
+        // Respond with valid result
+        self.send_sync_message(SyncMessage::SampleVerified {
+            id: SamplingId {
+                id: SamplingRequester::ImportedBlock(block_root),
+                column_index,
+            },
+            result: Ok(()),
+        })
+    }
+
     fn peer_disconnected(&mut self, peer_id: PeerId) {
         self.send_sync_message(SyncMessage::Disconnect(peer_id));
     }
@@ -406,6 +516,36 @@ impl TestRig {
             Ok(transformed)
         } else {
             Err(format!("current network messages {:?}", self.network_rx_queue).to_string())
+        }
+    }
+
+    fn drain_beacon_processor_rx(&mut self) {
+        while let Ok(event) = self.beacon_processor_rx.try_recv() {
+            self.beacon_processor_rx_queue.push(event);
+        }
+    }
+
+    fn pop_received_beacon_processor_event<T, F: Fn(&WorkEvent<E>) -> Option<T>>(
+        &mut self,
+        predicate_transform: F,
+    ) -> Result<T, String> {
+        self.drain_beacon_processor_rx();
+
+        if let Some(index) = self
+            .beacon_processor_rx_queue
+            .iter()
+            .position(|x| predicate_transform(x).is_some())
+        {
+            // Transform the item, knowing that it won't be None because we checked it in the position predicate.
+            let transformed = predicate_transform(&self.beacon_processor_rx_queue[index]).unwrap();
+            self.beacon_processor_rx_queue.remove(index);
+            Ok(transformed)
+        } else {
+            Err(format!(
+                "current beacon processor messages {:?}",
+                self.beacon_processor_rx_queue
+            )
+            .to_string())
         }
     }
 
@@ -485,6 +625,38 @@ impl TestRig {
         .unwrap_or_else(|e| panic!("Expected blob parent request for {for_block:?}: {e}"))
     }
 
+    fn expect_sampling_requests(&mut self, for_block: Hash256, count: usize) -> SamplingIds {
+        (0..count)
+            .map(|i| {
+                self.pop_received_network_event(|ev| match ev {
+                    NetworkMessage::SendRequest {
+                        peer_id: _,
+                        request: Request::DataColumnsByRoot(request),
+                        request_id: RequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
+                    } if request
+                        .data_column_ids
+                        .to_vec()
+                        .iter()
+                        .any(|r| r.block_root == for_block) =>
+                    {
+                        let index = request.data_column_ids.to_vec().first().unwrap().index;
+                        Some((*id, index))
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|e| {
+                    panic!("Expected sampling request {i}/{count} for {for_block:?}: {e}")
+                })
+            })
+            .collect()
+    }
+
+    fn expect_only_sampling_requests(&mut self, for_block: Hash256, count: usize) -> SamplingIds {
+        let ids = self.expect_sampling_requests(for_block, count);
+        self.expect_empty_network();
+        ids
+    }
+
     fn expect_lookup_request_block_and_blobs(&mut self, block_root: Hash256) -> SingleLookupReqId {
         let id = self.expect_block_lookup_request(block_root);
         // If we're in deneb, a blob request should have been triggered as well,
@@ -523,6 +695,28 @@ impl TestRig {
         }
     }
 
+    fn expect_sample_verify_request(&mut self) {
+        self.pop_received_beacon_processor_event(|ev| {
+            if ev.work_type() == beacon_processor::RPC_VERIFY_DATA_COLUMNS {
+                Some(())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|e| panic!("Expected sample verify work: {e}"))
+    }
+
+    fn expect_sampling_result_work(&mut self) {
+        self.pop_received_beacon_processor_event(|ev| {
+            if ev.work_type() == beacon_processor::SAMPLING_RESULT {
+                Some(())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|e| panic!("Expected sampling result work: {e}"))
+    }
+
     fn expect_no_penalty_for(&mut self, peer_id: PeerId) {
         self.drain_network_rx();
         let downscore_events = self
@@ -554,7 +748,11 @@ impl TestRig {
     fn expect_empty_network(&mut self) {
         self.drain_network_rx();
         if !self.network_rx_queue.is_empty() {
-            panic!("expected no network events: {:#?}", self.network_rx_queue);
+            let n = self.network_rx_queue.len();
+            panic!(
+                "expected no network events but got {n} events, displaying first 2: {:#?}",
+                self.network_rx_queue[..n.min(2)].iter().collect::<Vec<_>>()
+            );
         }
     }
 
@@ -1091,6 +1289,49 @@ fn test_same_chain_race_condition() {
     rig.parent_chain_processed_success(chain_hash);
     assert_eq!(rig.active_parent_lookups_count(), 0);
 }
+
+#[test]
+fn sampling_happy_path() {
+    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+        return;
+    };
+    r.new_connected_peers(100); // Add enough sampling peers
+    let (block, data_columns) = r.rand_block_and_data_columns();
+    let block_root = block.canonical_root();
+    r.trigger_sample_block(block_root, block.slot());
+    // Retrieve all outgoing sample requests for random column indexes
+    let sampling_ids = r.expect_only_sampling_requests(block_root, SAMPLING_REQUIRED_SUCCESSES);
+    // Resolve all of them one by one
+    r.complete_valid_sampling_column_requests(sampling_ids, data_columns);
+    r.expect_clean_finished_sampling();
+}
+
+#[test]
+fn sampling_with_retries() {
+    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+        return;
+    };
+    r.new_connected_peers(100); // Add enough sampling peers
+    let (block, data_columns) = r.rand_block_and_data_columns();
+    let block_root = block.canonical_root();
+    r.trigger_sample_block(block_root, block.slot());
+    // Retrieve all outgoing sample requests for random column indexes, and return empty responses
+    let sampling_ids = r.expect_only_sampling_requests(block_root, SAMPLING_REQUIRED_SUCCESSES);
+    r.return_empty_sampling_requests(sampling_ids);
+    // Expect retries for all of them, and resolve them
+    let sampling_ids = r.expect_only_sampling_requests(block_root, SAMPLING_REQUIRED_SUCCESSES);
+    r.complete_valid_sampling_column_requests(sampling_ids, data_columns);
+    r.expect_clean_finished_sampling();
+}
+
+// TODO(das): Test retries of DataColumnByRoot:
+// - Expect request for column_index
+// - Respond with bad data
+// - Respond with stream terminator
+//   ^ The stream terminator should be ignored and not close the next retry
+
+// TODO(das): Test error early a sampling request and it getting drop + then receiving responses
+// from pending requests.
 
 mod deneb_only {
     use super::*;

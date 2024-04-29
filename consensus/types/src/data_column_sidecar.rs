@@ -11,6 +11,7 @@ use derivative::Derivative;
 use kzg::Kzg;
 use kzg::{Blob as KzgBlob, Error as KzgError};
 use kzg::{KzgCommitment, KzgProof};
+use merkle_proof::MerkleTreeError;
 #[cfg(test)]
 use mockall_double::double;
 use safe_arith::ArithError;
@@ -73,6 +74,12 @@ impl<E: EthSpec> DataColumnSidecar<E> {
 
     pub fn block_root(&self) -> Hash256 {
         self.signed_block_header.message.tree_hash_root()
+    }
+
+    /// Verifies the kzg commitment inclusion merkle proof.
+    pub fn verify_inclusion_proof(&self) -> Result<bool, MerkleTreeError> {
+        // TODO(das): implement
+        Ok(true)
     }
 
     pub fn build_sidecars(

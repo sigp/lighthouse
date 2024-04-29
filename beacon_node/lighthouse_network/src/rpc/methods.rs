@@ -378,6 +378,16 @@ pub struct DataColumnsByRootRequest {
     pub data_column_ids: RuntimeVariableList<DataColumnIdentifier>,
 }
 
+impl DataColumnsByRootRequest {
+    pub fn new(data_column_ids: Vec<DataColumnIdentifier>, spec: &ChainSpec) -> Self {
+        let data_column_ids = RuntimeVariableList::from_vec(
+            data_column_ids,
+            spec.max_request_data_column_sidecars as usize,
+        );
+        Self { data_column_ids }
+    }
+}
+
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
