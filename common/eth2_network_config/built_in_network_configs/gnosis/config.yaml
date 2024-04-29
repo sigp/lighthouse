@@ -33,7 +33,7 @@ GENESIS_DELAY: 6000
 # Altair
 ALTAIR_FORK_VERSION: 0x01000064
 ALTAIR_FORK_EPOCH: 512
-# Merge
+# Bellatrix
 BELLATRIX_FORK_VERSION: 0x02000064
 BELLATRIX_FORK_EPOCH: 385536
 # Capella
@@ -81,6 +81,12 @@ CHURN_LIMIT_QUOTIENT: 4096
 # ---------------------------------------------------------------
 # 40%
 PROPOSER_SCORE_BOOST: 40
+# 20%
+REORG_HEAD_WEIGHT_THRESHOLD: 20
+# 160%
+REORG_PARENT_WEIGHT_THRESHOLD: 160
+# `2` epochs
+REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
 
 # Deposit contract
 # ---------------------------------------------------------------

@@ -1,14 +1,14 @@
 use crate::{test_utils::TestRandom, *};
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Merge, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Default,
@@ -32,7 +32,8 @@ use tree_hash_derive::TreeHash;
         tree_hash(enum_behaviour = "transparent")
     ),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
+    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
+    map_ref_into(ExecutionPayloadHeader)
 )]
 #[derive(
     Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
@@ -87,6 +88,10 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
     pub excess_blob_gas: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    pub deposit_receipts_root: Hash256,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    pub withdrawal_requests_root: Hash256,
 }
 
 impl<E: EthSpec> ExecutionPayloadHeader<E> {
@@ -99,13 +104,32 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
             ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(format!(
                 "unsupported fork for ExecutionPayloadHeader: {fork_name}",
             ))),
-            ForkName::Merge => ExecutionPayloadHeaderMerge::from_ssz_bytes(bytes).map(Self::Merge),
+            ForkName::Bellatrix => {
+                ExecutionPayloadHeaderBellatrix::from_ssz_bytes(bytes).map(Self::Bellatrix)
+            }
             ForkName::Capella => {
                 ExecutionPayloadHeaderCapella::from_ssz_bytes(bytes).map(Self::Capella)
             }
             ForkName::Deneb => ExecutionPayloadHeaderDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
             ForkName::Electra => {
                 ExecutionPayloadHeaderElectra::from_ssz_bytes(bytes).map(Self::Electra)
+            }
+        }
+    }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
+        // Matching here in case variable fields are added in future forks.
+        // TODO(electra): review electra changes
+        match fork_name {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
+                // Max size of variable length `extra_data` field
+                E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
             }
         }
     }
@@ -120,7 +144,7 @@ impl<'a, E: EthSpec> ExecutionPayloadHeaderRef<'a, E> {
     }
 }
 
-impl<E: EthSpec> ExecutionPayloadHeaderMerge<E> {
+impl<E: EthSpec> ExecutionPayloadHeaderBellatrix<E> {
     pub fn upgrade_to_capella(&self) -> ExecutionPayloadHeaderCapella<E> {
         ExecutionPayloadHeaderCapella {
             parent_hash: self.parent_hash,
@@ -186,12 +210,14 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
             withdrawals_root: self.withdrawals_root,
             blob_gas_used: self.blob_gas_used,
             excess_blob_gas: self.excess_blob_gas,
+            deposit_receipts_root: Hash256::zero(),
+            withdrawal_requests_root: Hash256::zero(),
         }
     }
 }
 
-impl<'a, E: EthSpec> From<&'a ExecutionPayloadMerge<E>> for ExecutionPayloadHeaderMerge<E> {
-    fn from(payload: &'a ExecutionPayloadMerge<E>) -> Self {
+impl<'a, E: EthSpec> From<&'a ExecutionPayloadBellatrix<E>> for ExecutionPayloadHeaderBellatrix<E> {
+    fn from(payload: &'a ExecutionPayloadBellatrix<E>) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -277,13 +303,15 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
             withdrawals_root: payload.withdrawals.tree_hash_root(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
+            deposit_receipts_root: payload.deposit_receipts.tree_hash_root(),
+            withdrawal_requests_root: payload.withdrawal_requests.tree_hash_root(),
         }
     }
 }
 
 // These impls are required to work around an inelegance in `to_execution_payload_header`.
 // They only clone headers so they should be relatively cheap.
-impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderMerge<E> {
+impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderBellatrix<E> {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
@@ -317,11 +345,13 @@ impl<'a, E: EthSpec> From<ExecutionPayloadRef<'a, E>> for ExecutionPayloadHeader
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderMerge<E> {
+impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderBellatrix<E> {
     type Error = BeaconStateError;
     fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
         match header {
-            ExecutionPayloadHeader::Merge(execution_payload_header) => Ok(execution_payload_header),
+            ExecutionPayloadHeader::Bellatrix(execution_payload_header) => {
+                Ok(execution_payload_header)
+            }
             _ => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
@@ -344,6 +374,27 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderDe
             ExecutionPayloadHeader::Deneb(execution_payload_header) => Ok(execution_payload_header),
             _ => Err(BeaconStateError::IncorrectStateVariant),
         }
+    }
+}
+
+impl<'a, E: EthSpec> ExecutionPayloadHeaderRefMut<'a, E> {
+    /// Mutate through
+    pub fn replace(self, header: ExecutionPayloadHeader<E>) -> Result<(), BeaconStateError> {
+        match self {
+            ExecutionPayloadHeaderRefMut::Bellatrix(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+            ExecutionPayloadHeaderRefMut::Capella(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+            ExecutionPayloadHeaderRefMut::Electra(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -372,7 +423,9 @@ impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayloadHeader<E> {
         };
 
         Ok(match fork_name {
-            ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Bellatrix => {
+                Self::Bellatrix(serde_json::from_value(value).map_err(convert_err)?)
+            }
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),

@@ -15,7 +15,8 @@ use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, LightClientBootstrap,
-    RuntimeVariableList, SignedBeaconBlock, Slot,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock,
+    Slot,
 };
 
 /// Maximum length of error message.
@@ -390,6 +391,12 @@ pub enum RPCResponse<E: EthSpec> {
     /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(Arc<LightClientBootstrap<E>>),
 
+    /// A response to a get LIGHT_CLIENT_OPTIMISTIC_UPDATE request.
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
+
+    /// A response to a get LIGHT_CLIENT_FINALITY_UPDATE request.
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
+
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<E>>),
 
@@ -476,25 +483,6 @@ impl<E: EthSpec> RPCCodedResponse<E> {
         RPCCodedResponse::Error(code, err)
     }
 
-    /// Specifies which response allows for multiple chunks for the stream handler.
-    pub fn multiple_responses(&self) -> bool {
-        match self {
-            RPCCodedResponse::Success(resp) => match resp {
-                RPCResponse::Status(_) => false,
-                RPCResponse::BlocksByRange(_) => true,
-                RPCResponse::BlocksByRoot(_) => true,
-                RPCResponse::BlobsByRange(_) => true,
-                RPCResponse::BlobsByRoot(_) => true,
-                RPCResponse::Pong(_) => false,
-                RPCResponse::MetaData(_) => false,
-                RPCResponse::LightClientBootstrap(_) => false,
-            },
-            RPCCodedResponse::Error(_, _) => true,
-            // Stream terminations are part of responses that have chunks
-            RPCCodedResponse::StreamTermination(_) => true,
-        }
-    }
-
     /// Returns true if this response always terminates the stream.
     pub fn close_after(&self) -> bool {
         !matches!(self, RPCCodedResponse::Success(_))
@@ -526,6 +514,8 @@ impl<E: EthSpec> RPCResponse<E> {
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            RPCResponse::LightClientOptimisticUpdate(_) => Protocol::LightClientOptimisticUpdate,
+            RPCResponse::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
         }
     }
 }
@@ -570,6 +560,20 @@ impl<E: EthSpec> std::fmt::Display for RPCResponse<E> {
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
             RPCResponse::LightClientBootstrap(bootstrap) => {
                 write!(f, "LightClientBootstrap Slot: {}", bootstrap.get_slot())
+            }
+            RPCResponse::LightClientOptimisticUpdate(update) => {
+                write!(
+                    f,
+                    "LightClientOptimisticUpdate Slot: {}",
+                    update.signature_slot()
+                )
+            }
+            RPCResponse::LightClientFinalityUpdate(update) => {
+                write!(
+                    f,
+                    "LightClientFinalityUpdate Slot: {}",
+                    update.signature_slot()
+                )
             }
         }
     }

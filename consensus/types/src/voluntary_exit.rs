@@ -42,7 +42,7 @@ impl VoluntaryExit {
     ) -> SignedVoluntaryExit {
         let fork_name = spec.fork_name_at_epoch(self.epoch);
         let fork_version = match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 spec.fork_version_for_name(fork_name)
             }
             // EIP-7044

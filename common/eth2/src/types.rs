@@ -281,7 +281,7 @@ pub struct FinalityCheckpointsData {
     pub finalized: Checkpoint,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(into = "String")]
 #[serde(try_from = "std::borrow::Cow<str>")]
 pub enum ValidatorId {
@@ -1023,7 +1023,7 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Merge => serde_json::from_value(value)
+            ForkName::Bellatrix => serde_json::from_value(value)
                 .map(Self::V1)
                 .map_err(serde::de::Error::custom),
             ForkName::Capella => serde_json::from_value(value)
@@ -1618,7 +1618,7 @@ impl<E: EthSpec> FullBlockContents<E> {
         fork_name: ForkName,
     ) -> Result<Self, ssz::DecodeError> {
         match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
                     .map(|block| FullBlockContents::Block(block))
             }
@@ -1678,7 +1678,7 @@ impl<E: EthSpec> ForkVersionDeserialize for FullBlockContents<E> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 Ok(FullBlockContents::Block(
                     BeaconBlock::deserialize_by_fork::<'de, D>(value, fork_name)?,
                 ))
@@ -1778,7 +1778,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
     /// SSZ decode with fork variant determined by `fork_name`.
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
                     .map(|block| PublishBlockRequest::Block(Arc::new(block)))
             }
@@ -1864,7 +1864,7 @@ impl<E: EthSpec> TryFrom<Arc<SignedBeaconBlock<E>>> for PublishBlockRequest<E> {
         match *block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => Ok(PublishBlockRequest::Block(block)),
             SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => Err(
                 "post-Deneb block contents cannot be fully constructed from just the signed block",
@@ -1973,7 +1973,7 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Merge | ForkName::Capella => serde_json::from_value(value)
+            ForkName::Bellatrix | ForkName::Capella => serde_json::from_value(value)
                 .map(Self::Payload)
                 .map_err(serde::de::Error::custom),
             ForkName::Deneb | ForkName::Electra => serde_json::from_value(value)

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use ssz::{four_byte_option_impl, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::ops::Range;
+use std::sync::Arc;
 use swap_or_not_shuffle::shuffle_list;
 
 mod tests;
@@ -65,7 +66,7 @@ impl CommitteeCache {
         state: &BeaconState<E>,
         epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<CommitteeCache, Error> {
+    ) -> Result<Arc<CommitteeCache>, Error> {
         // Check that the cache is being built for an in-range epoch.
         //
         // We allow caches to be constructed for historic epochs, per:
@@ -115,13 +116,13 @@ impl CommitteeCache {
                 .ok_or(Error::ShuffleIndexOutOfBounds(v))? = NonZeroUsize::new(i + 1).into();
         }
 
-        Ok(CommitteeCache {
+        Ok(Arc::new(CommitteeCache {
             initialized_epoch: Some(epoch),
             shuffling,
             shuffling_positions,
             committees_per_slot,
             slots_per_epoch: E::slots_per_epoch(),
-        })
+        }))
     }
 
     /// Returns `true` if the cache has been initialized at the supplied `epoch`.

@@ -121,11 +121,11 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         let ee_a = {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
-            let urls = vec![execution_engine.http_auth_url()];
+            let url = Some(execution_engine.http_auth_url());
 
             let config = execution_layer::Config {
-                execution_endpoints: urls,
-                secret_files: vec![],
+                execution_endpoint: url,
+                secret_file: None,
                 suggested_fee_recipient: Some(Address::repeat_byte(42)),
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
@@ -140,11 +140,11 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         let ee_b = {
             let execution_engine = ExecutionEngine::new(generic_engine);
-            let urls = vec![execution_engine.http_auth_url()];
+            let url = Some(execution_engine.http_auth_url());
 
             let config = execution_layer::Config {
-                execution_endpoints: urls,
-                secret_files: vec![],
+                execution_endpoint: url,
+                secret_file: None,
                 suggested_fee_recipient: fee_recipient,
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
@@ -180,7 +180,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 // Run the routine to check for online nodes.
                 pair.execution_layer.watchdog_task().await;
 
-                if pair.execution_layer.is_synced().await {
+                if !pair.execution_layer.is_offline_or_erroring().await {
                     break;
                 } else if start_instant + EXECUTION_ENGINE_START_TIMEOUT > Instant::now() {
                     sleep(Duration::from_millis(500)).await;

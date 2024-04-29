@@ -70,9 +70,6 @@ FLAGS:
                                                enables --http and --validator-monitor-auto and enables SSE logging.
     -h, --help                                 Prints help information
         --http                                 Enable the RESTful HTTP API server. Disabled by default.
-        --http-allow-sync-stalled              Forces the HTTP to indicate that the node is synced when sync is actually
-                                               stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE
-                                               ON MAINNET.
         --http-enable-tls                      Serves the RESTful HTTP API server over TLS. This feature is currently
                                                experimental.
         --import-all-attestations              Import and aggregate all attestations, regardless of validator
@@ -280,9 +277,6 @@ OPTIONS:
         --http-port <PORT>
             Set the listen TCP port for the RESTful HTTP API server.
 
-        --http-spec-fork <FORK>
-            Serve the spec for a specific hard fork on /eth/v1/config/spec. It should not be necessary to set this flag.
-
         --http-sse-capacity-multiplier <N>
             Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. Increasing this value can
             prevent messages from being dropped.
@@ -383,8 +377,11 @@ OPTIONS:
         --proposer-reorg-epochs-since-finalization <EPOCHS>
             Maximum number of epochs since finalization at which proposer reorgs are allowed. Default: 2
 
+        --proposer-reorg-parent-threshold <PERCENT>
+            Percentage of parent vote weight above which to attempt a proposer reorg. Default: 160%
+
         --proposer-reorg-threshold <PERCENT>
-            Percentage of vote weight below which to attempt a proposer reorg. Default: 20%
+            Percentage of head vote weight below which to attempt a proposer reorg. Default: 20%
 
         --prune-blobs <BOOLEAN>
             Prune blobs from Lighthouse's database when they are older than the data data availability boundary relative
