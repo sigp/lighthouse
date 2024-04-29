@@ -67,8 +67,7 @@ FLAGS:
         --prefer-builder-proposals
             If this flag is set, Lighthouse will always prefer blocks constructed by builders, regardless of payload
             value.
-        --produce-block-v3
-            This flag is deprecated and no longer in use.
+        --produce-block-v3                          This flag is deprecated and is no longer in use.
         --unencrypted-http-transport
             This is a safety flag to ensure that the user is aware that the http transport is unencrypted and using a
             custom HTTP address is unsafe.
