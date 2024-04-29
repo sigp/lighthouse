@@ -50,5 +50,4 @@ exec $GETH_BINARY \
     --bootnodes $EL_BOOTNODE_ENODE \
     --port $network_port \
     --http.port $http_port \
-    --authrpc.port $auth_port \
-    2>&1 | tee $data_dir/geth.log
+    --authrpc.port $auth_port

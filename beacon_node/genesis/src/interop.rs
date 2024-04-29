@@ -28,18 +28,18 @@ fn eth1_withdrawal_credentials(pubkey: &PublicKey, spec: &ChainSpec) -> Hash256 
 ///
 /// Reference:
 /// https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start
-pub fn interop_genesis_state<T: EthSpec>(
+pub fn interop_genesis_state<E: EthSpec>(
     keypairs: &[Keypair],
     genesis_time: u64,
     eth1_block_hash: Hash256,
-    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
+    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     spec: &ChainSpec,
-) -> Result<BeaconState<T>, String> {
+) -> Result<BeaconState<E>, String> {
     let withdrawal_credentials = keypairs
         .iter()
         .map(|keypair| bls_withdrawal_credentials(&keypair.pk, spec))
         .collect::<Vec<_>>();
-    interop_genesis_state_with_withdrawal_credentials::<T>(
+    interop_genesis_state_with_withdrawal_credentials::<E>(
         keypairs,
         &withdrawal_credentials,
         genesis_time,
@@ -51,13 +51,13 @@ pub fn interop_genesis_state<T: EthSpec>(
 
 // returns an interop genesis state except every other
 // validator has eth1 withdrawal credentials
-pub fn interop_genesis_state_with_eth1<T: EthSpec>(
+pub fn interop_genesis_state_with_eth1<E: EthSpec>(
     keypairs: &[Keypair],
     genesis_time: u64,
     eth1_block_hash: Hash256,
-    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
+    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     spec: &ChainSpec,
-) -> Result<BeaconState<T>, String> {
+) -> Result<BeaconState<E>, String> {
     let withdrawal_credentials = keypairs
         .iter()
         .enumerate()
@@ -69,7 +69,7 @@ pub fn interop_genesis_state_with_eth1<T: EthSpec>(
             }
         })
         .collect::<Vec<_>>();
-    interop_genesis_state_with_withdrawal_credentials::<T>(
+    interop_genesis_state_with_withdrawal_credentials::<E>(
         keypairs,
         &withdrawal_credentials,
         genesis_time,
@@ -79,14 +79,14 @@ pub fn interop_genesis_state_with_eth1<T: EthSpec>(
     )
 }
 
-pub fn interop_genesis_state_with_withdrawal_credentials<T: EthSpec>(
+pub fn interop_genesis_state_with_withdrawal_credentials<E: EthSpec>(
     keypairs: &[Keypair],
     withdrawal_credentials: &[Hash256],
     genesis_time: u64,
     eth1_block_hash: Hash256,
-    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
+    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     spec: &ChainSpec,
-) -> Result<BeaconState<T>, String> {
+) -> Result<BeaconState<E>, String> {
     if keypairs.len() != withdrawal_credentials.len() {
         return Err(format!(
             "wrong number of withdrawal credentials, expected: {}, got: {}",
@@ -137,7 +137,7 @@ pub fn interop_genesis_state_with_withdrawal_credentials<T: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::{test_utils::generate_deterministic_keypairs, EthSpec, MinimalEthSpec};
+    use types::{test_utils::generate_deterministic_keypairs, MinimalEthSpec};
 
     type TestEthSpec = MinimalEthSpec;
 
@@ -178,13 +178,14 @@ mod test {
         }
 
         for v in state.validators() {
-            let creds = v.withdrawal_credentials.as_bytes();
+            let creds = v.withdrawal_credentials;
             assert_eq!(
-                creds[0], spec.bls_withdrawal_prefix_byte,
+                creds.as_bytes()[0],
+                spec.bls_withdrawal_prefix_byte,
                 "first byte of withdrawal creds should be bls prefix"
             );
             assert_eq!(
-                &creds[1..],
+                &creds.as_bytes()[1..],
                 &hash(&v.pubkey.as_ssz_bytes())[1..],
                 "rest of withdrawal creds should be pubkey hash"
             )
@@ -240,7 +241,8 @@ mod test {
         }
 
         for (index, v) in state.validators().iter().enumerate() {
-            let creds = v.withdrawal_credentials.as_bytes();
+            let withdrawal_credientials = v.withdrawal_credentials;
+            let creds = withdrawal_credientials.as_bytes();
             if index % 2 == 0 {
                 assert_eq!(
                     creds[0], spec.bls_withdrawal_prefix_byte,

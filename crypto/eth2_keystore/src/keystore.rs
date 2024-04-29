@@ -23,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::iter::FromIterator;
 use std::path::Path;
 use std::str;
 use unicode_normalization::UnicodeNormalization;

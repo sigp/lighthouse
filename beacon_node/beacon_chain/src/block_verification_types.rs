@@ -7,6 +7,7 @@ use crate::{get_block_root, GossipVerifiedBlock, PayloadVerificationOutcome};
 use derivative::Derivative;
 use ssz_types::VariableList;
 use state_processing::ConsensusContext;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecarError, FixedBlobSidecarList};
 use types::{
@@ -27,11 +28,17 @@ use types::{
 /// Note: We make a distinction over blocks received over gossip because
 /// in a post-deneb world, the blobs corresponding to a given block that are received
 /// over rpc do not contain the proposer signature for dos resistance.
-#[derive(Debug, Clone, Derivative)]
+#[derive(Clone, Derivative)]
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub struct RpcBlock<E: EthSpec> {
     block_root: Hash256,
     block: RpcBlockInner<E>,
+}
+
+impl<E: EthSpec> Debug for RpcBlock<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RpcBlock({:?})", self.block_root)
+    }
 }
 
 impl<E: EthSpec> RpcBlock<E> {
@@ -302,29 +309,29 @@ pub struct BlockImportData<E: EthSpec> {
     pub consensus_context: ConsensusContext<E>,
 }
 
-pub type GossipVerifiedBlockContents<T> =
-    (GossipVerifiedBlock<T>, Option<GossipVerifiedBlobList<T>>);
+pub type GossipVerifiedBlockContents<E> =
+    (GossipVerifiedBlock<E>, Option<GossipVerifiedBlobList<E>>);
 
 #[derive(Debug)]
-pub enum BlockContentsError<T: EthSpec> {
-    BlockError(BlockError<T>),
-    BlobError(GossipBlobError<T>),
+pub enum BlockContentsError<E: EthSpec> {
+    BlockError(BlockError<E>),
+    BlobError(GossipBlobError<E>),
     SidecarError(BlobSidecarError),
 }
 
-impl<T: EthSpec> From<BlockError<T>> for BlockContentsError<T> {
-    fn from(value: BlockError<T>) -> Self {
+impl<E: EthSpec> From<BlockError<E>> for BlockContentsError<E> {
+    fn from(value: BlockError<E>) -> Self {
         Self::BlockError(value)
     }
 }
 
-impl<T: EthSpec> From<GossipBlobError<T>> for BlockContentsError<T> {
-    fn from(value: GossipBlobError<T>) -> Self {
+impl<E: EthSpec> From<GossipBlobError<E>> for BlockContentsError<E> {
+    fn from(value: GossipBlobError<E>) -> Self {
         Self::BlobError(value)
     }
 }
 
-impl<T: EthSpec> std::fmt::Display for BlockContentsError<T> {
+impl<E: EthSpec> std::fmt::Display for BlockContentsError<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BlockContentsError::BlockError(err) => {

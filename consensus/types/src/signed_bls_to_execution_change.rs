@@ -1,6 +1,5 @@
 use crate::test_utils::TestRandom;
 use crate::*;
-use bls::Signature;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;

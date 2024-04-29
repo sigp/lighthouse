@@ -62,7 +62,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The path where the validator keystore passwords will be stored. \
                     Defaults to ~/.lighthouse/{network}/secrets",
                 )
-                .conflicts_with("datadir")
                 .takes_value(true),
         )
         .arg(
@@ -112,9 +111,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run<T: EthSpec>(
+pub fn cli_run<E: EthSpec>(
     matches: &ArgMatches,
-    env: Environment<T>,
+    env: Environment<E>,
     validator_dir: PathBuf,
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;

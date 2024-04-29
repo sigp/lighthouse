@@ -6,7 +6,6 @@
 use super::hex_bytes::HexBytes;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::convert::TryFrom;
 
 /// Used for ensuring that serde only decodes valid checksum functions.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

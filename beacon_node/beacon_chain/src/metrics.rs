@@ -4,11 +4,7 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
-use std::time::Duration;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
-
-/// The maximum time to wait for the snapshot cache lock during a metrics scrape.
-const SNAPSHOT_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
 
 // Attestation simulator metrics
 pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL: &str =
@@ -304,6 +300,14 @@ lazy_static! {
         "Count of times the early attester cache returns an attestation"
     );
 
+    pub static ref BEACON_REQRESP_PRE_IMPORT_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_reqresp_pre_import_cache_size",
+        "Current count of items of the reqresp pre import cache"
+    );
+    pub static ref BEACON_REQRESP_PRE_IMPORT_CACHE_HITS: Result<IntCounter> = try_create_int_counter(
+        "beacon_reqresp_pre_import_cache_hits",
+        "Count of times the reqresp pre import cache returns an item"
+    );
 }
 
 // Second lazy-static block is used to account for macro recursion limit.
@@ -839,37 +843,55 @@ lazy_static! {
         "Number of attester slashings seen",
         &["src", "validator"]
     );
+}
+
+// Prevent recursion limit
+lazy_static! {
 
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_observed_slot_start_delay_time",
-        "Duration between the start of the block's slot and the time the block was observed.",
-        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-        decimal_buckets(-1,2)
-    );
-    pub static ref BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_imported_observed_delay_time",
-        "Duration between the time the block was observed and the time when it was imported.",
-        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
-        decimal_buckets(-2,0)
-    );
-    pub static ref BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_head_imported_delay_time",
-        "Duration between the time the block was imported and the time when it was set as head.",
-        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
-        decimal_buckets(-2,-1)
-        );
-    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_head_slot_start_delay_time",
+    pub static ref BEACON_BLOCK_DELAY_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_total",
         "Duration between the start of the block's slot and the time when it was set as head.",
-        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-        decimal_buckets(-1,2)
     );
-    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_block_head_slot_start_delay_exceeded_total",
-        "Triggered when the duration between the start of the block's slot and the current time \
+
+    pub static ref BEACON_BLOCK_DELAY_OBSERVED_SLOT_START: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_observed_slot_start",
+        "Duration between the start of the block's slot and the time the block was observed.",
+    );
+
+    pub static ref BEACON_BLOB_DELAY_ALL_OBSERVED_SLOT_START: Result<IntGauge> = try_create_int_gauge(
+        "beacon_blob_delay_all_observed_slot_start",
+        "Duration between the start of the block's slot and the time the block was observed.",
+    );
+
+    pub static ref BEACON_BLOCK_DELAY_EXECUTION_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_execution_time",
+        "The duration in verifying the block with the execution layer.",
+    );
+
+    pub static ref BEACON_BLOCK_DELAY_AVAILABLE_SLOT_START: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_available_slot_start",
+        "Duration between the time that block became available and the start of the slot.",
+    );
+    pub static ref BEACON_BLOCK_DELAY_ATTESTABLE_SLOT_START: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_attestable_slot_start",
+        "Duration between the time that block became attestable and the start of the slot.",
+    );
+
+    pub static ref BEACON_BLOCK_DELAY_IMPORTED_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_imported_time",
+        "Duration between the time the block became available and the time when it was imported.",
+    );
+
+    pub static ref BEACON_BLOCK_DELAY_HEAD_IMPORTED_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_head_imported_time",
+        "Duration between the time that block was imported and the time when it was set as head.",
+    );
+    pub static ref BEACON_BLOCK_DELAY_HEAD_SLOT_START_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_delay_head_slot_start_exceeded_total",
+        "A counter that is triggered when the duration between the start of the block's slot and the current time \
         will result in failed attestations.",
     );
 
@@ -1122,22 +1144,14 @@ lazy_static! {
     /*
     * Availability related metrics
     */
-    pub static ref BLOCK_AVAILABILITY_DELAY: Result<Histogram> = try_create_histogram_with_buckets(
+    pub static ref BLOCK_AVAILABILITY_DELAY: Result<IntGauge> = try_create_int_gauge(
         "block_availability_delay",
         "Duration between start of the slot and the time at which all components of the block are available.",
-        // Create a custom bucket list for greater granularity in block delay
-        Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
     );
-
 
     /*
     * Data Availability cache metrics
     */
-    pub static ref DATA_AVAILABILITY_PROCESSING_CACHE_SIZE: Result<IntGauge> =
-        try_create_int_gauge(
-            "data_availability_processing_cache_size",
-            "Number of entries in the data availability processing cache."
-        );
     pub static ref DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE: Result<IntGauge> =
         try_create_int_gauge(
             "data_availability_overflow_memory_block_cache_size",
@@ -1186,21 +1200,17 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
 
     let attestation_stats = beacon_chain.op_pool.attestation_stats();
 
-    if let Some(snapshot_cache) = beacon_chain
-        .snapshot_cache
-        .try_write_for(SNAPSHOT_CACHE_TIMEOUT)
-    {
-        set_gauge(
-            &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
-            snapshot_cache.len() as i64,
-        )
-    }
+    set_gauge_by_usize(
+        &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
+        beacon_chain.store.state_cache_len(),
+    );
+
+    set_gauge_by_usize(
+        &BEACON_REQRESP_PRE_IMPORT_CACHE_SIZE,
+        beacon_chain.reqresp_pre_import_cache.read().len(),
+    );
 
     let da_checker_metrics = beacon_chain.data_availability_checker.metrics();
-    set_gauge_by_usize(
-        &DATA_AVAILABILITY_PROCESSING_CACHE_SIZE,
-        da_checker_metrics.processing_cache_size,
-    );
     set_gauge_by_usize(
         &DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE,
         da_checker_metrics.block_cache_size,
@@ -1255,7 +1265,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.
-fn scrape_head_state<T: EthSpec>(state: &BeaconState<T>, state_root: Hash256) {
+fn scrape_head_state<E: EthSpec>(state: &BeaconState<E>, state_root: Hash256) {
     set_gauge_by_slot(&HEAD_STATE_SLOT, state.slot());
     set_gauge_by_slot(&HEAD_STATE_SLOT_INTEROP, state.slot());
     set_gauge_by_hash(&HEAD_STATE_ROOT, state_root);

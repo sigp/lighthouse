@@ -2,7 +2,6 @@ use crate::errors::BeaconChainError;
 use crate::{BeaconChainTypes, BeaconStore};
 use ssz::{Decode, Encode};
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
 use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
@@ -82,8 +81,9 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError> {
         if state.validators().len() > self.pubkeys.len() {
             self.import(
-                state.validators()[self.pubkeys.len()..]
-                    .iter()
+                state
+                    .validators()
+                    .iter_from(self.pubkeys.len())?
                     .map(|v| v.pubkey),
             )
         } else {
@@ -195,7 +195,7 @@ mod test {
     use logging::test_logger;
     use std::sync::Arc;
     use store::HotColdDB;
-    use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec};
+    use types::{EthSpec, Keypair, MainnetEthSpec};
 
     type E = MainnetEthSpec;
     type T = EphemeralHarnessType<E>;

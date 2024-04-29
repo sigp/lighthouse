@@ -41,7 +41,7 @@ as the canonical staking deposit contract address.
 The [Lighthouse Book](https://lighthouse-book.sigmaprime.io) contains information for users and
 developers.
 
-The Lighthouse team maintains a blog at [lighthouse-blog.sigmaprime.io][blog] which contains periodical
+The Lighthouse team maintains a blog at [lighthouse-blog.sigmaprime.io][blog] which contains periodic
 progress updates, roadmap insights and interesting findings.
 
 ## Branches

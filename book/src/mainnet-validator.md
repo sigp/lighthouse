@@ -13,7 +13,7 @@ managing servers. You'll also need at least 32 ETH!
 
 Being educated is critical to a validator's success. Before submitting your mainnet deposit, we recommend:
 
-- Thoroughly exploring the [Staking Launchpad][launchpad] website, try running through the deposit process using a testnet launchpad such as the [Goerli staking launchpad](https://goerli.launchpad.ethereum.org/en/).
+- Thoroughly exploring the [Staking Launchpad][launchpad] website, try running through the deposit process using a testnet launchpad such as the [Holesky staking launchpad](https://holesky.launchpad.ethereum.org/en/).
 - Running a testnet validator.
 - Reading through this documentation, especially the [Slashing Protection][slashing] section.
 - Performing a web search and doing your own research.
@@ -41,10 +41,7 @@ There are five primary steps to become a validator:
 > **Important note**: The guide below contains both mainnet and testnet instructions. We highly recommend *all* users to **run a testnet validator** prior to staking mainnet ETH.  By far, the best technical learning experience is to run a testnet validator. You can get hands-on experience with all the tools and it's a great way to test your staking
 hardware. 32 ETH is a significant outlay and joining a testnet is a great way to "try before you buy". 
 
-<!--To join a testnet, for example the Goerli testnet, select `Goerli` when you are prompted to select the network in the `staking-deposit-cli` in Step 1, replace `--network mainnet` with `--network goerli` in Steps 2-4, and visit [Goerli staking launchpad](https://goerli.launchpad.ethereum.org/en/) to deposit testnet ETH in Step 5.-->
-
-
-> **Never use real ETH to join a testnet!** Testnet such as the Goerli testnet uses Goerli ETH which is worthless. This allows experimentation without real-world costs.
+> **Never use real ETH to join a testnet!** Testnet such as the Holesky testnet uses Holesky ETH which is worthless. This allows experimentation without real-world costs.
 
 ### Step 1. Create validator keys
 
@@ -52,7 +49,7 @@ The Ethereum Foundation provides the [staking-deposit-cli](https://github.com/et
 ```bash
 ./deposit new-mnemonic
 ```
-and follow the instructions to generate the keys. When prompted for a network, select `mainnet` if you want to run a mainnet validator, or select `goerli` if you want to run a Goerli testnet validator. A new mnemonic will be generated in the process.
+and follow the instructions to generate the keys. When prompted for a network, select `mainnet` if you want to run a mainnet validator, or select `holesky` if you want to run a Holesky testnet validator. A new mnemonic will be generated in the process.
 
 > **Important note:** A mnemonic (or seed phrase) is a 24-word string randomly generated in the process. It is highly recommended to write down the mnemonic and keep it safe offline. It is important to ensure that the mnemonic is never stored in any digital form (computers, mobile phones, etc) connected to the internet. Please also make one or more backups of the mnemonic to ensure your ETH is not lost in the case of data loss. It is very important to keep your mnemonic private as it represents the ultimate control of your ETH.
 
@@ -75,9 +72,9 @@ Mainnet:
 lighthouse --network mainnet account validator import --directory $HOME/staking-deposit-cli/validator_keys
 ```
 
-Goerli testnet:
+Holesky testnet:
 ```bash
-lighthouse --network goerli account validator import --directory $HOME/staking-deposit-cli/validator_keys
+lighthouse --network holesky account validator import --directory $HOME/staking-deposit-cli/validator_keys
 ```
 
 > Note: The user must specify the consensus client network that they are importing the keys by using the `--network` flag.
@@ -137,9 +134,9 @@ Mainnet:
 lighthouse vc --network mainnet --suggested-fee-recipient YourFeeRecipientAddress
 ```
 
-Goerli testnet:
+Holesky testnet:
 ```bash
-lighthouse vc --network goerli --suggested-fee-recipient YourFeeRecipientAddress
+lighthouse vc --network holesky --suggested-fee-recipient YourFeeRecipientAddress
 ```
 
 The `validator client` manages validators using data obtained from the beacon node via a HTTP API. You are highly recommended to enter a fee-recipient by changing `YourFeeRecipientAddress` to an Ethereum address under your control. 
@@ -157,7 +154,7 @@ by the protocol.
 
 ### Step 5: Submit deposit (32ETH per validator)
 
-After you have successfully run and synced the execution client, beacon node and validator client, you can now proceed to submit the deposit. Go to the mainnet [Staking launchpad](https://launchpad.ethereum.org/en/) (or [Goerli staking launchpad](https://goerli.launchpad.ethereum.org/en/) for testnet validator) and carefully go through the steps to becoming a validator. Once you are ready, you can submit the deposit by sending 32ETH per validator to the deposit contract. Upload the `deposit_data-*.json` file generated in [Step 1](#step-1-create-validator-keys) to the Staking launchpad.
+After you have successfully run and synced the execution client, beacon node and validator client, you can now proceed to submit the deposit. Go to the mainnet [Staking launchpad](https://launchpad.ethereum.org/en/) (or [Holesky staking launchpad](https://holesky.launchpad.ethereum.org/en/) for testnet validator) and carefully go through the steps to becoming a validator. Once you are ready, you can submit the deposit by sending 32ETH per validator to the deposit contract. Upload the `deposit_data-*.json` file generated in [Step 1](#step-1-create-validator-keys) to the Staking launchpad.
 
 > **Important note:** Double check that the deposit contract for mainnet is `0x00000000219ab540356cBB839Cbe05303d7705Fa` before you confirm the transaction. 
 

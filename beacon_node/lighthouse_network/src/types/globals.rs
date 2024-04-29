@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use std::collections::HashSet;
 use types::EthSpec;
 
-pub struct NetworkGlobals<TSpec: EthSpec> {
+pub struct NetworkGlobals<E: EthSpec> {
     /// The current local ENR.
     pub local_enr: RwLock<Enr>,
     /// The local peer_id.
@@ -17,9 +17,9 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     /// Listening multiaddrs.
     pub listen_multiaddrs: RwLock<Vec<Multiaddr>>,
     /// The collection of known peers.
-    pub peers: RwLock<PeerDB<TSpec>>,
+    pub peers: RwLock<PeerDB<E>>,
     // The local meta data of our node.
-    pub local_metadata: RwLock<MetaData<TSpec>>,
+    pub local_metadata: RwLock<MetaData<E>>,
     /// The current gossipsub topic subscriptions.
     pub gossipsub_subscriptions: RwLock<HashSet<GossipTopic>>,
     /// The current sync status of the node.
@@ -28,10 +28,10 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     pub backfill_state: RwLock<BackFillState>,
 }
 
-impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
+impl<E: EthSpec> NetworkGlobals<E> {
     pub fn new(
         enr: Enr,
-        local_metadata: MetaData<TSpec>,
+        local_metadata: MetaData<E>,
         trusted_peers: Vec<PeerId>,
         disable_peer_scoring: bool,
         log: &slog::Logger,
@@ -111,10 +111,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
-    pub fn new_test_globals(
-        trusted_peers: Vec<PeerId>,
-        log: &slog::Logger,
-    ) -> NetworkGlobals<TSpec> {
+    pub fn new_test_globals(trusted_peers: Vec<PeerId>, log: &slog::Logger) -> NetworkGlobals<E> {
         use crate::CombinedKeyExt;
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);

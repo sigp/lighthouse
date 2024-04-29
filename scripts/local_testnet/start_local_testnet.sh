@@ -103,7 +103,7 @@ echo "executing: ./setup.sh >> $LOG_DIR/setup.log"
 ./setup.sh >> $LOG_DIR/setup.log 2>&1
 
 # Call setup_time.sh to update future hardforks time in the EL genesis file based on the CL genesis time
-./setup_time.sh genesis.json
+./setup_time.sh $genesis_file
 
 # Delay to let boot_enr.yaml to be created
 execute_command_add_PID bootnode.log ./bootnode.sh
@@ -111,9 +111,6 @@ sleeping 3
 
 execute_command_add_PID el_bootnode.log ./el_bootnode.sh
 sleeping 3
-
-execute_command_add_PID el_bootnode.log ./el_bootnode.sh
-sleeping 1
 
 # Start beacon nodes
 BN_udp_tcp_base=9000
@@ -134,6 +131,7 @@ sleeping 20
 # Reset the `genesis.json` config file fork times.
 sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' $genesis_file
 sed -i 's/"cancunTime".*$/"cancunTime": 0,/g' $genesis_file
+sed -i 's/"pragueTime".*$/"pragueTime": 0,/g' $genesis_file
 
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     secret=$DATADIR/geth_datadir$bn/geth/jwtsecret

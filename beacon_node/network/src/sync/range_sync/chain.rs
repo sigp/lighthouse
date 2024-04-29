@@ -1,5 +1,6 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::network_context::RangeRequestId;
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
 };
@@ -905,7 +906,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, batch_type) = batch.to_blocks_by_range_request();
-            match network.blocks_by_range_request(peer, batch_type, request, self.id, batch_id) {
+            match network.blocks_and_blobs_by_range_request(
+                peer,
+                batch_type,
+                request,
+                RangeRequestId::RangeSync {
+                    chain_id: self.id,
+                    batch_id,
+                },
+            ) {
                 Ok(request_id) => {
                     // inform the batch about the new request
                     batch.start_downloading_from_peer(peer, request_id)?;

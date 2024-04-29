@@ -13,7 +13,6 @@ use self::schema::{
 };
 
 use diesel::dsl::max;
-use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::r2d2::{Builder, ConnectionManager, Pool, PooledConnection};
 use diesel::upsert::excluded;
@@ -128,9 +127,9 @@ pub fn insert_canonical_slot(conn: &mut PgConn, new_slot: WatchCanonicalSlot) ->
     Ok(())
 }
 
-pub fn insert_beacon_block<T: EthSpec>(
+pub fn insert_beacon_block<E: EthSpec>(
     conn: &mut PgConn,
-    block: SignedBeaconBlock<T>,
+    block: SignedBeaconBlock<E>,
     root: WatchHash,
 ) -> Result<(), Error> {
     use self::canonical_slots::dsl::{beacon_block, slot as canonical_slot};
@@ -147,7 +146,7 @@ pub fn insert_beacon_block<T: EthSpec>(
     let full_payload = block_message.execution_payload().ok();
 
     let transaction_count: Option<i32> = if let Some(bellatrix_payload) =
-        full_payload.and_then(|payload| payload.execution_payload_merge().ok())
+        full_payload.and_then(|payload| payload.execution_payload_bellatrix().ok())
     {
         Some(bellatrix_payload.transactions.len() as i32)
     } else {

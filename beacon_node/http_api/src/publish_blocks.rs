@@ -20,8 +20,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecarList, EthSpec, ExecPayload, ExecutionBlockHash,
-    ForkName, FullPayload, FullPayloadMerge, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock,
-    VariableList,
+    ForkName, FullPayload, FullPayloadBellatrix, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
@@ -80,13 +80,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         match block.as_ref() {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => {
-                crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone()))
+                crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block))
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
-            SignedBeaconBlock::Deneb(_) => {
-                let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block.clone())];
+            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+                let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block)];
                 if let Some(blob_sidecars) = blobs_opt {
                     for (blob_index, blob) in blob_sidecars.into_iter().enumerate() {
                         pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((
@@ -113,7 +113,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let (gossip_verified_block, gossip_verified_blobs) =
         match block_contents.into_gossip_verified_block(&chain) {
             Ok(b) => b,
-            Err(BlockContentsError::BlockError(BlockError::BlockIsAlreadyKnown))
+            Err(BlockContentsError::BlockError(BlockError::BlockIsAlreadyKnown(_)))
             | Err(BlockContentsError::BlobError(
                 beacon_chain::blob_verification::GossipBlobError::RepeatBlob { .. },
             )) => {
@@ -133,7 +133,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     log,
                     "Not publishing block - not gossip verified";
                     "slot" => slot,
-                    "error" => ?e
+                    "error" => %e
                 );
                 return Err(warp_utils::reject::custom_bad_request(e.to_string()));
             }
@@ -331,8 +331,8 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             let fork_name = chain
                 .spec
                 .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
-            if fork_name == ForkName::Merge {
-                let payload: FullPayload<T::EthSpec> = FullPayloadMerge::default().into();
+            if fork_name == ForkName::Bellatrix {
+                let payload: FullPayload<T::EthSpec> = FullPayloadBellatrix::default().into();
                 ProvenancedPayload::Local(FullPayloadContents::Payload(payload.into()))
             } else {
                 Err(warp_utils::reject::custom_server_error(

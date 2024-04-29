@@ -16,7 +16,8 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
-
+| v5.1.0             | Mar 2024     | v19            | yes before Deneb     |
+| v5.0.0             | Feb 2024     | v19            | yes before Deneb     |
 | v4.6.0             | Dec 2023     | v19            | yes before Deneb     |
 | v4.6.0-rc.0        | Dec 2023     | v18            | yes before Deneb     |
 | v4.5.0             | Sep 2023     | v17            | yes                  |
@@ -127,7 +128,7 @@ Several conditions need to be met in order to run `lighthouse db`:
 2. The command must run as the user that owns the beacon node database. If you are using systemd then
    your beacon node might run as a user called `lighthousebeacon`.
 3. The `--datadir` flag must be set to the location of the Lighthouse data directory.
-4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `goerli` or `sepolia`.
+4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `holesky` or `sepolia`.
 
 The general form for a `lighthouse db` command is:
 

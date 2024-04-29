@@ -5,10 +5,11 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dependencies]
+async-channel = { workspace = true }
 tokio = { workspace = true }
 slog = { workspace = true }
 futures = { workspace = true }
-exit-future = { workspace = true }
 lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 sloggers = { workspace = true }
+logging = { workspace = true }
