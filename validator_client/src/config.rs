@@ -18,6 +18,7 @@ use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
+pub const DEFAULT_WEB3SIGNER_KEEP_ALIVE: Option<Duration> = Some(Duration::from_secs(20));
 
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
@@ -130,7 +131,7 @@ impl Default for Config {
             builder_boost_factor: None,
             prefer_builder_proposals: false,
             distributed: false,
-            web3_signer_keep_alive_timeout: Some(Duration::from_secs(90)),
+            web3_signer_keep_alive_timeout: DEFAULT_WEB3SIGNER_KEEP_ALIVE,
             web3_signer_max_idle_connections: None,
         }
     }

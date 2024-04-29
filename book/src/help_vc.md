@@ -216,8 +216,9 @@ OPTIONS:
             The directory which contains the validator keystores, deposit data for each validator along with the common
             slashing protection database and the validator_definitions.yml
         --web3-signer-keep-alive-timeout <MILLIS>
-            Keep-alive timeout for each web3signer connection. Set to 'null' to never timeout [default: 90000]
+            Keep-alive timeout for each web3signer connection. Set to 'null' to never timeout [default: 20000]
 
         --web3-signer-max-idle-connections <COUNT>
             Maximum number of idle connections to maintain per web3signer host. Default is unlimited.
 ```
+<style> .content main {max-width:88%;} </style>

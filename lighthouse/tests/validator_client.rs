@@ -1,4 +1,4 @@
-use validator_client::{ApiTopic, Config};
+use validator_client::{config::DEFAULT_WEB3SIGNER_KEEP_ALIVE, ApiTopic, Config};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
+use std::time::Duration;
 use tempfile::TempDir;
 use types::Address;
 
@@ -637,5 +638,28 @@ fn validator_disable_web3_signer_slashing_protection() {
         .run()
         .with_config(|config| {
             assert!(!config.enable_web3signer_slashing_protection);
+        });
+}
+
+#[test]
+fn validator_web3_signer_keep_alive_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(
+            config.web3_signer_keep_alive_timeout,
+            DEFAULT_WEB3SIGNER_KEEP_ALIVE
+        );
+    });
+}
+
+#[test]
+fn validator_web3_signer_keep_alive_override() {
+    CommandLineTest::new()
+        .flag("web3-signer-keep-alive-timeout", Some("1000"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.web3_signer_keep_alive_timeout,
+                Some(Duration::from_secs(1))
+            );
         });
 }

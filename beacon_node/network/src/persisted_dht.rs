@@ -60,11 +60,10 @@ impl StoreItem for PersistedDht {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lighthouse_network::Enr;
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use store::config::StoreConfig;
-    use store::{HotColdDB, MemoryStore};
+    use store::MemoryStore;
     use types::{ChainSpec, MinimalEthSpec};
     #[test]
     fn test_persisted_dht() {

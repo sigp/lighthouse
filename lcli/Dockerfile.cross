@@ -1,0 +1,6 @@
+# This image is meant to enable cross-architecture builds.
+# It assumes the lcli binary has already been
+# compiled for `$TARGETPLATFORM` and moved to `./bin`.
+FROM --platform=$TARGETPLATFORM ubuntu:22.04
+RUN apt update && apt -y upgrade && apt clean && rm -rf /var/lib/apt/lists/*
+COPY ./bin/lcli /usr/local/bin/lcli

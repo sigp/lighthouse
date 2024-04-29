@@ -1063,9 +1063,11 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     let current_fork =
         spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
     let earliest_permissible_slot = match current_fork {
-        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => one_epoch_prior,
+        ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
+            one_epoch_prior
+        }
         // EIP-7045
-        ForkName::Deneb => one_epoch_prior
+        ForkName::Deneb | ForkName::Electra => one_epoch_prior
             .epoch(E::slots_per_epoch())
             .start_slot(E::slots_per_epoch()),
     };
@@ -1121,13 +1123,13 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
 
 /// Verifies that the `attestation.data.target.root` is indeed the target root of the block at
 /// `attestation.data.beacon_block_root`.
-pub fn verify_attestation_target_root<T: EthSpec>(
+pub fn verify_attestation_target_root<E: EthSpec>(
     head_block: &ProtoBlock,
-    attestation: &Attestation<T>,
+    attestation: &Attestation<E>,
 ) -> Result<(), Error> {
     // Check the attestation target root.
-    let head_block_epoch = head_block.slot.epoch(T::slots_per_epoch());
-    let attestation_epoch = attestation.data.slot.epoch(T::slots_per_epoch());
+    let head_block_epoch = head_block.slot.epoch(E::slots_per_epoch());
+    let attestation_epoch = attestation.data.slot.epoch(E::slots_per_epoch());
     if head_block_epoch > attestation_epoch {
         // The epoch references an invalid head block from a future epoch.
         //

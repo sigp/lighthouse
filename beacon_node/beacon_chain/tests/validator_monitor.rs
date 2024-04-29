@@ -203,23 +203,31 @@ async fn produces_missed_blocks() {
     // making sure that the cache reloads when the epoch changes
     // in that scenario the slot that missed a block is the first slot of the epoch
     validator_index_to_monitor = 7;
-    // We are adding other validators to monitor as thoses one will miss a block depending on
-    // the fork name specified when running the test as the proposer cache differs depending on the fork name (cf. seed)
+    // We are adding other validators to monitor as these ones will miss a block depending on
+    // the fork name specified when running the test as the proposer cache differs depending on
+    // the fork name (cf. seed)
+    //
+    // If you are adding a new fork and seeing errors, print
+    // `validator_indexes[slot_in_epoch.as_usize()]` and add it below.
     let validator_index_to_monitor_altair = 2;
     // Same as above but for the merge upgrade
-    let validator_index_to_monitor_merge = 4;
+    let validator_index_to_monitor_bellatrix = 4;
     // Same as above but for the capella upgrade
     let validator_index_to_monitor_capella = 11;
     // Same as above but for the deneb upgrade
     let validator_index_to_monitor_deneb = 3;
+    // Same as above but for the electra upgrade
+    let validator_index_to_monitor_electra = 6;
+
     let harness2 = get_harness(
         validator_count,
         vec![
             validator_index_to_monitor,
             validator_index_to_monitor_altair,
-            validator_index_to_monitor_merge,
+            validator_index_to_monitor_bellatrix,
             validator_index_to_monitor_capella,
             validator_index_to_monitor_deneb,
+            validator_index_to_monitor_electra,
         ],
     );
     let advance_slot_by = 9;
@@ -243,6 +251,10 @@ async fn produces_missed_blocks() {
     duplicate_block_root = *_state2.block_roots().get(idx as usize).unwrap();
     validator_indexes = _state2.get_beacon_proposer_indices(&harness2.spec).unwrap();
     validator_index = validator_indexes[slot_in_epoch.as_usize()];
+    // If you are adding a new fork and seeing errors, it means the fork seed has changed the
+    // validator_index. Uncomment this line, run the test again and add the resulting index to the
+    // list above.
+    //eprintln!("new index which needs to be added => {:?}", validator_index);
 
     let beacon_proposer_cache = harness2
         .chain

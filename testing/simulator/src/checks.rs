@@ -1,7 +1,7 @@
 use crate::local_network::LocalNetwork;
 use node_test_rig::eth2::types::{BlockId, FinalityCheckpointsData, StateId};
 use std::time::Duration;
-use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, Slot, Unsigned};
+use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Slot, Unsigned};
 
 /// Checks that all of the validators have on-boarded by the start of the second eth1 voting
 /// period.
@@ -234,7 +234,7 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
     }
 
     let first = block_hashes[0];
-    if first.into_root() != Hash256::zero() && block_hashes.iter().all(|&item| item == first) {
+    if block_hashes.iter().all(|&item| item == first) {
         Ok(())
     } else {
         Err(format!(
@@ -287,13 +287,13 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
         }
 
         // Verify light client optimistic update. `signature_slot_distance` should be 1 in the ideal scenario.
-        let signature_slot = client
+        let signature_slot = *client
             .get_beacon_light_client_optimistic_update::<E>()
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
             .ok_or(format!("Light client optimistic update not found {slot:?}"))?
             .data
-            .signature_slot;
+            .signature_slot();
         let signature_slot_distance = slot - signature_slot;
         if signature_slot_distance > light_client_update_slot_tolerance {
             return Err(format!("Existing optimistic update too old: signature slot {signature_slot}, current slot {slot:?}"));
@@ -316,19 +316,189 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             }
             continue;
         }
-        let signature_slot = client
+        let signature_slot = *client
             .get_beacon_light_client_finality_update::<E>()
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
             .ok_or(format!("Light client finality update not found {slot:?}"))?
             .data
-            .signature_slot;
+            .signature_slot();
         let signature_slot_distance = slot - signature_slot;
         if signature_slot_distance > light_client_update_slot_tolerance {
             return Err(format!(
                 "Existing finality update too old: signature slot {signature_slot}, current slot {slot:?}"
             ));
         }
+    }
+
+    Ok(())
+}
+
+/// Checks that a node is synced with the network.
+/// Useful for ensuring that a node which started after genesis is able to sync to the head.
+pub async fn ensure_node_synced_up_to_slot<E: EthSpec>(
+    network: LocalNetwork<E>,
+    node_index: usize,
+    upto_slot: Slot,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    slot_delay(upto_slot, slot_duration).await;
+    let node = &network
+        .remote_nodes()?
+        .get(node_index)
+        .expect("Should get node")
+        .clone();
+
+    let head = node
+        .get_beacon_blocks::<E>(BlockId::Head)
+        .await
+        .ok()
+        .flatten()
+        .ok_or(format!("No head block exists on node {node_index}"))?
+        .data;
+
+    // Check the head block is synced with the rest of the network.
+    if head.slot() >= upto_slot {
+        Ok(())
+    } else {
+        Err(format!(
+            "Head not synced for node {node_index}. Found {}; Should be {upto_slot}",
+            head.slot()
+        ))
+    }
+}
+
+/// Verifies that there's been blobs produced at every slot with a block from `blob_start_slot` up
+/// to and including `upto_slot`.
+pub async fn verify_full_blob_production_up_to<E: EthSpec>(
+    network: LocalNetwork<E>,
+    blob_start_slot: Slot,
+    upto_slot: Slot,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    slot_delay(upto_slot, slot_duration).await;
+    let remote_nodes = network.remote_nodes()?;
+    let remote_node = remote_nodes.first().unwrap();
+
+    for slot in blob_start_slot.as_u64()..=upto_slot.as_u64() {
+        // Ensure block exists.
+        let block = remote_node
+            .get_beacon_blocks::<E>(BlockId::Slot(Slot::new(slot)))
+            .await
+            .ok()
+            .flatten();
+
+        // Only check blobs if the block exists. If you also want to ensure full block production, use
+        // the `verify_full_block_production_up_to` function.
+        if block.is_some() {
+            remote_node
+                .get_blobs::<E>(BlockId::Slot(Slot::new(slot)), None)
+                .await
+                .map_err(|e| format!("Failed to get blobs at slot {slot:?}: {e:?}"))?
+                .ok_or_else(|| format!("No blobs available at slot {slot:?}"))?;
+        }
+    }
+
+    Ok(())
+}
+
+// Causes the beacon node at `node_index` to disconnect from the execution layer.
+pub async fn disconnect_from_execution_layer<E: EthSpec>(
+    network: LocalNetwork<E>,
+    node_index: usize,
+) -> Result<(), String> {
+    eprintln!("Disabling Execution Node {node_index}");
+
+    // Force the execution node to return the `syncing` status.
+    network.execution_nodes.read()[node_index]
+        .server
+        .all_payloads_syncing(false);
+    Ok(())
+}
+
+// Causes the beacon node at `node_index` to reconnect from the execution layer.
+pub async fn reconnect_to_execution_layer<E: EthSpec>(
+    network: LocalNetwork<E>,
+    node_index: usize,
+) -> Result<(), String> {
+    network.execution_nodes.read()[node_index]
+        .server
+        .all_payloads_valid();
+
+    eprintln!("Enabling Execution Node {node_index}");
+    Ok(())
+}
+
+/// Ensure all validators have attested correctly.
+pub async fn check_attestation_correctness<E: EthSpec>(
+    network: LocalNetwork<E>,
+    start_epoch: u64,
+    upto_epoch: u64,
+    slot_duration: Duration,
+    // Select which node to query. Will use this node to determine the global network performance.
+    node_index: usize,
+    acceptable_attestation_performance: f64,
+) -> Result<(), String> {
+    epoch_delay(Epoch::new(upto_epoch), slot_duration, E::slots_per_epoch()).await;
+
+    let remote_node = &network.remote_nodes()?[node_index];
+
+    let results = remote_node
+        .get_lighthouse_analysis_attestation_performance(
+            Epoch::new(start_epoch),
+            Epoch::new(upto_epoch - 2),
+            "global".to_string(),
+        )
+        .await
+        .map_err(|e| format!("Unable to get attestation performance: {e}"))?;
+
+    let mut active_successes: f64 = 0.0;
+    let mut head_successes: f64 = 0.0;
+    let mut target_successes: f64 = 0.0;
+    let mut source_successes: f64 = 0.0;
+
+    let mut total: f64 = 0.0;
+
+    for result in results {
+        for epochs in result.epochs.values() {
+            total += 1.0;
+
+            if epochs.active {
+                active_successes += 1.0;
+            }
+            if epochs.head {
+                head_successes += 1.0;
+            }
+            if epochs.target {
+                target_successes += 1.0;
+            }
+            if epochs.source {
+                source_successes += 1.0;
+            }
+        }
+    }
+    let active_percent = active_successes / total * 100.0;
+    let head_percent = head_successes / total * 100.0;
+    let target_percent = target_successes / total * 100.0;
+    let source_percent = source_successes / total * 100.0;
+
+    eprintln!("Total Attestations: {}", total);
+    eprintln!("Active: {}: {}%", active_successes, active_percent);
+    eprintln!("Head: {}: {}%", head_successes, head_percent);
+    eprintln!("Target: {}: {}%", target_successes, target_percent);
+    eprintln!("Source: {}: {}%", source_successes, source_percent);
+
+    if active_percent < acceptable_attestation_performance {
+        return Err("Active percent was below required level".to_string());
+    }
+    if head_percent < acceptable_attestation_performance {
+        return Err("Head percent was below required level".to_string());
+    }
+    if target_percent < acceptable_attestation_performance {
+        return Err("Target percent was below required level".to_string());
+    }
+    if source_percent < acceptable_attestation_performance {
+        return Err("Source percent was below required level".to_string());
     }
 
     Ok(())

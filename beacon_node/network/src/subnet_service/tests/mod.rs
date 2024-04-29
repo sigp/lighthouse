@@ -180,14 +180,12 @@ mod attestation_service {
     use super::*;
 
     fn get_subscription(
-        validator_index: u64,
         attestation_committee_index: CommitteeIndex,
         slot: Slot,
         committee_count_at_slot: u64,
         is_aggregator: bool,
     ) -> ValidatorSubscription {
         ValidatorSubscription {
-            validator_index,
             attestation_committee_index,
             slot,
             committee_count_at_slot,
@@ -205,7 +203,6 @@ mod attestation_service {
             .map(|validator_index| {
                 get_subscription(
                     validator_index,
-                    validator_index,
                     slot,
                     committee_count_at_slot,
                     is_aggregator,
@@ -217,7 +214,6 @@ mod attestation_service {
     #[tokio::test]
     async fn subscribe_current_slot_wait_for_unsubscribe() {
         // subscription config
-        let validator_index = 1;
         let committee_index = 1;
         // Keep a low subscription slot so that there are no additional subnet discovery events.
         let subscription_slot = 0;
@@ -233,7 +229,6 @@ mod attestation_service {
             .expect("Could not get current slot");
 
         let subscriptions = vec![get_subscription(
-            validator_index,
             committee_index,
             current_slot + Slot::new(subscription_slot),
             committee_count,
@@ -242,7 +237,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(subscriptions)
+            .validator_subscriptions(subscriptions.into_iter())
             .unwrap();
 
         // not enough time for peer discovery, just subscribe, unsubscribe
@@ -293,7 +288,6 @@ mod attestation_service {
     #[tokio::test]
     async fn test_same_subnet_unsubscription() {
         // subscription config
-        let validator_index = 1;
         let committee_count = 1;
         let subnets_per_node = MainnetEthSpec::default_spec().subnets_per_node as usize;
 
@@ -313,7 +307,6 @@ mod attestation_service {
             .expect("Could not get current slot");
 
         let sub1 = get_subscription(
-            validator_index,
             com1,
             current_slot + Slot::new(subscription_slot1),
             committee_count,
@@ -321,7 +314,6 @@ mod attestation_service {
         );
 
         let sub2 = get_subscription(
-            validator_index,
             com2,
             current_slot + Slot::new(subscription_slot2),
             committee_count,
@@ -350,7 +342,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(vec![sub1, sub2])
+            .validator_subscriptions(vec![sub1, sub2].into_iter())
             .unwrap();
 
         // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
@@ -431,7 +423,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(subscriptions)
+            .validator_subscriptions(subscriptions.into_iter())
             .unwrap();
 
         let events = get_events(&mut attestation_service, Some(131), 10).await;
@@ -501,7 +493,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(subscriptions)
+            .validator_subscriptions(subscriptions.into_iter())
             .unwrap();
 
         let events = get_events(&mut attestation_service, None, 3).await;
@@ -538,7 +530,6 @@ mod attestation_service {
     #[tokio::test]
     async fn test_subscribe_same_subnet_several_slots_apart() {
         // subscription config
-        let validator_index = 1;
         let committee_count = 1;
         let subnets_per_node = MainnetEthSpec::default_spec().subnets_per_node as usize;
 
@@ -558,7 +549,6 @@ mod attestation_service {
             .expect("Could not get current slot");
 
         let sub1 = get_subscription(
-            validator_index,
             com1,
             current_slot + Slot::new(subscription_slot1),
             committee_count,
@@ -566,7 +556,6 @@ mod attestation_service {
         );
 
         let sub2 = get_subscription(
-            validator_index,
             com2,
             current_slot + Slot::new(subscription_slot2),
             committee_count,
@@ -595,7 +584,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(vec![sub1, sub2])
+            .validator_subscriptions(vec![sub1, sub2].into_iter())
             .unwrap();
 
         // Unsubscription event should happen at the end of the slot.
@@ -668,7 +657,7 @@ mod attestation_service {
 
         // submit the subscriptions
         attestation_service
-            .validator_subscriptions(subscriptions)
+            .validator_subscriptions(subscriptions.into_iter())
             .unwrap();
 
         // There should only be the same subscriptions as there are in the specification,

@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
-use std::convert::TryFrom;
 
 pub use eth2_keystore::json_keystore::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, Kdf, KdfModule,

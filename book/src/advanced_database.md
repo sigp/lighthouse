@@ -44,7 +44,7 @@ The values shown in the table are approximate, calculated using a simple heurist
 The **Load Historical State** time is the worst-case load time for a state in the last slot
 before a restore point. 
 
-To run a full archival node with fast access to beacon states and a SPRP of 32, the disk usage will be more than 10 TB per year, which is impractical for many users. As such, users may consider running the [tree-states](https://github.com/sigp/lighthouse/releases/tag/v4.5.444-exp) release, which only uses less than 150 GB for a full archival node. The caveat is that it is currently experimental and in alpha release (as of Dec 2023), thus not recommended for running mainnet validators. Nevertheless, it is suitable to be used for analysis purposes, and if you encounter any issues in tree-states, we do appreciate any feedback. We plan to have a stable release of tree-states in 1H 2024.  
+To run a full archival node with fast access to beacon states and a SPRP of 32, the disk usage will be more than 10 TB per year, which is impractical for many users. As such, users may consider running the [tree-states](https://github.com/sigp/lighthouse/releases/tag/v5.0.111-exp) release, which only uses less than 200 GB for a full archival node. The caveat is that it is currently experimental and in alpha release (as of Dec 2023), thus not recommended for running mainnet validators. Nevertheless, it is suitable to be used for analysis purposes, and if you encounter any issues in tree-states, we do appreciate any feedback. We plan to have a stable release of tree-states in 1H 2024.  
 
 ### Defaults
 

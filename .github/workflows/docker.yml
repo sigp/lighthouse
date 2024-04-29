@@ -15,8 +15,6 @@ concurrency:
 env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-    IMAGE_NAME: ${{ github.repository_owner}}/lighthouse
-    LCLI_IMAGE_NAME: ${{ github.repository_owner }}/lcli
     # Enable self-hosted runners for the sigp repo only.
     SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
 
@@ -49,19 +47,15 @@ jobs:
             VERSION: ${{ env.VERSION }}
             VERSION_SUFFIX: ${{ env.VERSION_SUFFIX }}
     build-docker-single-arch:
-        name: build-docker-${{ matrix.binary }}${{ matrix.features.version_suffix }}
+        name: build-docker-${{ matrix.binary }}-${{ matrix.cpu_arch }}${{ matrix.features.version_suffix }}
         # Use self-hosted runners only on the sigp repo.
         runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release"]') || 'ubuntu-22.04'  }}
         strategy:
             matrix:
-                binary: [aarch64,
-                         aarch64-portable,
-                         x86_64,
-                         x86_64-portable]
-                features: [
-                    {version_suffix: "", env: "gnosis,slasher-lmdb,slasher-mdbx,jemalloc"},
-                    {version_suffix: "-dev", env: "jemalloc,spec-minimal"}
-                ]
+                binary:   [lighthouse,
+                           lcli]
+                cpu_arch: [aarch64,
+                           x86_64]
                 include:
                     - profile: maxperf
 
@@ -69,36 +63,48 @@ jobs:
         env:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
-            FEATURE_SUFFIX: ${{ matrix.features.version_suffix }}
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
             - name: Update Rust
               if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-            - name: Cross build Lighthouse binary
+
+            - name: Sets env vars for Lighthouse
+              if: startsWith(matrix.binary, 'lighthouse')
+              run: |
+                echo "CROSS_FEATURES=gnosis,spec-minimal,slasher-lmdb,jemalloc" >> $GITHUB_ENV
+
+            - name: Set `make` command for lighthouse
+              if: startsWith(matrix.binary, 'lighthouse')
+              run: |
+                echo "MAKE_CMD=build-${{ matrix.cpu_arch }}-portable" >> $GITHUB_ENV
+
+            - name: Set `make` command for lcli
+              if: startsWith(matrix.binary, 'lcli')
+              run: |
+                echo "MAKE_CMD=build-lcli-${{ matrix.cpu_arch }}" >> $GITHUB_ENV
+
+            - name: Cross build binaries
               run: |
                   cargo install cross
-                  env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ matrix.features.env }} make build-${{ matrix.binary }}
+                  env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ env.CROSS_FEATURES }} make ${{ env.MAKE_CMD }}
+
             - name: Make bin dir
               run: mkdir ./bin
-            - name: Move cross-built binary into Docker scope (if ARM)
-              if: startsWith(matrix.binary, 'aarch64')
-              run: mv ./target/aarch64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin
-            - name: Move cross-built binary into Docker scope (if x86_64)
-              if: startsWith(matrix.binary, 'x86_64')
-              run: mv ./target/x86_64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin
+
+            - name: Move cross-built binary into Docker scope
+              run: mv ./target/${{ matrix.cpu_arch }}-unknown-linux-gnu/${{ matrix.profile }}/${{ matrix.binary }} ./bin
+
             - name: Map aarch64 to arm64 short arch
-              if: startsWith(matrix.binary, 'aarch64')
+              if: startsWith(matrix.cpu_arch, 'aarch64')
               run: echo "SHORT_ARCH=arm64" >> $GITHUB_ENV
+
             - name: Map x86_64 to amd64 short arch
-              if: startsWith(matrix.binary, 'x86_64')
+              if: startsWith(matrix.cpu_arch, 'x86_64')
               run: echo "SHORT_ARCH=amd64" >> $GITHUB_ENV;
-            - name: Set modernity suffix
-              if: endsWith(matrix.binary, '-portable') != true
-              run: echo "MODERNITY_SUFFIX=-modern" >> $GITHUB_ENV;
 
             - name: Install QEMU
               if: env.SELF_HOSTED_RUNNERS == 'false'
@@ -106,58 +112,57 @@ jobs:
 
             - name: Set up Docker Buildx
               if: env.SELF_HOSTED_RUNNERS == 'false'
-              uses: docker/setup-buildx-action@v2
+              uses: docker/setup-buildx-action@v3
 
-            - name: Build and push
-              uses: docker/build-push-action@v4
+            - name: Build and push (Lighthouse)
+              if: startsWith(matrix.binary, 'lighthouse')
+              uses: docker/build-push-action@v5
               with:
                 file: ./Dockerfile.cross
                 context: .
                 platforms: linux/${{ env.SHORT_ARCH }}
                 push: true
-                tags: ${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}${{ env.MODERNITY_SUFFIX }}${{ env.FEATURE_SUFFIX }}
+                tags: |
+                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}
+                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-dev
+                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-modern
+                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-modern-dev
+
+            - name: Build and push (lcli)
+              if: startsWith(matrix.binary, 'lcli')
+              uses: docker/build-push-action@v5
+              with:
+                file: ./lcli/Dockerfile.cross
+                context: .
+                platforms: linux/${{ env.SHORT_ARCH }}
+                push: true
+
+                tags: |
+                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}
+
 
     build-docker-multiarch:
-        name: build-docker-multiarch${{ matrix.modernity }}
+        name: build-docker-${{ matrix.binary }}-multiarch
         runs-on: ubuntu-22.04
-        needs: [build-docker-single-arch, extract-version]
         strategy:
             matrix:
-                modernity: ["", "-modern"]
+                binary: [lighthouse,
+                         lcli]
+        needs: [build-docker-single-arch, extract-version]
         env:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
+              uses: docker/setup-buildx-action@v3
 
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
 
-            - name: Create and push multiarch manifest
+            - name: Create and push multiarch manifests
               run: |
-                  docker buildx imagetools create -t ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }} \
-                      ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX}${{ matrix.modernity }} \
-                      ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX}${{ matrix.modernity }};
+                  docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}${VERSION_SUFFIX} \
+                      ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${VERSION_SUFFIX} \
+                      ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-amd64${VERSION_SUFFIX};
 
-    build-docker-lcli:
-        runs-on: ubuntu-22.04
-        needs: [extract-version]
-        env:
-            VERSION: ${{ needs.extract-version.outputs.VERSION }}
-            VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
-        steps:
-            - uses: actions/checkout@v3
-            - name: Dockerhub login
-              run: |
-                  echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-            - name: Build lcli and push
-              uses: docker/build-push-action@v5
-              with:
-                  build-args: |
-                      FEATURES=portable
-                  context: .
-                  push: true
-                  file: ./lcli/Dockerfile
-                  tags: ${{ env.LCLI_IMAGE_NAME }}:${{ env.VERSION }}${{ env.VERSION_SUFFIX }}

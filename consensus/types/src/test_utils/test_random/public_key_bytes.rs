@@ -1,6 +1,4 @@
-use std::convert::From;
-
-use bls::{PublicKeyBytes, PUBLIC_KEY_BYTES_LEN};
+use bls::PUBLIC_KEY_BYTES_LEN;
 
 use super::*;
 

@@ -3,14 +3,12 @@
 use super::*;
 use crate::cases::common::{SszStaticType, TestU128, TestU256};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
-use crate::decode::{snappy_decode_file, yaml_decode_file};
-use serde::Deserialize;
-use serde::{de::Error as SerdeError, Deserializer};
+use crate::decode::{log_file_access, snappy_decode_file, yaml_decode_file};
+use serde::{de::Error as SerdeError, Deserialize, Deserializer};
 use ssz_derive::{Decode, Encode};
-use std::path::{Path, PathBuf};
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
-use types::{BitList, BitVector, FixedVector, ForkName, VariableList};
+use types::{BitList, BitVector, FixedVector, ForkName, VariableList, Vector};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
@@ -127,6 +125,20 @@ impl Case for SszGeneric {
                 let elem_ty = parts[1];
                 let length = parts[2];
 
+                // Skip length 0 tests. Milhouse doesn't have any checks against 0-capacity lists.
+                if length == "0" {
+                    log_file_access(self.path.join("serialized.ssz_snappy"));
+                    return Ok(());
+                }
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path),
+                    Vector,
+                    <>,
+                    [elem_ty => primitive_type]
+                    [length => typenum]
+                )?;
                 type_dispatch!(
                     ssz_generic_test,
                     (&self.path),
@@ -265,8 +277,8 @@ struct ComplexTestStruct {
     #[serde(deserialize_with = "byte_list_from_hex_str")]
     D: VariableList<u8, U256>,
     E: VarTestStruct,
-    F: FixedVector<FixedTestStruct, U4>,
-    G: FixedVector<VarTestStruct, U2>,
+    F: Vector<FixedTestStruct, U4>,
+    G: Vector<VarTestStruct, U2>,
 }
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]

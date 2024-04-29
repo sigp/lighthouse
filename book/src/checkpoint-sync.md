@@ -1,6 +1,6 @@
 # Checkpoint Sync
 
-Lighthouse supports syncing from a recent finalized checkpoint. This is substantially faster than syncing from genesis, while still providing all the same features. Checkpoint sync is also safer as it protects the node from long-range attacks. Since 4.6.0, checkpoint sync is required by default and genesis sync will no longer work without the use of `--allow-insecure-genesis-sync`.
+Lighthouse supports syncing from a recent finalized checkpoint. This is substantially faster than syncing from genesis, while still providing all the same features. Checkpoint sync is also safer as it protects the node from long-range attacks. Since [v4.6.0](https://github.com/sigp/lighthouse/releases/tag/v4.6.0), checkpoint sync is required by default and genesis sync will no longer work without the use of `--allow-insecure-genesis-sync`.
 
 To quickly get started with checkpoint sync, read the sections below on:
 
