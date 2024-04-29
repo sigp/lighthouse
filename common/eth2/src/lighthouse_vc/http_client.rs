@@ -483,12 +483,15 @@ impl ValidatorClientHttpClient {
     }
 
     /// `PATCH lighthouse/validators/{validator_pubkey}`
+    #[allow(clippy::too_many_arguments)]
     pub async fn patch_lighthouse_validators(
         &self,
         voting_pubkey: &PublicKeyBytes,
         enabled: Option<bool>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_boost_factor: Option<u64>,
+        prefer_builder_proposals: Option<bool>,
         graffiti: Option<GraffitiString>,
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
@@ -505,6 +508,8 @@ impl ValidatorClientHttpClient {
                 enabled,
                 gas_limit,
                 builder_proposals,
+                builder_boost_factor,
+                prefer_builder_proposals,
                 graffiti,
             },
         )

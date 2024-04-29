@@ -73,7 +73,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     key. Defaults to ~/.lighthouse/{network}/secrets.",
                 )
                 .takes_value(true)
-                .conflicts_with("datadir")
         )
         .arg(
             Arg::with_name("init-slashing-protection")
@@ -143,6 +142,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        This should only be enabled when paired with a beacon node \
                        that has this endpoint implemented. This flag will be enabled by default in \
                        future.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("distributed")
+                .long("distributed")
+                .help("Enables functionality required for running the validator in a distributed validator cluster.")
                 .takes_value(false)
         )
         /* REST API related arguments */
@@ -347,6 +352,55 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     validator/register_validator request sent to the BN. This value \
                     can be reduced to avoid timeouts from builders.")
                 .default_value("500")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("builder-boost-factor")
+                .long("builder-boost-factor")
+                .value_name("UINT64")
+                .help("Defines the boost factor, \
+                    a percentage multiplier to apply to the builder's payload value \
+                    when choosing between a builder payload header and payload from \
+                    the local execution node.")
+                .conflicts_with("prefer-builder-proposals")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("prefer-builder-proposals")
+                .long("prefer-builder-proposals")
+                .help("If this flag is set, Lighthouse will always prefer blocks \
+                    constructed by builders, regardless of payload value.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("disable-slashing-protection-web3signer")
+                .long("disable-slashing-protection-web3signer")
+                .help("Disable Lighthouse's slashing protection for all web3signer keys. This can \
+                       reduce the I/O burden on the VC but is only safe if slashing protection \
+                       is enabled on the remote signer and is implemented correctly. DO NOT ENABLE \
+                       THIS FLAG UNLESS YOU ARE CERTAIN THAT SLASHING PROTECTION IS ENABLED ON \
+                       THE REMOTE SIGNER. YOU WILL GET SLASHED IF YOU USE THIS FLAG WITHOUT \
+                       ENABLING WEB3SIGNER'S SLASHING PROTECTION.")
+                .takes_value(false)
+        )
+        /*
+         * Experimental/development options.
+         */
+        .arg(
+            Arg::with_name("web3-signer-keep-alive-timeout")
+                .long("web3-signer-keep-alive-timeout")
+                .value_name("MILLIS")
+                .default_value("20000")
+                .help("Keep-alive timeout for each web3signer connection. Set to 'null' to never \
+                       timeout")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("web3-signer-max-idle-connections")
+                .long("web3-signer-max-idle-connections")
+                .value_name("COUNT")
+                .help("Maximum number of idle connections to maintain per web3signer host. Default \
+                       is unlimited.")
                 .takes_value(true),
         )
 }

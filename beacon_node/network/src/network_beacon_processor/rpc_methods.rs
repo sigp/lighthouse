@@ -3,17 +3,14 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
-use beacon_processor::SendOnDrop;
 use itertools::process_results;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
-use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
-use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
 use types::{Epoch, EthSpec, ForkName, Hash256, Slot};
@@ -129,90 +126,102 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRoot` request from the peer.
-    pub fn handle_blocks_by_root_request(
+    pub async fn handle_blocks_by_root_request(
         self: Arc<Self>,
-        executor: TaskExecutor,
-        send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
     ) {
+        self.terminate_response_stream(
+            peer_id,
+            request_id,
+            self.clone()
+                .handle_blocks_by_root_request_inner(peer_id, request_id, request)
+                .await,
+            Response::BlocksByRoot,
+        );
+    }
+
+    /// Handle a `BlocksByRoot` request from the peer.
+    pub async fn handle_blocks_by_root_request_inner(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlocksByRootRequest,
+    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
+        let log_results = |peer_id, requested_blocks, send_block_count| {
+            debug!(
+                self.log,
+                "BlocksByRoot outgoing response processed";
+                "peer" => %peer_id,
+                "requested" => requested_blocks,
+                "returned" => %send_block_count
+            );
+        };
+
         let requested_blocks = request.block_roots().len();
         let mut block_stream = match self
             .chain
-            .get_blocks_checking_early_attester_cache(request.block_roots().to_vec(), &executor)
+            .get_blocks_checking_caches(request.block_roots().to_vec())
         {
             Ok(block_stream) => block_stream,
-            Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
+            Err(e) => {
+                error!(self.log, "Error getting block stream"; "error" => ?e);
+                return Err((
+                    RPCResponseErrorCode::ServerError,
+                    "Error getting block stream",
+                ));
+            }
         };
         // Fetching blocks is async because it may have to hit the execution layer for payloads.
-        executor.spawn(
-            async move {
-                let mut send_block_count = 0;
-                let mut send_response = true;
-                while let Some((root, result)) = block_stream.next().await {
-                    match result.as_ref() {
-                        Ok(Some(block)) => {
-                            self.send_response(
-                                peer_id,
-                                Response::BlocksByRoot(Some(block.clone())),
-                                request_id,
-                            );
-                            send_block_count += 1;
-                        }
-                        Ok(None) => {
-                            debug!(
-                                self.log,
-                                "Peer requested unknown block";
-                                "peer" => %peer_id,
-                                "request_root" => ?root
-                            );
-                        }
-                        Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
-                            debug!(
-                                self.log,
-                                "Failed to fetch execution payload for blocks by root request";
-                                "block_root" => ?root,
-                                "reason" => "execution layer not synced",
-                            );
-                            // send the stream terminator
-                            self.send_error_response(
-                                peer_id,
-                                RPCResponseErrorCode::ResourceUnavailable,
-                                "Execution layer not synced".into(),
-                                request_id,
-                            );
-                            send_response = false;
-                            break;
-                        }
-                        Err(e) => {
-                            debug!(
-                                self.log,
-                                "Error fetching block for peer";
-                                "peer" => %peer_id,
-                                "request_root" => ?root,
-                                "error" => ?e,
-                            );
-                        }
-                    }
+        let mut send_block_count = 0;
+        while let Some((root, result)) = block_stream.next().await {
+            match result.as_ref() {
+                Ok(Some(block)) => {
+                    self.send_response(
+                        peer_id,
+                        Response::BlocksByRoot(Some(block.clone())),
+                        request_id,
+                    );
+                    send_block_count += 1;
                 }
-                debug!(
-                    self.log,
-                    "Received BlocksByRoot Request";
-                    "peer" => %peer_id,
-                    "requested" => requested_blocks,
-                    "returned" => %send_block_count
-                );
+                Ok(None) => {
+                    debug!(
+                        self.log,
+                        "Peer requested unknown block";
+                        "peer" => %peer_id,
+                        "request_root" => ?root
+                    );
+                }
+                Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                    debug!(
+                        self.log,
+                        "Failed to fetch execution payload for blocks by root request";
+                        "block_root" => ?root,
+                        "reason" => "execution layer not synced",
+                    );
+                    log_results(peer_id, requested_blocks, send_block_count);
+                    return Err((
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Execution layer not synced",
+                    ));
+                }
+                Err(e) => {
+                    debug!(
+                        self.log,
+                        "Error fetching block for peer";
+                        "peer" => %peer_id,
+                        "request_root" => ?root,
+                        "error" => ?e,
+                    );
+                }
+            }
+        }
+        log_results(peer_id, requested_blocks, send_block_count);
 
-                // send stream termination
-                if send_response {
-                    self.send_response(peer_id, Response::BlocksByRoot(None), request_id);
-                }
-                drop(send_on_drop);
-            },
-            "load_blocks_by_root_blocks",
-        )
+        Ok(())
     }
+
     /// Handle a `BlobsByRoot` request from the peer.
     pub fn handle_blobs_by_root_request(
         self: Arc<Self>,
@@ -220,10 +229,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: PeerRequestId,
         request: BlobsByRootRequest,
     ) {
+        self.terminate_response_stream(
+            peer_id,
+            request_id,
+            self.handle_blobs_by_root_request_inner(peer_id, request_id, request),
+            Response::BlobsByRoot,
+        );
+    }
+
+    /// Handle a `BlobsByRoot` request from the peer.
+    pub fn handle_blobs_by_root_request_inner(
+        &self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRootRequest,
+    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
         let Some(requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
         else {
             // No blob ids requested.
-            return;
+            return Ok(());
         };
         let requested_indices = request
             .blob_ids
@@ -232,7 +256,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map(|id| id.index)
             .collect::<Vec<_>>();
         let mut send_blob_count = 0;
-        let send_response = true;
 
         let mut blob_list_results = HashMap::new();
         for id in request.blob_ids.as_slice() {
@@ -281,64 +304,120 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
         debug!(
             self.log,
-            "Received BlobsByRoot Request";
+            "BlobsByRoot outgoing response processed";
             "peer" => %peer_id,
             "request_root" => %requested_root,
             "request_indices" => ?requested_indices,
             "returned" => send_blob_count
         );
 
-        // send stream termination
-        if send_response {
-            self.send_response(peer_id, Response::BlobsByRoot(None), request_id);
-        }
+        Ok(())
     }
 
-    /// Handle a `BlocksByRoot` request from the peer.
+    /// Handle a `LightClientBootstrap` request from the peer.
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: LightClientBootstrapRequest,
     ) {
-        let block_root = request.root;
-        match self.chain.get_light_client_bootstrap(&block_root) {
-            Ok(Some((bootstrap, _))) => self.send_response(
-                peer_id,
-                Response::LightClientBootstrap(bootstrap),
-                request_id,
-            ),
-            Ok(None) => self.send_error_response(
-                peer_id,
-                RPCResponseErrorCode::ResourceUnavailable,
-                "Bootstrap not available".into(),
-                request_id,
-            ),
-            Err(e) => {
-                self.send_error_response(
-                    peer_id,
+        self.terminate_response_single_item(
+            peer_id,
+            request_id,
+            match self.chain.get_light_client_bootstrap(&request.root) {
+                Ok(Some((bootstrap, _))) => Ok(Arc::new(bootstrap)),
+                Ok(None) => Err((
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not available".into(),
-                    request_id,
-                );
-                error!(self.log, "Error getting LightClientBootstrap instance";
-                    "block_root" => ?block_root,
-                    "peer" => %peer_id,
-                    "error" => ?e
-                )
-            }
-        };
+                    "Bootstrap not available",
+                )),
+                Err(e) => {
+                    error!(self.log, "Error getting LightClientBootstrap instance";
+                        "block_root" => ?request.root,
+                        "peer" => %peer_id,
+                        "error" => ?e
+                    );
+                    Err((
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Bootstrap not available",
+                    ))
+                }
+            },
+            Response::LightClientBootstrap,
+        );
+    }
+
+    /// Handle a `LightClientOptimisticUpdate` request from the peer.
+    pub fn handle_light_client_optimistic_update(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) {
+        self.terminate_response_single_item(
+            peer_id,
+            request_id,
+            match self
+                .chain
+                .light_client_server_cache
+                .get_latest_optimistic_update()
+            {
+                Some(update) => Ok(Arc::new(update)),
+                None => Err((
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Latest optimistic update not available",
+                )),
+            },
+            Response::LightClientOptimisticUpdate,
+        );
+    }
+
+    /// Handle a `LightClientFinalityUpdate` request from the peer.
+    pub fn handle_light_client_finality_update(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) {
+        self.terminate_response_single_item(
+            peer_id,
+            request_id,
+            match self
+                .chain
+                .light_client_server_cache
+                .get_latest_finality_update()
+            {
+                Some(update) => Ok(Arc::new(update)),
+                None => Err((
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Latest finality update not available",
+                )),
+            },
+            Response::LightClientFinalityUpdate,
+        );
     }
 
     /// Handle a `BlocksByRange` request from the peer.
-    pub fn handle_blocks_by_range_request(
+    pub async fn handle_blocks_by_range_request(
         self: Arc<Self>,
-        executor: TaskExecutor,
-        send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
         req: BlocksByRangeRequest,
     ) {
+        self.terminate_response_stream(
+            peer_id,
+            request_id,
+            self.clone()
+                .handle_blocks_by_range_request_inner(peer_id, request_id, req)
+                .await,
+            Response::BlocksByRange,
+        );
+    }
+
+    /// Handle a `BlocksByRange` request from the peer.
+    pub async fn handle_blocks_by_range_request_inner(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        req: BlocksByRangeRequest,
+    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
         debug!(self.log, "Received BlocksByRange Request";
             "peer_id" => %peer_id,
             "count" => req.count(),
@@ -351,19 +430,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .epoch()
                 .map_or(self.chain.spec.max_request_blocks, |epoch| {
                     match self.chain.spec.fork_name_at_epoch(epoch) {
-                        ForkName::Deneb => self.chain.spec.max_request_blocks_deneb,
-                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                            self.chain.spec.max_request_blocks
+                        ForkName::Deneb | ForkName::Electra => {
+                            self.chain.spec.max_request_blocks_deneb
                         }
+                        ForkName::Base
+                        | ForkName::Altair
+                        | ForkName::Bellatrix
+                        | ForkName::Capella => self.chain.spec.max_request_blocks,
                     }
                 });
         if *req.count() > max_request_size {
-            return self.send_error_response(
-                peer_id,
+            return Err((
                 RPCResponseErrorCode::InvalidRequest,
-                format!("Request exceeded max size {max_request_size}"),
-                request_id,
-            );
+                "Request exceeded max size",
+            ));
         }
 
         let forwards_block_root_iter = match self
@@ -381,25 +461,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "requested_slot" => slot,
                     "oldest_known_slot" => oldest_block_slot
                 );
-                return self.send_error_response(
-                    peer_id,
-                    RPCResponseErrorCode::ResourceUnavailable,
-                    "Backfilling".into(),
-                    request_id,
-                );
+                return Err((RPCResponseErrorCode::ResourceUnavailable, "Backfilling"));
             }
             Err(e) => {
-                self.send_error_response(
-                    peer_id,
-                    RPCResponseErrorCode::ServerError,
-                    "Database error".into(),
-                    request_id,
-                );
-                return error!(self.log, "Unable to obtain root iter";
+                error!(self.log, "Unable to obtain root iter";
                     "request" => ?req,
                     "peer" => %peer_id,
                     "error" => ?e
                 );
+                return Err((RPCResponseErrorCode::ServerError, "Database error"));
             }
         };
 
@@ -425,154 +495,129 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,
             Err(e) => {
-                return error!(self.log, "Error during iteration over blocks";
+                error!(self.log, "Error during iteration over blocks";
                     "request" => ?req,
                     "peer" => %peer_id,
                     "error" => ?e
-                )
+                );
+                return Err((RPCResponseErrorCode::ServerError, "Iteration error"));
             }
         };
 
         // remove all skip slots
         let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
 
-        let mut block_stream = match self.chain.get_blocks(block_roots, &executor) {
+        let current_slot = self
+            .chain
+            .slot()
+            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
+
+        let log_results = |req: BlocksByRangeRequest, peer_id, blocks_sent| {
+            if blocks_sent < (*req.count() as usize) {
+                debug!(
+                    self.log,
+                    "BlocksByRange outgoing response processed";
+                    "peer" => %peer_id,
+                    "msg" => "Failed to return all requested blocks",
+                    "start_slot" => req.start_slot(),
+                    "current_slot" => current_slot,
+                    "requested" => req.count(),
+                    "returned" => blocks_sent
+                );
+            } else {
+                debug!(
+                    self.log,
+                    "BlocksByRange outgoing response processed";
+                    "peer" => %peer_id,
+                    "start_slot" => req.start_slot(),
+                    "current_slot" => current_slot,
+                    "requested" => req.count(),
+                    "returned" => blocks_sent
+                );
+            }
+        };
+
+        let mut block_stream = match self.chain.get_blocks(block_roots) {
             Ok(block_stream) => block_stream,
-            Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
+            Err(e) => {
+                error!(self.log, "Error getting block stream"; "error" => ?e);
+                return Err((RPCResponseErrorCode::ServerError, "Iterator error"));
+            }
         };
 
         // Fetching blocks is async because it may have to hit the execution layer for payloads.
-        executor.spawn(
-            async move {
-                let mut blocks_sent = 0;
-                let mut send_response = true;
-
-                while let Some((root, result)) = block_stream.next().await {
-                    match result.as_ref() {
-                        Ok(Some(block)) => {
-                            // Due to skip slots, blocks could be out of the range, we ensure they
-                            // are in the range before sending
-                            if block.slot() >= *req.start_slot()
-                                && block.slot() < req.start_slot() + req.count()
-                            {
-                                blocks_sent += 1;
-                                self.send_network_message(NetworkMessage::SendResponse {
-                                    peer_id,
-                                    response: Response::BlocksByRange(Some(block.clone())),
-                                    id: request_id,
-                                });
-                            }
-                        }
-                        Ok(None) => {
-                            error!(
-                                self.log,
-                                "Block in the chain is not in the store";
-                                "request" => ?req,
-                                "peer" => %peer_id,
-                                "request_root" => ?root
-                            );
-                            self.send_error_response(
-                                peer_id,
-                                RPCResponseErrorCode::ServerError,
-                                "Database inconsistency".into(),
-                                request_id,
-                            );
-                            send_response = false;
-                            break;
-                        }
-                        Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
-                            debug!(
-                                self.log,
-                                "Failed to fetch execution payload for blocks by range request";
-                                "block_root" => ?root,
-                                "reason" => "execution layer not synced",
-                            );
-                            // send the stream terminator
-                            self.send_error_response(
-                                peer_id,
-                                RPCResponseErrorCode::ResourceUnavailable,
-                                "Execution layer not synced".into(),
-                                request_id,
-                            );
-                            send_response = false;
-                            break;
-                        }
-                        Err(e) => {
-                            if matches!(
-                                e,
-                                BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
-                                if matches!(**boxed_error, execution_layer::Error::EngineError(_))
-                            ) {
-                                warn!(
-                                    self.log,
-                                    "Error rebuilding payload for peer";
-                                    "info" => "this may occur occasionally when the EE is busy",
-                                    "block_root" => ?root,
-                                    "error" => ?e,
-                                );
-                            } else {
-                                error!(
-                                    self.log,
-                                    "Error fetching block for peer";
-                                    "block_root" => ?root,
-                                    "error" => ?e
-                                );
-                            }
-
-                            // send the stream terminator
-                            self.send_error_response(
-                                peer_id,
-                                RPCResponseErrorCode::ServerError,
-                                "Failed fetching blocks".into(),
-                                request_id,
-                            );
-                            send_response = false;
-                            break;
-                        }
+        let mut blocks_sent = 0;
+        while let Some((root, result)) = block_stream.next().await {
+            match result.as_ref() {
+                Ok(Some(block)) => {
+                    // Due to skip slots, blocks could be out of the range, we ensure they
+                    // are in the range before sending
+                    if block.slot() >= *req.start_slot()
+                        && block.slot() < req.start_slot() + req.count()
+                    {
+                        blocks_sent += 1;
+                        self.send_network_message(NetworkMessage::SendResponse {
+                            peer_id,
+                            response: Response::BlocksByRange(Some(block.clone())),
+                            id: request_id,
+                        });
                     }
                 }
-
-                let current_slot = self
-                    .chain
-                    .slot()
-                    .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
-
-                if blocks_sent < (*req.count() as usize) {
-                    debug!(
+                Ok(None) => {
+                    error!(
                         self.log,
-                        "BlocksByRange outgoing response processed";
+                        "Block in the chain is not in the store";
+                        "request" => ?req,
                         "peer" => %peer_id,
-                        "msg" => "Failed to return all requested blocks",
-                        "start_slot" => req.start_slot(),
-                        "current_slot" => current_slot,
-                        "requested" => req.count(),
-                        "returned" => blocks_sent
+                        "request_root" => ?root
                     );
-                } else {
-                    debug!(
-                        self.log,
-                        "BlocksByRange outgoing response processed";
-                        "peer" => %peer_id,
-                        "start_slot" => req.start_slot(),
-                        "current_slot" => current_slot,
-                        "requested" => req.count(),
-                        "returned" => blocks_sent
-                    );
+                    log_results(req, peer_id, blocks_sent);
+                    return Err((RPCResponseErrorCode::ServerError, "Database inconsistency"));
                 }
-
-                if send_response {
+                Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                    debug!(
+                        self.log,
+                        "Failed to fetch execution payload for blocks by range request";
+                        "block_root" => ?root,
+                        "reason" => "execution layer not synced",
+                    );
+                    log_results(req, peer_id, blocks_sent);
                     // send the stream terminator
-                    self.send_network_message(NetworkMessage::SendResponse {
-                        peer_id,
-                        response: Response::BlocksByRange(None),
-                        id: request_id,
-                    });
+                    return Err((
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Execution layer not synced",
+                    ));
                 }
+                Err(e) => {
+                    if matches!(
+                        e,
+                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
+                        if matches!(**boxed_error, execution_layer::Error::EngineError(_))
+                    ) {
+                        warn!(
+                            self.log,
+                            "Error rebuilding payload for peer";
+                            "info" => "this may occur occasionally when the EE is busy",
+                            "block_root" => ?root,
+                            "error" => ?e,
+                        );
+                    } else {
+                        error!(
+                            self.log,
+                            "Error fetching block for peer";
+                            "block_root" => ?root,
+                            "error" => ?e
+                        );
+                    }
+                    log_results(req, peer_id, blocks_sent);
+                    // send the stream terminator
+                    return Err((RPCResponseErrorCode::ServerError, "Failed fetching blocks"));
+                }
+            }
+        }
 
-                drop(send_on_drop);
-            },
-            "load_blocks_by_range_blocks",
-        );
+        log_results(req, peer_id, blocks_sent);
+        Ok(())
     }
 
     /// Handle a `BlobsByRange` request from the peer.
@@ -582,6 +627,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: PeerRequestId,
         req: BlobsByRangeRequest,
     ) {
+        self.terminate_response_stream(
+            peer_id,
+            request_id,
+            self.handle_blobs_by_range_request_inner(peer_id, request_id, req),
+            Response::BlobsByRange,
+        );
+    }
+
+    /// Handle a `BlobsByRange` request from the peer.
+    fn handle_blobs_by_range_request_inner(
+        &self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        req: BlobsByRangeRequest,
+    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
         debug!(self.log, "Received BlobsByRange Request";
             "peer_id" => %peer_id,
             "count" => req.count,
@@ -590,12 +650,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Should not send more than max request blocks
         if req.max_blobs_requested::<T::EthSpec>() > self.chain.spec.max_request_blob_sidecars {
-            return self.send_error_response(
-                peer_id,
+            return Err((
                 RPCResponseErrorCode::InvalidRequest,
-                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`".into(),
-                request_id,
-            );
+                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
+            ));
         }
 
         let request_start_slot = Slot::from(req.start_slot);
@@ -604,13 +662,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
             None => {
                 debug!(self.log, "Deneb fork is disabled");
-                self.send_error_response(
-                    peer_id,
+                return Err((
                     RPCResponseErrorCode::InvalidRequest,
-                    "Deneb fork is disabled".into(),
-                    request_id,
-                );
-                return;
+                    "Deneb fork is disabled",
+                ));
             }
         };
 
@@ -630,19 +685,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
 
             return if data_availability_boundary_slot < oldest_blob_slot {
-                self.send_error_response(
-                    peer_id,
+                Err((
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "blobs pruned within boundary".into(),
-                    request_id,
-                )
+                    "blobs pruned within boundary",
+                ))
             } else {
-                self.send_error_response(
-                    peer_id,
+                Err((
                     RPCResponseErrorCode::InvalidRequest,
-                    "Req outside availability period".into(),
-                    request_id,
-                )
+                    "Req outside availability period",
+                ))
             };
         }
 
@@ -659,25 +710,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "requested_slot" => slot,
                         "oldest_known_slot" => oldest_block_slot
                     );
-                    return self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        "Backfilling".into(),
-                        request_id,
-                    );
+                    return Err((RPCResponseErrorCode::ResourceUnavailable, "Backfilling"));
                 }
                 Err(e) => {
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ServerError,
-                        "Database error".into(),
-                        request_id,
-                    );
-                    return error!(self.log, "Unable to obtain root iter";
+                    error!(self.log, "Unable to obtain root iter";
                         "request" => ?req,
                         "peer" => %peer_id,
                         "error" => ?e
                     );
+                    return Err((RPCResponseErrorCode::ServerError, "Database error"));
                 }
             };
 
@@ -709,19 +750,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,
             Err(e) => {
-                return error!(self.log, "Error during iteration over blocks";
+                error!(self.log, "Error during iteration over blocks";
                     "request" => ?req,
                     "peer" => %peer_id,
                     "error" => ?e
-                )
+                );
+                return Err((RPCResponseErrorCode::ServerError, "Database error"));
             }
+        };
+
+        let current_slot = self
+            .chain
+            .slot()
+            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
+
+        let log_results = |peer_id, req: BlobsByRangeRequest, blobs_sent| {
+            debug!(
+                self.log,
+                "BlobsByRange outgoing response processed";
+                "peer" => %peer_id,
+                "start_slot" => req.start_slot,
+                "current_slot" => current_slot,
+                "requested" => req.count,
+                "returned" => blobs_sent
+            );
         };
 
         // remove all skip slots
         let block_roots = block_roots.into_iter().flatten();
-
         let mut blobs_sent = 0;
-        let mut send_response = true;
 
         for root in block_roots {
             match self.chain.get_blobs(&root) {
@@ -744,40 +801,64 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "block_root" => ?root,
                         "error" => ?e
                     );
-                    self.send_error_response(
-                        peer_id,
+                    log_results(peer_id, req, blobs_sent);
+
+                    return Err((
                         RPCResponseErrorCode::ServerError,
-                        "No blobs and failed fetching corresponding block".into(),
-                        request_id,
-                    );
-                    send_response = false;
-                    break;
+                        "No blobs and failed fetching corresponding block",
+                    ));
                 }
             }
         }
+        log_results(peer_id, req, blobs_sent);
 
-        let current_slot = self
-            .chain
-            .slot()
-            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
+        Ok(())
+    }
 
-        debug!(
-            self.log,
-            "BlobsByRange Response processed";
-            "peer" => %peer_id,
-            "start_slot" => req.start_slot,
-            "current_slot" => current_slot,
-            "requested" => req.count,
-            "returned" => blobs_sent
-        );
+    /// Helper function to ensure single item protocol always end with either a single chunk or an
+    /// error
+    fn terminate_response_single_item<R, F: Fn(R) -> Response<T::EthSpec>>(
+        &self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        result: Result<R, (RPCResponseErrorCode, &'static str)>,
+        into_response: F,
+    ) {
+        match result {
+            Ok(resp) => {
+                // Not necessary to explicitly send a termination message if this InboundRequest
+                // returns <= 1 for InboundRequest::expected_responses
+                // https://github.com/sigp/lighthouse/blob/3058b96f2560f1da04ada4f9d8ba8e5651794ff6/beacon_node/lighthouse_network/src/rpc/handler.rs#L555-L558
+                self.send_network_message(NetworkMessage::SendResponse {
+                    peer_id,
+                    response: into_response(resp),
+                    id: request_id,
+                });
+            }
+            Err((error_code, reason)) => {
+                self.send_error_response(peer_id, error_code, reason.into(), request_id);
+            }
+        }
+    }
 
-        if send_response {
-            // send the stream terminator
-            self.send_network_message(NetworkMessage::SendResponse {
+    /// Helper function to ensure streamed protocols with multiple responses always end with either
+    /// a stream termination or an error
+    fn terminate_response_stream<R, F: FnOnce(Option<R>) -> Response<T::EthSpec>>(
+        &self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        result: Result<(), (RPCResponseErrorCode, &'static str)>,
+        into_response: F,
+    ) {
+        match result {
+            Ok(_) => self.send_network_message(NetworkMessage::SendResponse {
                 peer_id,
-                response: Response::BlobsByRange(None),
+                response: into_response(None),
                 id: request_id,
-            });
+            }),
+            Err((error_code, reason)) => {
+                self.send_error_response(peer_id, error_code, reason.into(), request_id);
+            }
         }
     }
 }

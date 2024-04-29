@@ -24,3 +24,6 @@ lighthouse_metrics = { workspace = true }
 parking_lot = { workspace = true }
 num_cpus = { workspace = true }
 serde = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

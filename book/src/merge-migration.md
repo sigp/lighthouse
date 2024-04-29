@@ -25,14 +25,14 @@ All networks (**Mainnet**, **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln
 
 <div align="center">
 
-| Network           | Bellatrix     | The Merge | Remark |
-|-------------------|--------------------------------------------|----|----|
-| Ropsten      | 2<sup>nd</sup> June 2022    | 8<sup>th</sup> June 2022  | Deprecated
-| Sepolia            |   20<sup>th</sup> June 2022   | 6<sup>th</sup> July 2022 | |
-| Goerli | 4<sup>th</sup> August 2022 | 10<sup>th</sup> August 2022 | Previously named `Prater`|
-| Mainnet | 6<sup>th</sup> September 2022  |  15<sup>th</sup> September 2022 |
-| Chiado | 10<sup>th</sup> October 2022 | 4<sup>th</sup> November 2022 |
-| Gnosis| 30<sup>th</sup> November 2022 | 8<sup>th</sup> December 2022
+| Network | Bellatrix                     | The Merge                     | Remark     |
+|---------|-------------------------------|-------------------------------| -----------|
+| Ropsten | 2<sup>nd</sup> June 2022      | 8<sup>th</sup> June 2022      | Deprecated |   
+| Sepolia  | 20<sup>th</sup> June 2022    | 6<sup>th</sup> July 2022      |            |
+| Goerli   | 4<sup>th</sup> August 2022   | 10<sup>th</sup> August 2022   | Previously named `Prater`|
+| Mainnet  | 6<sup>th</sup> September 2022| 15<sup>th</sup> September 2022|            |
+| Chiado   | 10<sup>th</sup> October 2022 | 4<sup>th</sup> November 2022  |            |
+| Gnosis   | 30<sup>th</sup> November 2022| 8<sup>th</sup> December 2022  |            |
 
 </div>
 
@@ -207,6 +207,6 @@ guidance for specific setups.
 
 - [Ethereum.org: The Merge](https://ethereum.org/en/upgrades/merge/)
 - [Ethereum Staking Launchpad: Merge Readiness](https://launchpad.ethereum.org/en/merge-readiness).
-- [CoinCashew: Ethereum Merge Upgrade Checklist](https://www.coincashew.com/coins/overview-eth/ethereum-merge-upgrade-checklist-for-home-stakers-and-validators)
+- [CoinCashew: Ethereum Merge Upgrade Checklist](https://www.coincashew.com/coins/overview-eth/archived-guides/ethereum-merge-upgrade-checklist-for-home-stakers-and-validators)
 - [EthDocker: Merge Preparation](https://eth-docker.net/About/MergePrep/)
 - [Remy Roy: How to join the Goerli/Prater merge testnet](https://github.com/remyroy/ethstaker/blob/main/merge-goerli-prater.md)

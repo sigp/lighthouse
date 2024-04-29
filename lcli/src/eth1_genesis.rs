@@ -12,8 +12,8 @@ use types::EthSpec;
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
 
-pub fn run<T: EthSpec>(
-    env: Environment<T>,
+pub fn run<E: EthSpec>(
+    env: Environment<E>,
     testnet_dir: PathBuf,
     matches: &ArgMatches<'_>,
 ) -> Result<(), String> {
@@ -27,7 +27,7 @@ pub fn run<T: EthSpec>(
 
     let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
-    let spec = eth2_network_config.chain_spec::<T>()?;
+    let spec = eth2_network_config.chain_spec::<E>()?;
 
     let mut config = Eth1Config::default();
     if let Some(v) = endpoints.clone() {
@@ -46,7 +46,7 @@ pub fn run<T: EthSpec>(
 
     env.runtime().block_on(async {
         let _ = genesis_service
-            .wait_for_genesis_state::<T>(ETH1_GENESIS_UPDATE_INTERVAL, spec)
+            .wait_for_genesis_state::<E>(ETH1_GENESIS_UPDATE_INTERVAL, spec)
             .await
             .map(move |genesis_state| {
                 eth2_network_config.genesis_state_bytes = Some(genesis_state.as_ssz_bytes().into());

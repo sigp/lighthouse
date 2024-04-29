@@ -1,11 +1,10 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::cases::common::SszStaticType;
 use crate::decode::{snappy_decode_file, yaml_decode_file};
 use serde::Deserialize;
 use ssz::Decode;
 use tree_hash::TreeHash;
-use types::{BeaconBlock, BeaconState, ForkName, Hash256, SignedBeaconBlock};
+use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SszStaticRoots {
@@ -119,7 +118,6 @@ impl<E: EthSpec> Case for SszStaticTHC<BeaconState<E>> {
         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
 
         let mut state = self.value.clone();
-        state.initialize_tree_hash_cache();
         let cached_tree_hash_root = state.update_tree_hash_cache().unwrap();
         check_tree_hash(&self.roots.root, cached_tree_hash_root.as_bytes())?;
 

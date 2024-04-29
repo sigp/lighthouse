@@ -78,7 +78,7 @@ To view the beacon, validator client and geth logs:
 
 ```bash
 tail -f ~/.lighthouse/local-testnet/testnet/beacon_node_1.log
-taif -f ~/.lighthouse/local-testnet/testnet/validator_node_1.log
+tail -f ~/.lighthouse/local-testnet/testnet/validator_node_1.log
 tail -f ~/.lighthouse/local-testnet/testnet/geth_1.log
 ```
 
@@ -193,3 +193,9 @@ Update the genesis time to now using:
     ./start_local_testnet.sh -p genesis.json
     ```
 4. Block production using builder flow will start at epoch 4.
+
+### Testing sending a transaction
+
+Some addresses in the local testnet are seeded with testnet ETH, allowing users to carry out transactions. To send a transaction, we first add the address to a wallet, such as [Metamask](https://metamask.io/). The private keys for the addresses are listed [here](https://github.com/sigp/lighthouse/blob/441fc1691b69f9edc4bbdc6665f3efab16265c9b/testing/execution_engine_integration/src/execution_engine.rs#L13-L14).
+
+Next, we add the local testnet to Metamask, a brief guide can be found [here](https://support.metamask.io/hc/en-us/articles/360043227612-How-to-add-a-custom-network-RPC). If you start the local testnet with default settings, the network RPC is: http://localhost:6001 and the `Chain ID` is `4242`, as defined in [`vars.env`](https://github.com/sigp/lighthouse/blob/441fc1691b69f9edc4bbdc6665f3efab16265c9b/scripts/local_testnet/vars.env#L42). Once the network and account are added, you should see that the account contains testnet ETH which allow us to carry out transactions. 

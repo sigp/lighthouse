@@ -161,7 +161,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let Some(slot_duties) = self
             .duties_service
             .sync_duties
-            .get_duties_for_slot::<E>(slot, &self.duties_service.spec)
+            .get_duties_for_slot(slot, &self.duties_service.spec)
         else {
             debug!(log, "No duties known for slot {}", slot);
             return Ok(());
@@ -548,7 +548,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             match self
                 .duties_service
                 .sync_duties
-                .get_duties_for_slot::<E>(duty_slot, spec)
+                .get_duties_for_slot(duty_slot, spec)
             {
                 Some(duties) => subscriptions.extend(subscriptions_from_sync_duties(
                     duties.duties,

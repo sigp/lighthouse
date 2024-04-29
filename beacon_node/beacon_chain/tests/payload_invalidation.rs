@@ -223,7 +223,7 @@ impl InvalidPayloadRig {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
 
         let head = self.harness.chain.head_snapshot();
-        let state = head.beacon_state.clone_with_only_committee_caches();
+        let state = head.beacon_state.clone();
         let slot = slot_override.unwrap_or(state.slot() + 1);
         let ((block, blobs), post_state) = self.harness.make_block(state, slot).await;
         let block_root = block.canonical_root();
@@ -319,7 +319,7 @@ impl InvalidPayloadRig {
                         .get_full_block(&block_root)
                         .unwrap()
                         .unwrap(),
-                    block,
+                    *block,
                     "block from db must match block imported"
                 );
             }
@@ -700,7 +700,7 @@ async fn invalidates_all_descendants() {
         .chain
         .process_block(
             fork_block.canonical_root(),
-            Arc::new(fork_block),
+            fork_block,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -800,7 +800,7 @@ async fn switches_heads() {
         .chain
         .process_block(
             fork_block.canonical_root(),
-            Arc::new(fork_block),
+            fork_block,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -1044,8 +1044,7 @@ async fn invalid_parent() {
     // Produce another block atop the parent, but don't import yet.
     let slot = parent_block.slot() + 1;
     rig.harness.set_current_slot(slot);
-    let (block_tuple, state) = rig.harness.make_block(parent_state, slot).await;
-    let block = Arc::new(block_tuple.0);
+    let ((block, _), state) = rig.harness.make_block(parent_state, slot).await;
     let block_root = block.canonical_root();
     assert_eq!(block.parent_root(), parent_root);
 
@@ -1078,9 +1077,7 @@ async fn invalid_parent() {
             Duration::from_secs(0),
             &state,
             PayloadVerificationStatus::Optimistic,
-            rig.harness.chain.config.progressive_balances_mode,
             &rig.harness.chain.spec,
-            rig.harness.logger()
         ),
         Err(ForkChoiceError::ProtoArrayStringError(message))
         if message.contains(&format!(
@@ -1821,81 +1818,94 @@ struct InvalidHeadSetup {
 }
 
 impl InvalidHeadSetup {
+    /// This function aims to produce two things:
+    ///
+    /// 1. A chain where the only viable head block has an invalid execution payload.
+    /// 2. A block (`fork_block`) which will become the head of the chain when
+    ///     it is imported.
     async fn new() -> InvalidHeadSetup {
+        let slots_per_epoch = E::slots_per_epoch();
         let mut rig = InvalidPayloadRig::new().enable_attestations();
         rig.move_to_terminal_block();
         rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
-        // Import blocks until the first time the chain finalizes.
+        // Import blocks until the first time the chain finalizes. This avoids
+        // some edge-cases around genesis.
         while rig.cached_head().finalized_checkpoint().epoch == 0 {
             rig.import_block(Payload::Syncing).await;
         }
 
-        let slots_per_epoch = E::slots_per_epoch();
-        let start_slot = rig.cached_head().head_slot() + 1;
-        let mut opt_fork_block = None;
+        // Define a helper function.
+        let chain = rig.harness.chain.clone();
+        let get_unrealized_justified_epoch = move || {
+            chain
+                .canonical_head
+                .fork_choice_read_lock()
+                .unrealized_justified_checkpoint()
+                .epoch
+        };
 
-        assert_eq!(start_slot % slots_per_epoch, 1);
-        for i in 0..slots_per_epoch - 1 {
-            let slot = start_slot + i;
-            let slot_offset = slot.as_u64() % slots_per_epoch;
-
-            rig.harness.set_current_slot(slot);
-
-            if slot_offset == slots_per_epoch - 1 {
-                // Optimistic head block right before epoch boundary.
-                let is_valid = Payload::Syncing;
-                rig.import_block_parametric(is_valid, is_valid, Some(slot), |error| {
-                    matches!(
-                        error,
-                        BlockError::ExecutionPayloadError(
-                            ExecutionPayloadError::RejectedByExecutionEngine { .. }
-                        )
-                    )
-                })
-                .await;
-            } else if 3 * slot_offset < 2 * slots_per_epoch {
-                // Valid block in previous epoch.
-                rig.import_block(Payload::Valid).await;
-            } else if slot_offset == slots_per_epoch - 2 {
-                // Fork block one slot prior to invalid head, not applied immediately.
-                let parent_state = rig
-                    .harness
-                    .chain
-                    .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-                    .unwrap();
-                let (fork_block_tuple, _) = rig.harness.make_block(parent_state, slot).await;
-                opt_fork_block = Some(Arc::new(fork_block_tuple.0));
-            } else {
-                // Skipped slot.
-            };
+        // Import more blocks until there is a new and higher unrealized
+        // justified checkpoint.
+        //
+        // The result will be a single chain where the head block has a higher
+        // unrealized justified checkpoint than all other blocks in the chain.
+        let initial_unrealized_justified = get_unrealized_justified_epoch();
+        while get_unrealized_justified_epoch() == initial_unrealized_justified {
+            rig.import_block(Payload::Syncing).await;
         }
 
-        let invalid_head = rig.cached_head();
-        assert_eq!(
-            invalid_head.head_slot() % slots_per_epoch,
-            slots_per_epoch - 1
-        );
+        // Create a forked block that competes with the head block. Both the
+        // head block and this fork block will share the same parent.
+        //
+        // The fork block and head block will both have an unrealized justified
+        // checkpoint at epoch `N` whilst their parent is at `N - 1`.
+        let head_slot = rig.cached_head().head_slot();
+        let parent_slot = head_slot - 1;
+        let fork_block_slot = head_slot + 1;
+        let parent_state = rig
+            .harness
+            .chain
+            .state_at_slot(parent_slot, StateSkipConfig::WithStateRoots)
+            .unwrap();
+        let (fork_block_tuple, _) = rig.harness.make_block(parent_state, fork_block_slot).await;
+        let fork_block = fork_block_tuple.0;
 
-        // Advance clock to new epoch to realize the justification of soon-to-be-invalid head block.
-        rig.harness.set_current_slot(invalid_head.head_slot() + 1);
+        let invalid_head = rig.cached_head();
+
+        // Advance the chain forward two epochs past the current head block.
+        //
+        // This ensures that `voting_source.epoch + 2 >= current_epoch` is
+        // `false` in the `node_is_viable_for_head` function. In effect, this
+        // ensures that no other block but the current head block is viable as a
+        // head block.
+        let invalid_head_epoch = invalid_head.head_slot().epoch(slots_per_epoch);
+        let new_wall_clock_epoch = invalid_head_epoch + 2;
+        rig.harness
+            .set_current_slot(new_wall_clock_epoch.start_slot(slots_per_epoch));
 
         // Invalidate the head block.
         rig.invalidate_manually(invalid_head.head_block_root())
             .await;
 
+        // Since our setup ensures that there is only a single, invalid block
+        // that's viable for head (according to FFG filtering), setting the
+        // head block as invalid should not result in another head being chosen.
+        // Rather, it should fail to run fork choice and leave the invalid block as
+        // the head.
         assert!(rig
             .canonical_head()
             .head_execution_status()
             .unwrap()
             .is_invalid());
 
-        // Finding a new head should fail since the only possible head is not valid.
+        // Ensure that we're getting the correct error when trying to find a new
+        // head.
         rig.assert_get_head_error_contains("InvalidBestNode");
 
         Self {
             rig,
-            fork_block: opt_fork_block.unwrap(),
+            fork_block,
             invalid_head,
         }
     }
@@ -2038,7 +2048,7 @@ async fn weights_after_resetting_optimistic_status() {
             .fork_choice_read_lock()
             .get_block_weight(&head.head_block_root())
             .unwrap(),
-        head.snapshot.beacon_state.validators()[0].effective_balance,
+        head.snapshot.beacon_state.validators().get(0).unwrap().effective_balance,
         "proposer boost should be removed from the head block and the vote of a single validator applied"
     );
 

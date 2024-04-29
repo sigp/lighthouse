@@ -1,8 +1,9 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
+use crate::blob_sidecar::BlobIdentifier;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
-use serde::Deserialize;
-use serde::{Deserializer, Serialize, Serializer};
+use safe_arith::{ArithError, SafeArith};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
 use std::fs::File;
@@ -24,6 +25,7 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
+    Consolidation,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -75,6 +77,7 @@ pub struct ChainSpec {
     pub genesis_fork_version: [u8; 4],
     pub bls_withdrawal_prefix_byte: u8,
     pub eth1_address_withdrawal_prefix_byte: u8,
+    pub compounding_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
@@ -107,12 +110,15 @@ pub struct ChainSpec {
     pub(crate) domain_voluntary_exit: u32,
     pub(crate) domain_selection_proof: u32,
     pub(crate) domain_aggregate_and_proof: u32,
+    pub(crate) domain_consolidation: u32,
 
     /*
      * Fork choice
      */
     pub safe_slots_to_update_justified: u64,
     pub proposer_score_boost: Option<u64>,
+    pub reorg_head_weight_threshold: Option<u64>,
+    pub reorg_parent_weight_threshold: Option<u64>,
 
     /*
      * Eth1
@@ -141,13 +147,13 @@ pub struct ChainSpec {
     pub altair_fork_epoch: Option<Epoch>,
 
     /*
-     * Merge hard fork params
+     * Bellatrix hard fork params
      */
     pub inactivity_penalty_quotient_bellatrix: u64,
     pub min_slashing_penalty_quotient_bellatrix: u64,
     pub proportional_slashing_multiplier_bellatrix: u64,
     pub bellatrix_fork_version: [u8; 4],
-    /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
+    /// The Bellatrix fork epoch is optional, with `None` representing "Bellatrix never happens".
     pub bellatrix_fork_epoch: Option<Epoch>,
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: ExecutionBlockHash,
@@ -167,6 +173,22 @@ pub struct ChainSpec {
      */
     pub deneb_fork_version: [u8; 4],
     pub deneb_fork_epoch: Option<Epoch>,
+
+    /*
+     * Electra hard fork params
+     */
+    pub electra_fork_version: [u8; 4],
+    /// The Electra fork epoch is optional, with `None` representing "Electra never happens".
+    pub electra_fork_epoch: Option<Epoch>,
+    pub unset_deposit_receipts_start_index: u64,
+    pub full_exit_request_amount: u64,
+    pub min_activation_balance: u64,
+    pub max_effective_balance_electra: u64,
+    pub min_slashing_penalty_quotient_electra: u64,
+    pub whistleblower_reward_quotient_electra: u64,
+    pub max_pending_partials_per_withdrawals_sweep: u64,
+    pub min_per_epoch_churn_limit_electra: u64,
+    pub max_per_epoch_activation_exit_churn_limit: u64,
 
     /*
      * Networking
@@ -189,6 +211,7 @@ pub struct ChainSpec {
     pub attestation_subnet_count: u64,
     pub attestation_subnet_extra_bits: u8,
     pub attestation_subnet_prefix_bits: u8,
+    pub attestation_subnet_shuffling_prefix_bits: u8,
 
     /*
      * Networking Deneb
@@ -220,22 +243,22 @@ pub struct ChainSpec {
 
 impl ChainSpec {
     /// Construct a `ChainSpec` from a standard config.
-    pub fn from_config<T: EthSpec>(config: &Config) -> Option<Self> {
-        let spec = T::default_spec();
-        config.apply_to_chain_spec::<T>(&spec)
+    pub fn from_config<E: EthSpec>(config: &Config) -> Option<Self> {
+        let spec = E::default_spec();
+        config.apply_to_chain_spec::<E>(&spec)
     }
 
     /// Returns an `EnrForkId` for the given `slot`.
-    pub fn enr_fork_id<T: EthSpec>(
+    pub fn enr_fork_id<E: EthSpec>(
         &self,
         slot: Slot,
         genesis_validators_root: Hash256,
     ) -> EnrForkId {
         EnrForkId {
-            fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
-            next_fork_version: self.next_fork_version::<T>(slot),
+            fork_digest: self.fork_digest::<E>(slot, genesis_validators_root),
+            next_fork_version: self.next_fork_version::<E>(slot),
             next_fork_epoch: self
-                .next_fork_epoch::<T>(slot)
+                .next_fork_epoch::<E>(slot)
                 .map(|(_, e)| e)
                 .unwrap_or(self.far_future_epoch),
         }
@@ -245,8 +268,8 @@ impl ChainSpec {
     ///
     /// If `self.altair_fork_epoch == None`, then this function returns the genesis fork digest
     /// otherwise, returns the fork digest based on the slot.
-    pub fn fork_digest<T: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
-        let fork_name = self.fork_name_at_slot::<T>(slot);
+    pub fn fork_digest<E: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
+        let fork_name = self.fork_name_at_slot::<E>(slot);
         Self::compute_fork_digest(
             self.fork_version_for_name(fork_name),
             genesis_validators_root,
@@ -266,8 +289,8 @@ impl ChainSpec {
     /// Returns the epoch of the next scheduled fork along with its corresponding `ForkName`.
     ///
     /// If no future forks are scheduled, this function returns `None`.
-    pub fn next_fork_epoch<T: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
-        let current_fork_name = self.fork_name_at_slot::<T>(slot);
+    pub fn next_fork_epoch<E: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
+        let current_fork_name = self.fork_name_at_slot::<E>(slot);
         let next_fork_name = current_fork_name.next_fork()?;
         let fork_epoch = self.fork_epoch(next_fork_name)?;
         Some((next_fork_name, fork_epoch))
@@ -280,15 +303,18 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.deneb_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-            _ => match self.capella_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                _ => match self.bellatrix_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-                    _ => match self.altair_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                        _ => ForkName::Base,
+        match self.electra_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
+            _ => match self.deneb_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
+                _ => match self.capella_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+                    _ => match self.bellatrix_fork_epoch {
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
+                        _ => match self.altair_fork_epoch {
+                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                            _ => ForkName::Base,
+                        },
                     },
                 },
             },
@@ -300,9 +326,10 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
-            ForkName::Merge => self.bellatrix_fork_version,
+            ForkName::Bellatrix => self.bellatrix_fork_version,
             ForkName::Capella => self.capella_fork_version,
             ForkName::Deneb => self.deneb_fork_version,
+            ForkName::Electra => self.electra_fork_version,
         }
     }
 
@@ -311,48 +338,52 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
-            ForkName::Merge => self.bellatrix_fork_epoch,
+            ForkName::Bellatrix => self.bellatrix_fork_epoch,
             ForkName::Capella => self.capella_fork_epoch,
             ForkName::Deneb => self.deneb_fork_epoch,
+            ForkName::Electra => self.electra_fork_epoch,
         }
     }
 
-    /// For a given `BeaconState`, return the inactivity penalty quotient associated with its variant.
-    pub fn inactivity_penalty_quotient_for_state<T: EthSpec>(&self, state: &BeaconState<T>) -> u64 {
-        match state {
-            BeaconState::Base(_) => self.inactivity_penalty_quotient,
-            BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Deneb(_) => self.inactivity_penalty_quotient_bellatrix,
+    pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
+        if fork_name >= ForkName::Bellatrix {
+            self.inactivity_penalty_quotient_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            self.inactivity_penalty_quotient_altair
+        } else {
+            self.inactivity_penalty_quotient
         }
     }
 
     /// For a given `BeaconState`, return the proportional slashing multiplier associated with its variant.
-    pub fn proportional_slashing_multiplier_for_state<T: EthSpec>(
+    pub fn proportional_slashing_multiplier_for_state<E: EthSpec>(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
     ) -> u64 {
-        match state {
-            BeaconState::Base(_) => self.proportional_slashing_multiplier,
-            BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
-            BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Deneb(_) => self.proportional_slashing_multiplier_bellatrix,
+        let fork_name = state.fork_name_unchecked();
+        if fork_name >= ForkName::Bellatrix {
+            self.proportional_slashing_multiplier_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            self.proportional_slashing_multiplier_altair
+        } else {
+            self.proportional_slashing_multiplier
         }
     }
 
     /// For a given `BeaconState`, return the minimum slashing penalty quotient associated with its variant.
-    pub fn min_slashing_penalty_quotient_for_state<T: EthSpec>(
+    pub fn min_slashing_penalty_quotient_for_state<E: EthSpec>(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
     ) -> u64 {
-        match state {
-            BeaconState::Base(_) => self.min_slashing_penalty_quotient,
-            BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Deneb(_) => self.min_slashing_penalty_quotient_bellatrix,
+        let fork_name = state.fork_name_unchecked();
+        if fork_name >= ForkName::Electra {
+            self.min_slashing_penalty_quotient_electra
+        } else if fork_name >= ForkName::Bellatrix {
+            self.min_slashing_penalty_quotient_bellatrix
+        } else if fork_name >= ForkName::Altair {
+            self.min_slashing_penalty_quotient_altair
+        } else {
+            self.min_slashing_penalty_quotient
         }
     }
 
@@ -401,6 +432,7 @@ impl ChainSpec {
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
             Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
             Domain::BlsToExecutionChange => self.domain_bls_to_execution_change,
+            Domain::Consolidation => self.domain_consolidation,
         }
     }
 
@@ -494,6 +526,13 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
+    /// Compute the epoch used for activations prior to Deneb, and for exits under all forks.
+    ///
+    /// Spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#compute_activation_exit_epoch
+    pub fn compute_activation_exit_epoch(&self, epoch: Epoch) -> Result<Epoch, ArithError> {
+        epoch.safe_add(1)?.safe_add(self.max_seed_lookahead)
+    }
+
     pub fn maximum_gossip_clock_disparity(&self) -> Duration {
         Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
     }
@@ -507,22 +546,19 @@ impl ChainSpec {
     }
 
     pub fn max_blocks_by_root_request(&self, fork_name: ForkName) -> usize {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                self.max_blocks_by_root_request
-            }
-            ForkName::Deneb => self.max_blocks_by_root_request_deneb,
+        if fork_name >= ForkName::Deneb {
+            self.max_blocks_by_root_request_deneb
+        } else {
+            self.max_blocks_by_root_request
         }
     }
 
     pub fn max_request_blocks(&self, fork_name: ForkName) -> usize {
-        let max_request_blocks = match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                self.max_request_blocks
-            }
-            ForkName::Deneb => self.max_request_blocks_deneb,
-        };
-        max_request_blocks as usize
+        if fork_name >= ForkName::Deneb {
+            self.max_request_blocks_deneb as usize
+        } else {
+            self.max_request_blocks as usize
+        }
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -581,6 +617,7 @@ impl ChainSpec {
             genesis_fork_version: [0; 4],
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
+            compounding_withdrawal_prefix_byte: 0x02,
 
             /*
              * Time parameters
@@ -614,12 +651,15 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
+            domain_consolidation: 0x0B,
 
             /*
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
+            reorg_head_weight_threshold: Some(20),
+            reorg_parent_weight_threshold: Some(160),
 
             /*
              * Eth1
@@ -653,7 +693,7 @@ impl ChainSpec {
             altair_fork_epoch: Some(Epoch::new(74240)),
 
             /*
-             * Merge hard fork params
+             * Bellatrix hard fork params
              */
             inactivity_penalty_quotient_bellatrix: u64::checked_pow(2, 24)
                 .expect("pow does not overflow"),
@@ -679,7 +719,37 @@ impl ChainSpec {
              * Deneb hard fork params
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x00],
-            deneb_fork_epoch: None,
+            deneb_fork_epoch: Some(Epoch::new(269568)),
+
+            /*
+             * Electra hard fork params
+             */
+            electra_fork_version: [0x05, 00, 00, 00],
+            electra_fork_epoch: None,
+            unset_deposit_receipts_start_index: u64::MAX,
+            full_exit_request_amount: 0,
+            min_activation_balance: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_effective_balance_electra: option_wrapper(|| {
+                u64::checked_pow(2, 11)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            min_slashing_penalty_quotient_electra: u64::checked_pow(2, 12)
+                .expect("pow does not overflow"),
+            whistleblower_reward_quotient_electra: u64::checked_pow(2, 12)
+                .expect("pow does not overflow"),
+            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 3)
+                .expect("pow does not overflow"),
+            min_per_epoch_churn_limit_electra: option_wrapper(|| {
+                u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
+                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
 
             /*
              * Network specific
@@ -701,6 +771,8 @@ impl ChainSpec {
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            attestation_subnet_shuffling_prefix_bits:
+                default_attestation_subnet_shuffling_prefix_bits(),
             max_request_blocks: default_max_request_blocks(),
 
             /*
@@ -758,7 +830,7 @@ impl ChainSpec {
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
             altair_fork_epoch: None,
-            // Merge
+            // Bellatrix
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x01],
             bellatrix_fork_epoch: None,
             terminal_total_difficulty: Uint256::MAX
@@ -775,6 +847,11 @@ impl ChainSpec {
             // Deneb
             deneb_fork_version: [0x04, 0x00, 0x00, 0x01],
             deneb_fork_epoch: None,
+            // Electra
+            electra_fork_version: [0x05, 0x00, 0x00, 0x01],
+            electra_fork_epoch: None,
+            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 0)
+                .expect("pow does not overflow"),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -805,7 +882,7 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
-            max_per_epoch_activation_churn_limit: 8,
+            max_per_epoch_activation_churn_limit: 2,
             churn_limit_quotient: 4_096,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 4_096,
@@ -840,6 +917,7 @@ impl ChainSpec {
             genesis_fork_version: [0x00, 0x00, 0x00, 0x64],
             bls_withdrawal_prefix_byte: 0x00,
             eth1_address_withdrawal_prefix_byte: 0x01,
+            compounding_withdrawal_prefix_byte: 0x02,
 
             /*
              * Time parameters
@@ -873,12 +951,15 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
+            domain_consolidation: 0x0B,
 
             /*
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
+            reorg_head_weight_threshold: Some(20),
+            reorg_parent_weight_threshold: Some(160),
 
             /*
              * Eth1
@@ -912,7 +993,7 @@ impl ChainSpec {
             altair_fork_epoch: Some(Epoch::new(512)),
 
             /*
-             * Merge hard fork params
+             * Bellatrix hard fork params
              */
             inactivity_penalty_quotient_bellatrix: u64::checked_pow(2, 24)
                 .expect("pow does not overflow"),
@@ -940,7 +1021,37 @@ impl ChainSpec {
              * Deneb hard fork params
              */
             deneb_fork_version: [0x04, 0x00, 0x00, 0x64],
-            deneb_fork_epoch: None,
+            deneb_fork_epoch: Some(Epoch::new(889856)),
+
+            /*
+             * Electra hard fork params
+             */
+            electra_fork_version: [0x05, 0x00, 0x00, 0x64],
+            electra_fork_epoch: None,
+            unset_deposit_receipts_start_index: u64::MAX,
+            full_exit_request_amount: 0,
+            min_activation_balance: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_effective_balance_electra: option_wrapper(|| {
+                u64::checked_pow(2, 11)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            min_slashing_penalty_quotient_electra: u64::checked_pow(2, 12)
+                .expect("pow does not overflow"),
+            whistleblower_reward_quotient_electra: u64::checked_pow(2, 12)
+                .expect("pow does not overflow"),
+            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 3)
+                .expect("pow does not overflow"),
+            min_per_epoch_churn_limit_electra: option_wrapper(|| {
+                u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
+                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
 
             /*
              * Network specific
@@ -954,7 +1065,7 @@ impl ChainSpec {
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
-            min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
+            min_epochs_for_block_requests: 33024,
             max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
@@ -962,6 +1073,8 @@ impl ChainSpec {
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
             attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
+            attestation_subnet_shuffling_prefix_bits:
+                default_attestation_subnet_shuffling_prefix_bits(),
             max_request_blocks: default_max_request_blocks(),
 
             /*
@@ -969,7 +1082,7 @@ impl ChainSpec {
              */
             max_request_blocks_deneb: default_max_request_blocks_deneb(),
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
-            min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
 
             /*
@@ -1063,6 +1176,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub deneb_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_electra_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    electra_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub electra_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1139,6 +1260,9 @@ pub struct Config {
     #[serde(default = "default_attestation_subnet_prefix_bits")]
     #[serde(with = "serde_utils::quoted_u8")]
     attestation_subnet_prefix_bits: u8,
+    #[serde(default = "default_attestation_subnet_shuffling_prefix_bits")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    attestation_subnet_shuffling_prefix_bits: u8,
     #[serde(default = "default_max_request_blocks_deneb")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blocks_deneb: u64,
@@ -1151,6 +1275,13 @@ pub struct Config {
     #[serde(default = "default_blob_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
     blob_sidecar_subnet_count: u64,
+
+    #[serde(default = "default_min_per_epoch_churn_limit_electra")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_per_epoch_churn_limit_electra: u64,
+    #[serde(default = "default_max_per_epoch_activation_exit_churn_limit")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_per_epoch_activation_exit_churn_limit: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1164,6 +1295,11 @@ fn default_capella_fork_version() -> [u8; 4] {
 }
 
 fn default_deneb_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_electra_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -1236,6 +1372,10 @@ const fn default_attestation_subnet_prefix_bits() -> u8 {
     6
 }
 
+const fn default_attestation_subnet_shuffling_prefix_bits() -> u8 {
+    3
+}
+
 const fn default_max_request_blocks() -> u64 {
     1024
 }
@@ -1254,6 +1394,14 @@ const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
 
 const fn default_blob_sidecar_subnet_count() -> u64 {
     6
+}
+
+const fn default_min_per_epoch_churn_limit_electra() -> u64 {
+    128_000_000_000
+}
+
+const fn default_max_per_epoch_activation_exit_churn_limit() -> u64 {
+    256_000_000_000
 }
 
 const fn default_epochs_per_subnet_subscription() -> u64 {
@@ -1280,8 +1428,13 @@ fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
 
 fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     let max_request_blob_sidecars = max_request_blob_sidecars as usize;
-    RuntimeVariableList::<Hash256>::from_vec(
-        vec![Hash256::zero(); max_request_blob_sidecars],
+    let empty_blob_identifier = BlobIdentifier {
+        block_root: Hash256::zero(),
+        index: 0,
+    };
+
+    RuntimeVariableList::<BlobIdentifier>::from_vec(
+        vec![empty_blob_identifier; max_request_blob_sidecars],
         max_request_blob_sidecars,
     )
     .as_ssz_bytes()
@@ -1349,10 +1502,10 @@ impl Config {
         }
     }
 
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             config_name: spec.config_name.clone(),
-            preset_base: T::spec_name().to_string(),
+            preset_base: E::spec_name().to_string(),
 
             terminal_total_difficulty: spec.terminal_total_difficulty,
             terminal_block_hash: spec.terminal_block_hash,
@@ -1368,17 +1521,25 @@ impl Config {
             altair_fork_epoch: spec
                 .altair_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+
             bellatrix_fork_version: spec.bellatrix_fork_version,
             bellatrix_fork_epoch: spec
                 .bellatrix_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+
             capella_fork_version: spec.capella_fork_version,
             capella_fork_epoch: spec
                 .capella_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+
             deneb_fork_version: spec.deneb_fork_version,
             deneb_fork_epoch: spec
                 .deneb_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
+            electra_fork_version: spec.electra_fork_version,
+            electra_fork_epoch: spec
+                .electra_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
@@ -1414,10 +1575,15 @@ impl Config {
             message_domain_valid_snappy: spec.message_domain_valid_snappy,
             attestation_subnet_extra_bits: spec.attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
+            attestation_subnet_shuffling_prefix_bits: spec.attestation_subnet_shuffling_prefix_bits,
             max_request_blocks_deneb: spec.max_request_blocks_deneb,
             max_request_blob_sidecars: spec.max_request_blob_sidecars,
             min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
+
+            min_per_epoch_churn_limit_electra: spec.min_per_epoch_churn_limit_electra,
+            max_per_epoch_activation_exit_churn_limit: spec
+                .max_per_epoch_activation_exit_churn_limit,
         }
     }
 
@@ -1428,7 +1594,7 @@ impl Config {
             .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))
     }
 
-    pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
+    pub fn apply_to_chain_spec<E: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
         // Pattern match here to avoid missing any fields.
         let &Config {
             ref config_name,
@@ -1449,6 +1615,8 @@ impl Config {
             capella_fork_version,
             deneb_fork_epoch,
             deneb_fork_version,
+            electra_fork_epoch,
+            electra_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1474,6 +1642,7 @@ impl Config {
             message_domain_valid_snappy,
             attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
+            attestation_subnet_shuffling_prefix_bits,
             max_request_blocks,
             epochs_per_subnet_subscription,
             attestation_propagation_slot_range,
@@ -1482,9 +1651,11 @@ impl Config {
             max_request_blob_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
+            min_per_epoch_churn_limit_electra,
+            max_per_epoch_activation_exit_churn_limit,
         } = self;
 
-        if preset_base != T::spec_name().to_string().as_str() {
+        if preset_base != E::spec_name().to_string().as_str() {
             return None;
         }
 
@@ -1502,6 +1673,8 @@ impl Config {
             capella_fork_version,
             deneb_fork_epoch: deneb_fork_epoch.map(|q| q.value),
             deneb_fork_version,
+            electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
+            electra_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1531,6 +1704,7 @@ impl Config {
             message_domain_valid_snappy,
             attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
+            attestation_subnet_shuffling_prefix_bits,
             max_request_blocks,
             epochs_per_subnet_subscription,
             attestation_propagation_slot_range,
@@ -1539,6 +1713,8 @@ impl Config {
             max_request_blob_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
+            min_per_epoch_churn_limit_electra,
+            max_per_epoch_activation_exit_churn_limit,
 
             // We need to re-derive any values that might have changed in the config.
             max_blocks_by_root_request: max_blocks_by_root_request_common(max_request_blocks),
@@ -1564,7 +1740,6 @@ where
 mod tests {
     use super::*;
     use itertools::Itertools;
-    use safe_arith::SafeArith;
 
     #[test]
     fn test_mainnet_spec_can_be_constructed() {
@@ -1612,6 +1787,7 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
+        test_domain(Domain::Consolidation, spec.domain_consolidation, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];
@@ -1817,6 +1993,7 @@ mod yaml_tests {
         check_default!(message_domain_valid_snappy);
         check_default!(attestation_subnet_extra_bits);
         check_default!(attestation_subnet_prefix_bits);
+        check_default!(attestation_subnet_shuffling_prefix_bits);
 
         assert_eq!(chain_spec.bellatrix_fork_epoch, None);
     }

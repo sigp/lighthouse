@@ -9,7 +9,7 @@ use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
 use futures::prelude::*;
-use futures::{Sink, SinkExt};
+use futures::SinkExt;
 use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
@@ -24,7 +24,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use tokio::time::{sleep_until, Instant as TInstant, Sleep};
+use tokio::time::{sleep, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
 use types::{EthSpec, ForkContext};
 
@@ -32,7 +32,7 @@ use types::{EthSpec, ForkContext};
 const IO_ERROR_RETRIES: u8 = 3;
 
 /// Maximum time given to the handler to perform shutdown operations.
-const SHUTDOWN_TIMEOUT_SECS: u8 = 15;
+const SHUTDOWN_TIMEOUT_SECS: u64 = 15;
 
 /// Maximum number of simultaneous inbound substreams we keep for this peer.
 const MAX_INBOUND_SUBSTREAMS: usize = 32;
@@ -47,12 +47,12 @@ impl SubstreamId {
     }
 }
 
-type InboundSubstream<TSpec> = InboundFramed<Stream, TSpec>;
+type InboundSubstream<E> = InboundFramed<Stream, E>;
 
 /// Events the handler emits to the behaviour.
 #[derive(Debug)]
-pub enum HandlerEvent<Id, T: EthSpec> {
-    Ok(RPCReceived<Id, T>),
+pub enum HandlerEvent<Id, E: EthSpec> {
+    Ok(RPCReceived<Id, E>),
     Err(HandlerErr<Id>),
     Close(RPCError),
 }
@@ -84,30 +84,30 @@ pub enum HandlerErr<Id> {
 }
 
 /// Implementation of `ConnectionHandler` for the RPC protocol.
-pub struct RPCHandler<Id, TSpec>
+pub struct RPCHandler<Id, E>
 where
-    TSpec: EthSpec,
+    E: EthSpec,
 {
     /// The upgrade for inbound substreams.
-    listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
+    listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
 
     /// Queue of events to produce in `poll()`.
-    events_out: SmallVec<[HandlerEvent<Id, TSpec>; 4]>,
+    events_out: SmallVec<[HandlerEvent<Id, E>; 4]>,
 
     /// Queue of outbound substreams to open.
-    dial_queue: SmallVec<[(Id, OutboundRequest<TSpec>); 4]>,
+    dial_queue: SmallVec<[(Id, OutboundRequest<E>); 4]>,
 
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
 
     /// Current inbound substreams awaiting processing.
-    inbound_substreams: FnvHashMap<SubstreamId, InboundInfo<TSpec>>,
+    inbound_substreams: FnvHashMap<SubstreamId, InboundInfo<E>>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     inbound_substreams_delay: DelayQueue<SubstreamId>,
 
     /// Map of outbound substreams that need to be driven to completion.
-    outbound_substreams: FnvHashMap<SubstreamId, OutboundInfo<Id, TSpec>>,
+    outbound_substreams: FnvHashMap<SubstreamId, OutboundInfo<Id, E>>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     outbound_substreams_delay: DelayQueue<SubstreamId>,
@@ -155,15 +155,15 @@ enum HandlerState {
 }
 
 /// Contains the information the handler keeps on established inbound substreams.
-struct InboundInfo<TSpec: EthSpec> {
+struct InboundInfo<E: EthSpec> {
     /// State of the substream.
-    state: InboundState<TSpec>,
+    state: InboundState<E>,
     /// Responses queued for sending.
-    pending_items: VecDeque<RPCCodedResponse<TSpec>>,
+    pending_items: VecDeque<RPCCodedResponse<E>>,
     /// Protocol of the original request we received from the peer.
     protocol: Protocol,
     /// Responses that the peer is still expecting from us.
-    remaining_chunks: u64,
+    max_remaining_chunks: u64,
     /// Useful to timing how long each request took to process. Currently only used by
     /// BlocksByRange.
     request_start_time: Instant,
@@ -172,53 +172,53 @@ struct InboundInfo<TSpec: EthSpec> {
 }
 
 /// Contains the information the handler keeps on established outbound substreams.
-struct OutboundInfo<Id, TSpec: EthSpec> {
+struct OutboundInfo<Id, E: EthSpec> {
     /// State of the substream.
-    state: OutboundSubstreamState<TSpec>,
+    state: OutboundSubstreamState<E>,
     /// Key to keep track of the substream's timeout via `self.outbound_substreams_delay`.
     delay_key: delay_queue::Key,
     /// Info over the protocol this substream is handling.
     proto: Protocol,
     /// Number of chunks to be seen from the peer's response.
-    remaining_chunks: Option<u64>,
+    max_remaining_chunks: Option<u64>,
     /// `Id` as given by the application that sent the request.
     req_id: Id,
 }
 
 /// State of an inbound substream connection.
-enum InboundState<TSpec: EthSpec> {
+enum InboundState<E: EthSpec> {
     /// The underlying substream is not being used.
-    Idle(InboundSubstream<TSpec>),
+    Idle(InboundSubstream<E>),
     /// The underlying substream is processing responses.
     /// The return value of the future is (substream, stream_was_closed). The stream_was_closed boolean
     /// indicates if the stream was closed due to an error or successfully completing a response.
-    Busy(Pin<Box<dyn Future<Output = Result<(InboundSubstream<TSpec>, bool), RPCError>> + Send>>),
+    Busy(Pin<Box<dyn Future<Output = Result<(InboundSubstream<E>, bool), RPCError>> + Send>>),
     /// Temporary state during processing
     Poisoned,
 }
 
 /// State of an outbound substream. Either waiting for a response, or in the process of sending.
-pub enum OutboundSubstreamState<TSpec: EthSpec> {
+pub enum OutboundSubstreamState<E: EthSpec> {
     /// A request has been sent, and we are awaiting a response. This future is driven in the
     /// handler because GOODBYE requests can be handled and responses dropped instantly.
     RequestPendingResponse {
         /// The framed negotiated substream.
-        substream: Box<OutboundFramed<Stream, TSpec>>,
+        substream: Box<OutboundFramed<Stream, E>>,
         /// Keeps track of the actual request sent.
-        request: OutboundRequest<TSpec>,
+        request: OutboundRequest<E>,
     },
     /// Closing an outbound substream>
-    Closing(Box<OutboundFramed<Stream, TSpec>>),
+    Closing(Box<OutboundFramed<Stream, E>>),
     /// Temporary state during processing
     Poisoned,
 }
 
-impl<Id, TSpec> RPCHandler<Id, TSpec>
+impl<Id, E> RPCHandler<Id, E>
 where
-    TSpec: EthSpec,
+    E: EthSpec,
 {
     pub fn new(
-        listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
+        listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
         fork_context: Arc<ForkContext>,
         log: &slog::Logger,
         resp_timeout: Duration,
@@ -266,14 +266,14 @@ where
                 self.dial_queue.push((id, OutboundRequest::Goodbye(reason)));
             }
 
-            self.state = HandlerState::ShuttingDown(Box::pin(sleep_until(
-                TInstant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECS as u64),
-            )));
+            self.state = HandlerState::ShuttingDown(Box::pin(sleep(Duration::from_secs(
+                SHUTDOWN_TIMEOUT_SECS,
+            ))));
         }
     }
 
     /// Opens an outbound substream with a request.
-    fn send_request(&mut self, id: Id, req: OutboundRequest<TSpec>) {
+    fn send_request(&mut self, id: Id, req: OutboundRequest<E>) {
         match self.state {
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
@@ -291,7 +291,7 @@ where
     /// Sends a response to a peer's request.
     // NOTE: If the substream has closed due to inactivity, or the substream is in the
     // wrong state a response will fail silently.
-    fn send_response(&mut self, inbound_id: SubstreamId, response: RPCCodedResponse<TSpec>) {
+    fn send_response(&mut self, inbound_id: SubstreamId, response: RPCCodedResponse<E>) {
         // check if the stream matching the response still exists
         let Some(inbound_info) = self.inbound_substreams.get_mut(&inbound_id) else {
             if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
@@ -320,16 +320,16 @@ where
     }
 }
 
-impl<Id, TSpec> ConnectionHandler for RPCHandler<Id, TSpec>
+impl<Id, E> ConnectionHandler for RPCHandler<Id, E>
 where
-    TSpec: EthSpec,
+    E: EthSpec,
     Id: ReqId,
 {
-    type FromBehaviour = RPCSend<Id, TSpec>;
-    type ToBehaviour = HandlerEvent<Id, TSpec>;
-    type InboundProtocol = RPCProtocol<TSpec>;
-    type OutboundProtocol = OutboundRequestContainer<TSpec>;
-    type OutboundOpenInfo = (Id, OutboundRequest<TSpec>); // Keep track of the id and the request
+    type FromBehaviour = RPCSend<Id, E>;
+    type ToBehaviour = HandlerEvent<Id, E>;
+    type InboundProtocol = RPCProtocol<E>;
+    type OutboundProtocol = OutboundRequestContainer<E>;
+    type OutboundOpenInfo = (Id, OutboundRequest<E>); // Keep track of the id and the request
     type InboundOpenInfo = ();
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
@@ -349,23 +349,7 @@ where
     }
 
     fn connection_keep_alive(&self) -> bool {
-        // Check that we don't have outbound items pending for dialing, nor dialing, nor
-        // established. Also check that there are no established inbound substreams.
-        // Errors and events need to be reported back, so check those too.
-        match self.state {
-            HandlerState::ShuttingDown(_) => {
-                !self.dial_queue.is_empty()
-                    || !self.outbound_substreams.is_empty()
-                    || !self.inbound_substreams.is_empty()
-                    || !self.events_out.is_empty()
-                    || !self.dial_negotiated != 0
-            }
-            HandlerState::Deactivated => {
-                // Regardless of events, the timeout has expired. Force the disconnect.
-                false
-            }
-            _ => true,
-        }
+        !matches!(self.state, HandlerState::Deactivated)
     }
 
     fn poll(
@@ -395,7 +379,7 @@ where
             match delay.as_mut().poll(cx) {
                 Poll::Ready(_) => {
                     self.state = HandlerState::Deactivated;
-                    debug!(self.log, "Handler deactivated");
+                    debug!(self.log, "Shutdown timeout elapsed, Handler deactivated");
                     return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                         HandlerEvent::Close(RPCError::Disconnected),
                     ));
@@ -487,7 +471,7 @@ where
                         // Process one more message if one exists.
                         if let Some(message) = info.pending_items.pop_front() {
                             // If this is the last chunk, terminate the stream.
-                            let last_chunk = info.remaining_chunks <= 1;
+                            let last_chunk = info.max_remaining_chunks <= 1;
                             let fut =
                                 send_message_to_inbound_substream(substream, message, last_chunk)
                                     .boxed();
@@ -553,7 +537,8 @@ where
                             {
                                 // The substream is still active, decrement the remaining
                                 // chunks expected.
-                                info.remaining_chunks = info.remaining_chunks.saturating_sub(1);
+                                info.max_remaining_chunks =
+                                    info.max_remaining_chunks.saturating_sub(1);
 
                                 // If this substream has not ended, we reset the timer.
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
@@ -568,7 +553,7 @@ where
                                     // Process one more message if one exists.
                                     if let Some(message) = info.pending_items.pop_front() {
                                         // If this is the last chunk, terminate the stream.
-                                        let last_chunk = info.remaining_chunks <= 1;
+                                        let last_chunk = info.max_remaining_chunks <= 1;
                                         let fut = send_message_to_inbound_substream(
                                             substream, message, last_chunk,
                                         )
@@ -680,15 +665,19 @@ where
                     request,
                 } => match substream.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(response))) => {
-                        if request.expected_responses() > 1 && !response.close_after() {
+                        if request.expect_exactly_one_response() || response.close_after() {
+                            // either this is a single response request or this response closes the
+                            // stream
+                            entry.get_mut().state = OutboundSubstreamState::Closing(substream);
+                        } else {
                             let substream_entry = entry.get_mut();
                             let delay_key = &substream_entry.delay_key;
                             // chunks left after this one
-                            let remaining_chunks = substream_entry
-                                .remaining_chunks
+                            let max_remaining_chunks = substream_entry
+                                .max_remaining_chunks
                                 .map(|count| count.saturating_sub(1))
                                 .unwrap_or_else(|| 0);
-                            if remaining_chunks == 0 {
+                            if max_remaining_chunks == 0 {
                                 // this is the last expected message, close the stream as all expected chunks have been received
                                 substream_entry.state = OutboundSubstreamState::Closing(substream);
                             } else {
@@ -698,14 +687,10 @@ where
                                         substream,
                                         request,
                                     };
-                                substream_entry.remaining_chunks = Some(remaining_chunks);
+                                substream_entry.max_remaining_chunks = Some(max_remaining_chunks);
                                 self.outbound_substreams_delay
                                     .reset(delay_key, self.resp_timeout);
                             }
-                        } else {
-                            // either this is a single response request or this response closes the
-                            // stream
-                            entry.get_mut().state = OutboundSubstreamState::Closing(substream);
                         }
 
                         // Check what type of response we got and report it accordingly
@@ -741,7 +726,16 @@ where
                         self.outbound_substreams_delay.remove(delay_key);
                         entry.remove_entry();
                         // notify the application error
-                        if request.expected_responses() > 1 {
+                        if request.expect_exactly_one_response() {
+                            // return an error, stream should not have closed early.
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                                HandlerEvent::Err(HandlerErr::Outbound {
+                                    id: request_id,
+                                    proto: request.versioned_protocol().protocol(),
+                                    error: RPCError::IncompleteStream,
+                                }),
+                            ));
+                        } else {
                             // return an end of stream result
                             return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                                 HandlerEvent::Ok(RPCReceived::EndOfStream(
@@ -750,16 +744,6 @@ where
                                 )),
                             ));
                         }
-
-                        // else we return an error, stream should not have closed early.
-                        let outbound_err = HandlerErr::Outbound {
-                            id: request_id,
-                            proto: request.versioned_protocol().protocol(),
-                            error: RPCError::IncompleteStream,
-                        };
-                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                            HandlerEvent::Err(outbound_err),
-                        ));
                     }
                     Poll::Pending => {
                         entry.get_mut().state =
@@ -844,6 +828,8 @@ where
                 && self.events_out.is_empty()
                 && self.dial_negotiated == 0
             {
+                debug!(self.log, "Goodbye sent, Handler deactivated");
+                self.state = HandlerState::Deactivated;
                 return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                     HandlerEvent::Close(RPCError::Disconnected),
                 ));
@@ -882,22 +868,22 @@ where
     }
 }
 
-impl<Id, TSpec: EthSpec> RPCHandler<Id, TSpec>
+impl<Id, E: EthSpec> RPCHandler<Id, E>
 where
     Id: ReqId,
-    TSpec: EthSpec,
+    E: EthSpec,
 {
-    fn on_fully_negotiated_inbound(&mut self, substream: InboundOutput<Stream, TSpec>) {
+    fn on_fully_negotiated_inbound(&mut self, substream: InboundOutput<Stream, E>) {
         // only accept new peer requests when active
         if !matches!(self.state, HandlerState::Active) {
             return;
         }
 
         let (req, substream) = substream;
-        let expected_responses = req.expected_responses();
+        let max_responses = req.max_responses();
 
         // store requests that expect responses
-        if expected_responses > 0 {
+        if max_responses > 0 {
             if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
                 // Store the stream and tag the output.
                 let delay_key = self
@@ -908,14 +894,13 @@ where
                     self.current_inbound_substream_id,
                     InboundInfo {
                         state: awaiting_stream,
-                        pending_items: VecDeque::with_capacity(std::cmp::min(
-                            expected_responses,
-                            128,
-                        ) as usize),
+                        pending_items: VecDeque::with_capacity(
+                            std::cmp::min(max_responses, 128) as usize
+                        ),
                         delay_key: Some(delay_key),
                         protocol: req.versioned_protocol().protocol(),
                         request_start_time: Instant::now(),
-                        remaining_chunks: expected_responses,
+                        max_remaining_chunks: max_responses,
                     },
                 );
             } else {
@@ -942,8 +927,8 @@ where
 
     fn on_fully_negotiated_outbound(
         &mut self,
-        substream: OutboundFramed<Stream, TSpec>,
-        (id, request): (Id, OutboundRequest<TSpec>),
+        substream: OutboundFramed<Stream, E>,
+        (id, request): (Id, OutboundRequest<E>),
     ) {
         self.dial_negotiated -= 1;
         // Reset any io-retries counter.
@@ -962,8 +947,14 @@ where
         }
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
-        let expected_responses = request.expected_responses();
-        if expected_responses > 0 {
+        let max_responses = request.max_responses();
+        if max_responses > 0 {
+            let max_remaining_chunks = if request.expect_exactly_one_response() {
+                // Currently enforced only for multiple responses
+                None
+            } else {
+                Some(max_responses)
+            };
             // new outbound request. Store the stream and tag the output.
             let delay_key = self
                 .outbound_substreams_delay
@@ -971,12 +962,6 @@ where
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(substream),
                 request,
-            };
-            let expected_responses = if expected_responses > 1 {
-                // Currently enforced only for multiple responses
-                Some(expected_responses)
-            } else {
-                None
             };
             if self
                 .outbound_substreams
@@ -986,7 +971,7 @@ where
                         state: awaiting_stream,
                         delay_key,
                         proto,
-                        remaining_chunks: expected_responses,
+                        max_remaining_chunks,
                         req_id: id,
                     },
                 )
@@ -999,7 +984,7 @@ where
     }
     fn on_dial_upgrade_error(
         &mut self,
-        request_info: (Id, OutboundRequest<TSpec>),
+        request_info: (Id, OutboundRequest<E>),
         error: StreamUpgradeError<RPCError>,
     ) {
         let (id, req) = request_info;
@@ -1055,11 +1040,11 @@ impl slog::Value for SubstreamId {
 ///
 /// This function returns the given substream, along with whether it has been closed or not. Any
 /// error that occurred with sending a message is reported also.
-async fn send_message_to_inbound_substream<TSpec: EthSpec>(
-    mut substream: InboundSubstream<TSpec>,
-    message: RPCCodedResponse<TSpec>,
+async fn send_message_to_inbound_substream<E: EthSpec>(
+    mut substream: InboundSubstream<E>,
+    message: RPCCodedResponse<E>,
     last_chunk: bool,
-) -> Result<(InboundSubstream<TSpec>, bool), RPCError> {
+) -> Result<(InboundSubstream<E>, bool), RPCError> {
     if matches!(message, RPCCodedResponse::StreamTermination(_)) {
         substream.close().await.map(|_| (substream, true))
     } else {

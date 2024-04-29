@@ -31,6 +31,7 @@ use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use kzg::{Kzg, TrustedSetup};
+use lazy_static::lazy_static;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::Mutex;
@@ -45,10 +46,7 @@ use slog_async::Async;
 use slog_term::{FullFormat, TermDecorator};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
-use state_processing::{
-    state_advance::{complete_state_advance, partial_state_advance},
-    StateProcessingStrategy,
-};
+use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -61,7 +59,6 @@ use task_executor::TaskExecutor;
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
 use types::payload::BlockProductionVersion;
-use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::test_utils::TestRandom;
 use types::{typenum::U4294967296, *};
@@ -77,8 +74,18 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 // a different value.
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
-pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
-    Witness<TestingSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>;
+lazy_static! {
+    pub static ref KZG: Arc<Kzg> = {
+        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            .expect("should have trusted setup");
+        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+        Arc::new(kzg)
+    };
+}
+
+pub type BaseHarnessType<E, THotStore, TColdStore> =
+    Witness<TestingSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>;
 
 pub type DiskHarnessType<E> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
@@ -409,21 +416,17 @@ where
         self
     }
 
-    pub fn execution_layer_from_urls(mut self, urls: &[&str]) -> Self {
+    pub fn execution_layer_from_url(mut self, url: &str) -> Self {
         assert!(
             self.execution_layer.is_none(),
             "execution layer already defined"
         );
 
-        let urls: Vec<SensitiveUrl> = urls
-            .iter()
-            .map(|s| SensitiveUrl::parse(s))
-            .collect::<Result<_, _>>()
-            .unwrap();
+        let url = SensitiveUrl::parse(url).ok();
 
         let config = execution_layer::Config {
-            execution_endpoints: urls,
-            secret_files: vec![],
+            execution_endpoint: url,
+            secret_file: None,
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
@@ -459,6 +462,10 @@ where
         mock.server.execution_block_generator().cancun_time = spec.deneb_fork_epoch.map(|epoch| {
             genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
+        mock.server.execution_block_generator().prague_time =
+            spec.electra_fork_epoch.map(|epoch| {
+                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+            });
 
         self
     }
@@ -502,16 +509,14 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
-        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-            .unwrap();
+        let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
 
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 
         let chain_config = self.chain_config.unwrap_or_default();
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
             .logger(log.clone())
-            .custom_spec(spec)
+            .custom_spec(spec.clone())
             .store(self.store.expect("cannot build without store"))
             .store_migrator_config(
                 MigratorConfig::default()
@@ -529,7 +534,7 @@ where
                 5,
             )))
             .validator_monitor_config(validator_monitor_config)
-            .trusted_setup(trusted_setup);
+            .kzg(kzg);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
@@ -570,30 +575,31 @@ where
     }
 }
 
-pub fn mock_execution_layer_from_parts<T: EthSpec>(
+pub fn mock_execution_layer_from_parts<E: EthSpec>(
     spec: &ChainSpec,
     task_executor: TaskExecutor,
-) -> MockExecutionLayer<T> {
+) -> MockExecutionLayer<E> {
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
     let cancun_time = spec.deneb_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+    });
+    let prague_time = spec.electra_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
 
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-        .expect("should have trusted setup");
-    let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+    let kzg_opt = spec.deneb_fork_epoch.map(|_| KZG.clone());
 
     MockExecutionLayer::new(
         task_executor,
         DEFAULT_TERMINAL_BLOCK,
         shanghai_time,
         cancun_time,
+        prague_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),
-        Some(kzg),
+        kzg_opt,
     )
 }
 
@@ -747,10 +753,7 @@ where
     pub fn get_current_state_and_root(&self) -> (BeaconState<E>, Hash256) {
         let head = self.chain.head_snapshot();
         let state_root = head.beacon_state_root();
-        (
-            head.beacon_state.clone_with_only_committee_caches(),
-            state_root,
-        )
+        (head.beacon_state.clone(), state_root)
     }
 
     pub fn head_slot(&self) -> Slot {
@@ -793,8 +796,9 @@ where
     pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
         self.chain
             .store
-            .load_hot_state(&state_hash.into(), StateProcessingStrategy::Accurate)
+            .load_hot_state(&state_hash.into())
             .unwrap()
+            .map(|(state, _)| state)
     }
 
     pub fn get_cold_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
@@ -822,7 +826,7 @@ where
         slot: Slot,
     ) -> (SignedBlindedBeaconBlock<E>, BeaconState<E>) {
         let (unblinded, new_state) = self.make_block(state, slot).await;
-        (unblinded.0.into(), new_state)
+        ((*unblinded.0).clone().into(), new_state)
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -866,19 +870,21 @@ where
             panic!("Should always be a full payload response");
         };
 
-        let signed_block = block_response.block.sign(
+        let signed_block = Arc::new(block_response.block.sign(
             &self.validator_keypairs[proposer_index].sk,
             &block_response.state.fork(),
             block_response.state.genesis_validators_root(),
             &self.spec,
-        );
+        ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => (signed_block, block_response.blob_items),
+            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+                (signed_block, block_response.blob_items)
+            }
         };
 
         (block_contents, block_response.state)
@@ -928,19 +934,21 @@ where
             panic!("Should always be a full payload response");
         };
 
-        let signed_block = block_response.block.sign(
+        let signed_block = Arc::new(block_response.block.sign(
             &self.validator_keypairs[proposer_index].sk,
             &block_response.state.fork(),
             block_response.state.genesis_validators_root(),
             &self.spec,
-        );
+        ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => (signed_block, block_response.blob_items),
+            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+                (signed_block, block_response.blob_items)
+            }
         };
         (block_contents, pre_state)
     }
@@ -1004,9 +1012,7 @@ where
             return Err(BeaconChainError::CannotAttestToFutureState);
         } else if state.current_epoch() < epoch {
             let mut_state = state.to_mut();
-            // Only perform a "partial" state advance since we do not require the state roots to be
-            // accurate.
-            partial_state_advance(
+            complete_state_advance(
                 mut_state,
                 Some(state_root),
                 epoch.start_slot(E::slots_per_epoch()),
@@ -1742,7 +1748,7 @@ where
 
         let ((block, blobs), state) = self.make_block_return_pre_state(state, slot).await;
 
-        let (mut block, _) = block.deconstruct();
+        let (mut block, _) = (*block).clone().deconstruct();
 
         block_modifier(&mut block);
 
@@ -1754,7 +1760,7 @@ where
             state.genesis_validators_root(),
             &self.spec,
         );
-        ((signed_block, blobs), state)
+        ((Arc::new(signed_block), blobs), state)
     }
 
     pub async fn make_blob_with_modifier(
@@ -1768,7 +1774,7 @@ where
 
         let ((block, mut blobs), state) = self.make_block_return_pre_state(state, slot).await;
 
-        let (block, _) = block.deconstruct();
+        let (block, _) = (*block).clone().deconstruct();
 
         blob_modifier(&mut blobs.as_mut().unwrap().1);
 
@@ -1780,7 +1786,7 @@ where
             state.genesis_validators_root(),
             &self.spec,
         );
-        ((signed_block, blobs), state)
+        ((Arc::new(signed_block), blobs), state)
     }
 
     pub fn make_deposits<'a>(
@@ -1873,7 +1879,7 @@ where
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), Arc::new(block), sidecars).unwrap(),
+                RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -1899,7 +1905,7 @@ where
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), Arc::new(block), sidecars).unwrap(),
+                RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -2487,6 +2493,7 @@ pub fn build_log(level: slog::Level, enabled: bool) -> Logger {
 
 pub enum NumBlobs {
     Random,
+    Number(usize),
     None,
 }
 
@@ -2498,48 +2505,75 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
     let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
     let mut blob_sidecars = vec![];
-    if let Ok(message) = block.message_deneb_mut() {
-        // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-        let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
-        let num_blobs = match num_blobs {
-            NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
-            NumBlobs::None => 0,
-        };
-        let (bundle, transactions) =
-            execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
 
-        payload.execution_payload.transactions = <_>::default();
-        for tx in Vec::from(transactions) {
-            payload.execution_payload.transactions.push(tx).unwrap();
+    let bundle = match block {
+        SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb {
+            ref mut message, ..
+        }) => {
+            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
+            let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+
+            payload.execution_payload.transactions = <_>::default();
+            for tx in Vec::from(transactions) {
+                payload.execution_payload.transactions.push(tx).unwrap();
+            }
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
+            bundle
         }
-        message.body.blob_kzg_commitments = bundle.commitments.clone();
+        SignedBeaconBlock::Electra(SignedBeaconBlockElectra {
+            ref mut message, ..
+        }) => {
+            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
+            let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
 
-        let eth2::types::BlobsBundle {
-            commitments,
-            proofs,
-            blobs,
-        } = bundle;
-
-        for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
-            .into_iter()
-            .zip(commitments.into_iter())
-            .zip(proofs.into_iter())
-            .enumerate()
-        {
-            blob_sidecars.push(BlobSidecar {
-                index: index as u64,
-                blob: blob.clone(),
-                kzg_commitment,
-                kzg_proof,
-                signed_block_header: block.signed_block_header(),
-                kzg_commitment_inclusion_proof: block
-                    .message()
-                    .body()
-                    .kzg_commitment_merkle_proof(index)
-                    .unwrap(),
-            });
+            payload.execution_payload.transactions = <_>::default();
+            for tx in Vec::from(transactions) {
+                payload.execution_payload.transactions.push(tx).unwrap();
+            }
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
+            bundle
         }
+        _ => return (block, blob_sidecars),
+    };
+
+    let eth2::types::BlobsBundle {
+        commitments,
+        proofs,
+        blobs,
+    } = bundle;
+
+    for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
+        .into_iter()
+        .zip(commitments.into_iter())
+        .zip(proofs.into_iter())
+        .enumerate()
+    {
+        blob_sidecars.push(BlobSidecar {
+            index: index as u64,
+            blob: blob.clone(),
+            kzg_commitment,
+            kzg_proof,
+            signed_block_header: block.signed_block_header(),
+            kzg_commitment_inclusion_proof: block
+                .message()
+                .body()
+                .kzg_commitment_merkle_proof(index)
+                .unwrap(),
+        });
     }
-
     (block, blob_sidecars)
 }

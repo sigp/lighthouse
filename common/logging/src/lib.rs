@@ -10,6 +10,7 @@ use std::io::{Result, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tracing_appender::non_blocking::NonBlocking;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_logging_layer::LoggingLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -21,7 +22,6 @@ mod tracing_logging_layer;
 mod tracing_metrics_layer;
 
 pub use sse_logging_components::SSELoggingComponents;
-pub use tracing_logging_layer::cleanup_logging_task;
 pub use tracing_metrics_layer::MetricsLayer;
 
 /// The minimum interval between log messages indicating that a queue is full.
@@ -223,7 +223,7 @@ impl TimeLatch {
     }
 }
 
-pub fn create_tracing_layer(base_tracing_log_path: PathBuf, turn_on_terminal_logs: bool) {
+pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
     let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
         .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
     {
@@ -234,10 +234,27 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf, turn_on_terminal_log
         }
     };
 
-    let libp2p_writer =
-        tracing_appender::rolling::daily(base_tracing_log_path.clone(), "libp2p.log");
-    let discv5_writer =
-        tracing_appender::rolling::daily(base_tracing_log_path.clone(), "discv5.log");
+    let Ok(libp2p_writer) = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .max_log_files(2)
+        .filename_prefix("libp2p")
+        .filename_suffix("log")
+        .build(base_tracing_log_path.clone())
+    else {
+        eprintln!("Failed to initialize libp2p rolling file appender");
+        return;
+    };
+
+    let Ok(discv5_writer) = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .max_log_files(2)
+        .filename_prefix("discv5")
+        .filename_suffix("log")
+        .build(base_tracing_log_path.clone())
+    else {
+        eprintln!("Failed to initialize discv5 rolling file appender");
+        return;
+    };
 
     let (libp2p_non_blocking_writer, libp2p_guard) = NonBlocking::new(libp2p_writer);
     let (discv5_non_blocking_writer, discv5_guard) = NonBlocking::new(discv5_writer);
@@ -251,11 +268,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf, turn_on_terminal_log
 
     if let Err(e) = tracing_subscriber::fmt()
         .with_env_filter(filter_layer)
-        .with_writer(move || {
-            tracing_subscriber::fmt::writer::OptionalWriter::<std::io::Stdout>::from(
-                turn_on_terminal_logs.then(std::io::stdout),
-            )
-        })
+        .with_writer(std::io::sink)
         .finish()
         .with(MetricsLayer)
         .with(custom_layer)

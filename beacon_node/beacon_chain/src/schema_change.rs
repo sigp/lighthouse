@@ -1,6 +1,7 @@
 //! Utilities for managing database schema changes.
 mod migration_schema_v17;
 mod migration_schema_v18;
+mod migration_schema_v19;
 
 use crate::beacon_chain::BeaconChainTypes;
 use crate::types::ChainSpec;
@@ -67,6 +68,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         (SchemaVersion(18), SchemaVersion(17)) => {
             let ops = migration_schema_v18::downgrade_from_v18::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(18), SchemaVersion(19)) => {
+            let ops = migration_schema_v19::upgrade_to_v19::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(19), SchemaVersion(18)) => {
+            let ops = migration_schema_v19::downgrade_from_v19::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.

@@ -17,6 +17,9 @@ write_to_file() {
 
     # We need to add the header and the backticks to create the code block.
     printf "# %s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
+
+    # Adjust the width of the help text and append to the end of file
+    sed -i -e '$a\'$'\n''<style> .content main {max-width:88%;} </style>' "$file"
 }
 
 CMD=./target/release/lighthouse
@@ -90,7 +93,7 @@ rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md help_vm_create
 
 # only exit at the very end
 if [[ $changes == true ]]; then
-    echo "Exiting with error to indicate changes occurred. To fix, run `make cli-local` or `make cli` and commit the changes."
+    echo "Exiting with error to indicate changes occurred. To fix, run 'make cli-local' or 'make cli' and commit the changes."
     exit 1
 else
     echo "CLI help texts are up to date."

@@ -77,7 +77,15 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("freezer")
                 .long("freezer")
                 .help("Inspect the freezer DB rather than the hot DB")
-                .takes_value(false),
+                .takes_value(false)
+                .conflicts_with("blobs-db"),
+        )
+        .arg(
+            Arg::with_name("blobs-db")
+                .long("blobs-db")
+                .help("Inspect the blobs DB rather than the hot DB")
+                .takes_value(false)
+                .conflicts_with("freezer"),
         )
         .arg(
             Arg::with_name("output-dir")
@@ -85,6 +93,34 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("DIR")
                 .help("Base directory for the output files. Defaults to the current directory")
                 .takes_value(true),
+        )
+}
+
+pub fn compact_cli_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("compact")
+        .setting(clap::AppSettings::ColoredHelp)
+        .about("Compact database manually")
+        .arg(
+            Arg::with_name("column")
+                .long("column")
+                .value_name("TAG")
+                .help("3-byte column ID (see `DBColumn`)")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("freezer")
+                .long("freezer")
+                .help("Inspect the freezer DB rather than the hot DB")
+                .takes_value(false)
+                .conflicts_with("blobs-db"),
+        )
+        .arg(
+            Arg::with_name("blobs-db")
+                .long("blobs-db")
+                .help("Inspect the blobs DB rather than the hot DB")
+                .takes_value(false)
+                .conflicts_with("freezer"),
         )
 }
 
@@ -162,6 +198,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(migrate_cli_app())
         .subcommand(version_cli_app())
         .subcommand(inspect_cli_app())
+        .subcommand(compact_cli_app())
         .subcommand(prune_payloads_app())
         .subcommand(prune_blobs_app())
         .subcommand(prune_states_app())
@@ -251,6 +288,7 @@ pub struct InspectConfig {
     skip: Option<usize>,
     limit: Option<usize>,
     freezer: bool,
+    blobs_db: bool,
     /// Configures where the inspect output should be stored.
     output_dir: PathBuf,
 }
@@ -261,6 +299,7 @@ fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> 
     let skip = clap_utils::parse_optional(cli_args, "skip")?;
     let limit = clap_utils::parse_optional(cli_args, "limit")?;
     let freezer = cli_args.is_present("freezer");
+    let blobs_db = cli_args.is_present("blobs-db");
 
     let output_dir: PathBuf =
         clap_utils::parse_optional(cli_args, "output-dir")?.unwrap_or_else(PathBuf::new);
@@ -270,6 +309,7 @@ fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> 
         skip,
         limit,
         freezer,
+        blobs_db,
         output_dir,
     })
 }
@@ -277,32 +317,20 @@ fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> 
 pub fn inspect_db<E: EthSpec>(
     inspect_config: InspectConfig,
     client_config: ClientConfig,
-    runtime_context: &RuntimeContext<E>,
-    log: Logger,
 ) -> Result<(), String> {
-    let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
-
-    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
-        &hot_path,
-        &cold_path,
-        &blobs_path,
-        |_, _, _| Ok(()),
-        client_config.store,
-        spec,
-        log,
-    )
-    .map_err(|e| format!("{:?}", e))?;
 
     let mut total = 0;
     let mut num_keys = 0;
 
     let sub_db = if inspect_config.freezer {
-        &db.cold_db
+        LevelDB::<E>::open(&cold_path).map_err(|e| format!("Unable to open freezer DB: {e:?}"))?
+    } else if inspect_config.blobs_db {
+        LevelDB::<E>::open(&blobs_path).map_err(|e| format!("Unable to open blobs DB: {e:?}"))?
     } else {
-        &db.hot_db
+        LevelDB::<E>::open(&hot_path).map_err(|e| format!("Unable to open hot DB: {e:?}"))?
     };
 
     let skip = inspect_config.skip.unwrap_or(0);
@@ -356,6 +384,7 @@ pub fn inspect_db<E: EthSpec>(
 
                 let write_result = fs::OpenOptions::new()
                     .create(true)
+                    .truncate(true)
                     .write(true)
                     .open(&file_path)
                     .map_err(|e| format!("Failed to open file: {:?}", e))
@@ -381,6 +410,50 @@ pub fn inspect_db<E: EthSpec>(
     println!("Num keys: {}", num_keys);
     println!("Total: {} bytes", total);
 
+    Ok(())
+}
+
+pub struct CompactConfig {
+    column: DBColumn,
+    freezer: bool,
+    blobs_db: bool,
+}
+
+fn parse_compact_config(cli_args: &ArgMatches) -> Result<CompactConfig, String> {
+    let column = clap_utils::parse_required(cli_args, "column")?;
+    let freezer = cli_args.is_present("freezer");
+    let blobs_db = cli_args.is_present("blobs-db");
+    Ok(CompactConfig {
+        column,
+        freezer,
+        blobs_db,
+    })
+}
+
+pub fn compact_db<E: EthSpec>(
+    compact_config: CompactConfig,
+    client_config: ClientConfig,
+    log: Logger,
+) -> Result<(), Error> {
+    let hot_path = client_config.get_db_path();
+    let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
+    let column = compact_config.column;
+
+    let (sub_db, db_name) = if compact_config.freezer {
+        (LevelDB::<E>::open(&cold_path)?, "freezer_db")
+    } else if compact_config.blobs_db {
+        (LevelDB::<E>::open(&blobs_path)?, "blobs_db")
+    } else {
+        (LevelDB::<E>::open(&hot_path)?, "hot_db")
+    };
+    info!(
+        log,
+        "Compacting database";
+        "db" => db_name,
+        "column" => ?column
+    );
+    sub_db.compact_column(column)?;
     Ok(())
 }
 
@@ -537,7 +610,10 @@ pub fn prune_states<E: EthSpec>(
     // Check that the user has confirmed they want to proceed.
     if !prune_config.confirm {
         match db.get_anchor_info() {
-            Some(anchor_info) if anchor_info.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN => {
+            Some(anchor_info)
+                if anchor_info.state_lower_limit == 0
+                    && anchor_info.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN =>
+            {
                 info!(log, "States have already been pruned");
                 return Ok(());
             }
@@ -569,7 +645,7 @@ pub fn prune_states<E: EthSpec>(
 }
 
 /// Run the database manager, returning an error string if the operation did not succeed.
-pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result<(), String> {
+pub fn run<E: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<E>) -> Result<(), String> {
     let client_config = parse_client_config(cli_args, &env)?;
     let context = env.core_context();
     let log = context.log().clone();
@@ -585,7 +661,11 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
         }
         ("inspect", Some(cli_args)) => {
             let inspect_config = parse_inspect_config(cli_args)?;
-            inspect_db(inspect_config, client_config, &context, log)
+            inspect_db::<E>(inspect_config, client_config)
+        }
+        ("compact", Some(cli_args)) => {
+            let compact_config = parse_compact_config(cli_args)?;
+            compact_db::<E>(compact_config, client_config, log).map_err(format_err)
         }
         ("prune-payloads", Some(_)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
@@ -600,7 +680,7 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
 
             let genesis_state = executor
                 .block_on_dangerous(
-                    network_config.genesis_state::<T>(
+                    network_config.genesis_state::<E>(
                         client_config.genesis_state_url.as_deref(),
                         client_config.genesis_state_url_timeout,
                         &log,

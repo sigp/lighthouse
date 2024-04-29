@@ -10,7 +10,7 @@ There are three core methods to obtain the Lighthouse application:
 
 Additionally, there are two extra guides for specific uses:
 
-- [Raspberry Pi 4 guide](./pi.md).
+- [Raspberry Pi 4 guide](./pi.md). (Archived)
 - [Cross-compiling guide for developers](./cross-compiling.md).
 
 There are also community-maintained installation methods:

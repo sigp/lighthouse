@@ -18,13 +18,20 @@ pub trait Handler {
 
     fn handler_name(&self) -> String;
 
+    // Add forks here to exclude them from EF spec testing. Helpful for adding future or
+    // unspecified forks.
+    // TODO(electra): Enable Electra once spec tests are available.
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![ForkName::Electra]
+    }
+
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         Self::Case::is_enabled_for_fork(fork_name)
     }
 
     fn run(&self) {
         for fork_name in ForkName::list_all() {
-            if self.is_enabled_for_fork(fork_name) {
+            if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name)
             }
         }
@@ -210,8 +217,8 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Altair])
     }
 
-    pub fn merge_only() -> Self {
-        Self::for_forks(vec![ForkName::Merge])
+    pub fn bellatrix_only() -> Self {
+        Self::for_forks(vec![ForkName::Bellatrix])
     }
 
     pub fn capella_only() -> Self {
@@ -551,7 +558,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Merge block tests are only enabled for Bellatrix.
-        if self.handler_name == "on_merge_block" && fork_name != ForkName::Merge {
+        if self.handler_name == "on_merge_block" && fork_name != ForkName::Bellatrix {
             return false;
         }
 
@@ -816,7 +823,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
         // Enabled in Deneb
         fork_name != ForkName::Base
             && fork_name != ForkName::Altair
-            && fork_name != ForkName::Merge
+            && fork_name != ForkName::Bellatrix
             && fork_name != ForkName::Capella
     }
 }

@@ -3,7 +3,7 @@ use beacon_chain::{
     GossipVerifiedBlock, IntoGossipVerifiedBlockContents,
 };
 use eth2::reqwest::StatusCode;
-use eth2::types::{BroadcastValidation, PublishBlockRequest, SignedBeaconBlock};
+use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
@@ -63,7 +63,7 @@ pub async fn gossip_invalid() {
 
     tester.harness.advance_slot();
 
-    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
+    let ((block, blobs), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
@@ -115,7 +115,7 @@ pub async fn gossip_partial_pass() {
 
     tester.harness.advance_slot();
 
-    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
+    let ((block, blobs), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::random()
@@ -161,8 +161,7 @@ pub async fn gossip_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) =
-        tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
         .client
@@ -252,7 +251,7 @@ pub async fn consensus_invalid() {
 
     tester.harness.advance_slot();
 
-    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
+    let ((block, blobs), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
@@ -304,7 +303,7 @@ pub async fn consensus_gossip() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
+    let ((block, blobs), _) = tester
         .harness
         .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
         .await;
@@ -418,8 +417,7 @@ pub async fn consensus_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) =
-        tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
         .client
@@ -465,7 +463,7 @@ pub async fn equivocation_invalid() {
 
     tester.harness.advance_slot();
 
-    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
+    let ((block, blobs), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
@@ -518,10 +516,9 @@ pub async fn equivocation_consensus_early_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, blobs_a), state_after_a): ((SignedBeaconBlock<E>, _), _) =
+    let ((block_a, blobs_a), state_after_a) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), state_after_b): ((SignedBeaconBlock<E>, _), _) =
-        tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), state_after_b) = tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
     assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
@@ -590,7 +587,7 @@ pub async fn equivocation_gossip() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
+    let ((block, blobs), _) = tester
         .harness
         .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
         .await;
@@ -645,10 +642,9 @@ pub async fn equivocation_consensus_late_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, blobs_a), state_after_a): ((SignedBeaconBlock<E>, _), _) =
+    let ((block_a, blobs_a), state_after_a) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), state_after_b): ((SignedBeaconBlock<E>, _), _) =
-        tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), state_after_b) = tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
     assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
@@ -716,8 +712,7 @@ pub async fn equivocation_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) =
-        tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
         .client
@@ -1269,6 +1264,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         .make_blinded_block(state_a.clone(), slot_b)
         .await;
     let (block_b, state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
+    let block_b = Arc::new(block_b);
 
     /* check for `make_blinded_block` curios */
     assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
@@ -1278,7 +1274,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     let unblinded_block_a = reconstruct_block(
         tester.harness.chain.clone(),
         block_a.canonical_root(),
-        block_a,
+        Arc::new(block_a),
         test_logger.clone(),
     )
     .await
@@ -1301,15 +1297,11 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         ProvenancedBlock::Builder(b, _) => b,
     };
 
-    let gossip_block_b = GossipVerifiedBlock::new(
-        Arc::new(inner_block_b.clone().deconstruct().0),
-        &tester.harness.chain,
-    );
+    let gossip_block_b =
+        GossipVerifiedBlock::new(inner_block_b.clone().deconstruct().0, &tester.harness.chain);
     assert!(gossip_block_b.is_ok());
-    let gossip_block_a = GossipVerifiedBlock::new(
-        Arc::new(inner_block_a.clone().deconstruct().0),
-        &tester.harness.chain,
-    );
+    let gossip_block_a =
+        GossipVerifiedBlock::new(inner_block_a.clone().deconstruct().0, &tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();

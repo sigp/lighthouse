@@ -5,7 +5,6 @@ use crate::{Enr, PeerIdSerialized};
 use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
-use libp2p::gossipsub;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -20,20 +19,6 @@ pub const DEFAULT_IPV4_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
 pub const DEFAULT_TCP_PORT: u16 = 9000u16;
 pub const DEFAULT_DISC_PORT: u16 = 9000u16;
 pub const DEFAULT_QUIC_PORT: u16 = 9001u16;
-
-/// The cache time is set to accommodate the circulation time of an attestation.
-///
-/// The p2p spec declares that we accept attestations within the following range:
-///
-/// ```ignore
-/// ATTESTATION_PROPAGATION_SLOT_RANGE = 32
-/// attestation.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE >= current_slot >= attestation.data.slot
-/// ```
-///
-/// Therefore, we must accept attestations across a span of 33 slots (where each slot is 12
-/// seconds). We add an additional second to account for the 500ms gossip clock disparity, and
-/// another 500ms for "fudge factor".
-pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
 
 /// The maximum size of gossip messages.
 pub fn gossip_max_size(is_merge_enabled: bool, gossip_max_size: usize) -> usize {
@@ -84,10 +69,6 @@ pub struct Config {
     /// Target number of connected peers.
     pub target_peers: usize,
 
-    /// Gossipsub configuration parameters.
-    #[serde(skip)]
-    pub gs_config: gossipsub::Config,
-
     /// Discv5 configuration parameters.
     #[serde(skip)]
     pub discv5_config: discv5::Config,
@@ -101,7 +82,7 @@ pub struct Config {
     /// List of libp2p nodes to initially connect to.
     pub libp2p_nodes: Vec<Multiaddr>,
 
-    /// List of trusted libp2p nodes which are not scored.
+    /// List of trusted libp2p nodes which are not scored and marked as explicit.
     pub trusted_peers: Vec<PeerIdSerialized>,
 
     /// Disables peer scoring altogether.
@@ -157,10 +138,6 @@ pub struct Config {
 
     /// Configuration for the inbound rate limiter (requests received by this node).
     pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
-
-    /// Whether to disable logging duplicate gossip messages as WARN. If set to true, duplicate  
-    /// errors will be logged at DEBUG level.
-    pub disable_duplicate_warn_logs: bool,
 }
 
 impl Config {
@@ -297,12 +274,6 @@ impl Default for Config {
             .join(DEFAULT_BEACON_NODE_DIR)
             .join(DEFAULT_NETWORK_DIR);
 
-        // Note: Using the default config here. Use `gossipsub_config` function for getting
-        // Lighthouse specific configuration for gossipsub.
-        let gs_config = gossipsub::ConfigBuilder::default()
-            .build()
-            .expect("valid gossipsub configuration");
-
         // Discv5 Unsolicited Packet Rate Limiter
         let filter_rate_limiter = Some(
             discv5::RateLimiterBuilder::new()
@@ -354,8 +325,7 @@ impl Default for Config {
             enr_udp6_port: None,
             enr_quic6_port: None,
             enr_tcp6_port: None,
-            target_peers: 50,
-            gs_config,
+            target_peers: 100,
             discv5_config,
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
@@ -378,7 +348,6 @@ impl Default for Config {
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
-            disable_duplicate_warn_logs: false,
         }
     }
 }
@@ -458,6 +427,8 @@ pub fn gossipsub_config(
     network_load: u8,
     fork_context: Arc<ForkContext>,
     gossipsub_config_params: GossipsubConfigParams,
+    seconds_per_slot: u64,
+    slots_per_epoch: u64,
 ) -> gossipsub::Config {
     fn prefix(
         prefix: [u8; 4],
@@ -466,7 +437,11 @@ pub fn gossipsub_config(
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
         match fork_context.current_fork() {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
+            ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
@@ -486,7 +461,7 @@ pub fn gossipsub_config(
         }
     }
     let message_domain_valid_snappy = gossipsub_config_params.message_domain_valid_snappy;
-    let is_merge_enabled = fork_context.fork_exists(ForkName::Merge);
+    let is_bellatrix_enabled = fork_context.fork_exists(ForkName::Bellatrix);
     let gossip_message_id = move |message: &gossipsub::Message| {
         gossipsub::MessageId::from(
             &Sha256::digest(
@@ -497,9 +472,16 @@ pub fn gossipsub_config(
 
     let load = NetworkLoad::from(network_load);
 
+    // Since EIP 7045 (activated at the deneb fork), we allow attestations that are
+    // 2 epochs old to be circulated around the p2p network.
+    // To accommodate the increase, we should increase the duplicate cache time to filter older seen messages.
+    // 2 epochs is quite sane for pre-deneb network parameters as well.
+    // Hence we keep the same parameters for pre-deneb networks as well to avoid switching at the fork.
+    let duplicate_cache_time = Duration::from_secs(slots_per_epoch * seconds_per_slot * 2);
+
     gossipsub::ConfigBuilder::default()
         .max_transmit_size(gossip_max_size(
-            is_merge_enabled,
+            is_bellatrix_enabled,
             gossipsub_config_params.gossip_max_size,
         ))
         .heartbeat_interval(load.heartbeat_interval)
@@ -515,7 +497,7 @@ pub fn gossipsub_config(
         .history_gossip(load.history_gossip)
         .validate_messages() // require validation before propagation
         .validation_mode(gossipsub::ValidationMode::Anonymous)
-        .duplicate_cache_time(DUPLICATE_CACHE_TIME)
+        .duplicate_cache_time(duplicate_cache_time)
         .message_id_fn(gossip_message_id)
         .allow_self_origin(true)
         .build()

@@ -325,14 +325,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         if self.validator_store.produce_block_v3() {
             for validator_pubkey in proposers {
-                let builder_proposals = self
-                    .validator_store
-                    .get_builder_proposals(&validator_pubkey);
-                // Translate `builder_proposals` to a boost factor. Builder proposals set to `true`
-                // requires no boost factor, it just means "use a builder proposal if the BN returns
-                // one". On the contrary, `builder_proposals: false` indicates a preference for
-                // local payloads, so we set the builder boost factor to 0.
-                let builder_boost_factor = if !builder_proposals { Some(0) } else { None };
+                let builder_boost_factor = self.get_builder_boost_factor(&validator_pubkey);
                 let service = self.clone();
                 let log = log.clone();
                 self.inner.context.executor.spawn(
@@ -450,12 +443,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 self.validator_store
                     .sign_block(*validator_pubkey, block, slot)
                     .await
-                    .map(|b| SignedBlock::Full(PublishBlockRequest::new(b, maybe_blobs)))
+                    .map(|b| SignedBlock::Full(PublishBlockRequest::new(Arc::new(b), maybe_blobs)))
             }
             UnsignedBlock::Blinded(block) => self
                 .validator_store
                 .sign_block(*validator_pubkey, block, slot)
                 .await
+                .map(Arc::new)
                 .map(SignedBlock::Blinded),
         };
 
@@ -852,6 +846,36 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         Ok::<_, BlockError>(unsigned_block)
     }
+
+    /// Returns the builder boost factor of the given public key.
+    /// The priority order for fetching this value is:
+    ///
+    /// 1. validator_definitions.yml
+    /// 2. process level flag
+    fn get_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
+        // Apply per validator configuration first.
+        let validator_builder_boost_factor = self
+            .validator_store
+            .determine_validator_builder_boost_factor(validator_pubkey);
+
+        // Fallback to process-wide configuration if needed.
+        let maybe_builder_boost_factor = validator_builder_boost_factor.or_else(|| {
+            self.validator_store
+                .determine_default_builder_boost_factor()
+        });
+
+        if let Some(builder_boost_factor) = maybe_builder_boost_factor {
+            // if builder boost factor is set to 100 it should be treated
+            // as None to prevent unnecessary calculations that could
+            // lead to loss of information.
+            if builder_boost_factor == 100 {
+                return None;
+            }
+            return Some(builder_boost_factor);
+        }
+
+        None
+    }
 }
 
 pub enum UnsignedBlock<E: EthSpec> {
@@ -868,9 +892,10 @@ impl<E: EthSpec> UnsignedBlock<E> {
     }
 }
 
+#[derive(Debug)]
 pub enum SignedBlock<E: EthSpec> {
     Full(PublishBlockRequest<E>),
-    Blinded(SignedBlindedBeaconBlock<E>),
+    Blinded(Arc<SignedBlindedBeaconBlock<E>>),
 }
 
 impl<E: EthSpec> SignedBlock<E> {

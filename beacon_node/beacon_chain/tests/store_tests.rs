@@ -3,18 +3,17 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
     mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
-    BlockStrategy, DiskHarnessType,
+    BlockStrategy, DiskHarnessType, KZG,
 };
 use beacon_chain::{
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use eth2_network_config::TRUSTED_SETUP_BYTES;
-use kzg::TrustedSetup;
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
@@ -721,52 +720,6 @@ async fn forwards_iter_block_and_state_roots_until() {
 }
 
 #[tokio::test]
-async fn block_replay_with_inaccurate_state_roots() {
-    let num_blocks_produced = E::slots_per_epoch() * 3 + 31;
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
-    let chain = &harness.chain;
-
-    harness
-        .extend_chain(
-            num_blocks_produced as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-
-    // Slot must not be 0 mod 32 or else no blocks will be replayed.
-    let (mut head_state, head_state_root) = harness.get_current_state_and_root();
-    let head_block_root = harness.head_block_root();
-    assert_ne!(head_state.slot() % 32, 0);
-
-    let (_, mut fast_head_state) = store
-        .get_inconsistent_state_for_attestation_verification_only(
-            &head_block_root,
-            head_state.slot(),
-            head_state_root,
-        )
-        .unwrap()
-        .unwrap();
-    assert_eq!(head_state.validators(), fast_head_state.validators());
-
-    head_state.build_all_committee_caches(&chain.spec).unwrap();
-    fast_head_state
-        .build_all_committee_caches(&chain.spec)
-        .unwrap();
-
-    assert_eq!(
-        head_state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)
-            .unwrap(),
-        fast_head_state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)
-            .unwrap()
-    );
-}
-
-#[tokio::test]
 async fn block_replayer_hooks() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
@@ -796,7 +749,7 @@ async fn block_replayer_hooks() {
     let mut post_block_slots = vec![];
 
     let mut replay_state = BlockReplayer::<MinimalEthSpec>::new(state, &chain.spec)
-        .pre_slot_hook(Box::new(|state| {
+        .pre_slot_hook(Box::new(|_, state| {
             pre_slots.push(state.slot());
             Ok(())
         }))
@@ -835,6 +788,8 @@ async fn block_replayer_hooks() {
     assert_eq!(post_block_slots, block_slots);
 
     // States match.
+    end_state.apply_pending_mutations().unwrap();
+    replay_state.apply_pending_mutations().unwrap();
     end_state.drop_all_caches().unwrap();
     replay_state.drop_all_caches().unwrap();
     assert_eq!(end_state, replay_state);
@@ -1220,9 +1175,17 @@ fn check_shuffling_compatible(
                 |committee_cache, _| {
                     let state_cache = head_state.committee_cache(RelativeEpoch::Current).unwrap();
                     if current_epoch_shuffling_is_compatible {
-                        assert_eq!(committee_cache, state_cache, "block at slot {slot}");
+                        assert_eq!(
+                            committee_cache,
+                            state_cache.as_ref(),
+                            "block at slot {slot}"
+                        );
                     } else {
-                        assert_ne!(committee_cache, state_cache, "block at slot {slot}");
+                        assert_ne!(
+                            committee_cache,
+                            state_cache.as_ref(),
+                            "block at slot {slot}"
+                        );
                     }
                     Ok(())
                 },
@@ -1252,9 +1215,9 @@ fn check_shuffling_compatible(
                 |committee_cache, _| {
                     let state_cache = head_state.committee_cache(RelativeEpoch::Previous).unwrap();
                     if previous_epoch_shuffling_is_compatible {
-                        assert_eq!(committee_cache, state_cache);
+                        assert_eq!(committee_cache, state_cache.as_ref());
                     } else {
-                        assert_ne!(committee_cache, state_cache);
+                        assert_ne!(committee_cache, state_cache.as_ref());
                     }
                     Ok(())
                 },
@@ -2268,17 +2231,17 @@ async fn garbage_collect_temp_states_from_failed_block() {
         let block_slot = Slot::new(2 * slots_per_epoch);
         let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
 
-        let (mut block, _) = signed_block.deconstruct();
+        let (mut block, _) = (*signed_block).clone().deconstruct();
 
         // Mutate the block to make it invalid, and re-sign it.
         *block.state_root_mut() = Hash256::repeat_byte(0xff);
         let proposer_index = block.proposer_index() as usize;
-        let block = block.sign(
+        let block = Arc::new(block.sign(
             &harness.validator_keypairs[proposer_index].sk,
             &state.fork(),
             state.genesis_validators_root(),
             &harness.spec,
-        );
+        ));
 
         // The block should be rejected, but should store a bunch of temporary states.
         harness.set_current_slot(block_slot);
@@ -2395,6 +2358,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .get_full_block(&wss_block_root)
         .unwrap()
         .unwrap();
+    let wss_blobs_opt = harness.chain.store.get_blobs(&wss_block_root).unwrap();
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot))
         .unwrap()
@@ -2416,9 +2380,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-        .map_err(|e| println!("Unable to read trusted setup file: {}", e))
-        .unwrap();
+    let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
 
     let mock =
         mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
@@ -2437,7 +2399,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .custom_spec(test_spec::<E>())
         .task_executor(harness.chain.task_executor.clone())
         .logger(log.clone())
-        .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
+        .weak_subjectivity_state(
+            wss_state,
+            wss_block.clone(),
+            wss_blobs_opt.clone(),
+            genesis_state,
+        )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
         .dummy_eth1_backend()
@@ -2450,11 +2417,22 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             1,
         )))
         .execution_layer(Some(mock.el))
-        .trusted_setup(trusted_setup)
+        .kzg(kzg)
         .build()
         .expect("should build");
 
     let beacon_chain = Arc::new(beacon_chain);
+    let wss_block_root = wss_block.canonical_root();
+    let store_wss_block = harness
+        .chain
+        .get_block(&wss_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+    let store_wss_blobs_opt = beacon_chain.store.get_blobs(&wss_block_root).unwrap();
+
+    assert_eq!(store_wss_block, wss_block);
+    assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
@@ -2547,6 +2525,25 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         }
     }
 
+    // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
+    // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
+    let mut batch_with_invalid_first_block = available_blocks.clone();
+    batch_with_invalid_first_block[0] = {
+        let (block_root, block, blobs) = available_blocks[0].clone().deconstruct();
+        let mut corrupt_block = (*block).clone();
+        *corrupt_block.signature_mut() = Signature::empty();
+        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), blobs)
+    };
+
+    // Importing the invalid batch should error.
+    assert!(matches!(
+        beacon_chain
+            .import_historical_block_batch(batch_with_invalid_first_block)
+            .unwrap_err(),
+        BeaconChainError::HistoricalBlockError(HistoricalBlockError::InvalidSignature)
+    ));
+
+    // Importing the batch with valid signatures should succeed.
     beacon_chain
         .import_historical_block_batch(available_blocks.clone())
         .unwrap();
@@ -2677,7 +2674,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         .chain
         .process_block(
             invalid_fork_block.canonical_root(),
-            Arc::new(invalid_fork_block.clone()),
+            invalid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -2690,7 +2687,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         .chain
         .process_block(
             valid_fork_block.canonical_root(),
-            Arc::new(valid_fork_block.clone()),
+            valid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -3498,13 +3495,12 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
         a_head.beacon_block, b_head.beacon_block,
         "head blocks should be equal"
     );
-    // Clone with committee caches only to prevent other caches from messing with the equality
-    // check.
-    assert_eq!(
-        a_head.beacon_state.clone_with_only_committee_caches(),
-        b_head.beacon_state.clone_with_only_committee_caches(),
-        "head states should be equal"
-    );
+    // Drop all caches to prevent them messing with the equality check.
+    let mut a_head_state = a_head.beacon_state.clone();
+    a_head_state.drop_all_caches().unwrap();
+    let mut b_head_state = b_head.beacon_state.clone();
+    b_head_state.drop_all_caches().unwrap();
+    assert_eq!(a_head_state, b_head_state, "head states should be equal");
     assert_eq!(a.heads(), b.heads(), "heads() should be equal");
     assert_eq!(
         a.genesis_block_root, b.genesis_block_root,
@@ -3573,16 +3569,16 @@ fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, L
 
 /// Check that all the states in a chain dump have the correct tree hash.
 fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
-    let chain_dump = harness.chain.chain_dump().unwrap();
+    let mut chain_dump = harness.chain.chain_dump().unwrap();
     let split_slot = harness.chain.store.get_split_slot();
 
     assert_eq!(chain_dump.len() as u64, expected_len);
 
-    for checkpoint in &chain_dump {
+    for checkpoint in &mut chain_dump {
         // Check that the tree hash of the stored state is as expected
         assert_eq!(
             checkpoint.beacon_state_root(),
-            checkpoint.beacon_state.tree_hash_root(),
+            checkpoint.beacon_state.update_tree_hash_cache().unwrap(),
             "tree hash of stored state is incorrect"
         );
 

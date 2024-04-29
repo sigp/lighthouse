@@ -14,6 +14,7 @@ mod chunk_writer;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
+pub mod consensus_context;
 pub mod errors;
 mod forwards_iter;
 mod garbage_collection;
@@ -25,11 +26,13 @@ pub mod metadata;
 pub mod metrics;
 mod partial_beacon_state;
 pub mod reconstruct;
+pub mod state_cache;
 
 pub mod iter;
 
 pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
+pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
@@ -80,8 +83,22 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// this method. In future we may implement a safer mandatory locking scheme.
     fn begin_rw_transaction(&self) -> MutexGuard<()>;
 
-    /// Compact the database, freeing space used by deleted items.
-    fn compact(&self) -> Result<(), Error>;
+    /// Compact a single column in the database, freeing space used by deleted items.
+    fn compact_column(&self, column: DBColumn) -> Result<(), Error>;
+
+    /// Compact a default set of columns that are likely to free substantial space.
+    fn compact(&self) -> Result<(), Error> {
+        // Compact state and block related columns as they are likely to have the most churn,
+        // i.e. entries being created and deleted.
+        for column in [
+            DBColumn::BeaconState,
+            DBColumn::BeaconStateSummary,
+            DBColumn::BeaconBlock,
+        ] {
+            self.compact_column(column)?;
+        }
+        Ok(())
+    }
 
     /// Iterate through all keys and values in a particular column.
     fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
