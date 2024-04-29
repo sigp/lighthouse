@@ -71,7 +71,12 @@ impl<T: BeaconChainTypes> Sampling<T> {
                 self.log.clone(),
             )),
             Entry::Occupied(_) => {
-                warn!(self.log, "Ignoring duplicate sampling request"; "id" => ?id);
+                // Sampling is triggered from multiple sources, duplicate sampling requests are
+                // likely (gossip block + gossip data column)
+                // TODO(das): Should track failed sampling request for some time? Otherwise there's
+                // a risk of a loop with multiple triggers creating the request, then failing,
+                // and repeat.
+                debug!(self.log, "Ignoring duplicate sampling request"; "id" => ?id);
                 return None;
             }
         };

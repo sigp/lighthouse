@@ -1396,11 +1396,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_RPC_VERIFY_DATA_COLUMN_QUEUE_TOTAL,
-                    rpc_blob_queue.len() as i64,
+                    rpc_verify_data_column_queue.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_SAMPLING_RESULT_QUEUE_TOTAL,
-                    rpc_blob_queue.len() as i64,
+                    sampling_result_queue.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,

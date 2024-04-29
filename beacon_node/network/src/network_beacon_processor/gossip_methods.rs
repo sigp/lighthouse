@@ -610,7 +610,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_duration: Duration,
     ) {
         let slot = column_sidecar.slot();
-        let root = column_sidecar.block_root();
+        let block_root = column_sidecar.block_root();
         let index = column_sidecar.index;
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
@@ -635,9 +635,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.log,
                     "Successfully verified gossip data column sidecar";
                     "slot" => %slot,
-                    "root" => %root,
+                    "block_root" => %block_root,
                     "index" => %index,
                 );
+
+                // We have observed a data column sidecar with valid inclusion proof, such that
+                // `block_root` must have data. The column may or not be imported yet.
+                // TODO(das): Sampling should check that sampling is not completed already.
+                //
+                // Trigger sampling early, potentially before processing the block. At this point column
+                // custodials may not have received all their columns. Triggering sampling so early is
+                // only viable with either:
+                // - Sync delaying sampling until some latter window
+                // - Re-processing early sampling requests: https://github.com/sigp/lighthouse/pull/5569
+                self.send_sync_message(SyncMessage::SampleBlock(block_root, slot));
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -1263,6 +1274,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processing_start_time = Instant::now();
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
+
+        if block.num_expected_blobs() > 0 {
+            // Trigger sampling for block not yet execution valid. At this point column custodials are
+            // unlikely to have received their columns. Triggering sampling so early is only viable with
+            // either:
+            // - Sync delaying sampling until some latter window
+            // - Re-processing early sampling requests: https://github.com/sigp/lighthouse/pull/5569
+            self.send_sync_message(SyncMessage::SampleBlock(block_root, block.slot()));
+        }
 
         let result = self
             .chain

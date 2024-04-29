@@ -93,7 +93,7 @@ lazy_static::lazy_static! {
     );
     // Sampling result
     pub static ref BEACON_PROCESSOR_SAMPLING_RESULT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_rpc_blob_queue_total",
+        "beacon_processor_sampling_result_queue_total",
         "Count of sampling results waiting to be processed."
     );
     // Chain segments.
