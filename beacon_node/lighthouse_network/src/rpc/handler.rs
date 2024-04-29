@@ -207,9 +207,9 @@ pub enum OutboundSubstreamState<E: EthSpec> {
         /// Keeps track of the actual request sent.
         request: OutboundRequest<E>,
     },
-    /// Closing an outbound substream>
+    /// Closing an outbound substream.
     Closing(Box<OutboundFramed<Stream, E>>),
-    /// Temporary state during processing
+    /// Temporary state during processing.
     Poisoned,
 }
 
@@ -350,6 +350,24 @@ where
 
     fn connection_keep_alive(&self) -> bool {
         !matches!(self.state, HandlerState::Deactivated)
+    }
+
+    // NOTE: This function gets polled to completion upon a connection close.
+    fn poll_close(&mut self, _: &mut Context<'_>) -> Poll<Option<Self::ToBehaviour>> {
+        // Inform the network behaviour of any failed requests
+
+        while let Some(substream_id) = self.outbound_substreams.keys().next().cloned() {
+            let outbound_info = self.outbound_substreams.remove(&substream_id).expect("The value must exist for a key");
+            // If the state of the connection is closing, we do not need to report this case to
+            // the behaviour, as the connection has just closed non-gracefully
+            if matches!(outbound_info.state, OutboundSubstreamState::Closing(_)) {
+                continue;
+            }
+
+            // Register this request as an RPC Error
+            return Poll::Ready(Some(HandlerEvent::Err(HandlerErr::Outbound{ error: RPCError::Disconnected, proto: outbound_info.proto, id: outbound_info.req_id} )));
+        }
+        return Poll::Ready(None)
     }
 
     fn poll(
