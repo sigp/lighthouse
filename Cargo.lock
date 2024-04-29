@@ -8998,6 +8998,7 @@ dependencies = [
  "eth2",
  "eth2_keystore",
  "ethereum_serde_utils",
+ "fdlimit",
  "filesystem",
  "futures",
  "hex",
