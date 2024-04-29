@@ -245,7 +245,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState {
     }
 }
 
-impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
+impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState {
     type RequestType = BlobsByRootSingleBlockRequest;
     type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
     type ReconstructedResponseType = FixedBlobSidecarList<T::EthSpec>;
