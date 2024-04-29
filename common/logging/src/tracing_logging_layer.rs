@@ -7,7 +7,9 @@ use tracing_subscriber::Layer;
 
 pub struct LoggingLayer {
     pub libp2p_non_blocking_writer: NonBlocking,
+    pub libp2p_guard: WorkerGuard,
     pub discv5_non_blocking_writer: NonBlocking,
+    pub discv5_guard: WorkerGuard,
 }
 
 impl<S> Layer<S> for LoggingLayer
