@@ -88,6 +88,7 @@ pub enum ProcessResult {
 
 /// The ways a backfill sync can fail.
 // The info in the enum variants is displayed in logging, clippy thinks it's dead code.
+#[derive(Debug)]
 pub enum BackFillError {
     /// A batch failed to be downloaded.
     BatchDownloadFailed(#[allow(dead_code)] BatchId),
