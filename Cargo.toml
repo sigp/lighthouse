@@ -89,6 +89,9 @@ bincode = "1"
 bitvec = "1"
 byteorder = "1"
 bytes = "1"
+# TODO(das): switch to c-kzg crate before merging back to unstable (and disable default-features) if possible
+# Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
+# feature ourselves when desired.
 c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", branch = "das" }
 clap = "2"
 compare_fields_derive = { path = "common/compare_fields_derive" }
@@ -101,7 +104,7 @@ discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
-ethereum_hashing = "1.0.0-beta.2"
+ethereum_hashing = "0.6.0"
 ethereum_serde_utils = "0.5.2"
 ethereum_ssz = "0.5"
 ethereum_ssz_derive = "0.5"
@@ -119,6 +122,7 @@ libsecp256k1 = "0.7"
 log = "0.4"
 lru = "0.12"
 maplit = "1"
+milhouse = "0.1"
 mockall = "0.12"
 mockall_double = "0.3"
 num_cpus = "1"
@@ -133,6 +137,7 @@ rayon = "1.7"
 regex = "1"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "stream", "rustls-tls", "native-tls-vendored"] }
 ring = "0.16"
+rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -145,9 +150,9 @@ slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
 smallvec = "1.11.2"
 snap = "1"
-ssz_types = "0.5"
+ssz_types = "0.6"
 strum = { version = "0.24", features = ["derive"] }
-superstruct = "0.6"
+superstruct = "0.7"
 syn = "1"
 sysinfo = "0.26"
 tempfile = "3"
@@ -159,8 +164,8 @@ tracing-appender = "0.2"
 tracing-core = "0.1"
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tree_hash = "0.5"
-tree_hash_derive = "0.5"
+tree_hash = "0.6"
+tree_hash_derive = "0.6"
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 warp = { version = "0.3.7", default-features = false, features = ["tls"] }

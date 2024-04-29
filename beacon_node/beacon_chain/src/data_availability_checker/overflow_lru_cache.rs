@@ -1272,17 +1272,17 @@ mod test {
 
         // go to bellatrix slot
         harness.extend_to_slot(bellatrix_fork_slot).await;
-        let merge_head = &harness.chain.head_snapshot().beacon_block;
-        assert!(merge_head.as_merge().is_ok());
-        assert_eq!(merge_head.slot(), bellatrix_fork_slot);
+        let bellatrix_head = &harness.chain.head_snapshot().beacon_block;
+        assert!(bellatrix_head.as_bellatrix().is_ok());
+        assert_eq!(bellatrix_head.slot(), bellatrix_fork_slot);
         assert!(
-            merge_head
+            bellatrix_head
                 .message()
                 .body()
                 .execution_payload()
                 .unwrap()
                 .is_default_with_empty_roots(),
-            "Merge head is default payload"
+            "Bellatrix head is default payload"
         );
         // Trigger the terminal PoW block.
         harness
@@ -1342,7 +1342,7 @@ mod test {
         let chain = &harness.chain;
         let log = chain.log.clone();
         let head = chain.head_snapshot();
-        let parent_state = head.beacon_state.clone_with_only_committee_caches();
+        let parent_state = head.beacon_state.clone();
 
         let target_slot = chain.slot().expect("should get slot") + 1;
         let parent_root = head.beacon_block_root;

@@ -8,7 +8,7 @@ use crate::{
 use lru::LruCache;
 use parking_lot::RwLock;
 use ssz_derive::{Decode, Encode};
-use state_processing::{BlockReplayer, StateProcessingStrategy};
+use state_processing::BlockReplayer;
 use std::sync::Arc;
 use store::OnDiskConsensusContext;
 use types::beacon_block_body::KzgCommitments;
@@ -189,7 +189,6 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
         let block_replayer: BlockReplayer<'_, T::EthSpec, AvailabilityCheckError, _> =
             BlockReplayer::new(parent_state, &self.spec)
                 .no_signature_verification()
-                .state_processing_strategy(StateProcessingStrategy::Accurate)
                 .state_root_iter(state_roots.into_iter())
                 .minimal_block_root_verification();
 

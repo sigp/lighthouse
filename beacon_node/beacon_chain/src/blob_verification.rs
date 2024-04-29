@@ -2,7 +2,7 @@ use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT};
+use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::block_verification::{
     cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
     BlockSlashInfo,
@@ -11,15 +11,13 @@ use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use merkle_proof::MerkleTreeError;
-use slog::{debug, warn};
+use slog::debug;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
-use types::{
-    BeaconStateError, BlobSidecar, CloneConfig, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
-};
+use types::{BeaconStateError, BlobSidecar, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
 
 /// An error occurred while validating a gossip blob.
 #[derive(Debug)]
@@ -514,98 +512,43 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             "block_root" => %block_root,
             "index" => %blob_index,
         );
-        if let Some(mut snapshot) = chain
-            .snapshot_cache
-            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|snapshot_cache| {
-                snapshot_cache.get_cloned(block_parent_root, CloneConfig::committee_caches_only())
-            })
-        {
-            if snapshot.beacon_state.slot() == blob_slot {
-                debug!(
-                    chain.log,
-                    "Cloning snapshot cache state for blob verification";
-                    "block_root" => %block_root,
-                    "index" => %blob_index,
-                );
-                (
-                    snapshot
-                        .beacon_state
-                        .get_beacon_proposer_index(blob_slot, &chain.spec)?,
-                    snapshot.beacon_state.fork(),
-                )
-            } else {
-                debug!(
-                    chain.log,
-                    "Cloning and advancing snapshot cache state for blob verification";
-                    "block_root" => %block_root,
-                    "index" => %blob_index,
-                );
-                let state =
-                    cheap_state_advance_to_obtain_committees::<_, GossipBlobError<T::EthSpec>>(
-                        &mut snapshot.beacon_state,
-                        Some(snapshot.beacon_block_root),
-                        blob_slot,
-                        &chain.spec,
-                    )?;
-                (
-                    state.get_beacon_proposer_index(blob_slot, &chain.spec)?,
-                    state.fork(),
-                )
-            }
-        }
-        // Need to advance the state to get the proposer index
-        else {
-            warn!(
-                chain.log,
-                "Snapshot cache miss for blob verification";
-                "block_root" => %block_root,
-                "index" => %blob_index,
-            );
+        let (parent_state_root, mut parent_state) = chain
+            .store
+            .get_advanced_hot_state(block_parent_root, blob_slot, parent_block.state_root)
+            .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
+            .ok_or_else(|| {
+                BeaconChainError::DBInconsistent(format!(
+                    "Missing state for parent block {block_parent_root:?}",
+                ))
+            })?;
 
-            let parent_block = chain
-                .get_blinded_block(&block_parent_root)
-                .map_err(GossipBlobError::BeaconChainError)?
-                .ok_or_else(|| {
-                    GossipBlobError::from(BeaconChainError::MissingBeaconBlock(block_parent_root))
-                })?;
+        let state = cheap_state_advance_to_obtain_committees::<_, GossipBlobError<T::EthSpec>>(
+            &mut parent_state,
+            Some(parent_state_root),
+            blob_slot,
+            &chain.spec,
+        )?;
 
-            let mut parent_state = chain
-                .get_state(&parent_block.state_root(), Some(parent_block.slot()))?
-                .ok_or_else(|| {
-                    BeaconChainError::DBInconsistent(format!(
-                        "Missing state {:?}",
-                        parent_block.state_root()
-                    ))
-                })?;
-            let state = cheap_state_advance_to_obtain_committees::<_, GossipBlobError<T::EthSpec>>(
-                &mut parent_state,
-                Some(parent_block.state_root()),
-                blob_slot,
-                &chain.spec,
-            )?;
+        let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+        let proposer_index = *proposers
+            .get(blob_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
+            .ok_or_else(|| BeaconChainError::NoProposerForSlot(blob_slot))?;
 
-            let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
-            let proposer_index = *proposers
-                .get(blob_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
-                .ok_or_else(|| BeaconChainError::NoProposerForSlot(blob_slot))?;
-
-            let fork = state.fork();
-            // Prime the proposer shuffling cache with the newly-learned value.
-            chain.beacon_proposer_cache.lock().insert(
-                blob_epoch,
-                proposer_shuffling_root,
-                proposers,
-                fork,
-            )?;
-            (proposer_index, fork)
-        }
+        // Prime the proposer shuffling cache with the newly-learned value.
+        chain.beacon_proposer_cache.lock().insert(
+            blob_epoch,
+            proposer_shuffling_root,
+            proposers,
+            state.fork(),
+        )?;
+        (proposer_index, state.fork())
     };
 
     // Signature verify the signed block header.
     let signature_is_valid = {
         let pubkey_cache =
             get_validator_pubkey_cache(chain).map_err(|_| GossipBlobError::PubkeyCacheTimeout)?;
+
         let pubkey = pubkey_cache
             .get(proposer_index)
             .ok_or_else(|| GossipBlobError::UnknownValidator(proposer_index as u64))?;

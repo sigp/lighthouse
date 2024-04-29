@@ -43,7 +43,6 @@ use super::sampling::{Sampling, SamplingConfig, SamplingId, SamplingRequester, S
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::common::{Current, Parent};
 use crate::sync::block_lookups::{BlobRequestState, BlockRequestState};
 use crate::sync::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
 use beacon_chain::block_verification_types::AsBlock;
@@ -676,14 +675,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => match process_type {
                 BlockProcessType::SingleBlock { id } => self
                     .block_lookups
-                    .single_block_component_processed::<BlockRequestState<Current>>(
+                    .single_block_component_processed::<BlockRequestState>(
                         id,
                         result,
                         &mut self.network,
                     ),
                 BlockProcessType::SingleBlob { id } => self
                     .block_lookups
-                    .single_block_component_processed::<BlobRequestState<Current, T::EthSpec>>(
+                    .single_block_component_processed::<BlobRequestState<T::EthSpec>>(
                         id,
                         result,
                         &mut self.network,
@@ -897,7 +896,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Ok((block, seen_timestamp)) => match id.lookup_type {
                     LookupType::Current => self
                         .block_lookups
-                        .single_lookup_response::<BlockRequestState<Current>>(
+                        .single_lookup_response::<BlockRequestState>(
                             id,
                             peer_id,
                             block,
@@ -906,7 +905,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         ),
                     LookupType::Parent => self
                         .block_lookups
-                        .parent_lookup_response::<BlockRequestState<Parent>>(
+                        .parent_lookup_response::<BlockRequestState>(
                             id,
                             peer_id,
                             block,
@@ -917,7 +916,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Err(error) => match id.lookup_type {
                     LookupType::Current => self
                         .block_lookups
-                        .single_block_lookup_failed::<BlockRequestState<Current>>(
+                        .single_block_lookup_failed::<BlockRequestState>(
                             id,
                             &peer_id,
                             &mut self.network,
@@ -925,7 +924,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         ),
                     LookupType::Parent => self
                         .block_lookups
-                        .parent_lookup_failed::<BlockRequestState<Parent>>(
+                        .parent_lookup_failed::<BlockRequestState>(
                             id,
                             &peer_id,
                             &mut self.network,
@@ -999,7 +998,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Ok((blobs, seen_timestamp)) => match id.lookup_type {
                     LookupType::Current => self
                         .block_lookups
-                        .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
+                        .single_lookup_response::<BlobRequestState<T::EthSpec>>(
                             id,
                             peer_id,
                             blobs,
@@ -1008,7 +1007,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         ),
                     LookupType::Parent => self
                         .block_lookups
-                        .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
+                        .parent_lookup_response::<BlobRequestState<T::EthSpec>>(
                             id,
                             peer_id,
                             blobs,
@@ -1020,7 +1019,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Err(error) => match id.lookup_type {
                     LookupType::Current => self
                         .block_lookups
-                        .single_block_lookup_failed::<BlobRequestState<Current, T::EthSpec>>(
+                        .single_block_lookup_failed::<BlobRequestState<T::EthSpec>>(
                             id,
                             &peer_id,
                             &mut self.network,
@@ -1028,7 +1027,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         ),
                     LookupType::Parent => self
                         .block_lookups
-                        .parent_lookup_failed::<BlobRequestState<Parent, T::EthSpec>>(
+                        .parent_lookup_failed::<BlobRequestState<T::EthSpec>>(
                             id,
                             &peer_id,
                             &mut self.network,

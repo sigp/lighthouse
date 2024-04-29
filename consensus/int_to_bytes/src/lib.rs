@@ -78,7 +78,8 @@ pub fn int_to_bytes96(int: u64) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{collections::HashMap, fs::File, io::prelude::*, path::PathBuf};
+    use std::{fs::File, io::prelude::*, path::PathBuf};
+    use yaml_rust2::yaml;
 
     #[test]
     fn fixed_bytes32() {
@@ -110,13 +111,14 @@ mod tests {
 
         file.read_to_string(&mut yaml_str).unwrap();
 
-        let docs: HashMap<String, serde_yml::Value> = serde_yml::from_str(&yaml_str).unwrap();
-        let test_cases = docs["test_cases"].as_sequence().unwrap();
+        let docs = yaml::YamlLoader::load_from_str(&yaml_str).unwrap();
+        let doc = &docs[0];
+        let test_cases = doc["test_cases"].as_vec().unwrap();
 
         for test_case in test_cases {
             let byte_length = test_case["byte_length"].as_i64().unwrap() as u64;
             let int = test_case["int"].as_i64().unwrap() as u64;
-            let bytes_string = test_case["bytes"].as_str().unwrap();
+            let bytes_string = test_case["bytes"].clone().into_string().unwrap();
             let bytes = hex::decode(bytes_string.replace("0x", "")).unwrap();
 
             match byte_length {

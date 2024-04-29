@@ -26,6 +26,7 @@ pub mod metadata;
 pub mod metrics;
 mod partial_beacon_state;
 pub mod reconstruct;
+pub mod state_cache;
 
 pub mod iter;
 

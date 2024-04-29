@@ -6,6 +6,7 @@ use crate::notifier::spawn_notifier;
 use crate::Client;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
+use beacon_chain::graffiti_calculator::start_engine_version_cache_refresh_service;
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
@@ -164,7 +165,7 @@ where
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
         let chain_config = config.chain.clone();
-        let graffiti = config.graffiti;
+        let beacon_graffiti = config.beacon_graffiti;
 
         let store = store.ok_or("beacon_chain_start_method requires a store")?;
         let runtime_context =
@@ -203,7 +204,7 @@ where
                 MigratorConfig::default().epochs_per_migration(chain_config.epochs_per_migration),
             )
             .chain_config(chain_config)
-            .graffiti(graffiti)
+            .beacon_graffiti(beacon_graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
             .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
@@ -967,6 +968,10 @@ where
             start_availability_cache_maintenance_service(
                 runtime_context.executor.clone(),
                 beacon_chain.clone(),
+            );
+            start_engine_version_cache_refresh_service(
+                beacon_chain.as_ref(),
+                runtime_context.executor.clone(),
             );
             start_attestation_simulator_service(
                 beacon_chain.task_executor.clone(),

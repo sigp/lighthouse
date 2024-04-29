@@ -148,13 +148,13 @@ pub struct ChainSpec {
     pub altair_fork_epoch: Option<Epoch>,
 
     /*
-     * Merge hard fork params
+     * Bellatrix hard fork params
      */
     pub inactivity_penalty_quotient_bellatrix: u64,
     pub min_slashing_penalty_quotient_bellatrix: u64,
     pub proportional_slashing_multiplier_bellatrix: u64,
     pub bellatrix_fork_version: [u8; 4],
-    /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
+    /// The Bellatrix fork epoch is optional, with `None` representing "Bellatrix never happens".
     pub bellatrix_fork_epoch: Option<Epoch>,
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: ExecutionBlockHash,
@@ -320,7 +320,7 @@ impl ChainSpec {
                 _ => match self.capella_fork_epoch {
                     Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
                     _ => match self.bellatrix_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
                         _ => match self.altair_fork_epoch {
                             Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
                             _ => ForkName::Base,
@@ -336,7 +336,7 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
-            ForkName::Merge => self.bellatrix_fork_version,
+            ForkName::Bellatrix => self.bellatrix_fork_version,
             ForkName::Capella => self.capella_fork_version,
             ForkName::Deneb => self.deneb_fork_version,
             ForkName::Electra => self.electra_fork_version,
@@ -348,7 +348,7 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
-            ForkName::Merge => self.bellatrix_fork_epoch,
+            ForkName::Bellatrix => self.bellatrix_fork_epoch,
             ForkName::Capella => self.capella_fork_epoch,
             ForkName::Deneb => self.deneb_fork_epoch,
             ForkName::Electra => self.electra_fork_epoch,
@@ -356,7 +356,7 @@ impl ChainSpec {
     }
 
     pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name >= ForkName::Merge {
+        if fork_name >= ForkName::Bellatrix {
             self.inactivity_penalty_quotient_bellatrix
         } else if fork_name >= ForkName::Altair {
             self.inactivity_penalty_quotient_altair
@@ -371,7 +371,7 @@ impl ChainSpec {
         state: &BeaconState<E>,
     ) -> u64 {
         let fork_name = state.fork_name_unchecked();
-        if fork_name >= ForkName::Merge {
+        if fork_name >= ForkName::Bellatrix {
             self.proportional_slashing_multiplier_bellatrix
         } else if fork_name >= ForkName::Altair {
             self.proportional_slashing_multiplier_altair
@@ -388,7 +388,7 @@ impl ChainSpec {
         let fork_name = state.fork_name_unchecked();
         if fork_name >= ForkName::Electra {
             self.min_slashing_penalty_quotient_electra
-        } else if fork_name >= ForkName::Merge {
+        } else if fork_name >= ForkName::Bellatrix {
             self.min_slashing_penalty_quotient_bellatrix
         } else if fork_name >= ForkName::Altair {
             self.min_slashing_penalty_quotient_altair
@@ -703,7 +703,7 @@ impl ChainSpec {
             altair_fork_epoch: Some(Epoch::new(74240)),
 
             /*
-             * Merge hard fork params
+             * Bellatrix hard fork params
              */
             inactivity_penalty_quotient_bellatrix: u64::checked_pow(2, 24)
                 .expect("pow does not overflow"),
@@ -849,7 +849,7 @@ impl ChainSpec {
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
             altair_fork_epoch: None,
-            // Merge
+            // Bellatrix
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x01],
             bellatrix_fork_epoch: None,
             terminal_total_difficulty: Uint256::MAX
@@ -869,6 +869,8 @@ impl ChainSpec {
             // Electra
             electra_fork_version: [0x05, 0x00, 0x00, 0x01],
             electra_fork_epoch: None,
+            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 0)
+                .expect("pow does not overflow"),
             // PeerDAS
             peer_das_epoch: None,
             // Other
@@ -1012,7 +1014,7 @@ impl ChainSpec {
             altair_fork_epoch: Some(Epoch::new(512)),
 
             /*
-             * Merge hard fork params
+             * Bellatrix hard fork params
              */
             inactivity_penalty_quotient_bellatrix: u64::checked_pow(2, 24)
                 .expect("pow does not overflow"),

@@ -10,8 +10,8 @@ use types::{
     Attestation, AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec,
     ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
     ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
-    SignedBeaconBlockElectra, SignedBeaconBlockMerge, SignedBlsToExecutionChange,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
@@ -184,8 +184,8 @@ impl<E: EthSpec> PubsubMessage<E> {
                                     SignedBeaconBlockAltair::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Merge) => SignedBeaconBlock::<E>::Merge(
-                                    SignedBeaconBlockMerge::from_ssz_bytes(data)
+                                Some(ForkName::Bellatrix) => SignedBeaconBlock::<E>::Bellatrix(
+                                    SignedBeaconBlockBellatrix::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 Some(ForkName::Capella) => SignedBeaconBlock::<E>::Capella(
@@ -224,7 +224,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                             Some(
                                 ForkName::Base
                                 | ForkName::Altair
-                                | ForkName::Merge
+                                | ForkName::Bellatrix
                                 | ForkName::Capella,
                             )
                             | None => Err(format!(
@@ -248,7 +248,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                             Some(
                                 ForkName::Base
                                 | ForkName::Altair
-                                | ForkName::Merge
+                                | ForkName::Bellatrix
                                 | ForkName::Capella,
                             )
                             | None => Err(format!(
