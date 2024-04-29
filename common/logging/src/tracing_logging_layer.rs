@@ -1,7 +1,7 @@
 use chrono::prelude::*;
 use std::io::Write;
 use tracing::Subscriber;
-use tracing_appender::non_blocking::NonBlocking;
+use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::Layer;
 
