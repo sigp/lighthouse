@@ -639,17 +639,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "index" => %index,
                 );
 
-                // We have observed a data column sidecar with valid inclusion proof, such that
-                // `block_root` must have data. The column may or not be imported yet.
-                // TODO(das): Sampling should check that sampling is not completed already.
-                //
-                // Trigger sampling early, potentially before processing the block. At this point column
-                // custodials may not have received all their columns. Triggering sampling so early is
-                // only viable with either:
-                // - Sync delaying sampling until some latter window
-                // - Re-processing early sampling requests: https://github.com/sigp/lighthouse/pull/5569
-                self.send_sync_message(SyncMessage::SampleBlock(block_root, slot));
-
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
                 // Log metrics to keep track of propagation delay times.
@@ -1281,7 +1270,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // either:
             // - Sync delaying sampling until some latter window
             // - Re-processing early sampling requests: https://github.com/sigp/lighthouse/pull/5569
-            self.send_sync_message(SyncMessage::SampleBlock(block_root, block.slot()));
+            if self
+                .chain
+                .spec
+                .peer_das_epoch
+                .map_or(false, |peer_das_epoch| block.epoch() >= peer_das_epoch)
+            {
+                self.send_sync_message(SyncMessage::SampleBlock(block_root, block.slot()));
+            }
         }
 
         let result = self

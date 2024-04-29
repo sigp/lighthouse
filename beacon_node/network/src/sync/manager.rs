@@ -91,7 +91,7 @@ pub enum RequestId {
     SingleBlock { id: SingleLookupReqId },
     /// Request searching for a set of blobs given a hash.
     SingleBlob { id: SingleLookupReqId },
-    /// TODO
+    /// Request searching for a set of data columns given a hash and list of column indices.
     DataColumnsByRoot(Id),
     /// Range request that is composed by both a block range request and a blob range request.
     RangeBlockAndBlobs { id: Id },

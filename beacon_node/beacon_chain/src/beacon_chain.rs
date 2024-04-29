@@ -2860,6 +2860,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// be pruned on finalization, on a timeout or by a max count.
     pub async fn process_sampling_completed(self: &Arc<Self>, block_root: Hash256) {
         // TODO(das): update fork-choice
+        // NOTE: It is possible that sampling complets before block is imported into fork choice,
+        // in that case we may need to update availability cache.
         // TODO(das): These log levels are too high, reduce once DAS matures
         info!(self.log, "Sampling completed"; "block_root" => %block_root);
     }

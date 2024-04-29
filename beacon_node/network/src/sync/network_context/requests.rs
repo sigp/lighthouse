@@ -195,32 +195,32 @@ impl<E: EthSpec, T: Copy> ActiveDataColumnsByRootRequest<E, T> {
     /// The active request SHOULD be dropped after `add_response` returns an error
     pub fn add_response(
         &mut self,
-        blob: Arc<DataColumnSidecar<E>>,
+        data_column: Arc<DataColumnSidecar<E>>,
     ) -> Result<Option<Vec<Arc<DataColumnSidecar<E>>>>, RPCError> {
         if self.resolved {
             return Err(RPCError::InvalidData("too many responses".to_string()));
         }
 
-        let block_root = blob.block_root();
+        let block_root = data_column.block_root();
         if self.request.block_root != block_root {
             return Err(RPCError::InvalidData(format!(
                 "un-requested block root {block_root:?}"
             )));
         }
-        if !blob.verify_inclusion_proof().unwrap_or(false) {
+        if !data_column.verify_inclusion_proof().unwrap_or(false) {
             return Err(RPCError::InvalidData("invalid inclusion proof".to_string()));
         }
-        if !self.request.indices.contains(&blob.index) {
+        if !self.request.indices.contains(&data_column.index) {
             return Err(RPCError::InvalidData(format!(
                 "un-requested index {}",
-                blob.index
+                data_column.index
             )));
         }
-        if self.items.iter().any(|b| b.index == blob.index) {
+        if self.items.iter().any(|b| b.index == data_column.index) {
             return Err(RPCError::InvalidData("duplicated data".to_string()));
         }
 
-        self.items.push(blob);
+        self.items.push(data_column);
         if self.items.len() >= self.request.indices.len() {
             // All expected chunks received, return result early
             self.resolved = true;
