@@ -615,7 +615,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
-                debug!(self.log, "Received unknown block hash message"; "block_root" => %block_root);
                 self.handle_unknown_block_root(peer_id, block_root);
             }
             SyncMessage::Disconnect(peer_id) => {
