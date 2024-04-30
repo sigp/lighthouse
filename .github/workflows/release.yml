@@ -52,7 +52,7 @@ jobs:
                         runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
                         profile: maxperf
                     -   arch: x86_64-apple-darwin
-                        runner: macos-latest
+                        runner: macos-13
                         profile: maxperf
                     -   arch: x86_64-apple-darwin-portable
                         runner: macos-latest
