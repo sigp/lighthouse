@@ -28,15 +28,10 @@ pub enum ResponseType {
 /// is further back than the most recent head slot.
 pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 
-pub enum AwaitingParent {
-    True,
-    False,
-}
-
-pub enum BlockIsProcessed {
-    True,
-    False,
-}
+/// Wrapper around bool to prevent mixing this argument with `BlockIsProcessed`
+pub(crate) struct AwaitingParent(pub bool);
+/// Wrapper around bool to prevent mixing this argument with `AwaitingParent`
+pub(crate) struct BlockIsProcessed(pub bool);
 
 /// This trait unifies common single block lookup functionality across blocks and blobs. This
 /// includes making requests, verifying responses, and handling processing results. A
@@ -84,9 +79,8 @@ pub trait RequestState<T: BeaconChainTypes> {
         // Otherwise, attempt to progress awaiting processing
         // If this request is awaiting a parent lookup to be processed, do not send for processing.
         // The request will be rejected with unknown parent error.
-        } else if matches!(awaiting_parent, AwaitingParent::False)
-            && (matches!(block_is_processed, BlockIsProcessed::True)
-                || matches!(Self::response_type(), ResponseType::Block))
+        } else if !awaiting_parent.0
+            && (block_is_processed.0 || matches!(Self::response_type(), ResponseType::Block))
         {
             // maybe_start_processing returns Some if state == AwaitingProcess. This pattern is
             // useful to conditionally access the result data.

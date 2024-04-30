@@ -126,26 +126,18 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         let id = self.id;
-        let awaiting_parent = if self.awaiting_parent.is_some() {
-            AwaitingParent::True
-        } else {
-            AwaitingParent::False
-        };
+        let awaiting_parent = self.awaiting_parent.is_some();
         let downloaded_block_expected_blobs = self
             .block_request_state
             .state
             .peek_downloaded_data()
             .map(|block| block.num_expected_blobs());
-        let block_is_processed = if self.block_request_state.state.is_processed() {
-            BlockIsProcessed::True
-        } else {
-            BlockIsProcessed::False
-        };
+        let block_is_processed = self.block_request_state.state.is_processed();
         R::request_state_mut(self).continue_request(
             id,
-            awaiting_parent,
+            AwaitingParent(awaiting_parent),
             downloaded_block_expected_blobs,
-            block_is_processed,
+            BlockIsProcessed(block_is_processed),
             cx,
         )
     }

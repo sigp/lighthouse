@@ -1,10 +1,9 @@
-use std::collections::{HashMap, HashSet};
-
+use super::single_block_lookup::SingleBlockLookup;
 use beacon_chain::BeaconChainTypes;
+use std::collections::{HashMap, HashSet};
 use types::Hash256;
 
-use super::single_block_lookup::SingleBlockLookup;
-
+/// Summary of a lookup of which we may not know it's parent_root yet
 pub(crate) struct Node {
     block_root: Hash256,
     parent_root: Option<Hash256>,
@@ -19,6 +18,7 @@ impl<T: BeaconChainTypes> From<&SingleBlockLookup<T>> for Node {
     }
 }
 
+/// Wrapper around a chain of block roots that have a least one element (tip)
 pub(crate) struct NodeChain {
     // Parent chain blocks in descending slot order
     pub(crate) chain: Vec<Hash256>,
@@ -26,6 +26,7 @@ pub(crate) struct NodeChain {
 }
 
 impl NodeChain {
+    /// Returns the block_root of the oldest ancestor (min slot) of this chain
     pub(crate) fn ancestor(&self) -> Hash256 {
         self.chain.last().copied().unwrap_or(self.tip)
     }
@@ -58,16 +59,14 @@ pub(crate) fn compute_parent_chains(nodes: &[Node]) -> Vec<NodeChain> {
             let mut chain = vec![];
 
             // Resolve chain of blocks
-            'inner: loop {
-                if let Some(parent_root) = child_to_parent.get(&block_root) {
-                    // block_root is a known block that may or may not have a parent root
-                    chain.push(block_root);
-                    if let Some(parent_root) = parent_root {
-                        block_root = *parent_root;
-                        continue 'inner;
-                    }
+            while let Some(parent_root) = child_to_parent.get(&block_root) {
+                // block_root is a known block that may or may not have a parent root
+                chain.push(block_root);
+                if let Some(parent_root) = parent_root {
+                    block_root = *parent_root;
+                } else {
+                    break;
                 }
-                break 'inner;
             }
 
             if chain.len() > 1 {
