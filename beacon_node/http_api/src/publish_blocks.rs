@@ -5,7 +5,7 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
-    GossipVerifiedBlock, IntoGossipVerifiedBlock, NotifyExecutionLayer,
+    IntoGossipVerifiedBlock, NotifyExecutionLayer,
 };
 use eth2::types::{BlobsBundle, BroadcastValidation, PublishBlockRequest, SignedBlockContents};
 use eth2::types::{ExecutionPayloadAndBlobs, FullPayloadContents};
@@ -485,7 +485,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
         }
         Some(ProvenancedPayload::Builder(full_payload_contents)) => {
             into_full_block_and_blobs::<T>(block, full_payload_contents)
-                .map(|(block, blobs)| ProvenancedBlock::local(block, blobs))
+                .map(|(block, blobs)| ProvenancedBlock::builder(block, blobs))
         }
     }
     .map_err(|e| {
@@ -568,6 +568,7 @@ fn check_slashable<T: BeaconChainTypes>(
 }
 
 /// Converting from a `SignedBlindedBeaconBlock` into a full `SignedBlockContents`.
+#[allow(clippy::type_complexity)]
 pub fn into_full_block_and_blobs<T: BeaconChainTypes>(
     blinded_block: SignedBlindedBeaconBlock<T::EthSpec>,
     maybe_full_payload_contents: FullPayloadContents<T::EthSpec>,

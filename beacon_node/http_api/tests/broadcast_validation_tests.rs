@@ -368,10 +368,9 @@ pub async fn consensus_partial_pass_only_consensus() {
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let publish_block_req = PublishBlockRequest::new(block_b.clone(), blobs_b.clone());
-    let gossip_block_contents_b = parts_to_gossip_verified(block_b, blobs_b, &tester);
-    assert!(gossip_block_contents_b.is_ok());
-    let gossip_block_a = GossipVerifiedBlock::new(block_a.clone().into(), &tester.harness.chain);
+    let gossip_block_b = block_b.into_gossip_verified_block(&tester.harness.chain);
+    assert!(gossip_block_b.is_ok());
+    let gossip_block_a = block_a.into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
     /* submit `block_b` which should induce equivocation */
@@ -379,7 +378,7 @@ pub async fn consensus_partial_pass_only_consensus() {
 
     let publication_result = publish_block(
         None,
-        ProvenancedBlock::local_from_publish_request(publish_block_req),
+        ProvenancedBlock::local(gossip_block_b.unwrap(), blobs_b),
         tester.harness.chain.clone(),
         &channel.0,
         test_logger,
@@ -652,7 +651,7 @@ pub async fn equivocation_consensus_late_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, blobs_a), state_after_a) =
+    let ((block_a, _blobs_a), state_after_a) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
     let ((block_b, blobs_b), state_after_b) = tester.harness.make_block(state_a, slot_b).await;
 
@@ -1375,42 +1374,4 @@ pub async fn blinded_equivocation_full_pass() {
         .harness
         .chain
         .block_is_known_to_fork_choice(&block.canonical_root()));
-}
-
-fn parts_to_gossip_verified<E: EthSpec>(
-    block: Arc<SignedBeaconBlock<E>>,
-    blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
-    tester: &InteractiveTester<E>,
-) -> Result<
-    (
-        GossipVerifiedBlock<EphemeralHarnessType<E>>,
-        Vec<GossipVerifiedBlob<EphemeralHarnessType<E>>>,
-    ),
-    String,
-> {
-    let blobs = blob_items
-        .map(|(proofs, blobs)| {
-            proofs
-                .into_iter()
-                .zip(blobs.into_iter())
-                .enumerate()
-                .map(|(i, (proof, blob))| {
-                    GossipVerifiedBlob::<EphemeralHarnessType<E>>::new(
-                        Arc::new(
-                            BlobSidecar::new(i, blob, &block, proof)
-                                .map_err(|e| format!("Failed to create BlobSidecar: {:?}", e))?,
-                        ),
-                        i as u64,
-                        tester.harness.chain.as_ref(),
-                    )
-                    .map_err(|e| format!("Failed to create GossipVerifiedBlob: {:?}", e))
-                })
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
-        .unwrap_or_default();
-    let verified_block =
-        GossipVerifiedBlock::<EphemeralHarnessType<E>>::new(block, &tester.harness.chain)
-            .map_err(|e| format!("Failed to create GossipVerifiedBlock: {:?}", e))?;
-    Ok((verified_block, blobs))
 }
