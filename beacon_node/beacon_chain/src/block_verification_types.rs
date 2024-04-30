@@ -1,8 +1,10 @@
-use crate::blob_verification::{GossipBlobError, GossipVerifiedBlobList};
+use crate::blob_verification::{GossipBlobError, KzgVerifiedBlobList};
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
-use crate::{get_block_root, GossipVerifiedBlock, PayloadVerificationOutcome};
+use crate::{
+    get_block_root, BeaconChainTypes, BlockError, GossipVerifiedBlock, PayloadVerificationOutcome,
+};
 use derivative::Derivative;
 use ssz_types::VariableList;
 use state_processing::ConsensusContext;
@@ -10,8 +12,8 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecarError, FixedBlobSidecarList};
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecar, BlobSidecarList, Epoch, EthSpec,
+    Hash256, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// A block that has been received over RPC. It has 2 internal variants:
@@ -308,29 +310,30 @@ pub struct BlockImportData<E: EthSpec> {
     pub consensus_context: ConsensusContext<E>,
 }
 
-pub type GossipVerifiedBlockContents<E> =
-    (GossipVerifiedBlock<E>, Option<GossipVerifiedBlobList<E>>);
+pub type GossipVerifiedBlockContents<T> = (
+    GossipVerifiedBlock<T>,
+    Option<Vec<Arc<BlobSidecar<<T as BeaconChainTypes>::EthSpec>>>>,
+);
 
-// FIXME(sproul): delete?
 #[derive(Debug)]
-pub enum BlobVerificationError<E: EthSpec> {
-    BlobError(GossipBlobError<E>),
+pub enum BlockContentsError<E: EthSpec> {
+    BlockError(BlockError<E>),
     SidecarError(BlobSidecarError),
 }
 
-impl<E: EthSpec> From<GossipBlobError<E>> for BlobVerificationError<E> {
-    fn from(value: GossipBlobError<E>) -> Self {
-        Self::BlobError(value)
+impl<E: EthSpec> From<BlockError<E>> for BlockContentsError<E> {
+    fn from(value: BlockError<E>) -> Self {
+        Self::BlockError(value)
     }
 }
 
-impl<E: EthSpec> std::fmt::Display for BlobVerificationError<E> {
+impl<E: EthSpec> std::fmt::Display for BlockContentsError<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BlobVerificationError::BlobError(err) => {
-                write!(f, "BlobError({})", err)
+            BlockContentsError::BlockError(err) => {
+                write!(f, "BlockError({})", err)
             }
-            BlobVerificationError::SidecarError(err) => {
+            BlockContentsError::SidecarError(err) => {
                 write!(f, "SidecarError({:?})", err)
             }
         }

@@ -6748,10 +6748,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ForkName::Base => Err(Error::UnsupportedFork),
         }
     }
-
-    pub fn __clear_observed_slashable_cache(&self) {
-        *self.observed_slashable.write() = <_>::default();
-    }
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {

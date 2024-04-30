@@ -2,7 +2,7 @@ use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::test_utils::EphemeralHarnessType;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
-    GossipVerifiedBlock,
+    GossipVerifiedBlock, IntoGossipVerifiedBlock,
 };
 use eth2::reqwest::StatusCode;
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
@@ -388,7 +388,7 @@ pub async fn consensus_partial_pass_only_consensus() {
     )
     .await;
 
-    assert!(publication_result.is_ok());
+    assert!(publication_result.is_ok(), "{publication_result:?}");
     assert!(tester
         .harness
         .chain
@@ -661,21 +661,17 @@ pub async fn equivocation_consensus_late_equivocation() {
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let publish_block_req = PublishBlockRequest::new(block_b.clone(), blobs_b.clone());
-    let gossip_block_contents_b = parts_to_gossip_verified(block_b, blobs_b, &tester);
-    assert!(gossip_block_contents_b.is_ok());
+    let gossip_block_b = block_b.into_gossip_verified_block(&tester.harness.chain);
+    assert!(gossip_block_b.is_ok());
 
-    let gossip_block_contents_a = parts_to_gossip_verified(block_a, blobs_a, &tester);
-    assert!(gossip_block_contents_a.is_err());
+    let gossip_block_a = block_a.into_gossip_verified_block(&tester.harness.chain);
+    assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
-    // Clear the equivocation cache to simulate a late equivocation.
-    tester.harness.chain.__clear_observed_slashable_cache();
-
     let publication_result = publish_block(
         None,
-        ProvenancedBlock::local_from_publish_request(publish_block_req),
+        ProvenancedBlock::local(gossip_block_b.unwrap(), blobs_b),
         tester.harness.chain,
         &channel.0,
         test_logger,
@@ -691,8 +687,8 @@ pub async fn equivocation_consensus_late_equivocation() {
     assert!(publication_error.find::<CustomBadRequest>().is_some());
 
     assert_eq!(
-        *publication_error.find::<CustomBadRequest>().unwrap().0,
-        "proposal for this slot and proposer has already been seen".to_string()
+        publication_error.find::<CustomBadRequest>().unwrap().0,
+        "proposal for this slot and proposer has already been seen"
     );
 }
 
@@ -1306,21 +1302,18 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     .unwrap();
 
     let inner_block_a = match unblinded_block_a {
-        ProvenancedBlock::Local((a, _)) => a,
-        ProvenancedBlock::Builder((a, _)) => a,
+        ProvenancedBlock::Local(a, _, _) => a,
+        ProvenancedBlock::Builder(a, _, _) => a,
     };
     let inner_block_b = match unblinded_block_b {
-        ProvenancedBlock::Local((b, _)) => b,
-        ProvenancedBlock::Builder((b, _)) => b,
+        ProvenancedBlock::Local(b, _, _) => b,
+        ProvenancedBlock::Builder(b, _, _) => b,
     };
 
     let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);
     assert!(gossip_block_b.is_ok());
     let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
     assert!(gossip_block_a.is_err());
-
-    // Clear the equivocation cache to simulate a late equivocation.
-    tester.harness.chain.__clear_observed_slashable_cache();
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
