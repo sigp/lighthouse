@@ -1,7 +1,6 @@
-use super::single_block_lookup::{LookupRequestError, LookupVerifyError, SingleBlockLookup};
+use super::common::LookupType;
+use super::single_block_lookup::{LookupRequestError, SingleBlockLookup};
 use super::{DownloadedBlock, PeerId};
-use crate::sync::block_lookups::common::Parent;
-use crate::sync::block_lookups::common::RequestState;
 use crate::sync::{manager::SLOT_IMPORT_TOLERANCE, network_context::SyncNetworkContext};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -10,8 +9,6 @@ use beacon_chain::BeaconChainTypes;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use store::Hash256;
-use strum::IntoStaticStr;
-use types::blob_sidecar::BlobIdentifier;
 
 /// How many attempts we try to find a parent of a block before we give up trying.
 pub(crate) const PARENT_FAIL_TOLERANCE: u8 = 5;
@@ -27,25 +24,11 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     /// The blocks that have currently been downloaded.
     downloaded_blocks: Vec<DownloadedBlock<T::EthSpec>>,
     /// Request of the last parent.
-    pub current_parent_request: SingleBlockLookup<Parent, T>,
-}
-
-#[derive(Debug, PartialEq, Eq, IntoStaticStr)]
-pub enum ParentVerifyError {
-    RootMismatch,
-    NoBlockReturned,
-    NotEnoughBlobsReturned,
-    ExtraBlocksReturned,
-    UnrequestedBlobId(BlobIdentifier),
-    InvalidInclusionProof,
-    UnrequestedHeader,
-    ExtraBlobsReturned,
-    InvalidIndex(u64),
-    PreviousFailure { parent_root: Hash256 },
+    pub current_parent_request: SingleBlockLookup<T>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum RequestError {
+pub(crate) enum RequestError {
     SendFailed(&'static str),
     ChainTooLong,
     /// We witnessed too many failures trying to complete this parent lookup.
@@ -72,6 +55,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             &[peer_id],
             da_checker,
             cx.next_id(),
+            LookupType::Parent,
         );
 
         Self {
@@ -92,7 +76,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     }
 
     /// Attempts to request the next unknown parent. If the request fails, it should be removed.
-    pub fn request_parent(&mut self, cx: &SyncNetworkContext<T>) -> Result<(), RequestError> {
+    pub fn request_parent(&mut self, cx: &mut SyncNetworkContext<T>) -> Result<(), RequestError> {
         // check to make sure this request hasn't failed
         if self.downloaded_blocks.len() + 1 >= PARENT_DEPTH_TOLERANCE {
             return Err(RequestError::ChainTooLong);
@@ -149,7 +133,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         Hash256,
         VecDeque<RpcBlock<T::EthSpec>>,
         Vec<Hash256>,
-        SingleBlockLookup<Parent, T>,
+        SingleBlockLookup<T>,
     ) {
         let ParentLookup {
             chain_hash,
@@ -186,34 +170,6 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         }
     }
 
-    /// Verifies that the received block is what we requested. If so, parent lookup now waits for
-    /// the processing result of the block.
-    pub fn verify_response<R: RequestState<Parent, T>>(
-        &mut self,
-        peer_id: PeerId,
-        block: Option<R::ResponseType>,
-        failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
-    ) -> Result<Option<R::VerifiedResponseType>, ParentVerifyError> {
-        let expected_block_root = self.current_parent_request.block_root();
-        let request_state = R::request_state_mut(&mut self.current_parent_request);
-        let root_and_verified =
-            request_state.verify_response(expected_block_root, peer_id, block)?;
-
-        // check if the parent of this block isn't in the failed cache. If it is, this chain should
-        // be dropped and the peer downscored.
-        if let Some(parent_root) = root_and_verified
-            .as_ref()
-            .and_then(|block| R::get_parent_root(block))
-        {
-            if failed_chains.contains(&parent_root) {
-                request_state.register_failure_downloading();
-                return Err(ParentVerifyError::PreviousFailure { parent_root });
-            }
-        }
-
-        Ok(root_and_verified)
-    }
-
     pub fn add_peer(&mut self, peer: PeerId) {
         self.current_parent_request.add_peer(peer)
     }
@@ -225,23 +181,6 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
 
     pub fn all_used_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
         self.current_parent_request.all_used_peers()
-    }
-}
-
-impl From<LookupVerifyError> for ParentVerifyError {
-    fn from(e: LookupVerifyError) -> Self {
-        use LookupVerifyError as E;
-        match e {
-            E::RootMismatch => ParentVerifyError::RootMismatch,
-            E::NoBlockReturned => ParentVerifyError::NoBlockReturned,
-            E::ExtraBlocksReturned => ParentVerifyError::ExtraBlocksReturned,
-            E::UnrequestedBlobId(blob_id) => ParentVerifyError::UnrequestedBlobId(blob_id),
-            E::InvalidInclusionProof => ParentVerifyError::InvalidInclusionProof,
-            E::UnrequestedHeader => ParentVerifyError::UnrequestedHeader,
-            E::ExtraBlobsReturned => ParentVerifyError::ExtraBlobsReturned,
-            E::InvalidIndex(index) => ParentVerifyError::InvalidIndex(index),
-            E::NotEnoughBlobsReturned => ParentVerifyError::NotEnoughBlobsReturned,
-        }
     }
 }
 
@@ -282,7 +221,7 @@ impl RequestError {
             }
             RequestError::TooManyAttempts { cannot_process: _ } => "too_many_downloading_attempts",
             RequestError::NoPeers => "no_peers",
-            RequestError::BadState(_) => "bad_state",
+            RequestError::BadState(..) => "bad_state",
         }
     }
 }

@@ -5,7 +5,7 @@ use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
-    ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
+    ConsensusContext, VerifyBlockRoot,
 };
 use types::{BeaconState, RelativeEpoch, SignedBeaconBlock};
 
@@ -96,7 +96,6 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     &mut indiv_state,
                     signed_block,
                     BlockSignatureStrategy::VerifyIndividual,
-                    StateProcessingStrategy::Accurate,
                     VerifyBlockRoot::True,
                     &mut ctxt,
                     spec,
@@ -107,7 +106,6 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     &mut bulk_state,
                     signed_block,
                     BlockSignatureStrategy::VerifyBulk,
-                    StateProcessingStrategy::Accurate,
                     VerifyBlockRoot::True,
                     &mut ctxt,
                     spec,

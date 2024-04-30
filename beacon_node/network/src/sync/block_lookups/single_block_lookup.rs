@@ -1,5 +1,6 @@
+use super::common::LookupType;
 use super::PeerId;
-use crate::sync::block_lookups::common::{Lookup, RequestState};
+use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -11,28 +12,13 @@ use beacon_chain::BeaconChainTypes;
 use itertools::Itertools;
 use lighthouse_network::PeerAction;
 use rand::seq::IteratorRandom;
-use slog::{trace, Logger};
+use slog::{debug, Logger};
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::EthSpec;
-
-#[derive(Debug, PartialEq, Eq, IntoStaticStr)]
-pub enum LookupVerifyError {
-    RootMismatch,
-    NoBlockReturned,
-    ExtraBlocksReturned,
-    UnrequestedBlobId(BlobIdentifier),
-    InvalidInclusionProof,
-    UnrequestedHeader,
-    ExtraBlobsReturned,
-    NotEnoughBlobsReturned,
-    InvalidIndex(u64),
-}
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
@@ -46,27 +32,30 @@ pub enum LookupRequestError {
     BadState(String),
 }
 
-pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {
+pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
-    pub block_request_state: BlockRequestState<L>,
-    pub blob_request_state: BlobRequestState<L, T::EthSpec>,
+    pub lookup_type: LookupType,
+    pub block_request_state: BlockRequestState,
+    pub blob_request_state: BlobRequestState,
     pub da_checker: Arc<DataAvailabilityChecker<T>>,
     /// Only necessary for requests triggered by an `UnknownBlockParent` or `UnknownBlockParent`
     /// because any blocks or blobs without parents won't hit the data availability cache.
     pub child_components: Option<ChildComponents<T::EthSpec>>,
 }
 
-impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
+impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn new(
         requested_block_root: Hash256,
         child_components: Option<ChildComponents<T::EthSpec>>,
         peers: &[PeerId],
         da_checker: Arc<DataAvailabilityChecker<T>>,
         id: Id,
+        lookup_type: LookupType,
     ) -> Self {
         let is_deneb = da_checker.is_deneb();
         Self {
             id,
+            lookup_type,
             block_request_state: BlockRequestState::new(requested_block_root, peers),
             blob_request_state: BlobRequestState::new(requested_block_root, peers, is_deneb),
             da_checker,
@@ -88,6 +77,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// the next parent.
     pub fn update_requested_parent_block(&mut self, block_root: Hash256) {
         self.block_request_state.requested_block_root = block_root;
+        self.blob_request_state.block_root = block_root;
         self.block_request_state.state.state = State::AwaitingDownload;
         self.blob_request_state.state.state = State::AwaitingDownload;
         self.child_components = Some(ChildComponents::empty(block_root));
@@ -108,18 +98,18 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// downloading the block and/or blobs.
     pub fn request_block_and_blobs(
         &mut self,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         let block_already_downloaded = self.block_already_downloaded();
         let blobs_already_downloaded = self.blobs_already_downloaded();
 
         if !block_already_downloaded {
             self.block_request_state
-                .build_request_and_send(self.id, cx)?;
+                .build_request_and_send(self.id, self.lookup_type, cx)?;
         }
         if !blobs_already_downloaded {
             self.blob_request_state
-                .build_request_and_send(self.id, cx)?;
+                .build_request_and_send(self.id, self.lookup_type, cx)?;
         }
         Ok(())
     }
@@ -156,7 +146,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     /// Accepts a verified response, and adds it to the child components if required. This method
     /// returns a `CachedChild` which provides a completed block + blob response if all components have been
     /// received, or information about whether the child is required and if it has been downloaded.
-    pub fn add_response<R: RequestState<L, T>>(
+    pub fn add_response<R: RequestState<T>>(
         &mut self,
         verified_response: R::VerifiedResponseType,
     ) -> CachedChild<T::EthSpec> {
@@ -216,7 +206,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
     pub fn should_drop_lookup_on_disconnected_peer(
         &mut self,
         peer_id: &PeerId,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
         log: &Logger,
     ) -> bool {
         let block_root = self.block_root();
@@ -233,7 +223,7 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
 
         if block_peer_disconnected || blob_peer_disconnected {
             if let Err(e) = self.request_block_and_blobs(cx) {
-                trace!(log, "Single lookup failed on peer disconnection"; "block_root" => ?block_root, "error" => ?e);
+                debug!(log, "Single lookup failed on peer disconnection"; "block_root" => ?block_root, "error" => ?e);
                 return true;
             }
         }
@@ -313,42 +303,37 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
-pub struct BlobRequestState<L: Lookup, E: EthSpec> {
+pub struct BlobRequestState {
     /// The latest picture of which blobs still need to be requested. This includes information
     /// from both block/blobs downloaded in the network layer and any blocks/blobs that exist in
     /// the data availability checker.
     pub requested_ids: MissingBlobs,
-    /// Where we store blobs until we receive the stream terminator.
-    pub blob_download_queue: FixedBlobSidecarList<E>,
+    pub block_root: Hash256,
     pub state: SingleLookupRequestState,
-    _phantom: PhantomData<L>,
 }
 
-impl<L: Lookup, E: EthSpec> BlobRequestState<L, E> {
+impl BlobRequestState {
     pub fn new(block_root: Hash256, peer_source: &[PeerId], is_deneb: bool) -> Self {
         let default_ids = MissingBlobs::new_without_block(block_root, is_deneb);
         Self {
+            block_root,
             requested_ids: default_ids,
-            blob_download_queue: <_>::default(),
             state: SingleLookupRequestState::new(peer_source),
-            _phantom: PhantomData,
         }
     }
 }
 
 /// The state of the block request component of a `SingleBlockLookup`.
-pub struct BlockRequestState<L: Lookup> {
+pub struct BlockRequestState {
     pub requested_block_root: Hash256,
     pub state: SingleLookupRequestState,
-    _phantom: PhantomData<L>,
 }
 
-impl<L: Lookup> BlockRequestState<L> {
+impl BlockRequestState {
     pub fn new(block_root: Hash256, peers: &[PeerId]) -> Self {
         Self {
             requested_block_root: block_root,
             state: SingleLookupRequestState::new(peers),
-            _phantom: PhantomData,
         }
     }
 }
@@ -416,11 +401,6 @@ impl SingleLookupRequestState {
         }
     }
 
-    // TODO: Should not leak the enum state
-    pub fn get_state(&self) -> &State {
-        &self.state
-    }
-
     pub fn is_current_req_counter(&self, req_counter: u32) -> bool {
         self.req_counter == req_counter
     }
@@ -460,8 +440,16 @@ impl SingleLookupRequestState {
         self.state = State::AwaitingDownload;
     }
 
-    pub fn on_download_success(&mut self, peer_id: PeerId) {
-        self.state = State::Processing { peer_id };
+    pub fn on_download_success(&mut self) -> Result<(), String> {
+        match &self.state {
+            State::Downloading { peer_id } => {
+                self.state = State::Processing { peer_id: *peer_id };
+                Ok(())
+            }
+            other => Err(format!(
+                "request bad state, expected downloading got {other}"
+            )),
+        }
     }
 
     /// Registers a failure in processing a block.
@@ -532,7 +520,7 @@ impl SingleLookupRequestState {
     }
 }
 
-impl<L: Lookup, T: BeaconChainTypes> slog::Value for SingleBlockLookup<L, T> {
+impl<T: BeaconChainTypes> slog::Value for SingleBlockLookup<T> {
     fn serialize(
         &self,
         _record: &slog::Record,
@@ -540,7 +528,7 @@ impl<L: Lookup, T: BeaconChainTypes> slog::Value for SingleBlockLookup<L, T> {
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         serializer.emit_str("request", key)?;
-        serializer.emit_arguments("lookup_type", &format_args!("{:?}", L::lookup_type()))?;
+        serializer.emit_arguments("lookup_type", &format_args!("{:?}", self.lookup_type))?;
         serializer.emit_arguments("hash", &format_args!("{}", self.block_root()))?;
         serializer.emit_arguments(
             "blob_ids",
@@ -592,161 +580,5 @@ impl std::fmt::Display for State {
             State::Processing { .. } => write!(f, "Processing"),
             State::Processed { .. } => write!(f, "Processed"),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::sync::block_lookups::common::LookupType;
-    use beacon_chain::builder::Witness;
-    use beacon_chain::eth1_chain::CachingEth1Backend;
-    use sloggers::null::NullLoggerBuilder;
-    use sloggers::Build;
-    use slot_clock::{SlotClock, TestingSlotClock};
-    use std::time::Duration;
-    use store::{HotColdDB, MemoryStore, StoreConfig};
-    use types::{
-        test_utils::{SeedableRng, TestRandom, XorShiftRng},
-        ChainSpec, MinimalEthSpec as E, SignedBeaconBlock, Slot,
-    };
-
-    fn rand_block() -> SignedBeaconBlock<E> {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        SignedBeaconBlock::from_block(
-            types::BeaconBlock::Base(types::BeaconBlockBase {
-                ..<_>::random_for_test(&mut rng)
-            }),
-            types::Signature::random_for_test(&mut rng),
-        )
-    }
-    type T = Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
-
-    struct TestLookup1;
-
-    impl Lookup for TestLookup1 {
-        const MAX_ATTEMPTS: u8 = 3;
-
-        fn lookup_type() -> LookupType {
-            panic!()
-        }
-    }
-
-    struct TestLookup2;
-
-    impl Lookup for TestLookup2 {
-        const MAX_ATTEMPTS: u8 = 4;
-
-        fn lookup_type() -> LookupType {
-            panic!()
-        }
-    }
-
-    #[test]
-    fn test_happy_path() {
-        let peer_id = PeerId::random();
-        let block = rand_block();
-        let spec = E::default_spec();
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            Duration::from_secs(spec.seconds_per_slot),
-        );
-        let log = NullLoggerBuilder.build().expect("logger should build");
-        let store =
-            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
-                .expect("store");
-        let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
-                .expect("data availability checker"),
-        );
-        let mut sl = SingleBlockLookup::<TestLookup1, T>::new(
-            block.canonical_root(),
-            None,
-            &[peer_id],
-            da_checker,
-            1,
-        );
-        <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::build_request(
-            &mut sl.block_request_state,
-            &spec,
-        )
-        .unwrap();
-        sl.block_request_state.state.state = State::Downloading { peer_id };
-
-        <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::verify_response(
-            &mut sl.block_request_state,
-            block.canonical_root(),
-            peer_id,
-            Some(block.into()),
-        )
-        .unwrap()
-        .unwrap();
-    }
-
-    #[test]
-    fn test_block_lookup_failures() {
-        let peer_id = PeerId::random();
-        let block = rand_block();
-        let spec = E::default_spec();
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            Duration::from_secs(spec.seconds_per_slot),
-        );
-        let log = NullLoggerBuilder.build().expect("logger should build");
-        let store =
-            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
-                .expect("store");
-
-        let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
-                .expect("data availability checker"),
-        );
-
-        let mut sl = SingleBlockLookup::<TestLookup2, T>::new(
-            block.canonical_root(),
-            None,
-            &[peer_id],
-            da_checker,
-            1,
-        );
-        for _ in 1..TestLookup2::MAX_ATTEMPTS {
-            <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
-                &mut sl.block_request_state,
-                &spec,
-            )
-            .unwrap();
-            sl.block_request_state.state.on_download_failure();
-        }
-
-        // Now we receive the block and send it for processing
-        <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
-            &mut sl.block_request_state,
-            &spec,
-        )
-        .unwrap();
-        sl.block_request_state.state.state = State::Downloading { peer_id };
-
-        <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::verify_response(
-            &mut sl.block_request_state,
-            block.canonical_root(),
-            peer_id,
-            Some(block.into()),
-        )
-        .unwrap()
-        .unwrap();
-
-        // One processing failure maxes the available attempts
-        sl.block_request_state.state.on_processing_failure();
-        assert_eq!(
-            <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
-                &mut sl.block_request_state,
-                &spec
-            ),
-            Err(LookupRequestError::TooManyAttempts {
-                cannot_process: false
-            })
-        )
     }
 }
