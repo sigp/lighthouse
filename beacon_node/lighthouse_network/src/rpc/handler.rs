@@ -374,7 +374,7 @@ where
                 id: outbound_info.req_id,
             })));
         }
-        return Poll::Ready(None);
+        Poll::Ready(None)
     }
 
     fn poll(
