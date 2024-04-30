@@ -4399,7 +4399,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 info!(
                     self.log,
-                    "Missed snapshot cache during withdrawals calculation";
+                    "Missed state cache during withdrawals calculation";
                     "slot" => proposal_slot,
                     "parent_block_root" => ?parent_block_root
                 );
