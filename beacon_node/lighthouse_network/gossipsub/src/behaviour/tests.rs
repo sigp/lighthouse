@@ -5252,7 +5252,7 @@ fn sends_idontwant() {
         .to_subscribe(true)
         .gs_config(Config::default())
         .explicit(1)
-        .peer_kind(PeerKind::Gossipsubv1_2)
+        .peer_kind(PeerKind::Gossipsubv1_2_beta)
         .create_network();
 
     let local_id = PeerId::random();
@@ -5337,7 +5337,7 @@ fn doesnt_forward_idontwant() {
         .to_subscribe(true)
         .gs_config(Config::default())
         .explicit(1)
-        .peer_kind(PeerKind::Gossipsubv1_2)
+        .peer_kind(PeerKind::Gossipsubv1_2_beta)
         .create_network();
 
     let local_id = PeerId::random();
@@ -5386,7 +5386,7 @@ fn parses_idontwant() {
         .to_subscribe(true)
         .gs_config(Config::default())
         .explicit(1)
-        .peer_kind(PeerKind::Gossipsubv1_2)
+        .peer_kind(PeerKind::Gossipsubv1_2_beta)
         .create_network();
 
     let message_id = MessageId::new(&[0, 1, 2, 3]);
@@ -5418,7 +5418,7 @@ fn clear_stale_idontwant() {
         .to_subscribe(true)
         .gs_config(Config::default())
         .explicit(1)
-        .peer_kind(PeerKind::Gossipsubv1_2)
+        .peer_kind(PeerKind::Gossipsubv1_2_beta)
         .create_network();
 
     let peer = gs.connected_peers.get_mut(&peers[2]).unwrap();
