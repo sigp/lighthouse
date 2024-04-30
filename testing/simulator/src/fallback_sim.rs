@@ -36,28 +36,32 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
 pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     let vc_count = matches
         .get_one::<String>("vc-count")
-        .unwrap()
+        .expect("missing vc-count default")
         .parse::<usize>()
-        .unwrap();
+        .expect("missing vc-count default");
 
     let validators_per_vc = matches
         .get_one::<String>("validators-per-vc")
-        .unwrap()
+        .expect("missing validators-per-vc default")
         .parse::<usize>()
-        .unwrap();
+        .expect("missing validators-per-vc default");
+
     let bns_per_vc = matches
         .get_one::<String>("bns-per-vc")
-        .unwrap()
+        .expect("missing bns-per-vc default")
         .parse::<usize>()
-        .unwrap();
+        .expect("missing bns-per-vc default");
 
     assert!(bns_per_vc > 1);
     let speed_up_factor = matches
         .get_one::<String>("speed-up-factor")
-        .unwrap()
+        .expect("missing speed-up-factor default")
         .parse::<u64>()
-        .unwrap();
-    let log_level = matches.get_one::<String>("debug-level").unwrap();
+        .expect("missing speed-up-factor default");
+
+    let log_level = matches
+        .get_one::<String>("debug-level")
+        .expect("missing debug-level default");
 
     let continue_after_checks = matches.get_flag("continue-after-checks");
 

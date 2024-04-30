@@ -119,7 +119,7 @@ pub fn cli_app() -> Command {
                     Arg::new("continue-after-checks")
                         .short('c')
                         .long("continue_after_checks")
-                        .action(ArgAction::Set)
+                        .action(ArgAction::SetTrue)
                         .help("Continue after checks (default false)"),
                 ),
         )

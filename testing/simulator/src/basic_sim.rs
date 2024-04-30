@@ -39,20 +39,20 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .unwrap_or(0);
     println!("PROPOSER-NODES: {}", proposer_nodes);
     let validators_per_node = matches
-        .get_one::<String>("validators_per_node")
-        .expect("missing validators_per_node default")
+        .get_one::<String>("validators-per-node")
+        .expect("missing validators-per-node default")
         .parse::<usize>()
-        .expect("missing validators_per_node default");
+        .expect("missing validators-per-node default");
     let speed_up_factor = matches
-        .get_one::<String>("speed_up_factor")
-        .expect("missing speed_up_factor default")
+        .get_one::<String>("speed-up-factor")
+        .expect("missing speed-up-factor default")
         .parse::<u64>()
-        .expect("missing speed_up_factor default");
+        .expect("missing speed-up-factor default");
     let log_level = matches
         .get_one::<String>("debug-level")
-        .expect("missing speed_up_factor default");
+        .expect("missing debug-level");
 
-    let continue_after_checks = matches.get_flag("continue_after_checks");
+    let continue_after_checks = matches.get_flag("continue-after-checks");
 
     println!("Basic Simulator:");
     println!(" nodes: {}", node_count);
