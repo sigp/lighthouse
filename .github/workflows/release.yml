@@ -131,7 +131,6 @@ jobs:
                   tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse.exe
                   gpg --passphrase "$env:GPG_PASSPHRASE" --batch --pinentry-mode loopback -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   move *tar.gz* ..
-                  # todo copy to `-portable`
 
             # =======================================================================
             # Upload artifacts
