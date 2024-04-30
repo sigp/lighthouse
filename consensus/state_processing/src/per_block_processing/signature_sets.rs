@@ -279,21 +279,21 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices.len());
-    for &validator_idx in &indexed_attestation.attesting_indices {
+    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices_len());
+    for &validator_idx in indexed_attestation.attesting_indices_iter() {
         pubkeys.push(
             get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
         );
     }
 
     let domain = spec.get_domain(
-        indexed_attestation.data.target.epoch,
+        indexed_attestation.data().target.epoch,
         Domain::BeaconAttester,
         &state.fork(),
         state.genesis_validators_root(),
     );
 
-    let message = indexed_attestation.data.signing_root(domain);
+    let message = indexed_attestation.data().signing_root(domain);
 
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
 }
@@ -312,21 +312,21 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices.len());
-    for &validator_idx in &indexed_attestation.attesting_indices {
+    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices_len());
+    for &validator_idx in indexed_attestation.attesting_indices_iter() {
         pubkeys.push(
             get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
         );
     }
 
     let domain = spec.get_domain(
-        indexed_attestation.data.target.epoch,
+        indexed_attestation.data().target.epoch,
         Domain::BeaconAttester,
         fork,
         genesis_validators_root,
     );
 
-    let message = indexed_attestation.data.signing_root(domain);
+    let message = indexed_attestation.data().signing_root(domain);
 
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
 }
@@ -346,14 +346,14 @@ where
         indexed_attestation_signature_set(
             state,
             get_pubkey.clone(),
-            &attester_slashing.attestation_1.signature,
+            attester_slashing.attestation_1.signature(),
             &attester_slashing.attestation_1,
             spec,
         )?,
         indexed_attestation_signature_set(
             state,
             get_pubkey,
-            &attester_slashing.attestation_2.signature,
+            attester_slashing.attestation_2.signature(),
             &attester_slashing.attestation_2,
             spec,
         )?,
@@ -425,7 +425,7 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let slot = signed_aggregate_and_proof.message.aggregate.data.slot;
+    let slot = signed_aggregate_and_proof.message.aggregate.data().slot;
 
     let domain = spec.get_domain(
         slot.epoch(E::slots_per_epoch()),
@@ -458,7 +458,7 @@ where
     let target_epoch = signed_aggregate_and_proof
         .message
         .aggregate
-        .data
+        .data()
         .target
         .epoch;
 

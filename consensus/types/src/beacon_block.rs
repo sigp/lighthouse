@@ -1,3 +1,4 @@
+use crate::attestation::AttestationBase;
 use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;
@@ -9,6 +10,8 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+
+use self::indexed_attestation::IndexedAttestationBase;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
@@ -324,15 +327,16 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             message: header,
             signature: Signature::empty(),
         };
-        let indexed_attestation: IndexedAttestation<E> = IndexedAttestation {
-            attesting_indices: VariableList::new(vec![
-                0_u64;
-                E::MaxValidatorsPerCommittee::to_usize()
-            ])
-            .unwrap(),
-            data: AttestationData::default(),
-            signature: AggregateSignature::empty(),
-        };
+        let indexed_attestation: IndexedAttestation<E> =
+            IndexedAttestation::Base(IndexedAttestationBase {
+                attesting_indices: VariableList::new(vec![
+                    0_u64;
+                    E::MaxValidatorsPerCommittee::to_usize()
+                ])
+                .unwrap(),
+                data: AttestationData::default(),
+                signature: AggregateSignature::empty(),
+            });
 
         let deposit_data = DepositData {
             pubkey: PublicKeyBytes::empty(),
@@ -350,12 +354,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             attestation_2: indexed_attestation,
         };
 
-        let attestation: Attestation<E> = Attestation {
+        let attestation: Attestation<E> = Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerCommittee::to_usize())
                 .unwrap(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
-        };
+        });
 
         let deposit = Deposit {
             proof: FixedVector::from_elem(Hash256::zero()),

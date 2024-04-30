@@ -299,7 +299,7 @@ impl<E: EthSpec> Slasher<E> {
                     self.log,
                     "Found double-vote slashing";
                     "validator_index" => validator_index,
-                    "epoch" => slashing.attestation_1.data.target.epoch,
+                    "epoch" => slashing.attestation_1.data().target.epoch,
                 );
                 slashings.insert(slashing);
             }
@@ -325,8 +325,8 @@ impl<E: EthSpec> Slasher<E> {
 
         for indexed_record in batch {
             let attestation = &indexed_record.indexed;
-            let target_epoch = attestation.data.target.epoch;
-            let source_epoch = attestation.data.source.epoch;
+            let target_epoch = attestation.data().target.epoch;
+            let source_epoch = attestation.data().source.epoch;
 
             if source_epoch > target_epoch
                 || source_epoch + self.config.history_length as u64 <= current_epoch

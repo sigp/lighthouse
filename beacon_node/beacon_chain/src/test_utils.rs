@@ -58,6 +58,8 @@ use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::TaskExecutor;
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
+use types::attestation::AttestationBase;
+use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::test_utils::TestRandom;
@@ -1030,7 +1032,8 @@ where
             *state.get_block_root(target_slot)?
         };
 
-        Ok(Attestation {
+        // TODO(electra) make test fork-agnostic
+        Ok(Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(committee_len)?,
             data: AttestationData {
                 slot,
@@ -1043,7 +1046,7 @@ where
                 },
             },
             signature: AggregateSignature::empty(),
-        })
+        }))
     }
 
     /// A list of attestations for each committee for the given slot.
@@ -1118,17 +1121,21 @@ where
                             )
                             .unwrap();
 
-                        attestation.aggregation_bits.set(i, true).unwrap();
+                        attestation
+                            .aggregation_bits_base_mut()
+                            .unwrap()
+                            .set(i, true)
+                            .unwrap();
 
-                        attestation.signature = {
+                        *attestation.signature_mut() = {
                             let domain = self.spec.get_domain(
-                                attestation.data.target.epoch,
+                                attestation.data().target.epoch,
                                 Domain::BeaconAttester,
                                 &fork,
                                 state.genesis_validators_root(),
                             );
 
-                            let message = attestation.data.signing_root(domain);
+                            let message = attestation.data().signing_root(domain);
 
                             let mut agg_sig = AggregateSignature::infinity();
 
@@ -1140,7 +1147,7 @@ where
                         };
 
                         let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
-                            &attestation.data,
+                            attestation.data(),
                             committee_count,
                             &self.chain.spec,
                         )
@@ -1314,7 +1321,7 @@ where
                     // If there are any attestations in this committee, create an aggregate.
                     if let Some((attestation, _)) = committee_attestations.first() {
                         let bc = state
-                            .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                            .get_beacon_committee(attestation.data().slot, attestation.data().index)
                             .unwrap();
 
                         // Find an aggregator if one exists. Return `None` if there are no
@@ -1345,7 +1352,7 @@ where
                         // aggregate locally.
                         let aggregate = self
                             .chain
-                            .get_aggregated_attestation(&attestation.data)
+                            .get_aggregated_attestation(attestation.data())
                             .unwrap()
                             .unwrap_or_else(|| {
                                 committee_attestations.iter().skip(1).fold(
@@ -1485,7 +1492,7 @@ where
     ) -> AttesterSlashing<E> {
         let fork = self.chain.canonical_head.cached_head().head_fork();
 
-        let mut attestation_1 = IndexedAttestation {
+        let mut attestation_1 = IndexedAttestation::Base(IndexedAttestationBase {
             attesting_indices: VariableList::new(validator_indices).unwrap(),
             data: AttestationData {
                 slot: Slot::new(0),
@@ -1501,28 +1508,29 @@ where
                 },
             },
             signature: AggregateSignature::infinity(),
-        };
+        });
 
         let mut attestation_2 = attestation_1.clone();
-        attestation_2.data.index += 1;
-        attestation_2.data.source.epoch = source2.unwrap_or(Epoch::new(0));
-        attestation_2.data.target.epoch = target2.unwrap_or(fork.epoch);
+        attestation_2.data_mut().index += 1;
+        attestation_2.data_mut().source.epoch = source2.unwrap_or(Epoch::new(0));
+        attestation_2.data_mut().target.epoch = target2.unwrap_or(fork.epoch);
 
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
-            for &i in &attestation.attesting_indices {
+            // TODO(electra) we could explore iter mut here
+            for i in attestation.attesting_indices_to_vec() {
                 let sk = &self.validator_keypairs[i as usize].sk;
 
                 let genesis_validators_root = self.chain.genesis_validators_root;
 
                 let domain = self.chain.spec.get_domain(
-                    attestation.data.target.epoch,
+                    attestation.data().target.epoch,
                     Domain::BeaconAttester,
                     &fork,
                     genesis_validators_root,
                 );
-                let message = attestation.data.signing_root(domain);
+                let message = attestation.data().signing_root(domain);
 
-                attestation.signature.add_assign(&sk.sign(message));
+                attestation.signature_mut().add_assign(&sk.sign(message));
             }
         }
 
@@ -1551,36 +1559,36 @@ where
             },
         };
 
-        let mut attestation_1 = IndexedAttestation {
+        let mut attestation_1 = IndexedAttestation::Base(IndexedAttestationBase {
             attesting_indices: VariableList::new(validator_indices_1).unwrap(),
             data: data.clone(),
             signature: AggregateSignature::infinity(),
-        };
+        });
 
-        let mut attestation_2 = IndexedAttestation {
+        let mut attestation_2 = IndexedAttestation::Base(IndexedAttestationBase {
             attesting_indices: VariableList::new(validator_indices_2).unwrap(),
             data,
             signature: AggregateSignature::infinity(),
-        };
+        });
 
-        attestation_2.data.index += 1;
+        attestation_2.data_mut().index += 1;
 
         let fork = self.chain.canonical_head.cached_head().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
-            for &i in &attestation.attesting_indices {
+            for i in attestation.attesting_indices_to_vec() {
                 let sk = &self.validator_keypairs[i as usize].sk;
 
                 let genesis_validators_root = self.chain.genesis_validators_root;
 
                 let domain = self.chain.spec.get_domain(
-                    attestation.data.target.epoch,
+                    attestation.data().target.epoch,
                     Domain::BeaconAttester,
                     &fork,
                     genesis_validators_root,
                 );
-                let message = attestation.data.signing_root(domain);
+                let message = attestation.data().signing_root(domain);
 
-                attestation.signature.add_assign(&sk.sign(message));
+                attestation.signature_mut().add_assign(&sk.sign(message));
             }
         }
 

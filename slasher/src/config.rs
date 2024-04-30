@@ -166,8 +166,7 @@ impl Config {
         validator_chunk_index: usize,
     ) -> impl Iterator<Item = u64> + 'a {
         attestation
-            .attesting_indices
-            .iter()
+            .attesting_indices_iter()
             .filter(move |v| self.validator_chunk_index(**v) == validator_chunk_index)
             .copied()
     }

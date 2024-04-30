@@ -913,7 +913,7 @@ mod release_tests {
             let att2_split = SplitAttestation::new(att2.clone(), att2_indices);
 
             assert_eq!(
-                att1.aggregation_bits.num_set_bits(),
+                att1.num_set_aggregation_bits(),
                 earliest_attestation_validators(
                     &att1_split.as_ref(),
                     &state,
@@ -927,8 +927,8 @@ mod release_tests {
                 .unwrap()
                 .current_epoch_attestations
                 .push(PendingAttestation {
-                    aggregation_bits: att1.aggregation_bits.clone(),
-                    data: att1.data.clone(),
+                    aggregation_bits: att1.aggregation_bits_base().unwrap().clone(),
+                    data: att1.data().clone(),
                     inclusion_delay: 0,
                     proposer_index: 0,
                 })
@@ -1007,7 +1007,7 @@ mod release_tests {
 
         let agg_att = &block_attestations[0];
         assert_eq!(
-            agg_att.aggregation_bits.num_set_bits(),
+            agg_att.num_set_aggregation_bits(),
             spec.target_committee_size as usize
         );
 
@@ -1243,7 +1243,7 @@ mod release_tests {
 
         // All the best attestations should be signed by at least `big_step_size` (4) validators.
         for att in &best_attestations {
-            assert!(att.aggregation_bits.num_set_bits() >= big_step_size);
+            assert!(att.num_set_aggregation_bits() >= big_step_size);
         }
     }
 

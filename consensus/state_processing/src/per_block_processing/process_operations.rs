@@ -73,24 +73,33 @@ pub mod base {
             )
             .map_err(|e| e.into_with_index(i))?;
 
-            let pending_attestation = PendingAttestation {
-                aggregation_bits: attestation.aggregation_bits.clone(),
-                data: attestation.data.clone(),
-                inclusion_delay: state.slot().safe_sub(attestation.data.slot)?.as_u64(),
-                proposer_index,
-            };
+            match attestation {
+                Attestation::Base(att) => {
+                    let pending_attestation = PendingAttestation {
+                        aggregation_bits: att.aggregation_bits.clone(),
+                        data: att.data.clone(),
+                        inclusion_delay: state.slot().safe_sub(att.data.slot)?.as_u64(),
+                        proposer_index,
+                    };
 
-            if attestation.data.target.epoch == state.current_epoch() {
-                state
-                    .as_base_mut()?
-                    .current_epoch_attestations
-                    .push(pending_attestation)?;
-            } else {
-                state
-                    .as_base_mut()?
-                    .previous_epoch_attestations
-                    .push(pending_attestation)?;
-            }
+                    if attestation.data().target.epoch == state.current_epoch() {
+                        state
+                            .as_base_mut()?
+                            .current_epoch_attestations
+                            .push(pending_attestation)?;
+                    } else {
+                        state
+                            .as_base_mut()?
+                            .previous_epoch_attestations
+                            .push(pending_attestation)?;
+                    }
+                }
+                Attestation::Electra(_) => {
+                    // TODO(electra) pending attestations are only phase 0
+                    // so we should just raise a relevant error here
+                    todo!()
+                }
+            };
         }
 
         Ok(())
@@ -128,26 +137,24 @@ pub mod altair_deneb {
         let previous_epoch = ctxt.previous_epoch;
         let current_epoch = ctxt.current_epoch;
 
-        let attesting_indices = verify_attestation_for_block_inclusion(
+        let indexed_att = verify_attestation_for_block_inclusion(
             state,
             attestation,
             ctxt,
             verify_signatures,
             spec,
         )
-        .map_err(|e| e.into_with_index(att_index))?
-        .attesting_indices
-        .clone();
+        .map_err(|e| e.into_with_index(att_index))?;
 
         // Matching roots, participation flag indices
-        let data = &attestation.data;
+        let data = attestation.data();
         let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
         let participation_flag_indices =
             get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
 
         // Update epoch participation flags.
         let mut proposer_reward_numerator = 0;
-        for index in &attesting_indices {
+        for index in indexed_att.attesting_indices_iter() {
             let index = *index as usize;
 
             let validator_effective_balance = state.epoch_cache().get_effective_balance(index)?;

@@ -80,18 +80,20 @@ impl<E: EthSpec> IndexedAttesterRecord<E> {
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
 struct IndexedAttestationHeader<E: EthSpec> {
-    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommittee>,
+    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommitteePerSlot>,
     pub data_root: Hash256,
     pub signature: AggregateSignature,
 }
 
 impl<E: EthSpec> From<IndexedAttestation<E>> for AttesterRecord {
     fn from(indexed_attestation: IndexedAttestation<E>) -> AttesterRecord {
-        let attestation_data_hash = indexed_attestation.data.tree_hash_root();
+        let attestation_data_hash = indexed_attestation.data().tree_hash_root();
+        let attesting_indices =
+            VariableList::new(indexed_attestation.attesting_indices_to_vec()).unwrap_or_default();
         let header = IndexedAttestationHeader::<E> {
-            attesting_indices: indexed_attestation.attesting_indices,
+            attesting_indices,
             data_root: attestation_data_hash,
-            signature: indexed_attestation.signature,
+            signature: indexed_attestation.signature().clone(),
         };
         let indexed_attestation_hash = header.tree_hash_root();
         AttesterRecord {

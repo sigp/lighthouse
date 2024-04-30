@@ -73,7 +73,7 @@ where
             let indexed_attestation = &indexed.indexed_attestation;
             let fork = chain
                 .spec
-                .fork_at_epoch(indexed_attestation.data.target.epoch);
+                .fork_at_epoch(indexed_attestation.data().target.epoch);
 
             signature_sets.push(
                 signed_aggregate_selection_proof_signature_set(
@@ -98,7 +98,7 @@ where
             signature_sets.push(
                 indexed_attestation_signature_set_from_pubkeys(
                     |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-                    &indexed_attestation.signature,
+                    indexed_attestation.signature(),
                     indexed_attestation,
                     &fork,
                     chain.genesis_validators_root,
@@ -182,11 +182,11 @@ where
             let indexed_attestation = &partially_verified.indexed_attestation;
             let fork = chain
                 .spec
-                .fork_at_epoch(indexed_attestation.data.target.epoch);
+                .fork_at_epoch(indexed_attestation.data().target.epoch);
 
             let signature_set = indexed_attestation_signature_set_from_pubkeys(
                 |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-                &indexed_attestation.signature,
+                indexed_attestation.signature(),
                 indexed_attestation,
                 &fork,
                 chain.genesis_validators_root,

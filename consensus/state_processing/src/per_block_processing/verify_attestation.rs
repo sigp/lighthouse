@@ -22,7 +22,7 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<&'ctxt IndexedAttestation<E>> {
-    let data = &attestation.data;
+    let data = attestation.data();
 
     verify!(
         data.slot.safe_add(spec.min_attestation_inclusion_delay)? <= state.slot(),
@@ -66,7 +66,7 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<&'ctxt IndexedAttestation<E>> {
-    let data = &attestation.data;
+    let data = attestation.data();
 
     verify!(
         data.index < state.get_committee_count_at_slot(data.slot)?,
@@ -90,7 +90,7 @@ fn verify_casper_ffg_vote<E: EthSpec>(
     attestation: &Attestation<E>,
     state: &BeaconState<E>,
 ) -> Result<()> {
-    let data = &attestation.data;
+    let data = attestation.data();
     verify!(
         data.target.epoch == data.slot.epoch(E::slots_per_epoch()),
         Invalid::TargetEpochSlotMismatch {

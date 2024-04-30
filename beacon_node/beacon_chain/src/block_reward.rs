@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .body()
                 .attestations()
                 .iter()
-                .map(|a| a.data.clone())
+                .map(|a| a.data().clone())
                 .collect()
         } else {
             vec![]

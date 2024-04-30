@@ -15,8 +15,8 @@ use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
-    Slot,
+    attestation::AttestationBase, AggregateSignature, Attestation, AttestationData, BitList,
+    ChainSpec, CommitteeIndex, EthSpec, Slot,
 };
 
 /// Builds an `AttestationService`.
@@ -378,11 +378,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 return None;
             }
 
-            let mut attestation = Attestation {
+            let mut attestation = Attestation::Base(AttestationBase {
                 aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
                 data: attestation_data.clone(),
                 signature: AggregateSignature::infinity(),
-            };
+            });
 
             match self
                 .validator_store
@@ -610,10 +610,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             log,
                             "Successfully published attestation";
                             "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
-                            "signatures" => attestation.aggregation_bits.num_set_bits(),
-                            "head_block" => format!("{:?}", attestation.data.beacon_block_root),
-                            "committee_index" => attestation.data.index,
-                            "slot" => attestation.data.slot.as_u64(),
+                            "signatures" => attestation.num_set_aggregation_bits(),
+                            "head_block" => format!("{:?}", attestation.data().beacon_block_root),
+                            "committee_index" => attestation.data().index,
+                            "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );
                     }
@@ -626,8 +626,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             "Failed to publish attestation";
                             "error" => %e,
                             "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
-                            "committee_index" => attestation.data.index,
-                            "slot" => attestation.data.slot.as_u64(),
+                            "committee_index" => attestation.data().index,
+                            "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );
                     }

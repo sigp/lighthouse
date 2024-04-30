@@ -105,21 +105,33 @@ pub trait SubsetItem {
 impl<E: EthSpec> SubsetItem for Attestation<E> {
     type Item = BitList<E::MaxValidatorsPerCommittee>;
     fn is_subset(&self, other: &Self::Item) -> bool {
-        self.aggregation_bits.is_subset(other)
+        match self {
+            Attestation::Base(att) => att.aggregation_bits.is_subset(other),
+            // TODO(electra) implement electra variant
+            Attestation::Electra(_) => todo!(),
+        }
     }
 
     fn is_superset(&self, other: &Self::Item) -> bool {
-        other.is_subset(&self.aggregation_bits)
+        match self {
+            Attestation::Base(att) => other.is_subset(&att.aggregation_bits),
+            // TODO(electra) implement electra variant
+            Attestation::Electra(_) => todo!(),
+        }
     }
 
     /// Returns the sync contribution aggregation bits.
     fn get_item(&self) -> Self::Item {
-        self.aggregation_bits.clone()
+        match self {
+            Attestation::Base(att) => att.aggregation_bits.clone(),
+            // TODO(electra) implement electra variant
+            Attestation::Electra(_) => todo!(),
+        }
     }
 
     /// Returns the hash tree root of the attestation data.
     fn root(&self) -> Hash256 {
-        self.data.tree_hash_root()
+        self.data().tree_hash_root()
     }
 }
 

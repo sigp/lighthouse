@@ -438,7 +438,7 @@ impl<E: EthSpec> SlasherDB<E> {
     ) -> Result<u64, Error> {
         // Look-up ID by hash.
         let id_key = IndexedAttestationIdKey::new(
-            indexed_attestation.data.target.epoch,
+            indexed_attestation.data().target.epoch,
             indexed_attestation_hash,
         );
 
@@ -500,7 +500,7 @@ impl<E: EthSpec> SlasherDB<E> {
 
         // Otherwise, load the indexed attestation, compute the root and cache it.
         let indexed_attestation = self.get_indexed_attestation(txn, indexed_id)?;
-        let attestation_data_root = indexed_attestation.data.tree_hash_root();
+        let attestation_data_root = indexed_attestation.data().tree_hash_root();
 
         cache.put(indexed_id, attestation_data_root);
 
@@ -536,7 +536,7 @@ impl<E: EthSpec> SlasherDB<E> {
         indexed_attestation_id: IndexedAttestationId,
     ) -> Result<AttesterSlashingStatus<E>, Error> {
         // See if there's an existing attestation for this attester.
-        let target_epoch = attestation.data.target.epoch;
+        let target_epoch = attestation.data().target.epoch;
 
         let prev_max_target = self.get_attester_max_target(validator_index, txn)?;
 
