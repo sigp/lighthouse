@@ -571,6 +571,14 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
+    // Kzg verification for gossip blob sidecar
+    let kzg = chain
+        .kzg
+        .as_ref()
+        .ok_or(GossipBlobError::KzgNotInitialized)?;
+    let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar.clone(), kzg, seen_timestamp)
+        .map_err(GossipBlobError::KzgError)?;
+
     chain
         .observed_slashable
         .write()
@@ -604,14 +612,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             index: blob_index,
         });
     }
-
-    // Kzg verification for gossip blob sidecar
-    let kzg = chain
-        .kzg
-        .as_ref()
-        .ok_or(GossipBlobError::KzgNotInitialized)?;
-    let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar, kzg, seen_timestamp)
-        .map_err(GossipBlobError::KzgError)?;
 
     Ok(GossipVerifiedBlob {
         block_root,
