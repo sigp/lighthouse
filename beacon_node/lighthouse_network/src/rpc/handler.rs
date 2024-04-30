@@ -357,7 +357,10 @@ where
         // Inform the network behaviour of any failed requests
 
         while let Some(substream_id) = self.outbound_substreams.keys().next().cloned() {
-            let outbound_info = self.outbound_substreams.remove(&substream_id).expect("The value must exist for a key");
+            let outbound_info = self
+                .outbound_substreams
+                .remove(&substream_id)
+                .expect("The value must exist for a key");
             // If the state of the connection is closing, we do not need to report this case to
             // the behaviour, as the connection has just closed non-gracefully
             if matches!(outbound_info.state, OutboundSubstreamState::Closing(_)) {
@@ -365,9 +368,13 @@ where
             }
 
             // Register this request as an RPC Error
-            return Poll::Ready(Some(HandlerEvent::Err(HandlerErr::Outbound{ error: RPCError::Disconnected, proto: outbound_info.proto, id: outbound_info.req_id} )));
+            return Poll::Ready(Some(HandlerEvent::Err(HandlerErr::Outbound {
+                error: RPCError::Disconnected,
+                proto: outbound_info.proto,
+                id: outbound_info.req_id,
+            })));
         }
-        return Poll::Ready(None)
+        return Poll::Ready(None);
     }
 
     fn poll(
