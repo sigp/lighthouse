@@ -51,23 +51,23 @@ pub(crate) fn compute_parent_chains(nodes: &[Node]) -> Vec<NodeChain> {
 
     let mut parent_chains = vec![];
 
-    // Iterate blocks which no child
+    // Iterate blocks with no children
     for tip in nodes {
         let mut block_root = tip.block_root;
         if parent_to_child.get(&block_root).is_none() {
             let mut chain = vec![];
 
             // Resolve chain of blocks
-            loop {
+            'inner: loop {
                 if let Some(parent_root) = child_to_parent.get(&block_root) {
                     // block_root is a known block that may or may not have a parent root
                     chain.push(block_root);
                     if let Some(parent_root) = parent_root {
                         block_root = *parent_root;
-                        continue;
+                        continue 'inner;
                     }
                 }
-                break;
+                break 'inner;
             }
 
             if chain.len() > 1 {
@@ -100,7 +100,9 @@ pub(crate) fn find_oldest_fork_ancestor(
     }
 
     // Should never happen
-    let parent_chain = parent_chains.get(chain_idx).ok_or("chain_idx off bounds")?;
+    let parent_chain = parent_chains
+        .get(chain_idx)
+        .ok_or("chain_idx out of bounds")?;
     // Find the first block in the target parent chain that is not in other parent chains
     // Iterate in ascending slot order
     for block in parent_chain.chain.iter().rev() {
@@ -109,7 +111,7 @@ pub(crate) fn find_oldest_fork_ancestor(
         }
     }
 
-    // If no match means that the chain is fully contained within another chain. This should never
+    // No match means that the chain is fully contained within another chain. This should never
     // happen, but if that was the case just return the tip
     Ok(parent_chain.tip)
 }

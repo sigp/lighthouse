@@ -1,3 +1,4 @@
+use super::common::{AwaitingParent, BlockIsProcessed};
 use super::{BlockComponent, PeerId};
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
@@ -125,13 +126,21 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         let id = self.id;
-        let awaiting_parent = self.awaiting_parent.is_some();
+        let awaiting_parent = if self.awaiting_parent.is_some() {
+            AwaitingParent::True
+        } else {
+            AwaitingParent::False
+        };
         let downloaded_block_expected_blobs = self
             .block_request_state
             .state
             .peek_downloaded_data()
             .map(|block| block.num_expected_blobs());
-        let block_is_processed = self.block_request_state.state.is_processed();
+        let block_is_processed = if self.block_request_state.state.is_processed() {
+            BlockIsProcessed::True
+        } else {
+            BlockIsProcessed::False
+        };
         R::request_state_mut(self).continue_request(
             id,
             awaiting_parent,
@@ -208,7 +217,13 @@ impl<E: EthSpec> BlockRequestState<E> {
     }
 }
 
-pub type DownloadResult<T> = (T, Hash256, Duration, PeerId);
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct DownloadResult<T: Clone> {
+    pub value: T,
+    pub block_root: Hash256,
+    pub seen_timestamp: Duration,
+    pub peer_id: PeerId,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum State<T: Clone> {
@@ -274,8 +289,8 @@ impl<T: Clone> SingleLookupRequestState<T> {
         match &self.state {
             State::AwaitingDownload => None,
             State::Downloading { .. } => None,
-            State::AwaitingProcess(result) => Some(&result.0),
-            State::Processing(result) => Some(&result.0),
+            State::AwaitingProcess(result) => Some(&result.value),
+            State::Processing(result) => Some(&result.value),
             State::Processed { .. } => None,
         }
     }
@@ -362,7 +377,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
     pub fn on_processing_failure(&mut self) -> Result<PeerId, LookupRequestError> {
         match &self.state {
             State::Processing(result) => {
-                let peer_id = result.3;
+                let peer_id = result.peer_id;
                 self.failed_processing = self.failed_processing.saturating_add(1);
                 self.state = State::AwaitingDownload;
                 Ok(peer_id)
@@ -376,7 +391,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
     pub fn on_processing_success(&mut self) -> Result<PeerId, LookupRequestError> {
         match &self.state {
             State::Processing(result) => {
-                let peer_id = result.3;
+                let peer_id = result.peer_id;
                 self.state = State::Processed(peer_id);
                 Ok(peer_id)
             }

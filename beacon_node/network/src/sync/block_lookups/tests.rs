@@ -703,11 +703,10 @@ impl TestRig {
 fn stable_rng() {
     let mut rng = XorShiftRng::from_seed([42; 16]);
     let (block, _) = generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng);
-    // TODO: Make rand block generation stable
-    assert_ne!(
+    assert_eq!(
         block.canonical_root(),
         Hash256::from_slice(
-            &hex::decode("9cfcfc321759d8a2c38d6541a966da5e88fe8729ed5a5ab37013781ff097b0d6")
+            &hex::decode("adfd2e9e7a7976e8ccaed6eaf0257ed36a5b476732fee63ff44966602fd099ec")
                 .unwrap()
         ),
         "rng produces a consistent value"
@@ -1174,7 +1173,7 @@ fn test_parent_lookup_ignored_response() {
     rig.trigger_unknown_parent_block(peer_id, block.clone().into());
     let id = rig.expect_parent_request_block_and_blobs(parent_root);
     // Note: single block lookup for current `block` does not trigger any request because it does
-    // not has blobs, and the block is already cached
+    // not have blobs, and the block is already cached
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
     rig.parent_lookup_block_response(id, peer_id, Some(parent.into()));
@@ -1236,13 +1235,6 @@ fn test_same_chain_race_condition() {
         rig.single_block_component_processed_imported(block.canonical_root());
     }
     rig.expect_no_active_lookups();
-}
-
-#[test]
-fn test_penalize_wrong_peer_with_cached_child() {
-    // peer A sends blob with malicious data as unknown parent
-    // peer B serves parent and rest of blocks
-    // All components are sent as RpcBlock, penalizing peer B
 }
 
 mod deneb_only {
@@ -1393,7 +1385,6 @@ mod deneb_only {
             self
         }
 
-        // TODO: Eventually deprecate this function
         fn set_block_id_for_import(mut self) -> Self {
             let lookup_id = self.rig.find_single_lookup_for(self.block_root);
             self.block_req_id = Some(SingleLookupReqId {

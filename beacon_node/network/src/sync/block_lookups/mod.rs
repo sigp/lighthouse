@@ -1,5 +1,6 @@
 use self::parent_chain::{compute_parent_chains, NodeChain};
-use self::single_block_lookup::{DownloadResult, LookupRequestError, SingleBlockLookup};
+pub use self::single_block_lookup::DownloadResult;
+use self::single_block_lookup::{LookupRequestError, SingleBlockLookup};
 use super::manager::{BlockProcessType, BlockProcessingResult};
 use super::network_context::{RpcProcessingResult, SyncNetworkContext};
 use crate::metrics;
@@ -38,8 +39,8 @@ pub enum BlockComponent<E: EthSpec> {
 impl<E: EthSpec> BlockComponent<E> {
     fn parent_root(&self) -> Hash256 {
         match self {
-            BlockComponent::Block(block) => block.0.parent_root(),
-            BlockComponent::Blob(blob) => blob.0.block_parent_root(),
+            BlockComponent::Block(block) => block.value.parent_root(),
+            BlockComponent::Blob(blob) => blob.value.block_parent_root(),
         }
     }
 }
@@ -106,8 +107,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Lookup requests */
 
-    /// Creates a lookup for the block with the given `block_root` and immediately triggers it.
-    /// Returns true if the lookup is created or already exists
+    /// Creates a parent lookup for the block with the given `block_root` and immediately triggers it.
+    /// If a parent lookup exists or is triggered, a current lookup will be created.
     pub fn search_child_and_parent(
         &mut self,
         block_root: Hash256,
@@ -132,7 +133,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
-    /// Seach a block that we don't known its parent root.
+    /// Seach a block whose parent root is unknown.
     /// Returns true if the lookup is created or already exists
     pub fn search_unknown_block(
         &mut self,
@@ -187,7 +188,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                                 "chain_too_long",
                             );
                         }
-                        self.drop_lookup_and_childs(*lookup_id);
+                        self.drop_lookup_and_children(*lookup_id);
                     }
                 }
 
@@ -290,7 +291,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) {
         if let Err(e) = self.on_download_response_inner::<R>(id, peer_id, response, cx) {
             debug!(self.log, "Dropping single lookup"; "id" => id, "err" => ?e);
-            self.drop_lookup_and_childs(id);
+            self.drop_lookup_and_children(id);
             self.update_metrics();
         }
     }
@@ -333,12 +334,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // Register the download peer here. Once we have received some data over the wire we
                 // attribute it to this peer for scoring latter regardless of how the request was
                 // done.
-                request_state.on_download_success((
-                    response,
+                request_state.on_download_success(DownloadResult {
+                    value: response,
                     block_root,
                     seen_timestamp,
                     peer_id,
-                ))?;
+                })?;
                 // continue_request will send for  processing as the request state is AwaitingProcessing
                 lookup.continue_request::<R>(cx)
             }
@@ -394,7 +395,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 BlockProcessType::SingleBlock { id } | BlockProcessType::SingleBlob { id } => id,
             };
             debug!(self.log, "Dropping lookup on request error"; "component" => process_type.component(), "id" => process_type.id(), "error" => ?e);
-            self.drop_lookup_and_childs(id);
+            self.drop_lookup_and_children(id);
             self.update_metrics();
         }
     }
@@ -497,21 +498,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     {
                         // There errors indicate internal problems and should not downscore the  peer
                         warn!(self.log, "Internal availability check failure"; "block_root" => %block_root, "error" => ?e);
-                        // TODO: This lines represent an improper transition of download states,
-                        // which can log errors in the future. If an error here causes the request
-                        // to transition into a bad state, a future network message will cause
-                        // the request to be dropped
-                        //
-                        // lookup.block_request_state.state.on_download_failure();
-                        // lookup.blob_request_state.state.on_download_failure();
                         Action::Drop
                     }
                     other => {
                         debug!(self.log, "Invalid lookup component"; "block_root" => %block_root, "component" => ?R::response_type(), "error" => ?other);
                         let peer_id = request_state.on_processing_failure()?;
-                        // TODO: Why is the original code downscoring the block peer regardless of
-                        // type of request? Sending a blob for verification can result in an error
-                        // attributable to the block peer?
                         cx.report_peer(
                             peer_id,
                             PeerAction::MidToleranceError,
@@ -541,7 +532,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             Action::Drop => {
                 // Drop with noop
-                self.drop_lookup_and_childs(lookup_id);
+                self.drop_lookup_and_children(lookup_id);
                 self.update_metrics();
             }
             Action::Continue => {
@@ -572,14 +563,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         for id in failed_lookups {
-            self.drop_lookup_and_childs(id);
+            self.drop_lookup_and_children(id);
         }
     }
 
     /// Drops `dropped_id` lookup and all its children recursively. Lookups awaiting a parent need
-    /// the parent to make progress to resolve, therefore we must drop them is the parent is
+    /// the parent to make progress to resolve, therefore we must drop them if the parent is
     /// dropped.
-    pub fn drop_lookup_and_childs(&mut self, dropped_id: SingleLookupId) {
+    pub fn drop_lookup_and_children(&mut self, dropped_id: SingleLookupId) {
         if let Some(dropped_lookup) = self.single_block_lookups.remove(&dropped_id) {
             debug!(self.log, "Dropping child lookup"; "id" => ?dropped_id, "block_root" => %dropped_lookup.block_root());
 
@@ -591,7 +582,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 .collect::<Vec<_>>();
 
             for id in child_lookups {
-                self.drop_lookup_and_childs(id);
+                self.drop_lookup_and_children(id);
             }
         }
     }

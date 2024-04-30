@@ -41,7 +41,9 @@ use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::{BlobRequestState, BlockComponent, BlockRequestState};
+use crate::sync::block_lookups::{
+    BlobRequestState, BlockComponent, BlockRequestState, DownloadResult,
+};
 use crate::sync::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -593,12 +595,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     block_slot,
-                    BlockComponent::Block((
-                        block.block_cloned(),
+                    BlockComponent::Block(DownloadResult {
+                        value: block.block_cloned(),
                         block_root,
-                        timestamp_now(),
+                        seen_timestamp: timestamp_now(),
                         peer_id,
-                    )),
+                    }),
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
@@ -611,7 +613,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     blob_slot,
-                    BlockComponent::Blob((blob, block_root, timestamp_now(), peer_id)),
+                    BlockComponent::Blob(DownloadResult {
+                        value: blob,
+                        block_root,
+                        seen_timestamp: timestamp_now(),
+                        peer_id,
+                    }),
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
