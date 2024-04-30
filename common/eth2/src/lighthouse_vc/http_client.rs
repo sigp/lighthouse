@@ -120,9 +120,7 @@ impl ValidatorClientHttpClient {
         if self.authorization_header == AuthorizationHeader::Basic
             || self.authorization_header == AuthorizationHeader::Bearer
         {
-            let auth_header_token = self
-                .api_token()
-                .ok_or(Error::NoToken)?;
+            let auth_header_token = self.api_token().ok_or(Error::NoToken)?;
             let header_value = HeaderValue::from_str(&format!(
                 "{} {}",
                 self.authorization_header,
