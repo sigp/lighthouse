@@ -1917,7 +1917,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
         drop(cache_timer);
 
-        // TODO(eip7549) implement electra variant
+        // TODO(electra) implement electra variant
         Ok(Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(committee_len)?,
             data: AttestationData {

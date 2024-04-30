@@ -95,7 +95,7 @@ pub mod base {
                     }
                 }
                 Attestation::Electra(_) => {
-                    // TODO(eip7549) pending attestations are only phase 0
+                    // TODO(electra) pending attestations are only phase 0
                     // so we should just raise a relevant error here
                     todo!()
                 }

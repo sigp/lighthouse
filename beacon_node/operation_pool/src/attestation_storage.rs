@@ -80,7 +80,7 @@ impl<E: EthSpec> SplitAttestation<E> {
                     index: data.index,
                 })
             }
-            // TODO(eip7549) implement electra variant
+            // TODO(electra) implement electra variant
             Attestation::Electra(_) => todo!(),
         };
 
@@ -157,7 +157,7 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
             (CompactIndexedAttestation::Electra(_), CompactIndexedAttestation::Electra(_)) => {
                 todo!()
             }
-            // TODO(eip7549) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
+            // TODO(electra) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
             _ => false,
         }
     }
@@ -170,7 +170,7 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
             (CompactIndexedAttestation::Electra(_), CompactIndexedAttestation::Electra(_)) => {
                 todo!()
             }
-            // TODO(eip7549) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
+            // TODO(electra) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
             _ => (),
         }
     }

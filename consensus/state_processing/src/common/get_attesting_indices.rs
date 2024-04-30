@@ -32,7 +32,7 @@ pub fn get_attesting_indices_from_state<E: EthSpec>(
         Attestation::Base(att) => {
             get_attesting_indices::<E>(committee.committee, &att.aggregation_bits)
         }
-        // TODO(eip7549) implement get_attesting_indices for electra
+        // TODO(electra) implement get_attesting_indices for electra
         Attestation::Electra(_) => todo!(),
     }
 }

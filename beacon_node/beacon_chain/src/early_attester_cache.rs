@@ -123,6 +123,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.committee_lengths
                 .get_committee_length::<E>(request_slot, request_index, spec)?;
 
+        // TODO(electra) make fork-agnostic
         let attestation = Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(committee_len)
                 .map_err(BeaconStateError::from)?,

@@ -132,7 +132,7 @@ impl<E: EthSpec> PackingEfficiencyHandler<E> {
                         }
                     }
                 }
-                // TODO(eip7549) implement electra variant
+                // TODO(electra) implement electra variant
                 Attestation::Electra(_) => {
                     todo!()
                 }

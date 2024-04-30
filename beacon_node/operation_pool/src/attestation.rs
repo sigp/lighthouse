@@ -177,7 +177,7 @@ pub fn earliest_attestation_validators<E: EthSpec>(
     // Bitfield of validators whose attestations are new/fresh.
     let mut new_validators = match attestation.indexed {
         CompactIndexedAttestation::Base(indexed_att) => indexed_att.aggregation_bits.clone(),
-        // TODO(eip7549) per the comments above, this code path is obsolete post altair fork, so maybe we should just return an empty bitlist here?
+        // TODO(electra) per the comments above, this code path is obsolete post altair fork, so maybe we should just return an empty bitlist here?
         CompactIndexedAttestation::Electra(_) => todo!(),
     };
 

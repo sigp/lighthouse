@@ -1032,6 +1032,7 @@ where
             *state.get_block_root(target_slot)?
         };
 
+        // TODO(electra) make test fork-agnostic
         Ok(Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(committee_len)?,
             data: AttestationData {
@@ -1515,7 +1516,7 @@ where
         attestation_2.data_mut().target.epoch = target2.unwrap_or(fork.epoch);
 
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
-            // TODO(eip7549) we could explore iter mut here
+            // TODO(electra) we could explore iter mut here
             for i in attestation.attesting_indices_to_vec() {
                 let sk = &self.validator_keypairs[i as usize].sk;
 

@@ -107,7 +107,7 @@ impl<E: EthSpec> SubsetItem for Attestation<E> {
     fn is_subset(&self, other: &Self::Item) -> bool {
         match self {
             Attestation::Base(att) => att.aggregation_bits.is_subset(other),
-            // TODO(eip7549) implement electra variant
+            // TODO(electra) implement electra variant
             Attestation::Electra(_) => todo!(),
         }
     }
@@ -115,7 +115,7 @@ impl<E: EthSpec> SubsetItem for Attestation<E> {
     fn is_superset(&self, other: &Self::Item) -> bool {
         match self {
             Attestation::Base(att) => other.is_subset(&att.aggregation_bits),
-            // TODO(eip7549) implement electra variant
+            // TODO(electra) implement electra variant
             Attestation::Electra(_) => todo!(),
         }
     }
@@ -124,7 +124,7 @@ impl<E: EthSpec> SubsetItem for Attestation<E> {
     fn get_item(&self) -> Self::Item {
         match self {
             Attestation::Base(att) => att.aggregation_bits.clone(),
-            // TODO(eip7549) implement electra variant
+            // TODO(electra) implement electra variant
             Attestation::Electra(_) => todo!(),
         }
     }
