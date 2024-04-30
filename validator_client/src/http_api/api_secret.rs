@@ -1,7 +1,6 @@
-use eth2::lighthouse_vc::{PK_LEN, SECRET_PREFIX as PK_PREFIX};
 use filesystem::create_with_600_perms;
-use libsecp256k1::{PublicKey, SecretKey};
-use rand::thread_rng;
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use std::fs;
 use std::path::{Path, PathBuf};
 use warp::Filter;
@@ -13,8 +12,9 @@ use warp::Filter;
 /// value in a public forum.
 pub const PK_FILENAME: &str = "api-token.txt";
 
-/// Contains a `secp256k1` keypair that is saved-to/loaded-from disk on instantiation. The keypair
-/// is used for authorization/authentication for requests/responses on the HTTP API.
+pub const PK_LEN: usize = 33;
+
+/// Contains a randomly generated string which is used for authorization of requests to the HTTP API.
 ///
 /// Provides convenience functions to ultimately provide:
 ///
@@ -25,10 +25,10 @@ pub const PK_FILENAME: &str = "api-token.txt";
 ///
 ///  https://github.com/sigp/lighthouse/issues/1269#issuecomment-649879855
 ///  
-///  This scheme has since been tweaked to remove VC response signing
+///  This scheme has since been tweaked to remove VC response signing and secp256k1 key generation.
 ///  https://github.com/sigp/lighthouse/issues/5423
 pub struct ApiSecret {
-    pk: PublicKey,
+    pk: String,
     pk_path: PathBuf,
 }
 
@@ -43,20 +43,15 @@ impl ApiSecret {
         let pk_path = dir.as_ref().join(PK_FILENAME);
 
         if !pk_path.exists() {
-            let sk = SecretKey::random(&mut thread_rng());
-            let pk = PublicKey::from_secret_key(&sk);
+            let length = PK_LEN;
+            let pk: String = thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(length)
+                .map(char::from)
+                .collect();
 
             // Create and write the public key to file with appropriate permissions
-            create_with_600_perms(
-                &pk_path,
-                format!(
-                    "{}{}",
-                    PK_PREFIX,
-                    serde_utils::hex::encode(&pk.serialize_compressed()[..])
-                )
-                .as_bytes(),
-            )
-            .map_err(|e| {
+            create_with_600_perms(&pk_path, pk.to_string().as_bytes()).map_err(|e| {
                 format!(
                     "Unable to create file with permissions for {:?}: {:?}",
                     pk_path, e
@@ -65,44 +60,17 @@ impl ApiSecret {
         }
 
         let pk = fs::read(&pk_path)
-            .map_err(|e| format!("cannot read {}: {}", PK_FILENAME, e))
-            .and_then(|bytes| {
-                let hex =
-                    String::from_utf8(bytes).map_err(|_| format!("{} is not utf8", PK_FILENAME))?;
-                if let Some(stripped) = hex.strip_prefix(PK_PREFIX) {
-                    serde_utils::hex::decode(stripped)
-                        .map_err(|_| format!("{} should be 0x-prefixed hex", PK_FILENAME))
-                } else {
-                    Err(format!("unable to parse {}", PK_FILENAME))
-                }
-            })
-            .and_then(|bytes| {
-                if bytes.len() == PK_LEN {
-                    let mut array = [0; PK_LEN];
-                    array.copy_from_slice(&bytes);
-                    PublicKey::parse_compressed(&array)
-                        .map_err(|e| format!("invalid {}: {}", PK_FILENAME, e))
-                } else {
-                    Err(format!(
-                        "{} expected {} bytes not {}",
-                        PK_FILENAME,
-                        PK_LEN,
-                        bytes.len()
-                    ))
-                }
-            })?;
+            .map_err(|e| format!("cannot read {}: {}", PK_FILENAME, e))?
+            .iter()
+            .map(|&c| char::from(c))
+            .collect();
 
         Ok(Self { pk, pk_path })
     }
 
-    /// Returns the public key of `self` as a 0x-prefixed hex string.
-    fn pubkey_string(&self) -> String {
-        serde_utils::hex::encode(&self.pk.serialize_compressed()[..])
-    }
-
     /// Returns the API token.
     pub fn api_token(&self) -> String {
-        format!("{}{}", PK_PREFIX, self.pubkey_string())
+        self.pk.clone()
     }
 
     /// Returns the path for the API token file

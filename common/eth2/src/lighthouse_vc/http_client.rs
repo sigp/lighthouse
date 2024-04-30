@@ -1,7 +1,6 @@
-use super::{types::*, PK_LEN, SECRET_PREFIX};
+use super::types::*;
 use crate::Error;
 use account_utils::ZeroizeString;
-use libsecp256k1::PublicKey;
 use reqwest::{
     header::{HeaderMap, HeaderValue},
     IntoUrl,
@@ -22,8 +21,7 @@ use types::graffiti::GraffitiString;
 pub struct ValidatorClientHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
-    secret: Option<ZeroizeString>,
-    server_pubkey: Option<PublicKey>,
+    api_token: Option<ZeroizeString>,
     authorization_header: AuthorizationHeader,
 }
 
@@ -44,45 +42,13 @@ impl Display for AuthorizationHeader {
     }
 }
 
-/// Parse an API token and return a secp256k1 public key.
-///
-/// If the token does not start with the Lighthouse token prefix then `Ok(None)` will be returned.
-/// An error will be returned if the token looks like a Lighthouse token but doesn't correspond to a
-/// valid public key.
-pub fn parse_pubkey(secret: &str) -> Result<Option<PublicKey>, Error> {
-    let secret = if !secret.starts_with(SECRET_PREFIX) {
-        return Ok(None);
-    } else {
-        &secret[SECRET_PREFIX.len()..]
-    };
-
-    serde_utils::hex::decode(secret)
-        .map_err(|e| Error::InvalidSecret(format!("invalid hex: {:?}", e)))
-        .and_then(|bytes| {
-            if bytes.len() != PK_LEN {
-                return Err(Error::InvalidSecret(format!(
-                    "expected {} bytes not {}",
-                    PK_LEN,
-                    bytes.len()
-                )));
-            }
-
-            let mut arr = [0; PK_LEN];
-            arr.copy_from_slice(&bytes);
-            PublicKey::parse_compressed(&arr)
-                .map_err(|e| Error::InvalidSecret(format!("invalid secp256k1 pubkey: {:?}", e)))
-        })
-        .map(Some)
-}
-
 impl ValidatorClientHttpClient {
     /// Create a new client pre-initialised with an API token.
     pub fn new(server: SensitiveUrl, secret: String) -> Result<Self, Error> {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
-            server_pubkey: parse_pubkey(&secret)?,
-            secret: Some(secret.into()),
+            api_token: Some(secret.into()),
             authorization_header: AuthorizationHeader::Bearer,
         })
     }
@@ -94,8 +60,7 @@ impl ValidatorClientHttpClient {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
-            secret: None,
-            server_pubkey: None,
+            api_token: None,
             authorization_header: AuthorizationHeader::Omit,
         })
     }
@@ -108,15 +73,14 @@ impl ValidatorClientHttpClient {
         Ok(Self {
             client,
             server,
-            server_pubkey: parse_pubkey(&secret)?,
-            secret: Some(secret.into()),
+            api_token: Some(secret.into()),
             authorization_header: AuthorizationHeader::Bearer,
         })
     }
 
     /// Get a reference to this client's API token, if any.
     pub fn api_token(&self) -> Option<&ZeroizeString> {
-        self.secret.as_ref()
+        self.api_token.as_ref()
     }
 
     /// Read an API token from the specified `path`, stripping any trailing whitespace.
@@ -126,19 +90,11 @@ impl ValidatorClientHttpClient {
     }
 
     /// Add an authentication token to use when making requests.
-    ///
-    /// If the token is Lighthouse-like, a pubkey derivation will be attempted. In the case
-    /// of failure the token will still be stored, and the client can continue to be used to
-    /// communicate with non-Lighthouse nodes.
     pub fn add_auth_token(&mut self, token: ZeroizeString) -> Result<(), Error> {
-        let pubkey_res = parse_pubkey(token.as_str());
-
-        self.secret = Some(token);
+        self.api_token = Some(token);
         self.authorization_header = AuthorizationHeader::Bearer;
 
-        pubkey_res.map(|opt_pubkey| {
-            self.server_pubkey = opt_pubkey;
-        })
+        Ok(())
     }
 
     /// Set to `false` to disable sending the `Authorization` header on requests.
@@ -164,11 +120,13 @@ impl ValidatorClientHttpClient {
         if self.authorization_header == AuthorizationHeader::Basic
             || self.authorization_header == AuthorizationHeader::Bearer
         {
-            let secret = self.secret.as_ref().ok_or(Error::NoToken)?;
+            let auth_header_token = self
+                .api_token()
+                .ok_or(Error::NoToken)?;
             let header_value = HeaderValue::from_str(&format!(
                 "{} {}",
                 self.authorization_header,
-                secret.as_str()
+                auth_header_token.as_str()
             ))
             .map_err(|e| {
                 Error::InvalidSecret(format!("secret is invalid as a header value: {}", e))
@@ -231,8 +189,12 @@ impl ValidatorClientHttpClient {
     async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
         match self.get_response(url).await {
             Ok(resp) => {
-                let body = resp.bytes().await.map_err(Error::from)?;
-                serde_json::from_slice(&body).map_err(Error::InvalidJson)
+                let body = resp.bytes().await.map(Option::Some)?;
+                if let Some(body) = body {
+                    serde_json::from_slice(&body).map_err(Error::InvalidJson)
+                } else {
+                    Ok(None)
+                }
             }
             Err(err) => {
                 if err.status() == Some(StatusCode::NOT_FOUND) {
