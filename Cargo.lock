@@ -2925,6 +2925,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fdlimit"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e182f7dbc2ef73d9ef67351c5fbbea084729c48362d3ce9dd44c28e32e277fe5"
+dependencies = [
+ "libc",
+ "thiserror",
+]
+
+[[package]]
 name = "ff"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9082,6 +9092,7 @@ dependencies = [
  "eth2",
  "eth2_keystore",
  "ethereum_serde_utils",
+ "fdlimit",
  "filesystem",
  "futures",
  "hex",

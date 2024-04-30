@@ -682,7 +682,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     ),
                 BlockProcessType::SingleBlob { id } => self
                     .block_lookups
-                    .single_block_component_processed::<BlobRequestState<T::EthSpec>>(
+                    .single_block_component_processed::<BlobRequestState>(
                         id,
                         result,
                         &mut self.network,
@@ -998,7 +998,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Ok((blobs, seen_timestamp)) => match id.lookup_type {
                     LookupType::Current => self
                         .block_lookups
-                        .single_lookup_response::<BlobRequestState<T::EthSpec>>(
+                        .single_lookup_response::<BlobRequestState>(
                             id,
                             peer_id,
                             blobs,
@@ -1007,7 +1007,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         ),
                     LookupType::Parent => self
                         .block_lookups
-                        .parent_lookup_response::<BlobRequestState<T::EthSpec>>(
+                        .parent_lookup_response::<BlobRequestState>(
                             id,
                             peer_id,
                             blobs,
@@ -1019,20 +1019,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Err(error) => match id.lookup_type {
                     LookupType::Current => self
                         .block_lookups
-                        .single_block_lookup_failed::<BlobRequestState<T::EthSpec>>(
+                        .single_block_lookup_failed::<BlobRequestState>(
                             id,
                             &peer_id,
                             &mut self.network,
                             error,
                         ),
-                    LookupType::Parent => self
-                        .block_lookups
-                        .parent_lookup_failed::<BlobRequestState<T::EthSpec>>(
+                    LookupType::Parent => {
+                        self.block_lookups.parent_lookup_failed::<BlobRequestState>(
                             id,
                             &peer_id,
                             &mut self.network,
                             error,
-                        ),
+                        )
+                    }
                 },
             }
         }
