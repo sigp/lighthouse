@@ -1186,7 +1186,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .transpose()
             })
             .collect::<Result<Vec<_>, _>>()?;
-        // Existance of a column in the data availability cache and downstream caches is exclusive.
+        // Existence of a column in the data availability cache and downstream caches is exclusive.
         // If there's a single match in the availability cache we can safely skip other sources.
         if !columns_from_availability_cache.is_empty() {
             return Ok(columns_from_availability_cache);

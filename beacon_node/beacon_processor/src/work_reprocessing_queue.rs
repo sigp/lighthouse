@@ -250,7 +250,7 @@ struct ReprocessQueue<S> {
     queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate, DelayKey)>,
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
-    /// Queued sampling requests per block root.
+    /// Queued sampling requests.
     queued_sampling_requests: FnvHashMap<usize, (QueuedSamplingRequest, DelayKey)>,
     /// Sampling requests per block root.
     awaiting_sampling_requests_per_block_root: HashMap<Hash256, Vec<QueuedSamplingRequestId>>,

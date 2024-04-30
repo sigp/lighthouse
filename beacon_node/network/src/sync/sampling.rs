@@ -174,10 +174,10 @@ pub struct ActiveSamplingRequest<T: BeaconChainTypes> {
 
 #[derive(Debug)]
 pub enum SamplingError {
-    SendFailed(&'static str),
+    SendFailed(#[allow(dead_code)] &'static str),
     ProcessorUnavailable,
     TooManyFailures,
-    BadState(String),
+    BadState(#[allow(dead_code)] String),
     ColumnIndexOutOfBounds,
 }
 
