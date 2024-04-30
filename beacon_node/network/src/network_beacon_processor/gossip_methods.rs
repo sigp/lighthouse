@@ -778,23 +778,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
             }
+            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+                debug!(
+                    self.log,
+                    "Ignoring gossip blob already imported";
+                    "block_root" => ?block_root,
+                    "blob_index" =>  blob_index,
+                );
+            }
             Err(err) => {
                 debug!(
                     self.log,
                     "Invalid gossip blob";
                     "outcome" => ?err,
-                    "block root" => ?block_root,
-                    "block slot" =>  blob_slot,
-                    "blob index" =>  blob_index,
+                    "block_root" => ?block_root,
+                    "block_slot" =>  blob_slot,
+                    "blob_index" =>  blob_index,
                 );
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::MidToleranceError,
                     "bad_gossip_blob_ssz",
-                );
-                trace!(
-                    self.log,
-                    "Invalid gossip blob ssz";
                 );
             }
         }
