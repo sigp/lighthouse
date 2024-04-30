@@ -18,7 +18,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::FixedBlobSidecarList;
 use types::EthSpec;
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -37,7 +36,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     pub lookup_type: LookupType,
     pub block_request_state: BlockRequestState,
-    pub blob_request_state: BlobRequestState<T::EthSpec>,
+    pub blob_request_state: BlobRequestState,
     pub da_checker: Arc<DataAvailabilityChecker<T>>,
     /// Only necessary for requests triggered by an `UnknownBlockParent` or `UnknownBlockParent`
     /// because any blocks or blobs without parents won't hit the data availability cache.
@@ -304,24 +303,21 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
-pub struct BlobRequestState<E: EthSpec> {
+pub struct BlobRequestState {
     /// The latest picture of which blobs still need to be requested. This includes information
     /// from both block/blobs downloaded in the network layer and any blocks/blobs that exist in
     /// the data availability checker.
     pub requested_ids: MissingBlobs,
     pub block_root: Hash256,
-    /// Where we store blobs until we receive the stream terminator.
-    pub blob_download_queue: FixedBlobSidecarList<E>,
     pub state: SingleLookupRequestState,
 }
 
-impl<E: EthSpec> BlobRequestState<E> {
+impl BlobRequestState {
     pub fn new(block_root: Hash256, peer_source: &[PeerId], is_deneb: bool) -> Self {
         let default_ids = MissingBlobs::new_without_block(block_root, is_deneb);
         Self {
             block_root,
             requested_ids: default_ids,
-            blob_download_queue: <_>::default(),
             state: SingleLookupRequestState::new(peer_source),
         }
     }

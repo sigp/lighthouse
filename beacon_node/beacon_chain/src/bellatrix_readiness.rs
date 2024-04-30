@@ -11,7 +11,7 @@ use types::*;
 
 /// The time before the Bellatrix fork when we will start issuing warnings about preparation.
 pub const SECONDS_IN_A_WEEK: u64 = 604800;
-pub const MERGE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 2;
+pub const BELLATRIX_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 2;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct MergeConfig {
@@ -81,7 +81,7 @@ impl MergeConfig {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
-pub enum MergeReadiness {
+pub enum BellatrixReadiness {
     /// The node is ready, as far as we can tell.
     Ready {
         config: MergeConfig,
@@ -94,29 +94,29 @@ pub enum MergeReadiness {
     NoExecutionEndpoint,
 }
 
-impl fmt::Display for MergeReadiness {
+impl fmt::Display for BellatrixReadiness {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MergeReadiness::Ready {
+            BellatrixReadiness::Ready {
                 config: params,
                 current_difficulty,
             } => {
                 write!(
                     f,
-                    "This node appears ready for the merge. \
+                    "This node appears ready for Bellatrix \
                         Params: {}, current_difficulty: {:?}",
                     params, current_difficulty
                 )
             }
-            MergeReadiness::NotSynced => write!(
+            BellatrixReadiness::NotSynced => write!(
                 f,
                 "The execution endpoint is connected and configured, \
                     however it is not yet synced"
             ),
-            MergeReadiness::NoExecutionEndpoint => write!(
+            BellatrixReadiness::NoExecutionEndpoint => write!(
                 f,
                 "The --execution-endpoint flag is not specified, this is a \
-                    requirement for the merge"
+                    requirement for Bellatrix"
             ),
         }
     }
@@ -143,12 +143,12 @@ pub enum GenesisExecutionPayloadStatus {
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `true` if user has an EL configured, or if the Bellatrix fork has occurred or will
-    /// occur within `MERGE_READINESS_PREPARATION_SECONDS`.
+    /// occur within `BELLATRIX_READINESS_PREPARATION_SECONDS`.
     pub fn is_time_to_prepare_for_bellatrix(&self, current_slot: Slot) -> bool {
         if let Some(bellatrix_epoch) = self.spec.bellatrix_fork_epoch {
             let bellatrix_slot = bellatrix_epoch.start_slot(T::EthSpec::slots_per_epoch());
-            let merge_readiness_preparation_slots =
-                MERGE_READINESS_PREPARATION_SECONDS / self.spec.seconds_per_slot;
+            let bellatrix_readiness_preparation_slots =
+                BELLATRIX_READINESS_PREPARATION_SECONDS / self.spec.seconds_per_slot;
 
             if self.execution_layer.is_some() {
                 // The user has already configured an execution layer, start checking for readiness
@@ -156,7 +156,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 true
             } else {
                 // Return `true` if Bellatrix has happened or is within the preparation time.
-                current_slot + merge_readiness_preparation_slots > bellatrix_slot
+                current_slot + bellatrix_readiness_preparation_slots > bellatrix_slot
             }
         } else {
             // The Bellatrix fork epoch has not been defined yet, no need to prepare.
@@ -164,22 +164,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Attempts to connect to the EL and confirm that it is ready for the merge.
-    pub async fn check_merge_readiness(&self, current_slot: Slot) -> MergeReadiness {
+    /// Attempts to connect to the EL and confirm that it is ready for Bellatrix.
+    pub async fn check_bellatrix_readiness(&self, current_slot: Slot) -> BellatrixReadiness {
         if let Some(el) = self.execution_layer.as_ref() {
             if !el.is_synced_for_notifier(current_slot).await {
                 // The EL is not synced.
-                return MergeReadiness::NotSynced;
+                return BellatrixReadiness::NotSynced;
             }
             let params = MergeConfig::from_chainspec(&self.spec);
             let current_difficulty = el.get_current_difficulty().await.ok();
-            MergeReadiness::Ready {
+            BellatrixReadiness::Ready {
                 config: params,
                 current_difficulty,
             }
         } else {
             // There is no EL configured.
-            MergeReadiness::NoExecutionEndpoint
+            BellatrixReadiness::NoExecutionEndpoint
         }
     }
 

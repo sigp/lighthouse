@@ -88,14 +88,15 @@ const _: () = assert!({
 /// bringing in the entire crate.
 const _: () = assert!(ATTESTATION_SUBSCRIPTION_OFFSETS[0] > 2);
 
+// The info in the enum variants is displayed in logging, clippy thinks it's dead code.
 #[derive(Debug)]
 pub enum Error {
     UnableToReadSlotClock,
-    FailedToDownloadAttesters(String),
-    FailedToProduceSelectionProof(ValidatorStoreError),
-    InvalidModulo(ArithError),
-    Arith(ArithError),
-    SyncDutiesNotFound(u64),
+    FailedToDownloadAttesters(#[allow(dead_code)] String),
+    FailedToProduceSelectionProof(#[allow(dead_code)] ValidatorStoreError),
+    InvalidModulo(#[allow(dead_code)] ArithError),
+    Arith(#[allow(dead_code)] ArithError),
+    SyncDutiesNotFound(#[allow(dead_code)] u64),
 }
 
 impl From<ArithError> for Error {

@@ -21,9 +21,9 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadHeader, ExecutionPayloadMerge,
-    ForkName, Hash256, Transaction, Transactions, Uint256,
+    Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
+    ExecutionPayloadHeader, ForkName, Hash256, Transaction, Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -92,7 +92,7 @@ impl<E: EthSpec> Block<E> {
         match self {
             Block::PoS(payload) => Some(payload.clone().try_into().unwrap()),
             Block::PoW(block) => Some(
-                ExecutionPayload::Merge(ExecutionPayloadMerge {
+                ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                     block_hash: block.block_hash,
                     ..Default::default()
                 })
@@ -232,7 +232,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 Some(fork_time) if timestamp >= fork_time => ForkName::Deneb,
                 _ => match self.shanghai_time {
                     Some(fork_time) if timestamp >= fork_time => ForkName::Capella,
-                    _ => ForkName::Merge,
+                    _ => ForkName::Bellatrix,
                 },
             },
         }
@@ -569,7 +569,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         attributes: &PayloadAttributes,
     ) -> Result<ExecutionPayload<E>, String> {
         let mut execution_payload = match attributes {
-            PayloadAttributes::V1(pa) => ExecutionPayload::Merge(ExecutionPayloadMerge {
+            PayloadAttributes::V1(pa) => ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                 parent_hash: head_block_hash,
                 fee_recipient: pa.suggested_fee_recipient,
                 receipts_root: Hash256::repeat_byte(42),
@@ -586,7 +586,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 transactions: vec![].into(),
             }),
             PayloadAttributes::V2(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
-                ForkName::Merge => ExecutionPayload::Merge(ExecutionPayloadMerge {
+                ForkName::Bellatrix => ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                     parent_hash: head_block_hash,
                     fee_recipient: pa.suggested_fee_recipient,
                     receipts_root: Hash256::repeat_byte(42),
@@ -659,13 +659,15 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     withdrawals: pa.withdrawals.clone().into(),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
+                    deposit_receipts: vec![].into(),
+                    withdrawal_requests: vec![].into(),
                 }),
                 _ => unreachable!(),
             },
         };
 
         match execution_payload.fork_name() {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {}
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {}
             ForkName::Deneb | ForkName::Electra => {
                 // get random number between 0 and Max Blobs
                 let mut rng = self.rng.lock();
@@ -782,14 +784,14 @@ pub fn generate_genesis_header<E: EthSpec>(
     let empty_transactions_root = Transactions::<E>::empty().tree_hash_root();
     match genesis_fork {
         ForkName::Base | ForkName::Altair => None,
-        ForkName::Merge => {
+        ForkName::Bellatrix => {
             if post_transition_merge {
-                let mut header = ExecutionPayloadHeader::Merge(<_>::default());
+                let mut header = ExecutionPayloadHeader::Bellatrix(<_>::default());
                 *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
                 *header.transactions_root_mut() = empty_transactions_root;
                 Some(header)
             } else {
-                Some(ExecutionPayloadHeader::<E>::Merge(<_>::default()))
+                Some(ExecutionPayloadHeader::<E>::Bellatrix(<_>::default()))
             }
         }
         ForkName::Capella => {
