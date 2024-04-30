@@ -1,4 +1,4 @@
-use crate::blob_verification::{GossipBlobError, KzgVerifiedBlobList};
+
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;

@@ -50,7 +50,7 @@
 
 use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::{
-    AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
+    AsBlock, BlockImportData, RpcBlock,
 };
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
@@ -70,10 +70,10 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
-use eth2::types::{EventKind, PublishBlockRequest};
+use eth2::types::{EventKind};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
-use kzg::KzgProof;
+
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
@@ -99,7 +99,7 @@ use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, Blob, BlobSidecar, ChainSpec, CloneConfig,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig,
     Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey,
     PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
