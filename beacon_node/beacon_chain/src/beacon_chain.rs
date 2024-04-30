@@ -1225,7 +1225,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(block) = self.early_attester_cache.get_block(*block_root) {
             return BlockImportStatus::PendingImport(block);
         }
-        if let Ok(true) = self.store.has_block(block_root) {
+        if let Ok(true) = self.store.block_exists(block_root) {
             BlockImportStatus::Imported
         } else {
             BlockImportStatus::Unknown
