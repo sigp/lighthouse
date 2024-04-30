@@ -72,18 +72,19 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.awaiting_parent = None;
     }
 
-    pub fn add_child_components(&mut self, block_component: BlockComponent<T::EthSpec>) {
+    /// Maybe insert a verified response into this lookup. Returns true if imported
+    pub fn add_child_components(&mut self, block_component: BlockComponent<T::EthSpec>) -> bool {
         match block_component {
-            BlockComponent::Block(block) => {
-                self.block_request_state
-                    .state
-                    .insert_verified_response(block);
-            }
+            BlockComponent::Block(block) => self
+                .block_request_state
+                .state
+                .insert_verified_response(block),
             BlockComponent::Blob(_) => {
                 // For now ignore single blobs, as the blob request state assumes all blobs are
                 // attributed to the same peer = the peer serving the remaining blobs. Ignoring this
                 // block component has a minor effect, causing the node to re-request this blob
                 // once the parent chain is successfully resolved
+                false
             }
         }
     }
@@ -289,9 +290,12 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
     /// Switch to `AwaitingProcessing` if the request is in `AwaitingDownload` state, otherwise
     /// ignore.
-    pub fn insert_verified_response(&mut self, result: DownloadResult<T>) {
+    pub fn insert_verified_response(&mut self, result: DownloadResult<T>) -> bool {
         if let State::AwaitingDownload = &self.state {
             self.state = State::AwaitingProcess(result);
+            true
+        } else {
+            false
         }
     }
 

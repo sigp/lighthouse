@@ -43,6 +43,12 @@ impl<E: EthSpec> BlockComponent<E> {
             BlockComponent::Blob(blob) => blob.value.block_parent_root(),
         }
     }
+    fn get_type(&self) -> &'static str {
+        match self {
+            BlockComponent::Block(_) => "block",
+            BlockComponent::Blob(_) => "blob",
+        }
+    }
 }
 
 pub type SingleLookupId = u32;
@@ -229,7 +235,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             trace!(self.log, "Adding peer to existing single block lookup"; "block_root" => %block_root);
             lookup.add_peers(peers);
             if let Some(block_component) = block_component {
-                lookup.add_child_components(block_component);
+                let component_type = block_component.get_type();
+                let imported = lookup.add_child_components(block_component);
+                if !imported {
+                    debug!(self.log, "Lookup child component ignored"; "block_root" => %block_root, "type" => component_type);
+                }
             }
             return true;
         }
