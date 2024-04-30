@@ -22,7 +22,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, EthSpec, ExecPayload,
-    ExecutionBlockHash, ForkName, FullPayload, FullPayloadMerge, Hash256, KzgProofs,
+    ExecutionBlockHash, ForkName, FullPayload, FullPayloadBellatrix, Hash256, KzgProofs,
     SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
 use warp::http::StatusCode;
@@ -106,7 +106,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         match block.as_ref() {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => {
                 crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block))
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
@@ -415,13 +415,11 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
 
         // If the execution block hash is zero, use an empty payload.
         let full_payload_contents = if payload_header.block_hash() == ExecutionBlockHash::zero() {
-            let fork_name = chain.spec.fork_name_at_epoch(
-                block
-                    .slot()
-                    .epoch(<<T as BeaconChainTypes>::EthSpec as EthSpec>::slots_per_epoch()),
-            );
-            if fork_name == ForkName::Merge {
-                let payload: FullPayload<T::EthSpec> = FullPayloadMerge::default().into();
+            let fork_name = chain
+                .spec
+                .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
+            if fork_name == ForkName::Bellatrix {
+                let payload: FullPayload<T::EthSpec> = FullPayloadBellatrix::default().into();
                 ProvenancedPayload::Local(FullPayloadContents::Payload(payload.into()))
             } else {
                 Err(warp_utils::reject::custom_server_error(

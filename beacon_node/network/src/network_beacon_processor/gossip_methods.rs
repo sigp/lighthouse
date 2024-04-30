@@ -27,7 +27,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
@@ -615,8 +615,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let commitment = blob_sidecar.kzg_commitment;
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
-        metrics::observe_duration(&metrics::BEACON_BLOB_GOSSIP_SLOT_START_DELAY_TIME, delay);
-        metrics::set_gauge(&metrics::BEACON_BLOB_LAST_DELAY, delay.as_millis() as i64);
+        metrics::set_gauge(&metrics::BEACON_BLOB_DELAY_GOSSIP, delay.as_millis() as i64);
         match self
             .chain
             .verify_blob_sidecar_for_gossip(blob_sidecar, blob_index)
@@ -654,9 +653,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .ok()
                     .and_then(|now| now.checked_sub(seen_duration))
                 {
-                    metrics::observe_duration(
-                        &metrics::BEACON_BLOB_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME,
-                        duration,
+                    metrics::set_gauge(
+                        &metrics::BEACON_BLOB_DELAY_GOSSIP_VERIFICATION,
+                        duration.as_millis() as i64,
                     );
                 }
                 self.process_gossip_verified_blob(peer_id, gossip_verified_blob, seen_duration)
@@ -747,9 +746,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         peer_id: PeerId,
         verified_blob: GossipVerifiedBlob<T>,
-        // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
+        let processing_start_time = Instant::now();
         let block_root = verified_blob.block_root();
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
@@ -768,6 +767,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root
                 );
                 self.chain.recompute_head_at_current_slot().await;
+
+                metrics::set_gauge(
+                    &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
+                    processing_start_time.elapsed().as_millis() as i64,
+                );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
                 trace!(
@@ -778,23 +782,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
             }
+            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+                debug!(
+                    self.log,
+                    "Ignoring gossip blob already imported";
+                    "block_root" => ?block_root,
+                    "blob_index" =>  blob_index,
+                );
+            }
             Err(err) => {
                 debug!(
                     self.log,
                     "Invalid gossip blob";
                     "outcome" => ?err,
-                    "block root" => ?block_root,
-                    "block slot" =>  blob_slot,
-                    "blob index" =>  blob_index,
+                    "block_root" => ?block_root,
+                    "block_slot" =>  blob_slot,
+                    "blob_index" =>  blob_index,
                 );
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::MidToleranceError,
                     "bad_gossip_blob_ssz",
-                );
-                trace!(
-                    self.log,
-                    "Invalid gossip blob ssz";
                 );
             }
         }
@@ -869,12 +877,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_delay =
             get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
-        metrics::observe_duration(
-            &metrics::BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME,
-            block_delay,
-        );
+
         metrics::set_gauge(
-            &metrics::BEACON_BLOCK_LAST_DELAY,
+            &metrics::BEACON_BLOCK_DELAY_GOSSIP,
             block_delay.as_millis() as i64,
         );
 
@@ -902,7 +907,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verified_block = match verification_result {
             Ok(verified_block) => {
                 if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
-                    metrics::inc_counter(&metrics::BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL);
+                    metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL);
                     debug!(
                         self.log,
                         "Gossip block arrived late";
@@ -927,9 +932,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .ok()
                     .and_then(|now| now.checked_sub(seen_duration))
                 {
-                    metrics::observe_duration(
-                        &metrics::BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME,
-                        duration,
+                    metrics::set_gauge(
+                        &metrics::BEACON_BLOCK_DELAY_GOSSIP_VERIFICATION,
+                        duration.as_millis() as i64,
                     );
                 }
 
@@ -1134,9 +1139,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         verified_block: GossipVerifiedBlock<T>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         invalid_block_storage: InvalidBlockStorage,
-        // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
+        let processing_start_time = Instant::now();
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
@@ -1172,6 +1177,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
 
                 self.chain.recompute_head_at_current_slot().await;
+
+                metrics::set_gauge(
+                    &metrics::BEACON_BLOCK_DELAY_FULL_VERIFICATION,
+                    processing_start_time.elapsed().as_millis() as i64,
+                );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
                 trace!(

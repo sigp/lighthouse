@@ -1,7 +1,6 @@
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use crate::EpochCacheError;
-use ssz_derive::{Decode, Encode};
 use std::collections::{hash_map::Entry, HashMap};
 use tree_hash::TreeHash;
 use types::{
@@ -9,22 +8,20 @@ use types::{
     ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
 };
 
-#[derive(Debug, PartialEq, Clone, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ConsensusContext<E: EthSpec> {
     /// Slot to act as an identifier/safeguard
-    slot: Slot,
+    pub slot: Slot,
     /// Previous epoch of the `slot` precomputed for optimization purpose.
-    pub(crate) previous_epoch: Epoch,
+    pub previous_epoch: Epoch,
     /// Current epoch of the `slot` precomputed for optimization purpose.
-    pub(crate) current_epoch: Epoch,
+    pub current_epoch: Epoch,
     /// Proposer index of the block at `slot`.
-    proposer_index: Option<u64>,
+    pub proposer_index: Option<u64>,
     /// Block root of the block at `slot`.
-    current_block_root: Option<Hash256>,
+    pub current_block_root: Option<Hash256>,
     /// Cache of indexed attestations constructed during block processing.
-    /// We can skip serializing / deserializing this as the cache will just be rebuilt
-    #[ssz(skip_serializing, skip_deserializing)]
-    indexed_attestations:
+    pub indexed_attestations:
         HashMap<(AttestationData, BitList<E::MaxValidatorsPerCommittee>), IndexedAttestation<E>>,
 }
 
@@ -62,6 +59,7 @@ impl<E: EthSpec> ConsensusContext<E> {
         }
     }
 
+    #[must_use]
     pub fn set_proposer_index(mut self, proposer_index: u64) -> Self {
         self.proposer_index = Some(proposer_index);
         self
@@ -109,6 +107,7 @@ impl<E: EthSpec> ConsensusContext<E> {
         Ok(proposer_index)
     }
 
+    #[must_use]
     pub fn set_current_block_root(mut self, block_root: Hash256) -> Self {
         self.current_block_root = Some(block_root);
         self
@@ -173,5 +172,17 @@ impl<E: EthSpec> ConsensusContext<E> {
 
     pub fn num_cached_indexed_attestations(&self) -> usize {
         self.indexed_attestations.len()
+    }
+
+    #[must_use]
+    pub fn set_indexed_attestations(
+        mut self,
+        attestations: HashMap<
+            (AttestationData, BitList<E::MaxValidatorsPerCommittee>),
+            IndexedAttestation<E>,
+        >,
+    ) -> Self {
+        self.indexed_attestations = attestations;
+        self
     }
 }

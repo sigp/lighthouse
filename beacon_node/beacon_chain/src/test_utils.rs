@@ -46,10 +46,7 @@ use slog_async::Async;
 use slog_term::{FullFormat, TermDecorator};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
-use state_processing::{
-    state_advance::{complete_state_advance, partial_state_advance},
-    StateProcessingStrategy,
-};
+use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -419,21 +416,17 @@ where
         self
     }
 
-    pub fn execution_layer_from_urls(mut self, urls: &[&str]) -> Self {
+    pub fn execution_layer_from_url(mut self, url: &str) -> Self {
         assert!(
             self.execution_layer.is_none(),
             "execution layer already defined"
         );
 
-        let urls: Vec<SensitiveUrl> = urls
-            .iter()
-            .map(|s| SensitiveUrl::parse(s))
-            .collect::<Result<_, _>>()
-            .unwrap();
+        let url = SensitiveUrl::parse(url).ok();
 
         let config = execution_layer::Config {
-            execution_endpoints: urls,
-            secret_files: vec![],
+            execution_endpoint: url,
+            secret_file: None,
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
@@ -760,10 +753,7 @@ where
     pub fn get_current_state_and_root(&self) -> (BeaconState<E>, Hash256) {
         let head = self.chain.head_snapshot();
         let state_root = head.beacon_state_root();
-        (
-            head.beacon_state.clone_with_only_committee_caches(),
-            state_root,
-        )
+        (head.beacon_state.clone(), state_root)
     }
 
     pub fn head_slot(&self) -> Slot {
@@ -806,8 +796,9 @@ where
     pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
         self.chain
             .store
-            .load_hot_state(&state_hash.into(), StateProcessingStrategy::Accurate)
+            .load_hot_state(&state_hash.into())
             .unwrap()
+            .map(|(state, _)| state)
     }
 
     pub fn get_cold_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
@@ -889,7 +880,7 @@ where
         let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
                 (signed_block, block_response.blob_items)
@@ -953,7 +944,7 @@ where
         let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
                 (signed_block, block_response.blob_items)
@@ -1021,9 +1012,7 @@ where
             return Err(BeaconChainError::CannotAttestToFutureState);
         } else if state.current_epoch() < epoch {
             let mut_state = state.to_mut();
-            // Only perform a "partial" state advance since we do not require the state roots to be
-            // accurate.
-            partial_state_advance(
+            complete_state_advance(
                 mut_state,
                 Some(state_root),
                 epoch.start_slot(E::slots_per_epoch()),

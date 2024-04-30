@@ -1,5 +1,5 @@
 use super::per_block_processing::{
-    errors::BlockProcessingError, process_operations::process_deposit,
+    errors::BlockProcessingError, process_operations::apply_deposit,
 };
 use crate::common::DepositDataTree;
 use crate::upgrade::{
@@ -28,7 +28,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     let mut state = BeaconState::new(genesis_time, eth1_data, spec);
 
     // Seed RANDAO with Eth1 entropy
-    state.fill_randao_mixes_with(eth1_block_hash);
+    state.fill_randao_mixes_with(eth1_block_hash)?;
 
     let mut deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
 
@@ -37,7 +37,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
             .push_leaf(deposit.data.tree_hash_root())
             .map_err(BlockProcessingError::MerkleTreeError)?;
         state.eth1_data_mut().deposit_root = deposit_tree.root();
-        process_deposit(&mut state, deposit, spec, true)?;
+        apply_deposit(&mut state, deposit, spec, true)?;
     }
 
     process_activations(&mut state, spec)?;
@@ -63,7 +63,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         .bellatrix_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
     {
-        // this will set state.latest_execution_payload_header = ExecutionPayloadHeaderMerge::default()
+        // this will set state.latest_execution_payload_header = ExecutionPayloadHeaderBellatrix::default()
         upgrade_to_bellatrix(&mut state, spec)?;
 
         // Remove intermediate Altair fork from `state.fork`.
@@ -71,8 +71,8 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/bellatrix/beacon-chain.md#testing
-        if let Some(ExecutionPayloadHeader::Merge(ref header)) = execution_payload_header {
-            *state.latest_execution_payload_header_merge_mut()? = header.clone();
+        if let Some(ExecutionPayloadHeader::Bellatrix(ref header)) = execution_payload_header {
+            *state.latest_execution_payload_header_bellatrix_mut()? = header.clone();
         }
     }
 
@@ -152,7 +152,9 @@ pub fn process_activations<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
-    for (index, validator) in validators.iter_mut().enumerate() {
+    let mut validators_iter = validators.iter_cow();
+    while let Some((index, validator)) = validators_iter.next_cow() {
+        let validator = validator.into_mut()?;
         let balance = balances
             .get(index)
             .copied()

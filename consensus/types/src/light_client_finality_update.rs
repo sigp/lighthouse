@@ -58,6 +58,7 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
     #[superstruct(only(Deneb), partial_getter(rename = "finalized_header_deneb"))]
     pub finalized_header: LightClientHeaderDeneb<E>,
     /// Merkle proof attesting finalized header.
+    #[test_random(default)]
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
@@ -78,7 +79,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             .fork_name(chain_spec)
             .map_err(|_| Error::InconsistentFork)?
         {
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 let finality_update = LightClientFinalityUpdateAltair {
                     attested_header: LightClientHeaderAltair::block_to_light_client_header(
                         attested_block,
@@ -146,7 +147,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
 
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let finality_update = match fork_name {
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 Self::Altair(LightClientFinalityUpdateAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => {
@@ -171,7 +172,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         match fork_name {
             ForkName::Base => 0,
             ForkName::Altair
-            | ForkName::Merge
+            | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb
             | ForkName::Electra => {
