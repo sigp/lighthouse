@@ -1385,15 +1385,6 @@ mod deneb_only {
             self
         }
 
-        fn set_block_id_for_import(mut self) -> Self {
-            let lookup_id = self.rig.find_single_lookup_for(self.block_root);
-            self.block_req_id = Some(SingleLookupReqId {
-                lookup_id,
-                req_id: 0,
-            });
-            self
-        }
-
         fn parent_block_response(mut self) -> Self {
             self.rig.expect_empty_network();
             let block = self.parent_block.pop_front().unwrap().clone();
@@ -1549,7 +1540,10 @@ mod deneb_only {
             // Missing blobs should be the request is not removed, the outstanding blobs request should
             // mean we do not send a new request.
             self.rig.single_block_component_processed(
-                self.block_req_id.expect("block request id").lookup_id,
+                self.block_req_id
+                    .or(self.blob_req_id)
+                    .expect("block request id")
+                    .lookup_id,
                 BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(self.block_root)),
             );
             self.rig.expect_empty_network();
@@ -2040,8 +2034,6 @@ mod deneb_only {
             .expect_block_process()
             .parent_blob_imported()
             .log("resolve original block trigger blobs request and import")
-            .blobs_response()
-            .set_block_id_for_import()
             .block_imported()
             .expect_no_active_lookups();
     }
