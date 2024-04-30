@@ -15,8 +15,8 @@ use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
-    SignedBeaconBlock, Slot,
+    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation,
+    IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -1087,7 +1087,7 @@ where
     ///
     /// We assume that the attester slashing provided to this function has already been verified.
     pub fn on_attester_slashing(&mut self, slashing: AttesterSlashingRef<'_, E>) {
-        let attesting_indices_set = |att: &IndexedAttestation<E>| {
+        let attesting_indices_set = |att: IndexedAttestationRef<'_, E>| {
             att.attesting_indices_iter()
                 .copied()
                 .collect::<BTreeSet<_>>()

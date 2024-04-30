@@ -3820,7 +3820,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         continue;
                     }
                 };
-                slasher.accept_attestation(indexed_attestation.clone());
+                slasher.accept_attestation(indexed_attestation.clone_as_indexed_attestation());
             }
         }
     }
@@ -5039,6 +5039,72 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
+        let (attester_slashings_base, attester_slashings_electra) =
+            attester_slashings.into_iter().fold(
+                (Vec::new(), Vec::new()),
+                |(mut base, mut electra), slashing| {
+                    match slashing {
+                        AttesterSlashing::Base(slashing) => base.push(slashing),
+                        AttesterSlashing::Electra(slashing) => electra.push(slashing),
+                    }
+                    (base, electra)
+                },
+            );
+        let (attestations_base, attestations_electra) = attester_slashings.into_iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut base, mut electra), slashing| {
+                match slashing {
+                    AttesterSlashing::Base(slashing) => base.push(slashing),
+                    AttesterSlashing::Electra(slashing) => electra.push(slashing),
+                }
+                (base, electra)
+            },
+        );
+
+        // TODO(electra): figure out what should *actually* be done here when we have attestations / attester_slashings of the wrong type
+        match &state {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_) => {
+                if !attestations_electra.is_empty() {
+                    error!(
+                        self.log,
+                        "Tried to produce block with attestations of the wrong type";
+                        "slot" => slot,
+                        "attestations" => attestations_electra.len(),
+                    );
+                }
+                if !attester_slashings_electra.is_empty() {
+                    error!(
+                        self.log,
+                        "Tried to produce block with attester slashings of the wrong type";
+                        "slot" => slot,
+                        "attester_slashings" => attester_slashings_electra.len(),
+                    );
+                }
+            }
+            BeaconState::Electra(_) => {
+                if !attestations_base.is_empty() {
+                    error!(
+                        self.log,
+                        "Tried to produce block with attestations of the wrong type";
+                        "slot" => slot,
+                        "attestations" => attestations_base.len(),
+                    );
+                }
+                if !attester_slashings_base.is_empty() {
+                    error!(
+                        self.log,
+                        "Tried to produce block with attester slashings of the wrong type";
+                        "slot" => slot,
+                        "attester_slashings" => attester_slashings_base.len(),
+                    );
+                }
+            }
+        };
+
         let (inner_block, maybe_blobs_and_proofs, execution_payload_value) = match &state {
             BeaconState::Base(_) => (
                 BeaconBlock::Base(BeaconBlockBase {
@@ -5051,8 +5117,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         eth1_data,
                         graffiti,
                         proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings.into(),
-                        attestations: attestations.into(),
+                        attester_slashings: attester_slashings_base.into(),
+                        attestations: attestations_base.into(),
                         deposits: deposits.into(),
                         voluntary_exits: voluntary_exits.into(),
                         _phantom: PhantomData,
@@ -5072,8 +5138,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         eth1_data,
                         graffiti,
                         proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings.into(),
-                        attestations: attestations.into(),
+                        attester_slashings: attester_slashings_base.into(),
+                        attestations: attestations_base.into(),
                         deposits: deposits.into(),
                         voluntary_exits: voluntary_exits.into(),
                         sync_aggregate: sync_aggregate
@@ -5099,8 +5165,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             eth1_data,
                             graffiti,
                             proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
+                            attester_slashings: attester_slashings_base.into(),
+                            attestations: attestations_base.into(),
                             deposits: deposits.into(),
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate
@@ -5131,8 +5197,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             eth1_data,
                             graffiti,
                             proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
+                            attester_slashings: attester_slashings_base.into(),
+                            attestations: attestations_base.into(),
                             deposits: deposits.into(),
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate
@@ -5165,8 +5231,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             eth1_data,
                             graffiti,
                             proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
+                            attester_slashings: attester_slashings_base.into(),
+                            attestations: attestations_base.into(),
                             deposits: deposits.into(),
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate
@@ -5203,8 +5269,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             eth1_data,
                             graffiti,
                             proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
+                            attester_slashings: attester_slashings_electra.into(),
+                            attestations: attestations_electra.into(),
                             deposits: deposits.into(),
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate

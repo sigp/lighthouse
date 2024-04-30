@@ -327,16 +327,15 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             message: header,
             signature: Signature::empty(),
         };
-        let indexed_attestation: IndexedAttestation<E> =
-            IndexedAttestation::Base(IndexedAttestationBase {
-                attesting_indices: VariableList::new(vec![
-                    0_u64;
-                    E::MaxValidatorsPerCommittee::to_usize()
-                ])
-                .unwrap(),
-                data: AttestationData::default(),
-                signature: AggregateSignature::empty(),
-            });
+        let indexed_attestation = IndexedAttestationBase {
+            attesting_indices: VariableList::new(vec![
+                0_u64;
+                E::MaxValidatorsPerCommittee::to_usize()
+            ])
+            .unwrap(),
+            data: AttestationData::default(),
+            signature: AggregateSignature::empty(),
+        };
 
         let deposit_data = DepositData {
             pubkey: PublicKeyBytes::empty(),
@@ -354,12 +353,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             attestation_2: indexed_attestation,
         };
 
-        let attestation: Attestation<E> = Attestation::Base(AttestationBase {
+        let attestation = AttestationBase {
             aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerCommittee::to_usize())
                 .unwrap(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
-        });
+        };
 
         let deposit = Deposit {
             proof: FixedVector::from_elem(Hash256::zero()),
@@ -611,7 +610,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
         let indexed_attestation: IndexedAttestationElectra<E> = IndexedAttestationElectra {
             attesting_indices: VariableList::new(vec![
                 0_u64;
-                E::MaxValidatorsPerCommitteePerSlot::to_usize()
+                E::MaxValidatorsPerCommitteePerSlot::to_usize(
+                )
             ])
             .unwrap(),
             data: AttestationData::default(),
@@ -626,6 +626,21 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
             E::max_attester_slashings_electra()
         ]
         .into();
+        // TODO(electra): check this
+        let attestation = AttestationElectra {
+            aggregation_bits: BitList::with_capacity(
+                E::MaxValidatorsPerCommitteePerSlot::to_usize(),
+            )
+            .unwrap(),
+            data: AttestationData::default(),
+            signature: AggregateSignature::empty(),
+            // TODO(electra): does this actually allocate the size correctly?
+            committee_bits: BitVector::new(),
+        };
+        let mut attestations_electra = vec![];
+        for _ in 0..E::MaxAttestationsElectra::to_usize() {
+            attestations_electra.push(attestation.clone());
+        }
 
         let bls_to_execution_changes = vec![
             SignedBlsToExecutionChange {
@@ -651,7 +666,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
             body: BeaconBlockBodyElectra {
                 proposer_slashings: base_block.body.proposer_slashings,
                 attester_slashings,
-                attestations: base_block.body.attestations,
+                attestations: attestations_electra.into(),
                 deposits: base_block.body.deposits,
                 voluntary_exits: base_block.body.voluntary_exits,
                 bls_to_execution_changes,

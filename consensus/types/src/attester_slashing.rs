@@ -1,4 +1,7 @@
-use crate::{test_utils::TestRandom, EthSpec, IndexedAttestation};
+use crate::indexed_attestation::{
+    IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
+};
+use crate::{test_utils::TestRandom, EthSpec};
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -36,8 +39,15 @@ use tree_hash_derive::TreeHash;
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct AttesterSlashing<E: EthSpec> {
-    pub attestation_1: IndexedAttestation<E>,
-    pub attestation_2: IndexedAttestation<E>,
+    // TODO(electra) change this to `#[superstruct(flatten)]` when 0.8 is out..
+    #[superstruct(only(Base), partial_getter(rename = "attestation_1_base"))]
+    pub attestation_1: IndexedAttestationBase<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "attestation_1_electra"))]
+    pub attestation_1: IndexedAttestationElectra<E>,
+    #[superstruct(only(Base), partial_getter(rename = "attestation_2_base"))]
+    pub attestation_2: IndexedAttestationBase<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "attestation_2_electra"))]
+    pub attestation_2: IndexedAttestationElectra<E>,
 }
 
 /// This is a copy of the `AttesterSlashing` enum but with `Encode` and `Decode` derived
@@ -104,6 +114,52 @@ impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
             }
             AttesterSlashingRef::Electra(attester_slashing) => {
                 AttesterSlashing::Electra(attester_slashing.clone())
+            }
+        }
+    }
+
+    pub fn attestation_1(&self) -> IndexedAttestationRef<'a, E> {
+        match self {
+            AttesterSlashingRef::Base(attester_slashing) => {
+                IndexedAttestationRef::Base(&attester_slashing.attestation_1)
+            }
+            AttesterSlashingRef::Electra(attester_slashing) => {
+                IndexedAttestationRef::Electra(&attester_slashing.attestation_1)
+            }
+        }
+    }
+
+    pub fn attestation_2(&self) -> IndexedAttestationRef<'a, E> {
+        match self {
+            AttesterSlashingRef::Base(attester_slashing) => {
+                IndexedAttestationRef::Base(&attester_slashing.attestation_2)
+            }
+            AttesterSlashingRef::Electra(attester_slashing) => {
+                IndexedAttestationRef::Electra(&attester_slashing.attestation_2)
+            }
+        }
+    }
+}
+
+impl<E: EthSpec> AttesterSlashing<E> {
+    pub fn attestation_1(&self) -> IndexedAttestationRef<E> {
+        match self {
+            AttesterSlashing::Base(attester_slashing) => {
+                IndexedAttestationRef::Base(&attester_slashing.attestation_1)
+            }
+            AttesterSlashing::Electra(attester_slashing) => {
+                IndexedAttestationRef::Electra(&attester_slashing.attestation_1)
+            }
+        }
+    }
+
+    pub fn attestation_2(&self) -> IndexedAttestationRef<E> {
+        match self {
+            AttesterSlashing::Base(attester_slashing) => {
+                IndexedAttestationRef::Base(&attester_slashing.attestation_2)
+            }
+            AttesterSlashing::Electra(attester_slashing) => {
+                IndexedAttestationRef::Electra(&attester_slashing.attestation_2)
             }
         }
     }

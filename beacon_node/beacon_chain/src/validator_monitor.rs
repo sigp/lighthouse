@@ -26,9 +26,9 @@ use types::consts::altair::{
 };
 use types::{
     Attestation, AttestationData, AttesterSlashingRef, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
-    PublicKeyBytes, SignedAggregateAndProof, SignedContributionAndProof, Slot,
-    SyncCommitteeMessage, VoluntaryExit,
+    BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
+    IndexedAttestationRef, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
+    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
 
 /// Used for Prometheus labels.
@@ -1411,7 +1411,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     /// Note: Blocks that get orphaned will skew the inclusion distance calculation.
     pub fn register_attestation_in_block(
         &self,
-        indexed_attestation: &IndexedAttestation<E>,
+        indexed_attestation: IndexedAttestationRef<'_, E>,
         parent_slot: Slot,
         spec: &ChainSpec,
     ) {

@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use types::{
     indexed_attestation::IndexedAttestationBase, AggregateSignature, AttestationData,
-    AttesterSlashing, AttesterSlashingBase, BeaconBlockHeader, Checkpoint, Epoch, Hash256,
-    IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BeaconBlockHeader, Checkpoint,
+    Epoch, Hash256, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
@@ -38,10 +38,21 @@ pub fn att_slashing(
     attestation_2: &IndexedAttestation<E>,
 ) -> AttesterSlashing<E> {
     // TODO(electra): fix this one we superstruct IndexedAttestation (return the correct type)
-    AttesterSlashing::Base(AttesterSlashingBase {
-        attestation_1: attestation_1.clone(),
-        attestation_2: attestation_2.clone(),
-    })
+    match (attestation_1, attestation_2) {
+        (IndexedAttestation::Base(att1), IndexedAttestation::Base(att2)) => {
+            AttesterSlashing::Base(AttesterSlashingBase {
+                attestation_1: att1.clone(),
+                attestation_2: att2.clone(),
+            })
+        }
+        (IndexedAttestation::Electra(att1), IndexedAttestation::Electra(att2)) => {
+            AttesterSlashing::Electra(AttesterSlashingElectra {
+                attestation_1: att1.clone(),
+                attestation_2: att2.clone(),
+            })
+        }
+        _ => panic!("attestations must be of the same type"),
+    }
 }
 
 pub fn hashset_intersection(

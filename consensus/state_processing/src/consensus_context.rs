@@ -4,8 +4,9 @@ use crate::EpochCacheError;
 use std::collections::{hash_map::Entry, HashMap};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, Attestation, AttestationData, BeaconState, BeaconStateError, BitList,
-    ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
+    AbstractExecPayload, AttestationData, AttestationRef, BeaconState, BeaconStateError, BitList,
+    ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, IndexedAttestationRef,
+    SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -153,13 +154,13 @@ impl<E: EthSpec> ConsensusContext<E> {
         }
     }
 
-    pub fn get_indexed_attestation(
-        &mut self,
+    pub fn get_indexed_attestation<'a>(
+        &'a mut self,
         state: &BeaconState<E>,
-        attestation: &Attestation<E>,
-    ) -> Result<&IndexedAttestation<E>, BlockOperationError<AttestationInvalid>> {
+        attestation: AttestationRef<'a, E>,
+    ) -> Result<IndexedAttestationRef<E>, BlockOperationError<AttestationInvalid>> {
         let aggregation_bits = match attestation {
-            Attestation::Base(attn) => {
+            AttestationRef::Base(attn) => {
                 let mut extended_aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot> =
                     BitList::with_capacity(attn.aggregation_bits.len())
                         .map_err(BeaconStateError::from)?;
@@ -171,7 +172,7 @@ impl<E: EthSpec> ConsensusContext<E> {
                 }
                 extended_aggregation_bits
             }
-            Attestation::Electra(attn) => attn.aggregation_bits.clone(),
+            AttestationRef::Electra(attn) => attn.aggregation_bits.clone(),
         };
 
         let key = (attestation.data().clone(), aggregation_bits);
@@ -186,6 +187,7 @@ impl<E: EthSpec> ConsensusContext<E> {
                 Ok(vacant.insert(indexed_attestation))
             }
         }
+        .map(|indexed_attestation| (*indexed_attestation).to_ref())
     }
 
     pub fn num_cached_indexed_attestations(&self) -> usize {

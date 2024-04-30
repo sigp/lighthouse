@@ -71,7 +71,13 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Electra), partial_getter(rename = "attester_slashings_electra"))]
     pub attester_slashings:
         VariableList<AttesterSlashingElectra<E>, E::MaxAttesterSlashingsElectra>,
-    pub attestations: VariableList<Attestation<E>, E::MaxAttestations>,
+    #[superstruct(
+        only(Base, Altair, Merge, Capella, Deneb),
+        partial_getter(rename = "attestations_base")
+    )]
+    pub attestations: VariableList<AttestationBase<E>, E::MaxAttestations>,
+    #[superstruct(only(Electra), partial_getter(rename = "attestations_electra"))]
+    pub attestations: VariableList<AttestationElectra<E>, E::MaxAttestationsElectra>,
     pub deposits: VariableList<Deposit, E::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
     #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
@@ -263,6 +269,17 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             .map_or(false, |blobs| !blobs.is_empty())
     }
 
+    pub fn attestations_len(&self) -> usize {
+        match self {
+            Self::Base(body) => body.attestations.len(),
+            Self::Altair(body) => body.attestations.len(),
+            Self::Merge(body) => body.attestations.len(),
+            Self::Capella(body) => body.attestations.len(),
+            Self::Deneb(body) => body.attestations.len(),
+            Self::Electra(body) => body.attestations.len(),
+        }
+    }
+
     pub fn attester_slashings_len(&self) -> usize {
         match self {
             Self::Base(body) => body.attester_slashings.len(),
@@ -271,6 +288,17 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Capella(body) => body.attester_slashings.len(),
             Self::Deneb(body) => body.attester_slashings.len(),
             Self::Electra(body) => body.attester_slashings.len(),
+        }
+    }
+
+    pub fn attestations(&self) -> Box<dyn Iterator<Item = AttestationRef<'a, E>> + 'a> {
+        match self {
+            Self::Base(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
+            Self::Altair(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
+            Self::Merge(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
+            Self::Capella(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
+            Self::Deneb(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
+            Self::Electra(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
         }
     }
 
@@ -818,6 +846,15 @@ impl<E: EthSpec> BeaconBlockBody<E> {
             _ => return Err(Error::IndexNotSupported(generalized_index)),
         };
 
+        let attestations_root = match self {
+            BeaconBlockBody::Base(_)
+            | BeaconBlockBody::Altair(_)
+            | BeaconBlockBody::Merge(_)
+            | BeaconBlockBody::Capella(_)
+            | BeaconBlockBody::Deneb(_) => self.attestations_base()?.tree_hash_root(),
+            BeaconBlockBody::Electra(_) => self.attestations_electra()?.tree_hash_root(),
+        };
+
         let attester_slashings_root = match self {
             BeaconBlockBody::Base(_)
             | BeaconBlockBody::Altair(_)
@@ -833,7 +870,7 @@ impl<E: EthSpec> BeaconBlockBody<E> {
             self.graffiti().tree_hash_root(),
             self.proposer_slashings().tree_hash_root(),
             attester_slashings_root,
-            self.attestations().tree_hash_root(),
+            attestations_root,
             self.deposits().tree_hash_root(),
             self.voluntary_exits().tree_hash_root(),
         ];

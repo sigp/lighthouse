@@ -9,8 +9,8 @@ use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, AggregateSignature, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
-    InconsistentFork, IndexedAttestation, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
+    InconsistentFork, IndexedAttestation, IndexedAttestationRef, ProposerSlashing, PublicKey,
+    PublicKeyBytes, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit,
     SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
 };
@@ -272,7 +272,7 @@ pub fn indexed_attestation_signature_set<'a, 'b, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
     signature: &'a AggregateSignature,
-    indexed_attestation: &'b IndexedAttestation<E>,
+    indexed_attestation: IndexedAttestationRef<'b, E>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -346,14 +346,14 @@ where
         indexed_attestation_signature_set(
             state,
             get_pubkey.clone(),
-            &attester_slashing.attestation_1().signature,
+            attester_slashing.attestation_1().signature(),
             attester_slashing.attestation_1(),
             spec,
         )?,
         indexed_attestation_signature_set(
             state,
             get_pubkey,
-            &attester_slashing.attestation_2().signature,
+            attester_slashing.attestation_2().signature(),
             attester_slashing.attestation_2(),
             spec,
         )?,

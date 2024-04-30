@@ -21,7 +21,7 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
     ctxt: &'ctxt mut ConsensusContext<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<&'ctxt IndexedAttestation<E>> {
+) -> Result<IndexedAttestationRef<'ctxt, E>> {
     let data = attestation.data();
 
     verify!(
@@ -65,7 +65,7 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
     ctxt: &'ctxt mut ConsensusContext<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<&'ctxt IndexedAttestation<E>> {
+) -> Result<IndexedAttestationRef<'ctxt, E>> {
     let data = attestation.data();
 
     verify!(

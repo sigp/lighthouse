@@ -69,15 +69,16 @@ impl<E: EthSpec> IndexedAttestation<E> {
     ///
     /// Spec v0.12.1
     pub fn is_double_vote(&self, other: &Self) -> bool {
-        self.data().target.epoch == other.data().target.epoch && self.data() != other.data()
+        // reuse the ref implementation to ensure logic is the same
+        self.to_ref().is_double_vote(other.to_ref())
     }
 
     /// Check if ``attestation_data_1`` surrounds ``attestation_data_2``.
     ///
     /// Spec v0.12.1
     pub fn is_surround_vote(&self, other: &Self) -> bool {
-        self.data().source.epoch < other.data().source.epoch
-            && other.data().target.epoch < self.data().target.epoch
+        // reuse the ref implementation to ensure logic is the same
+        self.to_ref().is_surround_vote(other.to_ref())
     }
 
     pub fn attesting_indices_len(&self) -> usize {
@@ -112,6 +113,59 @@ impl<E: EthSpec> IndexedAttestation<E> {
         match self {
             IndexedAttestation::Base(att) => att.attesting_indices.first(),
             IndexedAttestation::Electra(att) => att.attesting_indices.first(),
+        }
+    }
+}
+
+impl<'a, E: EthSpec> IndexedAttestationRef<'a, E> {
+    pub fn is_double_vote(&self, other: Self) -> bool {
+        self.data().target.epoch == other.data().target.epoch && self.data() != other.data()
+    }
+
+    pub fn is_surround_vote(&self, other: Self) -> bool {
+        self.data().source.epoch < other.data().source.epoch
+            && other.data().target.epoch < self.data().target.epoch
+    }
+
+    pub fn attesting_indices_len(&self) -> usize {
+        match self {
+            IndexedAttestationRef::Base(att) => att.attesting_indices.len(),
+            IndexedAttestationRef::Electra(att) => att.attesting_indices.len(),
+        }
+    }
+
+    pub fn attesting_indices_to_vec(&self) -> Vec<u64> {
+        match self {
+            IndexedAttestationRef::Base(att) => att.attesting_indices.to_vec(),
+            IndexedAttestationRef::Electra(att) => att.attesting_indices.to_vec(),
+        }
+    }
+
+    pub fn attesting_indices_is_empty(&self) -> bool {
+        match self {
+            IndexedAttestationRef::Base(att) => att.attesting_indices.is_empty(),
+            IndexedAttestationRef::Electra(att) => att.attesting_indices.is_empty(),
+        }
+    }
+
+    pub fn attesting_indices_iter(&self) -> Iter<'_, u64> {
+        match self {
+            IndexedAttestationRef::Base(att) => att.attesting_indices.iter(),
+            IndexedAttestationRef::Electra(att) => att.attesting_indices.iter(),
+        }
+    }
+
+    pub fn attesting_indices_first(&self) -> Option<&u64> {
+        match self {
+            IndexedAttestationRef::Base(att) => att.attesting_indices.first(),
+            IndexedAttestationRef::Electra(att) => att.attesting_indices.first(),
+        }
+    }
+
+    pub fn clone_as_indexed_attestation(self) -> IndexedAttestation<E> {
+        match self {
+            IndexedAttestationRef::Base(att) => IndexedAttestation::Base(att.clone()),
+            IndexedAttestationRef::Electra(att) => IndexedAttestation::Electra(att.clone()),
         }
     }
 }

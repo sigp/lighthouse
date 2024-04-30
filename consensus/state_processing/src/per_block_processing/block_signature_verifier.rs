@@ -276,13 +276,12 @@ where
     ) -> Result<()> {
         self.sets
             .sets
-            .reserve(block.message().body().attestations().len());
+            .reserve(block.message().body().attestations_len());
 
         block
             .message()
             .body()
             .attestations()
-            .iter()
             .try_for_each(|attestation| {
                 let indexed_attestation = ctxt.get_indexed_attestation(self.state, attestation)?;
 
