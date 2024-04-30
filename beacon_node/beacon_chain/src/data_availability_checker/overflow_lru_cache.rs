@@ -34,7 +34,7 @@ use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
-use crate::data_column_verification::KzgVerifiedDataColumn;
+use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
 use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
@@ -47,7 +47,7 @@ use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
 use types::data_column_sidecar::DataColumnIdentifier;
-use types::{BlobSidecar, ChainSpec, DataColumnSidecar, Epoch, EthSpec, Hash256};
+use types::{BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256};
 
 /// This represents the components of a partially available block
 ///
@@ -59,7 +59,7 @@ use types::{BlobSidecar, ChainSpec, DataColumnSidecar, Epoch, EthSpec, Hash256};
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
-    pub verified_data_columns: VariableList<KzgVerifiedDataColumn<E>, E::DataColumnCount>,
+    pub verified_data_columns: VariableList<KzgVerifiedCustodyDataColumn<E>, E::DataColumnCount>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
 }
 
@@ -85,17 +85,11 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn get_cached_data_column(
         &self,
         data_column_index: u64,
-    ) -> Option<&KzgVerifiedDataColumn<E>> {
+    ) -> Option<Arc<DataColumnSidecar<E>>> {
         self.verified_data_columns
             .iter()
-            .find(|d| d.data_column_index() == data_column_index)
-    }
-
-    /// Returns an immutable reference to the list of cached data columns.
-    pub fn get_cached_data_columns(
-        &self,
-    ) -> &VariableList<KzgVerifiedDataColumn<E>, E::DataColumnCount> {
-        &self.verified_data_columns
+            .find(|d| d.index() == data_column_index)
+            .map(|d| d.clone_arc())
     }
 
     /// Returns a mutable reference to the cached block.
@@ -108,13 +102,6 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
     ) -> &mut FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock> {
         &mut self.verified_blobs
-    }
-
-    /// Returns a mutable reference to the fixed vector of cached data columns.
-    pub fn get_cached_data_columns_mut(
-        &mut self,
-    ) -> &mut VariableList<KzgVerifiedDataColumn<E>, E::DataColumnCount> {
-        &mut self.verified_data_columns
     }
 
     /// Checks if a blob exists at the given index in the cache.
@@ -134,10 +121,8 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Returns:
     /// - `true` if a data column for the given index exists.
     /// - `false` otherwise.
-    fn data_column_exists(&self, data_colum_index: u64) -> bool {
-        self.get_cached_data_columns()
-            .iter()
-            .any(|d| d.data_column_index() == data_colum_index)
+    fn data_column_exists(&self, data_column_index: u64) -> bool {
+        self.get_cached_data_column(data_column_index).is_some()
     }
 
     /// Returns the number of blobs that are expected to be present. Returns `None` if we don't have a
@@ -157,7 +142,15 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns the number of data columns that have been received and are stored in the cache.
     pub fn num_received_data_columns(&self) -> usize {
-        self.get_cached_data_columns().iter().count()
+        self.verified_data_columns.iter().count()
+    }
+
+    /// Returns the indices of cached custody columns
+    pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
+        self.verified_data_columns
+            .iter()
+            .map(|d| d.index())
+            .collect()
     }
 
     /// Inserts a block into the cache.
@@ -208,13 +201,13 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Merges a given set of data columns into the cache.
-    fn merge_data_columns<I: IntoIterator<Item = KzgVerifiedDataColumn<E>>>(
+    fn merge_data_columns<I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<E>>>(
         &mut self,
         kzg_verified_data_columns: I,
     ) -> Result<(), AvailabilityCheckError> {
         for data_column in kzg_verified_data_columns {
             // TODO(das): Add equivalent checks for data columns if necessary
-            if !self.data_column_exists(data_column.data_column_index()) {
+            if !self.data_column_exists(data_column.index()) {
                 self.verified_data_columns.push(data_column)?;
             }
         }
@@ -325,13 +318,6 @@ impl<E: EthSpec> PendingComponents<E> {
         };
         let verified_blobs = VariableList::new(verified_blobs)?;
 
-        // TODO(das) Do we need a check here for number of expected custody columns?
-        let verified_data_columns = verified_data_columns
-            .into_iter()
-            .map(|d| d.to_data_column())
-            .collect::<Vec<_>>()
-            .into();
-
         let executed_block = recover(diet_executed_block)?;
 
         let AvailabilityPendingExecutedBlock {
@@ -345,7 +331,17 @@ impl<E: EthSpec> PendingComponents<E> {
             block,
             blobs: Some(verified_blobs),
             blobs_available_timestamp,
-            data_columns: Some(verified_data_columns),
+            // TODO(das) Do we need a check here for number of expected custody columns?
+            // TODO(das): Update store types to prevent this conversion
+            data_columns: Some(
+                VariableList::new(
+                    verified_data_columns
+                        .into_iter()
+                        .map(|d| d.into_inner())
+                        .collect(),
+                )
+                .expect("data column list is within bounds"),
+            ),
         };
         Ok(Availability::Available(Box::new(
             AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome),
@@ -468,7 +464,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         for data_column in pending_components.verified_data_columns.into_iter() {
             let key = OverflowKey::from_data_column_id::<T::EthSpec>(DataColumnIdentifier {
                 block_root,
-                index: data_column.data_column_index(),
+                index: data_column.index(),
             })?;
 
             self.0.hot_db.put_bytes(
@@ -513,11 +509,10 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
                 }
                 OverflowKey::DataColumn(_, _index) => {
                     let data_column =
-                        KzgVerifiedDataColumn::from_ssz_bytes(value_bytes.as_slice())?;
+                        KzgVerifiedCustodyDataColumn::from_ssz_bytes(value_bytes.as_slice())?;
                     maybe_pending_components
                         .get_or_insert_with(|| PendingComponents::empty(block_root))
-                        .get_cached_data_columns_mut()
-                        .push(data_column)?;
+                        .merge_data_columns(vec![data_column])?;
                 }
             }
         }
@@ -633,9 +628,7 @@ impl<T: BeaconChainTypes> Critical<T> {
         data_column_id: &DataColumnIdentifier,
     ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
         if let Some(pending_components) = self.in_memory.peek(&data_column_id.block_root) {
-            Ok(pending_components
-                .get_cached_data_column(data_column_id.index)
-                .map(|data_column| data_column.clone_data_column()))
+            Ok(pending_components.get_cached_data_column(data_column_id.index))
         } else {
             Ok(None)
         }
@@ -811,7 +804,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     }
 
     pub fn put_kzg_verified_data_columns<
-        I: IntoIterator<Item = KzgVerifiedDataColumn<T::EthSpec>>,
+        I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     >(
         &self,
         block_root: Hash256,

@@ -115,6 +115,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
     pub fn custody_columns(&self, _epoch: Epoch) -> Result<Vec<ColumnIndex>, &'static str> {
         let enr = self.local_enr();
         let node_id = enr.node_id().raw().into();
+        // TODO(das): cache this number at start-up to not make this fallible
         let custody_subnet_count = enr.custody_subnet_count::<E>()?;
         Ok(
             DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count)

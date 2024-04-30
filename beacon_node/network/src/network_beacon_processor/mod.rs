@@ -2,7 +2,9 @@ use crate::{
     service::NetworkMessage,
     sync::{manager::BlockProcessType, SamplingId, SyncMessage},
 };
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::{
+    block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn,
+};
 use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
@@ -478,8 +480,32 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some custody columns. `process_rpc_custody_columns` reports
+    /// the result back to sync.
+    pub fn send_rpc_custody_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let s = self.clone();
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcCustodyColumn(Box::pin(async move {
+                s.process_rpc_custody_columns(
+                    block_root,
+                    custody_columns,
+                    seen_timestamp,
+                    process_type,
+                )
+                .await;
+            })),
+        })
+    }
+
     /// Create a new `Work` event for some data_columns from ReqResp
-    pub fn send_rpc_data_columns(
+    pub fn send_rpc_validate_data_columns(
         self: &Arc<Self>,
         block_root: Hash256,
         data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,

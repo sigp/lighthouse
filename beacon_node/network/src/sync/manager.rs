@@ -35,7 +35,9 @@
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
-use super::network_context::{BlockOrBlob, RangeRequestId, RpcEvent, SyncNetworkContext};
+use super::network_context::{
+    custody::CustodyRequester, BlockOrBlob, CustodyId, RangeRequestId, RpcEvent, SyncNetworkContext,
+};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use super::sampling::{Sampling, SamplingConfig, SamplingId, SamplingRequester, SamplingResult};
@@ -43,9 +45,10 @@ use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
-    BlobRequestState, BlockComponent, BlockRequestState, DownloadResult,
+    BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
 };
 use crate::sync::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
+use crate::sync::network_context::PeerGroup;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::validator_monitor::timestamp_now;
@@ -89,15 +92,21 @@ pub enum RequestId {
     /// Request searching for a set of blobs given a hash.
     SingleBlob { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
-    DataColumnsByRoot(Id),
+    DataColumnsByRoot(DataColumnsByRootRequestId),
     /// Range request that is composed by both a block range request and a blob range request.
     RangeBlockAndBlobs { id: Id },
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct DataColumnsByRootRequestId {
+    pub requester: DataColumnsByRootRequester,
+    pub req_id: Id,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DataColumnsByRootRequester {
     Sampling(SamplingId),
-    Custody,
+    Custody(CustodyId),
 }
 
 #[derive(Debug)]
@@ -178,12 +187,15 @@ pub enum SyncMessage<E: EthSpec> {
 pub enum BlockProcessType {
     SingleBlock { id: Id },
     SingleBlob { id: Id },
+    SingleCustodyColumn(Id),
 }
 
 impl BlockProcessType {
     pub fn id(&self) -> Id {
         match self {
-            BlockProcessType::SingleBlock { id } | BlockProcessType::SingleBlob { id } => *id,
+            BlockProcessType::SingleBlock { id }
+            | BlockProcessType::SingleBlob { id }
+            | BlockProcessType::SingleCustodyColumn(id) => *id,
         }
     }
 }
@@ -643,7 +655,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         value: block.block_cloned(),
                         block_root,
                         seen_timestamp: timestamp_now(),
-                        peer_id,
+                        peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );
             }
@@ -661,7 +673,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         value: blob,
                         block_root,
                         seen_timestamp: timestamp_now(),
-                        peer_id,
+                        peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );
             }
@@ -876,12 +888,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        if let Some(resp) = self.network.on_single_block_response(id, block) {
+        if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
             self.block_lookups
                 .on_download_response::<BlockRequestState<T::EthSpec>>(
                     id.lookup_id,
-                    peer_id,
-                    resp,
+                    resp.map(|(value, seen_timestamp)| {
+                        (value, PeerGroup::from_single(peer_id), seen_timestamp)
+                    }),
                     &mut self.network,
                 )
         }
@@ -945,12 +958,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
-        if let Some(resp) = self.network.on_single_blob_response(id, blob) {
+        if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
             self.block_lookups
                 .on_download_response::<BlobRequestState<T::EthSpec>>(
                     id.lookup_id,
-                    peer_id,
-                    resp,
+                    resp.map(|(value, seen_timestamp)| {
+                        (value, PeerGroup::from_single(peer_id), seen_timestamp)
+                    }),
                     &mut self.network,
                 )
         }
@@ -958,13 +972,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn on_single_data_column_response(
         &mut self,
-        id: Id,
+        id: DataColumnsByRootRequestId,
         peer_id: PeerId,
         data_column: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        if let Some((requester, resp)) = self
-            .network
-            .on_data_columns_by_root_response(id, data_column)
+        if let Some((requester, resp)) =
+            self.network
+                .on_data_columns_by_root_response(id, peer_id, data_column)
         {
             match requester {
                 DataColumnsByRootRequester::Sampling(id) => {
@@ -975,8 +989,29 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.on_sampling_result(requester, result)
                     }
                 }
-                DataColumnsByRootRequester::Custody => {
-                    todo!("TODO(das): handle custody requests");
+                DataColumnsByRootRequester::Custody(id) => {
+                    if let Some((requester, custody_columns)) =
+                        self.network.on_custody_by_root_response(id, peer_id, resp)
+                    {
+                        // TODO(das): get proper timestamp
+                        let seen_timestamp = timestamp_now();
+                        match requester {
+                            CustodyRequester::Lookup(id) => self
+                                .block_lookups
+                                .on_download_response::<CustodyRequestState<T::EthSpec>>(
+                                    id.lookup_id,
+                                    custody_columns.map(|(columns, peer_group)| {
+                                        (columns, peer_group, seen_timestamp)
+                                    }),
+                                    &mut self.network,
+                                ),
+                            CustodyRequester::RangeSync(_) => {
+                                // TODO(das): this line should be unreachable, no mechanism to make
+                                // custody requests for sync yet
+                                todo!("custody fetching for sync not implemented");
+                            }
+                        }
+                    }
                 }
             }
         }

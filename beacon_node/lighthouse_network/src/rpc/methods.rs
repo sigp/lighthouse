@@ -388,6 +388,10 @@ impl DataColumnsByRootRequest {
         Self { data_column_ids }
     }
 
+    pub fn new_single(block_root: Hash256, index: ColumnIndex, spec: &ChainSpec) -> Self {
+        Self::new(vec![DataColumnIdentifier { block_root, index }], spec)
+    }
+
     pub fn group_by_ordered_block_root(&self) -> Vec<(Hash256, Vec<ColumnIndex>)> {
         let mut column_indexes_by_block = BTreeMap::<Hash256, Vec<ColumnIndex>>::new();
         for request_id in self.data_column_ids.as_slice() {

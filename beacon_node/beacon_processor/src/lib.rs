@@ -162,6 +162,7 @@ const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
 const MAX_RPC_BLOB_QUEUE_LEN: usize = 1_024;
 
 /// TODO(das): Placeholder number
+const MAX_RPC_CUSTODY_COLUMN_QUEUE_LEN: usize = 1000;
 const MAX_RPC_VERIFY_DATA_COLUMN_QUEUE_LEN: usize = 1000;
 const MAX_SAMPLING_RESULT_QUEUE_LEN: usize = 1000;
 
@@ -260,6 +261,7 @@ pub const GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic
 pub const RPC_BLOCK: &str = "rpc_block";
 pub const IGNORED_RPC_BLOCK: &str = "ignored_rpc_block";
 pub const RPC_BLOBS: &str = "rpc_blob";
+pub const RPC_CUSTODY_COLUMN: &str = "rpc_custody_column";
 pub const RPC_VERIFY_DATA_COLUMNS: &str = "rpc_verify_data_columns";
 pub const SAMPLING_RESULT: &str = "sampling_result";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
@@ -647,6 +649,7 @@ pub enum Work<E: EthSpec> {
     RpcBlobs {
         process_fn: AsyncFn,
     },
+    RpcCustodyColumn(AsyncFn),
     RpcVerifyDataColumn(AsyncFn),
     SamplingResult(AsyncFn),
     IgnoredRpcBlock {
@@ -695,6 +698,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipLightClientOptimisticUpdate(_) => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
             Work::RpcBlock { .. } => RPC_BLOCK,
             Work::RpcBlobs { .. } => RPC_BLOBS,
+            Work::RpcCustodyColumn { .. } => RPC_CUSTODY_COLUMN,
             Work::RpcVerifyDataColumn(_) => RPC_VERIFY_DATA_COLUMNS,
             Work::SamplingResult(_) => SAMPLING_RESULT,
             Work::IgnoredRpcBlock { .. } => IGNORED_RPC_BLOCK,
@@ -858,6 +862,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
         let mut rpc_blob_queue = FifoQueue::new(MAX_RPC_BLOB_QUEUE_LEN);
+        let mut rpc_custody_column_queue = FifoQueue::new(MAX_RPC_CUSTODY_COLUMN_QUEUE_LEN);
         let mut rpc_verify_data_column_queue = FifoQueue::new(MAX_RPC_VERIFY_DATA_COLUMN_QUEUE_LEN);
         let mut sampling_result_queue = FifoQueue::new(MAX_SAMPLING_RESULT_QUEUE_LEN);
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
@@ -1016,6 +1021,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = rpc_blob_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         // TODO(das): decide proper priorization for sampling columns
+                        } else if let Some(item) = rpc_custody_column_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = rpc_verify_data_column_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = sampling_result_queue.pop() {
@@ -1316,6 +1323,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 rpc_block_queue.push(work, work_id, &self.log)
                             }
                             Work::RpcBlobs { .. } => rpc_blob_queue.push(work, work_id, &self.log),
+                            Work::RpcCustodyColumn { .. } => {
+                                rpc_custody_column_queue.push(work, work_id, &self.log)
+                            }
                             Work::RpcVerifyDataColumn(_) => {
                                 rpc_verify_data_column_queue.push(work, work_id, &self.log)
                             }
@@ -1417,6 +1427,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_RPC_BLOB_QUEUE_TOTAL,
                     rpc_blob_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_RPC_CUSTODY_COLUMN_QUEUE_TOTAL,
+                    rpc_custody_column_queue.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_RPC_VERIFY_DATA_COLUMN_QUEUE_TOTAL,
@@ -1567,6 +1581,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             } => task_spawner.spawn_async(process_fn),
             Work::RpcBlock { process_fn }
             | Work::RpcBlobs { process_fn }
+            | Work::RpcCustodyColumn(process_fn)
             | Work::RpcVerifyDataColumn(process_fn)
             | Work::SamplingResult(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),

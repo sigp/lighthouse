@@ -14,6 +14,7 @@ pub enum Error {
     Unexpected,
     SszTypes(ssz_types::Error),
     MissingBlobs,
+    MissingCustodyColumns,
     BlobIndexInvalid(u64),
     DataColumnIndexInvalid(u64),
     StoreError(store::Error),
@@ -38,6 +39,7 @@ impl Error {
             Error::KzgNotInitialized
             | Error::SszTypes(_)
             | Error::MissingBlobs
+            | Error::MissingCustodyColumns
             | Error::StoreError(_)
             | Error::DecodeError(_)
             | Error::Unexpected
