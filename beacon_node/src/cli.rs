@@ -624,7 +624,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("state-cache-size")
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
-                .help("Specifies the size of the snapshot cache [default: 3]")
+                .help("Specifies the size of the state cache [default: 128]")
                 .takes_value(true)
         )
         /*

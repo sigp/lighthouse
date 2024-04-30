@@ -57,10 +57,10 @@ impl Validator {
 
     /// Returns `true` if the validator is eligible to join the activation queue.
     ///
-    /// Spec v0.12.1
+    /// Modified in electra
     pub fn is_eligible_for_activation_queue(&self, spec: &ChainSpec) -> bool {
         self.activation_eligibility_epoch == spec.far_future_epoch
-            && self.effective_balance == spec.max_effective_balance
+            && self.effective_balance >= spec.min_activation_balance
     }
 
     /// Returns `true` if the validator is eligible to be activated.
@@ -102,6 +102,11 @@ impl Validator {
             .unwrap_or(false)
     }
 
+    /// Check if ``validator`` has an 0x02 prefixed "compounding" withdrawal credential.
+    pub fn has_compounding_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
+        is_compounding_withdrawal_credential(self.withdrawal_credentials, spec)
+    }
+
     /// Get the eth1 withdrawal address if this validator has one initialized.
     pub fn get_eth1_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
         self.has_eth1_withdrawal_credential(spec)
@@ -125,15 +130,39 @@ impl Validator {
     }
 
     /// Returns `true` if the validator is fully withdrawable at some epoch.
+    ///
+    /// Note: Modified in electra.
     pub fn is_fully_withdrawable_at(&self, balance: u64, epoch: Epoch, spec: &ChainSpec) -> bool {
-        self.has_eth1_withdrawal_credential(spec) && self.withdrawable_epoch <= epoch && balance > 0
+        self.has_execution_withdrawal_credential(spec)
+            && self.withdrawable_epoch <= epoch
+            && balance > 0
     }
 
     /// Returns `true` if the validator is partially withdrawable.
+    ///
+    /// Note: Modified in electra.
     pub fn is_partially_withdrawable_validator(&self, balance: u64, spec: &ChainSpec) -> bool {
-        self.has_eth1_withdrawal_credential(spec)
-            && self.effective_balance == spec.max_effective_balance
-            && balance > spec.max_effective_balance
+        let max_effective_balance = self.get_validator_max_effective_balance(spec);
+        let has_max_effective_balance = self.effective_balance == max_effective_balance;
+        let has_excess_balance = balance > max_effective_balance;
+        self.has_execution_withdrawal_credential(spec)
+            && has_max_effective_balance
+            && has_excess_balance
+    }
+
+    /// Returns `true` if the validator has a 0x01 or 0x02 prefixed withdrawal credential.
+    pub fn has_execution_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
+        self.has_compounding_withdrawal_credential(spec)
+            || self.has_eth1_withdrawal_credential(spec)
+    }
+
+    /// Returns the max effective balance for a validator in gwei.
+    pub fn get_validator_max_effective_balance(&self, spec: &ChainSpec) -> u64 {
+        if self.has_compounding_withdrawal_credential(spec) {
+            spec.max_effective_balance_electra
+        } else {
+            spec.min_activation_balance
+        }
     }
 }
 
@@ -151,6 +180,17 @@ impl Default for Validator {
             effective_balance: std::u64::MAX,
         }
     }
+}
+
+pub fn is_compounding_withdrawal_credential(
+    withdrawal_credentials: Hash256,
+    spec: &ChainSpec,
+) -> bool {
+    withdrawal_credentials
+        .as_bytes()
+        .first()
+        .map(|prefix_byte| *prefix_byte == spec.compounding_withdrawal_prefix_byte)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

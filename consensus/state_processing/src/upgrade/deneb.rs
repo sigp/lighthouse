@@ -71,7 +71,6 @@ pub fn upgrade_to_deneb<E: EthSpec>(
         exit_cache: mem::take(&mut pre.exit_cache),
         slashings_cache: mem::take(&mut pre.slashings_cache),
         epoch_cache: EpochCache::default(),
-        tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
     });
 
     *pre_state = post;

@@ -71,9 +71,9 @@ async fn merge_with_terminal_block_hash_override() {
             .chain
             .head_snapshot()
             .beacon_block
-            .as_merge()
+            .as_bellatrix()
             .is_ok(),
-        "genesis block should be a merge block"
+        "genesis block should be a bellatrix block"
     );
 
     let mut execution_payloads = vec![];
@@ -93,11 +93,11 @@ async fn merge_with_terminal_block_hash_override() {
 }
 
 #[tokio::test]
-async fn base_altair_merge_with_terminal_block_after_fork() {
+async fn base_altair_bellatrix_with_terminal_block_after_fork() {
     let altair_fork_epoch = Epoch::new(4);
     let altair_fork_slot = altair_fork_epoch.start_slot(E::slots_per_epoch());
     let bellatrix_fork_epoch = Epoch::new(8);
-    let merge_fork_slot = bellatrix_fork_epoch.start_slot(E::slots_per_epoch());
+    let bellatrix_fork_slot = bellatrix_fork_epoch.start_slot(E::slots_per_epoch());
 
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(altair_fork_epoch);
@@ -130,41 +130,41 @@ async fn base_altair_merge_with_terminal_block_after_fork() {
     assert_eq!(altair_head.slot(), altair_fork_slot);
 
     /*
-     * Do the merge fork, without a terminal PoW block.
+     * Do the Bellatrix fork, without a terminal PoW block.
      */
 
-    harness.extend_to_slot(merge_fork_slot).await;
+    harness.extend_to_slot(bellatrix_fork_slot).await;
 
-    let merge_head = &harness.chain.head_snapshot().beacon_block;
-    assert!(merge_head.as_merge().is_ok());
-    assert_eq!(merge_head.slot(), merge_fork_slot);
+    let bellatrix_head = &harness.chain.head_snapshot().beacon_block;
+    assert!(bellatrix_head.as_bellatrix().is_ok());
+    assert_eq!(bellatrix_head.slot(), bellatrix_fork_slot);
     assert!(
-        merge_head
+        bellatrix_head
             .message()
             .body()
             .execution_payload()
             .unwrap()
             .is_default_with_empty_roots(),
-        "Merge head is default payload"
+        "Bellatrix head is default payload"
     );
 
     /*
-     * Next merge block shouldn't include an exec payload.
+     * Next Bellatrix block shouldn't include an exec payload.
      */
 
     harness.extend_slots(1).await;
 
-    let one_after_merge_head = &harness.chain.head_snapshot().beacon_block;
+    let one_after_bellatrix_head = &harness.chain.head_snapshot().beacon_block;
     assert!(
-        one_after_merge_head
+        one_after_bellatrix_head
             .message()
             .body()
             .execution_payload()
             .unwrap()
             .is_default_with_empty_roots(),
-        "One after merge head is default payload"
+        "One after bellatrix head is default payload"
     );
-    assert_eq!(one_after_merge_head.slot(), merge_fork_slot + 1);
+    assert_eq!(one_after_bellatrix_head.slot(), bellatrix_fork_slot + 1);
 
     /*
      * Trigger the terminal PoW block.
@@ -188,20 +188,20 @@ async fn base_altair_merge_with_terminal_block_after_fork() {
 
     harness.extend_slots(1).await;
 
-    let two_after_merge_head = &harness.chain.head_snapshot().beacon_block;
+    let two_after_bellatrix_head = &harness.chain.head_snapshot().beacon_block;
     assert!(
-        two_after_merge_head
+        two_after_bellatrix_head
             .message()
             .body()
             .execution_payload()
             .unwrap()
             .is_default_with_empty_roots(),
-        "Two after merge head is default payload"
+        "Two after bellatrix head is default payload"
     );
-    assert_eq!(two_after_merge_head.slot(), merge_fork_slot + 2);
+    assert_eq!(two_after_bellatrix_head.slot(), bellatrix_fork_slot + 2);
 
     /*
-     * Next merge block should include an exec payload.
+     * Next Bellatrix block should include an exec payload.
      */
     for _ in 0..4 {
         harness.extend_slots(1).await;

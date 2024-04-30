@@ -58,7 +58,7 @@ pub fn slash_validator<E: EthSpec>(
     let proposer_reward = match state {
         BeaconState::Base(_) => whistleblower_reward.safe_div(spec.proposer_reward_quotient)?,
         BeaconState::Altair(_)
-        | BeaconState::Merge(_)
+        | BeaconState::Bellatrix(_)
         | BeaconState::Capella(_)
         | BeaconState::Deneb(_)
         | BeaconState::Electra(_) => whistleblower_reward

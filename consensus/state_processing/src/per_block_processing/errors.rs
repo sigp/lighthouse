@@ -82,6 +82,7 @@ pub enum BlockProcessingError {
     },
     ExecutionInvalid,
     ConsensusContext(ContextError),
+    MilhouseError(milhouse::Error),
     EpochCacheError(EpochCacheError),
     WithdrawalsRootMismatch {
         expected: Hash256,
@@ -135,6 +136,12 @@ impl From<ContextError> for BlockProcessingError {
 impl From<EpochCacheError> for BlockProcessingError {
     fn from(e: EpochCacheError) -> Self {
         BlockProcessingError::EpochCacheError(e)
+    }
+}
+
+impl From<milhouse::Error> for BlockProcessingError {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
     }
 }
 
