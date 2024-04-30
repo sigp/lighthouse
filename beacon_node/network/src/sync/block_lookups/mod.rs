@@ -498,6 +498,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     {
                         // There errors indicate internal problems and should not downscore the  peer
                         warn!(self.log, "Internal availability check failure"; "block_root" => %block_root, "error" => ?e);
+
+                        // Here we choose *not* to call `on_processing_failure` because this could result in a bad
+                        // lookup state transition. This error invalidates both blob and block requests, and we don't know the
+                        // state of both requests. Blobs may have already successfullly processed for example.
+                        // We opt to drop the lookup instead.
                         Action::Drop
                     }
                     other => {
