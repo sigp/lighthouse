@@ -180,7 +180,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
     }
 }
 
-impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState {
+impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
     type RequestType = BlobsByRootSingleBlockRequest;
     type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
 
