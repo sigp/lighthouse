@@ -55,7 +55,7 @@ jobs:
                         runner: macos-13
                         profile: maxperf
                     -   arch: x86_64-apple-darwin-portable
-                        runner: macos-latest
+                        runner: macos-13
                         profile: maxperf
                     -   arch: x86_64-windows
                         runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "release"]') || 'windows-2019'  }}
