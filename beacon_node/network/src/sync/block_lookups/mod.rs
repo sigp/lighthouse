@@ -276,16 +276,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             lookup.add_child_components(block_component);
         }
 
-        match lookup.continue_requests(cx) {
-            Ok(()) => {
-                self.single_block_lookups.insert(lookup.id, lookup);
-                self.update_metrics();
-                true
-            }
-            Err(e) => {
-                debug!(self.log, "Single block lookup failed"; "block_root" => ?block_root, "error" => ?e);
-                false
-            }
+        if let Err(e) = lookup.continue_requests(cx) {
+            self.on_lookup_request_error(lookup.id, e, "new_current_lookup");
+            false
+        } else {
+            self.single_block_lookups.insert(lookup.id, lookup);
+            self.update_metrics();
+            true
         }
     }
 
@@ -300,9 +297,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         if let Err(e) = self.on_download_response_inner::<R>(id, peer_id, response, cx) {
-            debug!(self.log, "Dropping single lookup"; "id" => id, "err" => ?e);
-            self.drop_lookup_and_children(id);
-            self.update_metrics();
+            self.on_lookup_request_error(id, e, "download_response");
         }
     }
 
@@ -401,12 +396,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.on_processing_result_inner::<BlobRequestState<T::EthSpec>>(id, result, cx)
             }
         } {
-            let id = match process_type {
-                BlockProcessType::SingleBlock { id } | BlockProcessType::SingleBlob { id } => id,
-            };
-            debug!(self.log, "Dropping lookup on request error"; "component" => process_type.component(), "id" => process_type.id(), "error" => ?e);
-            self.drop_lookup_and_children(id);
-            self.update_metrics();
+            self.on_lookup_request_error(process_type.id(), e, "processing_result");
         }
     }
 
@@ -417,7 +407,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
-            debug!(self.log, "Unknown single block lookup"; "target_id" => lookup_id);
+            debug!(self.log, "Unknown single block lookup"; "id" => lookup_id);
             return Ok(());
         };
 
@@ -566,14 +556,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 lookup.resolve_awaiting_parent();
                 debug!(self.log, "Continuing child lookup"; "parent_root" => %block_root, "block_root" => %lookup.block_root());
                 if let Err(e) = lookup.continue_requests(cx) {
-                    debug!(self.log, "Error continuing lookup"; "id" => id, "error" => ?e);
-                    failed_lookups.push(*id);
+                    failed_lookups.push((*id, e));
                 }
             }
         }
 
-        for id in failed_lookups {
-            self.drop_lookup_and_children(id);
+        for (id, e) in failed_lookups {
+            self.on_lookup_request_error(id, e, "continue_child_lookups");
         }
     }
 
@@ -595,6 +584,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.drop_lookup_and_children(id);
             }
         }
+    }
+
+    /// Common handler a lookup request error, drop it and update metrics
+    fn on_lookup_request_error(
+        &mut self,
+        id: SingleLookupId,
+        error: LookupRequestError,
+        source: &str,
+    ) {
+        debug!(self.log, "Dropping lookup on request error"; "id" => id, "source" => source, "error" => ?error);
+        metrics::inc_counter_vec(&metrics::SYNC_LOOKUP_DROPPED, &[error.as_metric()]);
+        self.drop_lookup_and_children(id);
+        self.update_metrics();
     }
 
     /* Helper functions */

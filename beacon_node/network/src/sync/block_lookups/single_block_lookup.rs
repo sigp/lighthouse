@@ -461,3 +461,14 @@ impl<T: Clone> std::fmt::Display for State<T> {
         }
     }
 }
+
+impl LookupRequestError {
+    pub(crate) fn as_metric(&self) -> &'static str {
+        match self {
+            LookupRequestError::TooManyAttempts { .. } => "TooManyAttempts",
+            LookupRequestError::NoPeers => "NoPeers",
+            LookupRequestError::SendFailed { .. } => "SendFailed",
+            LookupRequestError::BadState { .. } => "BadState",
+        }
+    }
+}

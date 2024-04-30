@@ -154,13 +154,6 @@ pub enum BlockProcessType {
 }
 
 impl BlockProcessType {
-    pub fn component(&self) -> &'static str {
-        match self {
-            BlockProcessType::SingleBlock { .. } => "block",
-            BlockProcessType::SingleBlob { .. } => "blob",
-        }
-    }
-
     pub fn id(&self) -> Id {
         match self {
             BlockProcessType::SingleBlock { id } | BlockProcessType::SingleBlob { id } => *id,
