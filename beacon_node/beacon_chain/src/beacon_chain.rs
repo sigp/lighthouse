@@ -4397,12 +4397,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if cached_head.head_block_root() == parent_block_root {
                 (Cow::Borrowed(head_state), cached_head.head_state_root())
             } else {
-                info!(
-                    self.log,
-                    "Missed state cache during withdrawals calculation";
-                    "slot" => proposal_slot,
-                    "parent_block_root" => ?parent_block_root
-                );
                 let block = self
                     .get_blinded_block(&parent_block_root)?
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
