@@ -196,6 +196,12 @@ impl From<BeaconStateHash> for Hash256 {
 #[superstruct(
     variants_and_features_from = "FORK_ORDER",
     feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name_unchecked"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "is_feature_enabled"
+    ),
     variant_attributes(
         derive(
             Derivative,
@@ -475,16 +481,16 @@ impl<E: EthSpec> BeaconState<E> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Does not check if `self` is consistent with the fork dictated by `self.slot()`.
-    pub fn fork_name_unchecked(&self) -> ForkName {
-        match self {
-            BeaconState::Base { .. } => ForkName::Base,
-            BeaconState::Altair { .. } => ForkName::Altair,
-            BeaconState::Merge { .. } => ForkName::Merge,
-            BeaconState::Capella { .. } => ForkName::Capella,
-            BeaconState::Deneb { .. } => ForkName::Deneb,
-            BeaconState::Electra { .. } => ForkName::Electra,
-        }
-    }
+    //pub fn fork_name_unchecked(&self) -> ForkName {
+    //    match self {
+    //        BeaconState::Base { .. } => ForkName::Base,
+    //        BeaconState::Altair { .. } => ForkName::Altair,
+    //        BeaconState::Merge { .. } => ForkName::Merge,
+    //        BeaconState::Capella { .. } => ForkName::Capella,
+    //        BeaconState::Deneb { .. } => ForkName::Deneb,
+    //        BeaconState::Electra { .. } => ForkName::Electra,
+    //    }
+    //}
 
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
     #[allow(clippy::arithmetic_side_effects)]

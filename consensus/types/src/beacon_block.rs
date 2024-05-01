@@ -12,7 +12,14 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb, Electra),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name_unchecked"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "is_feature_enabled"
+    ),
     variant_attributes(
         derive(
             Debug,

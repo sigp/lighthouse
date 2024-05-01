@@ -7906,7 +7906,7 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 [[package]]
 name = "superstruct"
 version = "0.7.0"
-source = "git+https://github.com/sigp/superstruct?branch=features#06132f875603d2985a414e6e3683c42bc9505f49"
+source = "git+https://github.com/sigp/superstruct?branch=features#822403d4d415c181aa7f4765e118606c6772dc58"
 dependencies = [
  "darling",
  "itertools",

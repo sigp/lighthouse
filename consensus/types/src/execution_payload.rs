@@ -15,7 +15,16 @@ pub type Transactions<E> = VariableList<
 pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
 
 #[superstruct(
-    variants(Merge, Capella, Deneb, Electra),
+    feature(Merge),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "is_feature_enabled"
+    ),
+    //variants(Merge, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Default,
@@ -81,12 +90,12 @@ pub struct ExecutionPayload<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     pub withdrawals: Withdrawals<E>,
-    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
+    #[superstruct(feature(Deneb))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
+    #[superstruct(feature(Deneb))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
 }
@@ -189,13 +198,13 @@ impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayload<E> {
     }
 }
 
-impl<E: EthSpec> ExecutionPayload<E> {
-    pub fn fork_name(&self) -> ForkName {
-        match self {
-            ExecutionPayload::Merge(_) => ForkName::Merge,
-            ExecutionPayload::Capella(_) => ForkName::Capella,
-            ExecutionPayload::Deneb(_) => ForkName::Deneb,
-            ExecutionPayload::Electra(_) => ForkName::Electra,
-        }
-    }
-}
+//impl<E: EthSpec> ExecutionPayload<E> {
+//    pub fn fork_name(&self) -> ForkName {
+//        match self {
+//            ExecutionPayload::Merge(_) => ForkName::Merge,
+//            ExecutionPayload::Capella(_) => ForkName::Capella,
+//            ExecutionPayload::Deneb(_) => ForkName::Deneb,
+//            ExecutionPayload::Electra(_) => ForkName::Electra,
+//        }
+//    }
+//}

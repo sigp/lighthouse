@@ -3,6 +3,7 @@
 //
 // For now, older Forks have a single "super-feature" which contains all features associated with
 // that Fork. It may be worth splitting these up at a later time.
+#[derive(PartialEq)]
 pub enum FeatureName {
     // Altair.
     Altair,
@@ -13,13 +14,5 @@ pub enum FeatureName {
     // Deneb.
     Deneb,
     // Electra.
-    //
-    // Supply deposits on chain.
-    EIP6110,
-    // EL triggerable exits.
-    EIP7002,
-    // Increase MAX_EFFECTIVE_BALANCE.
-    EIP7251,
-    // Committee index outside Attestation.
-    EIP7549,
+    Electra,
 }

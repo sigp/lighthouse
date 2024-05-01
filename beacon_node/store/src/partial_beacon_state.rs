@@ -14,7 +14,14 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb, Electra),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "is_feature_enabled"
+    ),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -66,9 +73,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
@@ -78,13 +85,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub inactivity_scores: VariableList<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
@@ -110,13 +117,13 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
 
     // Capella
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     pub historical_summaries: Option<VariableList<HistoricalSummary, E::HistoricalRootsLimit>>,
 }
 

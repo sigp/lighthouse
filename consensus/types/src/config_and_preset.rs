@@ -1,6 +1,6 @@
 use crate::{
     consts::altair, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config,
-    DenebPreset, ElectraPreset, EthSpec, ForkName,
+    DenebPreset, ElectraPreset, EthSpec, FeatureName, ForkName,
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,15 @@ use superstruct::superstruct;
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Capella, Deneb, Electra),
+    feature(Capella),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "is_feature_enabled"
+    ),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -29,10 +37,10 @@ pub struct ConfigAndPreset {
     pub bellatrix_preset: BellatrixPreset,
     #[serde(flatten)]
     pub capella_preset: CapellaPreset,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(feature(Deneb))]
     #[serde(flatten)]
     pub deneb_preset: DenebPreset,
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     #[serde(flatten)]
     pub electra_preset: ElectraPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.

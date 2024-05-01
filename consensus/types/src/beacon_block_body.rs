@@ -31,6 +31,12 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
 #[superstruct(
     variants_and_features_from = "FORK_ORDER",
     feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "is_feature_enabled"
+    ),
     variant_attributes(
         derive(
             Debug,

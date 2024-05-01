@@ -8,7 +8,7 @@ pub const FORK_ORDER: &[(ForkName, &[FeatureName])] = &[
     (ForkName::Merge, &[FeatureName::Merge]),
     (ForkName::Capella, &[FeatureName::Capella]),
     (ForkName::Deneb, &[FeatureName::Deneb]),
-    (ForkName::Electra, &[]),
+    (ForkName::Electra, &[FeatureName::Electra]),
 ];
 
 #[superstruct(feature_dependencies_decl = "FEATURE_DEPENDENCIES")]
@@ -17,6 +17,7 @@ pub const FEATURE_DEPENDENCIES: &[(FeatureName, &[FeatureName])] = &[
     (FeatureName::Merge, &[FeatureName::Altair]),
     (FeatureName::Capella, &[FeatureName::Merge]),
     (FeatureName::Deneb, &[FeatureName::Capella]),
+    (FeatureName::Electra, &[FeatureName::Deneb]),
 ];
 
 #[cfg(test)]
