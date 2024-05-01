@@ -25,6 +25,7 @@ pub enum LookupRequestError {
     NoPeers,
     SendFailed(&'static str),
     BadState(String),
+    AlreadyImported,
 }
 
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
@@ -119,6 +120,17 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         // TODO: Check what's necessary to download, specially for blobs
         self.continue_request::<BlockRequestState<T::EthSpec>>(cx)?;
         self.continue_request::<BlobRequestState<T::EthSpec>>(cx)?;
+
+        // If all components of this lookup are already processed, there will be no future events
+        // that can make progress so it must be dropped. This case can happen if we receive the
+        // components from gossip during a retry. This case is not technically an error, but it's
+        // easier to handle this way similarly to `BlockError::BlockIsAlreadyKnown`.
+        if self.block_request_state.state.is_processed()
+            && self.blob_request_state.state.is_processed()
+        {
+            return Err(LookupRequestError::AlreadyImported);
+        }
+
         Ok(())
     }
 
@@ -407,6 +419,19 @@ impl<T: Clone> SingleLookupRequestState<T> {
             }
             other => Err(LookupRequestError::BadState(format!(
                 "Bad state on_post_process_validation_failure expected Processed got {other}"
+            ))),
+        }
+    }
+
+    /// Mark a request as complete without any download or processing
+    pub fn on_completed_request(&mut self) -> Result<(), LookupRequestError> {
+        match &self.state {
+            State::AwaitingDownload => {
+                self.state = State::Processed(peer_id);
+                Ok(())
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on_completed_request expected AwaitingDownload got {other}"
             ))),
         }
     }

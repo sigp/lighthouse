@@ -598,9 +598,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         error: LookupRequestError,
         source: &str,
     ) {
-        debug!(self.log, "Dropping lookup on request error"; "id" => id, "source" => source, "error" => ?error);
+        match error {
+            LookupRequestError::AlreadyImported => {
+                debug!(self.log, "Lookup components already imported"; "id" => id);
+                self.single_block_lookups.remove(&id);
+            }
+            other => {
+                debug!(self.log, "Dropping lookup on request error"; "id" => id, "source" => source, "error" => ?other);
+                self.drop_lookup_and_children(id);
+            }
+        }
         metrics::inc_counter_vec(&metrics::SYNC_LOOKUP_DROPPED, &[error.as_metric()]);
-        self.drop_lookup_and_children(id);
         self.update_metrics();
     }
 
