@@ -17,7 +17,7 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// Optionally verifies the aggregate signature, depending on `verify_signatures`.
 pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
     state: &BeaconState<E>,
-    attestation: &Attestation<E>,
+    attestation: AttestationRef<'ctxt, E>,
     ctxt: &'ctxt mut ConsensusContext<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
@@ -61,7 +61,7 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
 /// Spec v0.12.1
 pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
     state: &BeaconState<E>,
-    attestation: &Attestation<E>,
+    attestation: AttestationRef<'ctxt, E>,
     ctxt: &'ctxt mut ConsensusContext<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
@@ -87,7 +87,7 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
 ///
 /// Spec v0.12.1
 fn verify_casper_ffg_vote<E: EthSpec>(
-    attestation: &Attestation<E>,
+    attestation: AttestationRef<E>,
     state: &BeaconState<E>,
 ) -> Result<()> {
     let data = attestation.data();

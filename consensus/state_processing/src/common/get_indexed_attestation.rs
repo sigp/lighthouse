@@ -9,12 +9,12 @@ type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 /// Spec v0.12.1
 pub fn get_indexed_attestation<E: EthSpec>(
     committee: &[usize],
-    attestation: &Attestation<E>,
+    attestation: AttestationRef<E>,
 ) -> Result<IndexedAttestation<E>> {
     let attesting_indices = match attestation {
-        Attestation::Base(att) => get_attesting_indices::<E>(committee, &att.aggregation_bits)?,
+        AttestationRef::Base(att) => get_attesting_indices::<E>(committee, &att.aggregation_bits)?,
         // TODO(electra) implement get_attesting_indices for electra
-        Attestation::Electra(_) => todo!(),
+        AttestationRef::Electra(_) => todo!(),
     };
 
     Ok(IndexedAttestation::Base(IndexedAttestationBase {

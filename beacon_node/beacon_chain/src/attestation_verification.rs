@@ -559,7 +559,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                     return Err(Error::AggregatorNotInCommittee { aggregator_index });
                 }
 
-                get_indexed_attestation(committee.committee, attestation)
+                get_indexed_attestation(committee.committee, attestation.to_ref())
                     .map_err(|e| BeaconChainError::from(e).into())
             };
 
@@ -1241,7 +1241,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     attestation: &Attestation<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
     map_attestation_committee(chain, attestation, |(committee, committees_per_slot)| {
-        get_indexed_attestation(committee.committee, attestation)
+        get_indexed_attestation(committee.committee, attestation.to_ref())
             .map(|attestation| (attestation, committees_per_slot))
             .map_err(Error::Invalid)
     })
