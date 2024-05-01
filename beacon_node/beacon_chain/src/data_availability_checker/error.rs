@@ -24,6 +24,7 @@ pub enum Error {
     SlotClockError,
 }
 
+#[derive(PartialEq, Eq)]
 pub enum ErrorCategory {
     /// Internal Errors (not caused by peers)
     Internal,
