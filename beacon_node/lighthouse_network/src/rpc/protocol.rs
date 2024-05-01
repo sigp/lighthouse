@@ -373,6 +373,8 @@ impl SupportedProtocol {
             supported.extend_from_slice(&[
                 ProtocolId::new(SupportedProtocol::BlobsByRootV1, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
+                // TODO(das): add to PeerDAS fork
+                ProtocolId::new(SupportedProtocol::DataColumnsByRootV1, Encoding::SSZSnappy),
             ]);
         }
         supported
