@@ -4585,9 +4585,9 @@ fn test_ignore_too_many_messages_in_ihave() {
     let (peer, receiver) = add_peer(&mut gs, &topics, false, false);
     receivers.insert(peer, receiver);
 
-    //peer has 20 messages
+    //peer has 30 messages
     let mut seq = 0;
-    let message_ids: Vec<_> = (0..20)
+    let message_ids: Vec<_> = (0..30)
         .map(|_| random_message(&mut seq, &topics))
         .map(|msg| gs.data_transform.inbound_transform(msg).unwrap())
         .map(|msg| config.message_id(&msg))
@@ -4629,7 +4629,7 @@ fn test_ignore_too_many_messages_in_ihave() {
     gs.heartbeat();
     gs.handle_ihave(
         &peer,
-        vec![(topics[0].clone(), message_ids[10..20].to_vec())],
+        vec![(topics[0].clone(), message_ids[20..30].to_vec())],
     );
 
     //we sent 10 iwant messages ids via a IWANT rpc.
@@ -5252,7 +5252,7 @@ fn sends_idontwant() {
         .to_subscribe(true)
         .gs_config(Config::default())
         .explicit(1)
-        .peer_kind(PeerKind::Gossipsubv1_2)
+        .peer_kind(PeerKind::Gossipsubv1_2_beta)
         .create_network();
 
     let local_id = PeerId::random();
@@ -5337,7 +5337,7 @@ fn doesnt_forward_idontwant() {
         .to_subscribe(true)
         .gs_config(Config::default())
         .explicit(1)
-        .peer_kind(PeerKind::Gossipsubv1_2)
+        .peer_kind(PeerKind::Gossipsubv1_2_beta)
         .create_network();
 
     let local_id = PeerId::random();
@@ -5386,7 +5386,7 @@ fn parses_idontwant() {
         .to_subscribe(true)
         .gs_config(Config::default())
         .explicit(1)
-        .peer_kind(PeerKind::Gossipsubv1_2)
+        .peer_kind(PeerKind::Gossipsubv1_2_beta)
         .create_network();
 
     let message_id = MessageId::new(&[0, 1, 2, 3]);
@@ -5418,7 +5418,7 @@ fn clear_stale_idontwant() {
         .to_subscribe(true)
         .gs_config(Config::default())
         .explicit(1)
-        .peer_kind(PeerKind::Gossipsubv1_2)
+        .peer_kind(PeerKind::Gossipsubv1_2_beta)
         .create_network();
 
     let peer = gs.connected_peers.get_mut(&peers[2]).unwrap();
