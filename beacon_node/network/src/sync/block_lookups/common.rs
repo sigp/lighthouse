@@ -5,9 +5,7 @@ use crate::sync::block_lookups::{
     BlobRequestState, BlockRequestState, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
 };
 use crate::sync::manager::{BlockProcessType, Id, SLOT_IMPORT_TOLERANCE};
-use crate::sync::network_context::{
-    BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest, SyncNetworkContext,
-};
+use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use std::sync::Arc;
@@ -42,9 +40,6 @@ pub(crate) struct BlockIsProcessed(pub bool);
 /// safety when handling a block/blob response ensuring we only mutate the correct corresponding
 /// state.
 pub trait RequestState<T: BeaconChainTypes> {
-    /// The type of the request .
-    type RequestType;
-
     /// The type created after validation.
     type VerifiedResponseType: Clone;
 
@@ -71,9 +66,11 @@ pub trait RequestState<T: BeaconChainTypes> {
                 .use_rand_available_peer()
                 .ok_or(LookupRequestError::NoPeers)?;
 
-            // make_request returns true only if a request was made
+            // make_request returns true only if a request needs to be made
             if self.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
                 self.get_state_mut().on_download_start()?;
+            } else {
+                self.get_state_mut().on_completed_request()?;
             }
 
         // Otherwise, attempt to progress awaiting processing
@@ -92,7 +89,9 @@ pub trait RequestState<T: BeaconChainTypes> {
         Ok(())
     }
 
-    /// Send the request to the network service.
+    /// Request the network context to prepare a request of a component of `block_root`. If the
+    /// request is not necessary because the component is already known / processed, return false.
+    /// Return true if it sent a request and we can expect an event back from the network.
     fn make_request(
         &self,
         id: Id,
@@ -126,7 +125,6 @@ pub trait RequestState<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
-    type RequestType = BlocksByRootSingleRequest;
     type VerifiedResponseType = Arc<SignedBeaconBlock<T::EthSpec>>;
 
     fn make_request(
@@ -136,12 +134,8 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
         _: Option<usize>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<bool, LookupRequestError> {
-        cx.block_lookup_request(
-            id,
-            peer_id,
-            BlocksByRootSingleRequest(self.requested_block_root),
-        )
-        .map_err(LookupRequestError::SendFailed)
+        cx.block_lookup_request(id, peer_id, self.requested_block_root)
+            .map_err(LookupRequestError::SendFailed)
     }
 
     fn send_for_processing(
@@ -179,7 +173,6 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
 }
 
 impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
-    type RequestType = BlobsByRootSingleBlockRequest;
     type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
 
     fn make_request(
