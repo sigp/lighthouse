@@ -97,7 +97,7 @@ impl<E: EthSpec> RpcBlock<E> {
 
     /// Constructs a new `BlockAndBlobs` variant after making consistency
     /// checks between the provided blocks and blobs. This struct makes no
-    /// guaruntees about whether blobs should be present, only that they are
+    /// guarantees about whether blobs should be present, only that they are
     /// consistent with the block. An empty list passed in for `blobs` is
     /// viewed the same as `None` passed in.
     pub fn new(
