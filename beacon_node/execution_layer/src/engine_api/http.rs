@@ -1217,27 +1217,25 @@ impl HttpJsonRpc {
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<E>, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
-        match fork_name {
-            ForkName::Bellatrix | ForkName::Capella => {
-                if engine_capabilities.get_payload_v2 {
-                    self.get_payload_v2(fork_name, payload_id).await
-                } else if engine_capabilities.new_payload_v1 {
-                    self.get_payload_v1(payload_id).await
-                } else {
-                    Err(Error::RequiredMethodUnsupported("engine_getPayload"))
-                }
+        if fork_name.is_feature_enabled(FeatureName::Deneb) {
+            if engine_capabilities.get_payload_v3 {
+                self.get_payload_v3(fork_name, payload_id).await
+            } else {
+                Err(Error::RequiredMethodUnsupported("engine_getPayloadV3"))
             }
-            ForkName::Deneb | ForkName::Electra => {
-                if engine_capabilities.get_payload_v3 {
-                    self.get_payload_v3(fork_name, payload_id).await
-                } else {
-                    Err(Error::RequiredMethodUnsupported("engine_getPayloadV3"))
-                }
+        } else if fork_name.is_feature_enabled(FeatureName::Bellatrix) {
+            if engine_capabilities.get_payload_v2 {
+                self.get_payload_v2(fork_name, payload_id).await
+            } else if engine_capabilities.new_payload_v1 {
+                self.get_payload_v1(payload_id).await
+            } else {
+                Err(Error::RequiredMethodUnsupported("engine_getPayload"))
             }
-            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
+        } else {
+            Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload with {}",
                 fork_name
-            ))),
+            )))
         }
     }
 

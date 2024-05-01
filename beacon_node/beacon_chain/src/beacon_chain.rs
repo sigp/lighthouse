@@ -733,6 +733,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
+    /// Returns the latest fork for the current slot.
+    pub fn current_fork(&self) -> Result<ForkName, Error> {
+        Ok(self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?))
+    }
+
+    /// Checks if a feature is enabled on the current fork.
+    pub fn is_feature_enabled(&self, feature: FeatureName) -> bool {
+        if let Ok(current_fork) = self.current_fork() {
+            current_fork.is_feature_enabled(feature)
+        } else {
+            false
+        }
+    }
+
     /// Iterates across all `(block_root, slot)` pairs from `start_slot`
     /// to the head of the chain (inclusive).
     ///
@@ -2523,7 +2537,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bls_to_execution_change: SignedBlsToExecutionChange,
     ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
         // Ignore BLS to execution changes on gossip prior to Capella.
-        if !self.current_slot_is_post_capella()? {
+        if !self.is_feature_enabled(FeatureName::Capella) {
             return Err(Error::BlsToExecutionPriorToCapella);
         }
         self.verify_bls_to_execution_change_for_http_api(bls_to_execution_change)
@@ -2534,16 +2548,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     e => Err(e),
                 }
             })
-    }
-
-    /// Check if the current slot is greater than or equal to the Capella fork epoch.
-    pub fn current_slot_is_post_capella(&self) -> Result<bool, Error> {
-        let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
-        if let ForkName::Base | ForkName::Altair | ForkName::Bellatrix = current_fork {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
     }
 
     /// Import a BLS to execution change to the op pool.
@@ -5552,27 +5556,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_attributes
         } else {
             let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-            let withdrawals = match prepare_slot_fork {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix => None,
-                ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
-                    let chain = self.clone();
-                    self.spawn_blocking_handle(
-                        move || {
-                            chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot)
-                        },
-                        "prepare_beacon_proposer_withdrawals",
-                    )
-                    .await?
-                    .map(Some)?
-                }
+            let withdrawals = if prepare_slot_fork.is_feature_enabled(FeatureName::Capella) {
+                let chain = self.clone();
+                self.spawn_blocking_handle(
+                    move || chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot),
+                    "prepare_beacon_proposer_withdrawals",
+                )
+                .await?
+                .map(Some)?
+            } else {
+                None
             };
 
-            let parent_beacon_block_root = match prepare_slot_fork {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => None,
-                ForkName::Deneb | ForkName::Electra => {
+            let parent_beacon_block_root =
+                if prepare_slot_fork.is_feature_enabled(FeatureName::Deneb) {
                     Some(pre_payload_attributes.parent_beacon_block_root)
-                }
-            };
+                } else {
+                    None
+                };
+
+            //let parent_beacon_block_root = match prepare_slot_fork {
+            //    ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => None,
+            //    ForkName::Deneb | ForkName::Electra => {
+            //        Some(pre_payload_attributes.parent_beacon_block_root)
+            //    }
+            //};
 
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock

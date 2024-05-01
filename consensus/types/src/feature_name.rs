@@ -3,7 +3,7 @@
 //
 // For now, older Forks have a single "super-feature" which contains all features associated with
 // that Fork. It may be worth splitting these up at a later time.
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum FeatureName {
     // Altair.
     Altair,

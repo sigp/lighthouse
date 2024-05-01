@@ -337,9 +337,10 @@ impl ChainSpec {
     }
 
     pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name >= ForkName::Bellatrix {
+        // TODO(superstruct_features) Is this a better pattern?
+        if fork_name.is_feature_enabled(FeatureName::Bellatrix) {
             self.inactivity_penalty_quotient_bellatrix
-        } else if fork_name >= ForkName::Altair {
+        } else if fork_name.is_feature_enabled(FeatureName::Altair) {
             self.inactivity_penalty_quotient_altair
         } else {
             self.inactivity_penalty_quotient

@@ -1,5 +1,5 @@
 use crate::fork_order::FORK_ORDER;
-use crate::{ChainSpec, Epoch};
+use crate::{ChainSpec, Epoch, FeatureName};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::cmp::{Ord, Ordering};
@@ -47,6 +47,20 @@ impl ForkName {
     pub const fn latest() -> ForkName {
         #[allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
         FORK_ORDER[FORK_ORDER.len() - 1].0
+    }
+
+    pub fn list_all_enabled_features(self) -> Vec<FeatureName> {
+        let mut res = vec![];
+        for (fork, features) in FORK_ORDER {
+            if *fork <= self {
+                res.extend(features.iter());
+            }
+        }
+        res
+    }
+
+    pub fn is_feature_enabled(self, feature: FeatureName) -> bool {
+        self.list_all_enabled_features().contains(&feature)
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
@@ -295,5 +309,52 @@ mod test {
             assert_eq!(fork.previous_fork(), Some(prev_fork));
             assert!(prev_fork < fork);
         }
+    }
+
+    #[test]
+    fn check_fork_name_enabled_features() {
+        let base = ForkName::Base;
+        let altair = ForkName::Altair;
+        let bellatrix = ForkName::Bellatrix;
+        let capella = ForkName::Capella;
+        let deneb = ForkName::Deneb;
+        let electra = ForkName::Electra;
+
+        assert_eq!(base.list_all_enabled_features(), vec![]);
+        assert_eq!(
+            altair.list_all_enabled_features(),
+            vec![FeatureName::Altair]
+        );
+        assert_eq!(
+            bellatrix.list_all_enabled_features(),
+            vec![FeatureName::Altair, FeatureName::Bellatrix]
+        );
+        assert_eq!(
+            capella.list_all_enabled_features(),
+            vec![
+                FeatureName::Altair,
+                FeatureName::Bellatrix,
+                FeatureName::Capella
+            ]
+        );
+        assert_eq!(
+            deneb.list_all_enabled_features(),
+            vec![
+                FeatureName::Altair,
+                FeatureName::Bellatrix,
+                FeatureName::Capella,
+                FeatureName::Deneb
+            ]
+        );
+        assert_eq!(
+            electra.list_all_enabled_features(),
+            vec![
+                FeatureName::Altair,
+                FeatureName::Bellatrix,
+                FeatureName::Capella,
+                FeatureName::Deneb,
+                FeatureName::Electra
+            ]
+        );
     }
 }

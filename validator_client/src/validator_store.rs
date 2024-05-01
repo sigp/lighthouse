@@ -19,7 +19,7 @@ use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, PublicKeyBytes, SelectionProof,
+    Domain, Epoch, EthSpec, FeatureName, Fork, Graffiti, Hash256, PublicKeyBytes, SelectionProof,
     Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
@@ -359,17 +359,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     fn signing_context(&self, domain: Domain, signing_epoch: Epoch) -> SigningContext {
         if domain == Domain::VoluntaryExit {
-            match self.spec.fork_name_at_epoch(signing_epoch) {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-                    SigningContext {
-                        domain,
-                        epoch: signing_epoch,
-                        fork: self.fork(signing_epoch),
-                        genesis_validators_root: self.genesis_validators_root,
-                    }
-                }
-                // EIP-7044
-                ForkName::Deneb | ForkName::Electra => SigningContext {
+            // EIP-7044
+            if self
+                .spec
+                .fork_name_at_epoch(signing_epoch)
+                .is_feature_enabled(FeatureName::Deneb)
+            {
+                SigningContext {
                     domain,
                     epoch: signing_epoch,
                     fork: Fork {
@@ -378,7 +374,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                         epoch: signing_epoch,
                     },
                     genesis_validators_root: self.genesis_validators_root,
-                },
+                }
+            } else {
+                SigningContext {
+                    domain,
+                    epoch: signing_epoch,
+                    fork: self.fork(signing_epoch),
+                    genesis_validators_root: self.genesis_validators_root,
+                }
             }
         } else {
             SigningContext {
