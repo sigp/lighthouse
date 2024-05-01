@@ -996,6 +996,113 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     })
 }
 
+#[test]
+fn test_disconnect_triggers_rpc_error() {
+    // set up the logging. The level and enabled logging or not
+    let log_level = Level::Debug;
+    let enable_logging = true;
+
+    let log = common::build_log(log_level, enable_logging);
+    let spec = E::default_spec();
+
+    let rt = Arc::new(Runtime::new().unwrap());
+    // get sender/receiver
+    rt.block_on(async {
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
+
+        // BlocksByRoot Request
+        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest::new(
+            vec![
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+            ],
+            &spec,
+        ));
+
+        // build the sender future
+        let sender_future = async {
+            loop {
+                let ev = sender.next_event().await;
+                warn!(log, "EVENT {:?}", ev);
+                match ev {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        // Send a STATUS message
+                        debug!(log, "Sending RPC");
+                        sender.send_request(peer_id, 10, rpc_request.clone());
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _, id: 10, ..
+                    } => {
+                        debug!(log, "Sender received a response");
+                    }
+                    NetworkEvent::RPCFailed { id, peer_id, error } => {
+                        panic!("got RPCError");
+                    }
+                    _ => {} // Ignore other behaviour events
+                }
+            }
+        };
+
+        // determine messages to send (PeerId, RequestId). If some, indicates we still need to send
+        // messages
+        let mut message_info = None;
+        let receiver_future = async {
+            loop {
+                // this future either drives the sending/receiving or times out allowing messages to be
+                // sent in the timeout
+                match futures::future::select(
+                    Box::pin(receiver.next_event()),
+                    Box::pin(tokio::time::sleep(Duration::from_secs(1))),
+                )
+                .await
+                {
+                    futures::future::Either::Left((
+                        NetworkEvent::RequestReceived { peer_id, id, .. },
+                        _,
+                    )) => {
+                        // send the response
+                        warn!(log, "Receiver got request");
+                        message_info = Some((peer_id, id));
+                    }
+                    futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
+                    _ => continue,
+                }
+
+                // if we need to send messages send them here. This will happen after a delay
+                if message_info.is_some() {
+                    let (peer_id, _) = message_info.as_ref().unwrap();
+
+                    receiver.__hard_disconnect_testing_only(*peer_id);
+                    debug!(log, "Disconnecting peer");
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
+}
+
 /// Establishes a pair of nodes and disconnects the pair based on the selected protocol via an RPC
 /// Goodbye message.
 fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
