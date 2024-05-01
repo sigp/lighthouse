@@ -41,36 +41,36 @@ where
     pub latest_block_header: BeaconBlockHeader,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    pub block_roots: Option<FixedVector<Hash256, E::SlotsPerHistoricalRoot>>,
+    pub block_roots: Option<Vector<Hash256, E::SlotsPerHistoricalRoot>>,
     #[ssz(skip_serializing, skip_deserializing)]
-    pub state_roots: Option<FixedVector<Hash256, E::SlotsPerHistoricalRoot>>,
+    pub state_roots: Option<Vector<Hash256, E::SlotsPerHistoricalRoot>>,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    pub historical_roots: Option<VariableList<Hash256, E::HistoricalRootsLimit>>,
+    pub historical_roots: Option<List<Hash256, E::HistoricalRootsLimit>>,
 
     // Ethereum 1.0 chain data
     pub eth1_data: Eth1Data,
-    pub eth1_data_votes: VariableList<Eth1Data, E::SlotsPerEth1VotingPeriod>,
+    pub eth1_data_votes: List<Eth1Data, E::SlotsPerEth1VotingPeriod>,
     pub eth1_deposit_index: u64,
 
     // Registry
-    pub validators: VariableList<Validator, E::ValidatorRegistryLimit>,
-    pub balances: VariableList<u64, E::ValidatorRegistryLimit>,
+    pub validators: List<Validator, E::ValidatorRegistryLimit>,
+    pub balances: List<u64, E::ValidatorRegistryLimit>,
 
     // Shuffling
     /// Randao value from the current slot, for patching into the per-epoch randao vector.
     pub latest_randao_value: Hash256,
     #[ssz(skip_serializing, skip_deserializing)]
-    pub randao_mixes: Option<FixedVector<Hash256, E::EpochsPerHistoricalVector>>,
+    pub randao_mixes: Option<Vector<Hash256, E::EpochsPerHistoricalVector>>,
 
     // Slashings
-    slashings: FixedVector<u64, E::EpochsPerSlashingsVector>,
+    slashings: Vector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
     #[superstruct(only(Base))]
-    pub previous_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
+    pub previous_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
     #[superstruct(only(Base))]
-    pub current_epoch_attestations: VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
+    pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
     #[superstruct(feature(Altair))]
@@ -96,10 +96,10 @@ where
 
     // Execution
     #[superstruct(
-        only(Merge),
-        partial_getter(rename = "latest_execution_payload_header_merge")
+        only(Bellatrix),
+        partial_getter(rename = "latest_execution_payload_header_bellatrix")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderMerge<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderBellatrix<E>,
     #[superstruct(
         only(Capella),
         partial_getter(rename = "latest_execution_payload_header_capella")
@@ -125,6 +125,29 @@ where
     #[ssz(skip_serializing, skip_deserializing)]
     #[superstruct(feature(Capella))]
     pub historical_summaries: Option<VariableList<HistoricalSummary, E::HistoricalRootsLimit>>,
+
+    // Electra
+    #[superstruct(feature(Electra))]
+    pub deposit_receipts_start_index: u64,
+    #[superstruct(feature(Electra))]
+    pub deposit_balance_to_consume: u64,
+    #[superstruct(feature(Electra))]
+    pub exit_balance_to_consume: u64,
+    #[superstruct(feature(Electra))]
+    pub earliest_exit_epoch: Epoch,
+    #[superstruct(feature(Electra))]
+    pub consolidation_balance_to_consume: u64,
+    #[superstruct(feature(Electra))]
+    pub earliest_consolidation_epoch: Epoch,
+
+    // TODO(electra) should these be optional?
+    #[superstruct(feature(Electra))]
+    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    #[superstruct(feature(Electra))]
+    pub pending_partial_withdrawals:
+        List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
+    #[superstruct(feature(Electra))]
+    pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -206,11 +229,11 @@ impl<E: EthSpec> PartialBeaconState<E> {
                 ],
                 []
             ),
-            BeaconState::Merge(s) => impl_from_state_forgetful!(
+            BeaconState::Bellatrix(s) => impl_from_state_forgetful!(
                 s,
                 outer,
-                Merge,
-                PartialBeaconStateMerge,
+                Bellatrix,
+                PartialBeaconStateBellatrix,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -268,7 +291,16 @@ impl<E: EthSpec> PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_receipts_start_index,
+                    deposit_balance_to_consume,
+                    exit_balance_to_consume,
+                    earliest_exit_epoch,
+                    consolidation_balance_to_consume,
+                    earliest_consolidation_epoch,
+                    pending_balance_deposits,
+                    pending_partial_withdrawals,
+                    pending_consolidations
                 ],
                 [historical_summaries]
             ),
@@ -376,7 +408,9 @@ impl<E: EthSpec> PartialBeaconState<E> {
             // Patch the value for the current slot into the index for the current epoch
             let current_epoch = self.slot().epoch(E::slots_per_epoch());
             let len = randao_mixes.len();
-            randao_mixes[current_epoch.as_usize() % len] = *self.latest_randao_value();
+            *randao_mixes
+                .get_mut(current_epoch.as_usize() % len)
+                .ok_or(Error::RandaoMixOutOfBounds)? = *self.latest_randao_value();
 
             *self.randao_mixes_mut() = Some(randao_mixes)
         }
@@ -429,7 +463,6 @@ macro_rules! impl_try_into_beacon_state {
             exit_cache: <_>::default(),
             slashings_cache: <_>::default(),
             epoch_cache: <_>::default(),
-            tree_hash_cache: <_>::default(),
 
             // Variant-specific fields
             $(
@@ -473,10 +506,10 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 ],
                 []
             ),
-            PartialBeaconState::Merge(inner) => impl_try_into_beacon_state!(
+            PartialBeaconState::Bellatrix(inner) => impl_try_into_beacon_state!(
                 inner,
-                Merge,
-                BeaconStateMerge,
+                Bellatrix,
+                BeaconStateBellatrix,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -531,7 +564,16 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_receipts_start_index,
+                    deposit_balance_to_consume,
+                    exit_balance_to_consume,
+                    earliest_exit_epoch,
+                    consolidation_balance_to_consume,
+                    earliest_consolidation_epoch,
+                    pending_balance_deposits,
+                    pending_partial_withdrawals,
+                    pending_consolidations
                 ],
                 [historical_summaries]
             ),

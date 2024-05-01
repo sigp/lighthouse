@@ -30,13 +30,14 @@ pub fn initiate_validator_exit<E: EthSpec>(
         exit_queue_epoch.safe_add_assign(1)?;
     }
 
-    let validator = state.get_validator_mut(index)?;
+    let validator = state.get_validator_cow(index)?;
 
     // Return if the validator already initiated exit
     if validator.exit_epoch != spec.far_future_epoch {
         return Ok(());
     }
 
+    let validator = validator.into_mut()?;
     validator.exit_epoch = exit_queue_epoch;
     validator.withdrawable_epoch =
         exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;

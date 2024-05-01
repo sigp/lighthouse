@@ -79,9 +79,12 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
     // payloads.
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
+    #[superstruct(
+        only(Bellatrix),
+        partial_getter(rename = "execution_payload_bellatrix")
+    )]
     #[serde(flatten)]
-    pub execution_payload: Payload::Merge,
+    pub execution_payload: Payload::Bellatrix,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     #[serde(flatten)]
     pub execution_payload: Payload::Capella,
@@ -96,7 +99,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
     #[superstruct(feature(Deneb))]
     pub blob_kzg_commitments: KzgCommitments<E>,
-    #[superstruct(feature(not(Merge)))]
+    #[superstruct(feature(not(Bellatrix)))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[serde(skip)]
@@ -114,7 +117,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     pub fn execution_payload(&self) -> Result<Payload::Ref<'a>, Error> {
         match self {
             Self::Base(_) | Self::Altair(_) => Err(Error::IncorrectStateVariant),
-            Self::Merge(body) => Ok(Payload::Ref::from(&body.execution_payload)),
+            Self::Bellatrix(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Capella(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Deneb(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Electra(body) => Ok(Payload::Ref::from(&body.execution_payload)),
@@ -128,7 +131,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         index: usize,
     ) -> Result<FixedVector<Hash256, E::KzgCommitmentInclusionProofDepth>, Error> {
         match self {
-            Self::Base(_) | Self::Altair(_) | Self::Merge(_) | Self::Capella(_) => {
+            Self::Base(_) | Self::Altair(_) | Self::Bellatrix(_) | Self::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
             }
             Self::Deneb(body) => {
@@ -268,7 +271,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         match self {
             BeaconBlockBodyRef::Base { .. } => ForkName::Base,
             BeaconBlockBodyRef::Altair { .. } => ForkName::Altair,
-            BeaconBlockBodyRef::Merge { .. } => ForkName::Merge,
+            BeaconBlockBodyRef::Bellatrix { .. } => ForkName::Bellatrix,
             BeaconBlockBodyRef::Capella { .. } => ForkName::Capella,
             BeaconBlockBodyRef::Deneb { .. } => ForkName::Deneb,
             BeaconBlockBodyRef::Electra { .. } => ForkName::Electra,
@@ -414,14 +417,14 @@ impl<E: EthSpec> From<BeaconBlockBodyAltair<E, FullPayload<E>>>
     }
 }
 
-impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
+impl<E: EthSpec> From<BeaconBlockBodyBellatrix<E, FullPayload<E>>>
     for (
-        BeaconBlockBodyMerge<E, BlindedPayload<E>>,
-        Option<ExecutionPayloadMerge<E>>,
+        BeaconBlockBodyBellatrix<E, BlindedPayload<E>>,
+        Option<ExecutionPayloadBellatrix<E>>,
     )
 {
-    fn from(body: BeaconBlockBodyMerge<E, FullPayload<E>>) -> Self {
-        let BeaconBlockBodyMerge {
+    fn from(body: BeaconBlockBodyBellatrix<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyBellatrix {
             randao_reveal,
             eth1_data,
             graffiti,
@@ -431,11 +434,11 @@ impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayloadMerge { execution_payload },
+            execution_payload: FullPayloadBellatrix { execution_payload },
         } = body;
 
         (
-            BeaconBlockBodyMerge {
+            BeaconBlockBodyBellatrix {
                 randao_reveal,
                 eth1_data,
                 graffiti,
@@ -445,7 +448,7 @@ impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
                 deposits,
                 voluntary_exits,
                 sync_aggregate,
-                execution_payload: BlindedPayloadMerge {
+                execution_payload: BlindedPayloadBellatrix {
                     execution_payload_header: From::from(&execution_payload),
                 },
             },
@@ -599,9 +602,9 @@ impl<E: EthSpec> BeaconBlockBodyAltair<E, FullPayload<E>> {
     }
 }
 
-impl<E: EthSpec> BeaconBlockBodyMerge<E, FullPayload<E>> {
-    pub fn clone_as_blinded(&self) -> BeaconBlockBodyMerge<E, BlindedPayload<E>> {
-        let BeaconBlockBodyMerge {
+impl<E: EthSpec> BeaconBlockBodyBellatrix<E, FullPayload<E>> {
+    pub fn clone_as_blinded(&self) -> BeaconBlockBodyBellatrix<E, BlindedPayload<E>> {
+        let BeaconBlockBodyBellatrix {
             randao_reveal,
             eth1_data,
             graffiti,
@@ -611,10 +614,10 @@ impl<E: EthSpec> BeaconBlockBodyMerge<E, FullPayload<E>> {
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayloadMerge { execution_payload },
+            execution_payload: FullPayloadBellatrix { execution_payload },
         } = self;
 
-        BeaconBlockBodyMerge {
+        BeaconBlockBodyBellatrix {
             randao_reveal: randao_reveal.clone(),
             eth1_data: eth1_data.clone(),
             graffiti: *graffiti,
@@ -624,7 +627,7 @@ impl<E: EthSpec> BeaconBlockBodyMerge<E, FullPayload<E>> {
             deposits: deposits.clone(),
             voluntary_exits: voluntary_exits.clone(),
             sync_aggregate: sync_aggregate.clone(),
-            execution_payload: BlindedPayloadMerge {
+            execution_payload: BlindedPayloadBellatrix {
                 execution_payload_header: execution_payload.into(),
             },
         }

@@ -5,7 +5,7 @@ use superstruct::superstruct;
 pub const FORK_ORDER: &[(ForkName, &[FeatureName])] = &[
     (ForkName::Base, &[]),
     (ForkName::Altair, &[FeatureName::Altair]),
-    (ForkName::Merge, &[FeatureName::Merge]),
+    (ForkName::Bellatrix, &[FeatureName::Bellatrix]),
     (ForkName::Capella, &[FeatureName::Capella]),
     (ForkName::Deneb, &[FeatureName::Deneb]),
     (ForkName::Electra, &[FeatureName::Electra]),
@@ -14,8 +14,8 @@ pub const FORK_ORDER: &[(ForkName, &[FeatureName])] = &[
 #[superstruct(feature_dependencies_decl = "FEATURE_DEPENDENCIES")]
 pub const FEATURE_DEPENDENCIES: &[(FeatureName, &[FeatureName])] = &[
     (FeatureName::Altair, &[]),
-    (FeatureName::Merge, &[FeatureName::Altair]),
-    (FeatureName::Capella, &[FeatureName::Merge]),
+    (FeatureName::Bellatrix, &[FeatureName::Altair]),
+    (FeatureName::Capella, &[FeatureName::Bellatrix]),
     (FeatureName::Deneb, &[FeatureName::Capella]),
     (FeatureName::Electra, &[FeatureName::Deneb]),
 ];

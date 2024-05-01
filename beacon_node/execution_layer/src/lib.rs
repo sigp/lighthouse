@@ -24,7 +24,7 @@ use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fmt;
@@ -50,8 +50,8 @@ use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, KzgProofs, SignedBlindedBeaconBlock,
 };
 use types::{
-    BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadCapella,
-    ExecutionPayloadElectra, ExecutionPayloadMerge, FullPayload, ProposerPreparationData,
+    BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
+    ExecutionPayloadCapella, ExecutionPayloadElectra, FullPayload, ProposerPreparationData,
     PublicKeyBytes, Signature, Slot,
 };
 
@@ -98,8 +98,8 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
 
     fn try_from(value: BuilderBid<E>) -> Result<Self, Error> {
         let block_proposal_contents = match value {
-            BuilderBid::Merge(builder_bid) => BlockProposalContents::Payload {
-                payload: ExecutionPayloadHeader::Merge(builder_bid.header).into(),
+            BuilderBid::Bellatrix(builder_bid) => BlockProposalContents::Payload {
+                payload: ExecutionPayloadHeader::Bellatrix(builder_bid.header).into(),
                 block_value: builder_bid.value,
             },
             BuilderBid::Capella(builder_bid) => BlockProposalContents::Payload {
@@ -162,6 +162,17 @@ impl From<BeaconStateError> for Error {
 impl From<ApiError> for Error {
     fn from(e: ApiError) -> Self {
         Error::ApiError(e)
+    }
+}
+
+impl From<EngineError> for Error {
+    fn from(e: EngineError) -> Self {
+        match e {
+            // This removes an unnecessary layer of indirection.
+            // TODO (mark): consider refactoring these error enums
+            EngineError::Api { error } => Error::ApiError(error),
+            _ => Error::EngineError(Box::new(e)),
+        }
     }
 }
 
@@ -1331,15 +1342,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
             &[metrics::NEW_PAYLOAD],
         );
+        let timer = std::time::Instant::now();
 
+        let block_number = new_payload_request.block_number();
         let block_hash = new_payload_request.block_hash();
-        trace!(
-            self.log(),
-            "Issuing engine_newPayload";
-            "parent_hash" => ?new_payload_request.parent_hash(),
-            "block_hash" => ?block_hash,
-            "block_number" => ?new_payload_request.block_number(),
-        );
+        let parent_hash = new_payload_request.parent_hash();
 
         let result = self
             .engine()
@@ -1347,9 +1354,19 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .await;
 
         if let Ok(status) = &result {
+            let status_str = <&'static str>::from(status.status);
             metrics::inc_counter_vec(
                 &metrics::EXECUTION_LAYER_PAYLOAD_STATUS,
-                &["new_payload", status.status.into()],
+                &["new_payload", status_str],
+            );
+            debug!(
+                self.log(),
+                "Processed engine_newPayload";
+                "status" => status_str,
+                "parent_hash" => ?parent_hash,
+                "block_hash" => ?block_hash,
+                "block_number" => block_number,
+                "response_time_ms" => timer.elapsed().as_millis()
             );
         }
         *self.inner.last_new_payload_errored.write().await = result.is_err();
@@ -1520,8 +1537,26 @@ impl<E: EthSpec> ExecutionLayer<E> {
         self.engine()
             .request(|engine| engine.get_engine_capabilities(age_limit))
             .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
+            .map_err(Into::into)
+    }
+
+    /// Returns the execution engine version resulting from a call to
+    /// engine_clientVersionV1. If the version cache is not populated, or if it
+    /// is populated with a cached result of age >= `age_limit`, this method will
+    /// fetch the result from the execution engine and populate the cache before
+    /// returning it. Otherwise it will return the cached result from an earlier
+    /// call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_version(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<Vec<ClientVersionV1>, Error> {
+        self.engine()
+            .request(|engine| engine.get_engine_version(age_limit))
+            .await
+            .map_err(Into::into)
     }
 
     /// Used during block production to determine if the merge has been triggered.
@@ -1769,7 +1804,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         // Handle default payload body.
         if header.block_hash() == ExecutionBlockHash::zero() {
             let payload = match fork {
-                ForkName::Merge => ExecutionPayloadMerge::default().into(),
+                ForkName::Bellatrix => ExecutionPayloadBellatrix::default().into(),
                 ForkName::Capella => ExecutionPayloadCapella::default().into(),
                 ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
                 ForkName::Electra => ExecutionPayloadElectra::default().into(),
@@ -1838,7 +1873,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         if hash == ExecutionBlockHash::zero() {
             return match fork {
-                ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
+                ForkName::Bellatrix => Ok(Some(ExecutionPayloadBellatrix::default().into())),
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
                 ForkName::Deneb => Ok(Some(ExecutionPayloadDeneb::default().into())),
                 ForkName::Electra => Ok(Some(ExecutionPayloadElectra::default().into())),
@@ -1867,22 +1902,22 @@ impl<E: EthSpec> ExecutionLayer<E> {
         };
 
         let payload = match block {
-            ExecutionBlockWithTransactions::Merge(merge_block) => {
-                ExecutionPayload::Merge(ExecutionPayloadMerge {
-                    parent_hash: merge_block.parent_hash,
-                    fee_recipient: merge_block.fee_recipient,
-                    state_root: merge_block.state_root,
-                    receipts_root: merge_block.receipts_root,
-                    logs_bloom: merge_block.logs_bloom,
-                    prev_randao: merge_block.prev_randao,
-                    block_number: merge_block.block_number,
-                    gas_limit: merge_block.gas_limit,
-                    gas_used: merge_block.gas_used,
-                    timestamp: merge_block.timestamp,
-                    extra_data: merge_block.extra_data,
-                    base_fee_per_gas: merge_block.base_fee_per_gas,
-                    block_hash: merge_block.block_hash,
-                    transactions: convert_transactions(merge_block.transactions)?,
+            ExecutionBlockWithTransactions::Bellatrix(bellatrix_block) => {
+                ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
+                    parent_hash: bellatrix_block.parent_hash,
+                    fee_recipient: bellatrix_block.fee_recipient,
+                    state_root: bellatrix_block.state_root,
+                    receipts_root: bellatrix_block.receipts_root,
+                    logs_bloom: bellatrix_block.logs_bloom,
+                    prev_randao: bellatrix_block.prev_randao,
+                    block_number: bellatrix_block.block_number,
+                    gas_limit: bellatrix_block.gas_limit,
+                    gas_used: bellatrix_block.gas_used,
+                    timestamp: bellatrix_block.timestamp,
+                    extra_data: bellatrix_block.extra_data,
+                    base_fee_per_gas: bellatrix_block.base_fee_per_gas,
+                    block_hash: bellatrix_block.block_hash,
+                    transactions: convert_transactions(bellatrix_block.transactions)?,
                 })
             }
             ExecutionBlockWithTransactions::Capella(capella_block) => {
@@ -1968,6 +2003,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     withdrawals,
                     blob_gas_used: electra_block.blob_gas_used,
                     excess_blob_gas: electra_block.excess_blob_gas,
+                    // TODO(electra)
+                    // deposit_receipts: electra_block.deposit_receipts,
+                    // withdrawal_requests: electra_block.withdrawal_requests,
+                    deposit_receipts: <_>::default(),
+                    withdrawal_requests: <_>::default(),
                 })
             }
         };

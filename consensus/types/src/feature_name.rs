@@ -8,7 +8,7 @@ pub enum FeatureName {
     // Altair.
     Altair,
     // Bellatrix.
-    Merge,
+    Bellatrix,
     // Capella.
     Capella,
     // Deneb.
