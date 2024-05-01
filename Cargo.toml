@@ -104,7 +104,7 @@ byteorder = "1"
 bytes = "1"
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
-c-kzg = { version = "1", default-features =  false }
+c-kzg = { version = "1", default-features = false }
 clap = "2"
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.3"
