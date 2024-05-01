@@ -306,7 +306,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         block_root: Hash256,
     ) -> Result<bool, &'static str> {
-        if self.chain.data_availability_checker.has_block(&block_root) {
+        if self
+            .chain
+            .reqresp_pre_import_cache
+            .read()
+            .contains_key(&block_root)
+        {
             return Ok(false);
         }
 
