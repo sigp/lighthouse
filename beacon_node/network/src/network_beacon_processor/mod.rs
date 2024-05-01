@@ -81,6 +81,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processor = self.clone();
         let process_individual = move |package: GossipAttestationPackage<T::EthSpec>| {
             let reprocess_tx = processor.reprocess_tx.clone();
+            let duplicate_cache = processor.duplicate_cache.clone();
             processor.process_gossip_attestation(
                 package.message_id,
                 package.peer_id,
@@ -88,6 +89,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.subnet_id,
                 package.should_import,
                 Some(reprocess_tx),
+                duplicate_cache,
                 package.seen_timestamp,
             )
         };
@@ -96,7 +98,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processor = self.clone();
         let process_batch = move |attestations| {
             let reprocess_tx = processor.reprocess_tx.clone();
-            processor.process_gossip_attestation_batch(attestations, Some(reprocess_tx))
+            let duplicate_cache = processor.duplicate_cache.clone();
+            processor.process_gossip_attestation_batch(
+                attestations,
+                Some(reprocess_tx),
+                duplicate_cache,
+            )
         };
 
         self.try_send(BeaconWorkEvent {
@@ -128,11 +135,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processor = self.clone();
         let process_individual = move |package: GossipAggregatePackage<T::EthSpec>| {
             let reprocess_tx = processor.reprocess_tx.clone();
+            let duplicate_cache = processor.duplicate_cache.clone();
             processor.process_gossip_aggregate(
                 package.message_id,
                 package.peer_id,
                 package.aggregate,
                 Some(reprocess_tx),
+                duplicate_cache,
                 package.seen_timestamp,
             )
         };
@@ -141,7 +150,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processor = self.clone();
         let process_batch = move |aggregates| {
             let reprocess_tx = processor.reprocess_tx.clone();
-            processor.process_gossip_aggregate_batch(aggregates, Some(reprocess_tx))
+            let duplicate_cache = processor.duplicate_cache.clone();
+            processor.process_gossip_aggregate_batch(
+                aggregates,
+                Some(reprocess_tx),
+                duplicate_cache,
+            )
         };
 
         let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;

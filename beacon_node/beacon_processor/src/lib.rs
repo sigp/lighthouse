@@ -45,7 +45,7 @@ use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use logging::TimeLatch;
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -415,7 +415,7 @@ impl Drop for DuplicateCacheHandle {
 /// A simple  cache for detecting duplicate block roots across multiple threads.
 #[derive(Clone, Default)]
 pub struct DuplicateCache {
-    inner: Arc<Mutex<HashSet<Hash256>>>,
+    inner: Arc<RwLock<HashSet<Hash256>>>,
 }
 
 impl DuplicateCache {
@@ -428,7 +428,7 @@ impl DuplicateCache {
     /// The handle removes the entry from the cache when it is dropped. This ensures that any unclean
     /// shutdowns in the worker tasks does not leave inconsistent state in the cache.
     pub fn check_and_insert(&self, block_root: Hash256) -> Option<DuplicateCacheHandle> {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.write();
         if inner.insert(block_root) {
             Some(DuplicateCacheHandle {
                 entry: block_root,
@@ -439,9 +439,14 @@ impl DuplicateCache {
         }
     }
 
+    /// Checks if the give block_root exists in the cache
+    pub fn check(&self, block_root: &Hash256) -> bool {
+        self.inner.read().contains(block_root)
+    }
+
     /// Remove the given block_root from the cache.
     pub fn remove(&self, block_root: &Hash256) {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.write();
         inner.remove(block_root);
     }
 }

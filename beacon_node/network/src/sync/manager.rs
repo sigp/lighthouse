@@ -669,7 +669,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         slot: Slot,
         block_component: BlockComponent<T::EthSpec>,
     ) {
-        match self.should_search_for_block(Some(slot), &peer_id) {
+        match self.should_search_for_block(Some(slot), block_root, &peer_id) {
             Ok(_) => {
                 self.block_lookups.search_child_and_parent(
                     block_root,
@@ -685,7 +685,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     fn handle_unknown_block_root(&mut self, peer_id: PeerId, block_root: Hash256) {
-        match self.should_search_for_block(None, &peer_id) {
+        match self.should_search_for_block(None, block_root, &peer_id) {
             Ok(_) => {
                 self.block_lookups
                     .search_unknown_block(block_root, &[peer_id], &mut self.network);
@@ -699,6 +699,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn should_search_for_block(
         &mut self,
         block_slot: Option<Slot>,
+        block_root: Hash256,
         peer_id: &PeerId,
     ) -> Result<(), &'static str> {
         if !self.network_globals().sync_state.read().is_synced() {
@@ -724,6 +725,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
         if !self.network.is_execution_engine_online() {
             return Err("execution engine offline");
+        }
+        if self.chain.contains_block_not_imported(&block_root) {
+            return Err("already known");
         }
         Ok(())
     }

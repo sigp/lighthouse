@@ -201,6 +201,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: SubnetId,
         should_import: bool,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        duplicate_cache: DuplicateCache,
         seen_timestamp: Duration,
     ) {
         let result = match self
@@ -220,6 +221,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             peer_id,
             subnet_id,
             reprocess_tx,
+            duplicate_cache,
             should_import,
             seen_timestamp,
         );
@@ -229,6 +231,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         packages: Vec<GossipAttestationPackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        duplicate_cache: DuplicateCache,
     ) {
         let attestations_and_subnets = packages
             .iter()
@@ -287,6 +290,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.peer_id,
                 package.subnet_id,
                 reprocess_tx.clone(),
+                duplicate_cache.clone(),
                 package.should_import,
                 package.seen_timestamp,
             );
@@ -303,6 +307,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         subnet_id: SubnetId,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        duplicate_cache: DuplicateCache,
         should_import: bool,
         seen_timestamp: Duration,
     ) {
@@ -390,6 +395,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         seen_timestamp,
                     },
                     reprocess_tx,
+                    duplicate_cache,
                     error,
                     seen_timestamp,
                 );
@@ -410,6 +416,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        duplicate_cache: DuplicateCache,
         seen_timestamp: Duration,
     ) {
         let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
@@ -434,6 +441,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             message_id,
             peer_id,
             reprocess_tx,
+            duplicate_cache,
             seen_timestamp,
         );
     }
@@ -442,6 +450,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        duplicate_cache: DuplicateCache,
     ) {
         let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
 
@@ -498,11 +507,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.message_id,
                 package.peer_id,
                 reprocess_tx.clone(),
+                duplicate_cache.clone(),
                 package.seen_timestamp,
             );
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn process_gossip_aggregate_result(
         self: &Arc<Self>,
         result: Result<VerifiedAggregate<T>, RejectedAggregate<T::EthSpec>>,
@@ -510,6 +521,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        duplicate_cache: DuplicateCache,
         seen_timestamp: Duration,
     ) {
         match result {
@@ -592,6 +604,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         seen_timestamp,
                     },
                     reprocess_tx,
+                    duplicate_cache,
                     error,
                     seen_timestamp,
                 );
@@ -1822,12 +1835,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the
     /// network.
+    #[allow(clippy::too_many_arguments)]
     fn handle_attestation_verification_failure(
         self: &Arc<Self>,
         peer_id: PeerId,
         message_id: MessageId,
         failed_att: FailedAtt<T::EthSpec>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        duplicate_cache: DuplicateCache,
         error: AttnError,
         seen_timestamp: Duration,
     ) {
@@ -2043,18 +2058,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if let Some(sender) = reprocess_tx {
                     // We don't know the block, get the sync manager to handle the block lookup, and
                     // send the attestation to be scheduled for re-processing.
-                    self.sync_tx
-                        .send(SyncMessage::UnknownBlockHashFromAttestation(
-                            peer_id,
-                            *beacon_block_root,
-                        ))
-                        .unwrap_or_else(|_| {
-                            warn!(
-                                self.log,
-                                "Failed to send to sync service";
-                                "msg" => "UnknownBlockHash"
-                            )
-                        });
+                    if !duplicate_cache.check(beacon_block_root) {
+                        self.sync_tx
+                            .send(SyncMessage::UnknownBlockHashFromAttestation(
+                                peer_id,
+                                *beacon_block_root,
+                            ))
+                            .unwrap_or_else(|_| {
+                                warn!(
+                                    self.log,
+                                    "Failed to send to sync service";
+                                    "msg" => "UnknownBlockHash"
+                                )
+                            });
+                    }
                     let msg = match failed_att {
                         FailedAtt::Aggregate {
                             attestation,
@@ -2072,6 +2089,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         peer_id,
                                         attestation,
                                         None, // Do not allow this attestation to be re-processed beyond this point.
+                                        duplicate_cache,
                                         seen_timestamp,
                                     )
                                 }),
@@ -2097,6 +2115,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         subnet_id,
                                         should_import,
                                         None, // Do not allow this attestation to be re-processed beyond this point.
+                                        duplicate_cache,
                                         seen_timestamp,
                                     )
                                 }),

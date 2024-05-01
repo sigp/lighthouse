@@ -1146,6 +1146,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::No)?.launch_stream(block_roots))
     }
 
+    /// Returns true if the given block_root is known but has not yet been imported. Checks caches
+    /// only, and does not check fork-choice nor the database.
+    pub fn contains_block_not_imported(self: &Arc<Self>, block_root: &Hash256) -> bool {
+        self.reqresp_pre_import_cache
+            .read()
+            .contains_key(block_root)
+            || self.early_attester_cache.contains_block(*block_root)
+    }
+
     pub fn get_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
