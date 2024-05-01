@@ -366,9 +366,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
         self.block_lookups.peer_disconnected(peer_id);
         // Regardless of the outcome, we update the sync status.
-        let _ = self
-            .backfill_sync
-            .peer_disconnected(peer_id, &mut self.network);
+        let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.update_sync_state();
     }
 
