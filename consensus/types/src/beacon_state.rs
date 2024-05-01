@@ -392,8 +392,10 @@ where
 
     // Attestations (genesis fork only)
     #[superstruct(feature(not(Altair)))]
+    #[test_random(default)]
     pub previous_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
     #[superstruct(feature(not(Altair)))]
+    #[test_random(default)]
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)

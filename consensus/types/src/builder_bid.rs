@@ -2,7 +2,8 @@ use crate::beacon_block_body::KzgCommitments;
 use crate::{
     ChainSpec, EthSpec, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
-    ExecutionPayloadHeaderRefMut, FeatureName, ForkName, ForkVersionDeserialize, SignedRoot, Uint256,
+    ExecutionPayloadHeaderRefMut, FeatureName, ForkName, ForkVersionDeserialize, SignedRoot,
+    Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;

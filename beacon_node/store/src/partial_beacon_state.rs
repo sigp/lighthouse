@@ -74,9 +74,9 @@ where
 
     // Participation (Altair and later)
     #[superstruct(feature(Altair))]
-    pub previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+    pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     #[superstruct(feature(Altair))]
-    pub current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+    pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
     pub justification_bits: BitVector<E::JustificationBitsLength>,
@@ -86,7 +86,7 @@ where
 
     // Inactivity
     #[superstruct(feature(Altair))]
-    pub inactivity_scores: VariableList<u64, E::ValidatorRegistryLimit>,
+    pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
     #[superstruct(feature(Altair))]
@@ -124,7 +124,7 @@ where
 
     #[ssz(skip_serializing, skip_deserializing)]
     #[superstruct(feature(Capella))]
-    pub historical_summaries: Option<VariableList<HistoricalSummary, E::HistoricalRootsLimit>>,
+    pub historical_summaries: Option<List<HistoricalSummary, E::HistoricalRootsLimit>>,
 
     // Electra
     #[superstruct(feature(Electra))]

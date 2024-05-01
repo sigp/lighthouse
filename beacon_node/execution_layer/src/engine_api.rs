@@ -25,8 +25,8 @@ pub use types::{
     Withdrawal, Withdrawals,
 };
 use types::{
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadBellatrix,
-    FeatureName, KzgProofs,
+    ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadElectra, FeatureName, KzgProofs,
 };
 use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
