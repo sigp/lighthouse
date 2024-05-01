@@ -70,9 +70,6 @@ FLAGS:
                                                enables --http and --validator-monitor-auto and enables SSE logging.
     -h, --help                                 Prints help information
         --http                                 Enable the RESTful HTTP API server. Disabled by default.
-        --http-allow-sync-stalled              Forces the HTTP to indicate that the node is synced when sync is actually
-                                               stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE
-                                               ON MAINNET.
         --http-enable-tls                      Serves the RESTful HTTP API server over TLS. This feature is currently
                                                experimental.
         --import-all-attestations              Import and aggregate all attestations, regardless of validator
@@ -280,9 +277,6 @@ OPTIONS:
         --http-port <PORT>
             Set the listen TCP port for the RESTful HTTP API server.
 
-        --http-spec-fork <FORK>
-            Serve the spec for a specific hard fork on /eth/v1/config/spec. It should not be necessary to set this flag.
-
         --http-sse-capacity-multiplier <N>
             Multiplier to apply to the length of HTTP server-sent-event (SSE) channels. Increasing this value can
             prevent messages from being dropped.
@@ -369,10 +363,8 @@ OPTIONS:
             useful for execution nodes which don't improve their payload after the first call, and high values are
             useful for ensuring the EL is given ample notice. Default: 1/3 of a slot.
         --progressive-balances <MODE>
-            Control the progressive balances cache mode. The default `fast` mode uses the cache to speed up fork choice.
-            A more conservative `checked` mode compares the cache's results against results without the cache. If there
-            is a mismatch, it falls back to the cache-free result. Using the default `fast` mode is recommended unless
-            advised otherwise by the Lighthouse team. [possible values: disabled, checked, strict, fast]
+            Deprecated. This optimisation is now the default and cannot be disabled. [possible values: fast, disabled,
+            checked, strict]
         --proposer-reorg-cutoff <MILLISECONDS>
             Maximum delay after the start of the slot at which to propose a reorging block. Lower values can prevent
             failed reorgs by ensuring the block has ample time to propagate and be processed by the network. The default
@@ -385,8 +377,11 @@ OPTIONS:
         --proposer-reorg-epochs-since-finalization <EPOCHS>
             Maximum number of epochs since finalization at which proposer reorgs are allowed. Default: 2
 
+        --proposer-reorg-parent-threshold <PERCENT>
+            Percentage of parent vote weight above which to attempt a proposer reorg. Default: 160%
+
         --proposer-reorg-threshold <PERCENT>
-            Percentage of vote weight below which to attempt a proposer reorg. Default: 20%
+            Percentage of head vote weight below which to attempt a proposer reorg. Default: 20%
 
         --prune-blobs <BOOLEAN>
             Prune blobs from Lighthouse's database when they are older than the data data availability boundary relative
@@ -443,7 +438,7 @@ OPTIONS:
             Specifies how often a freezer DB restore point should be stored. Cannot be changed after initialization.
             [default: 8192 (mainnet) or 64 (minimal)]
         --state-cache-size <STATE_CACHE_SIZE>
-            Specifies the size of the snapshot cache [default: 3]
+            Specifies the size of the state cache [default: 128]
 
         --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
             Emergency fallback fee recipient for use in case the validator client does not have one configured. You

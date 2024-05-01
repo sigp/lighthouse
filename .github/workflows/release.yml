@@ -31,36 +31,20 @@ jobs:
         strategy:
             matrix:
                 arch: [aarch64-unknown-linux-gnu,
-                       aarch64-unknown-linux-gnu-portable,
                        x86_64-unknown-linux-gnu,
-                       x86_64-unknown-linux-gnu-portable,
                        x86_64-apple-darwin,
-                       x86_64-apple-darwin-portable,
-                       x86_64-windows,
-                       x86_64-windows-portable]
+                       x86_64-windows]
                 include:
                     -   arch: aarch64-unknown-linux-gnu
-                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
-                        profile: maxperf
-                    -   arch: aarch64-unknown-linux-gnu-portable
                         runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
                         profile: maxperf
                     -   arch: x86_64-unknown-linux-gnu
                         runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
                         profile: maxperf
-                    -   arch: x86_64-unknown-linux-gnu-portable
-                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
-                        profile: maxperf
                     -   arch: x86_64-apple-darwin
-                        runner: macos-latest
-                        profile: maxperf
-                    -   arch: x86_64-apple-darwin-portable
-                        runner: macos-latest
+                        runner: macos-13
                         profile: maxperf
                     -   arch: x86_64-windows
-                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "release"]') || 'windows-2019'  }}
-                        profile: maxperf
-                    -   arch: x86_64-windows-portable
                         runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "release"]') || 'windows-2019'  }}
                         profile: maxperf
 
@@ -90,53 +74,29 @@ jobs:
             #       Builds
             # ==============================
 
-            - name: Build Lighthouse for aarch64-unknown-linux-gnu-portable
-              if:   matrix.arch == 'aarch64-unknown-linux-gnu-portable'
-              run:  |
-                cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64-portable
-
             - name: Build Lighthouse for aarch64-unknown-linux-gnu
               if:   matrix.arch == 'aarch64-unknown-linux-gnu'
               run:  |
                 cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64
-
-            - name: Build Lighthouse for x86_64-unknown-linux-gnu-portable
-              if:   matrix.arch == 'x86_64-unknown-linux-gnu-portable'
-              run:  |
-                cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64-portable
+                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64-portable
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu
               if:   matrix.arch == 'x86_64-unknown-linux-gnu'
               run:  |
                 cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64
+                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64-portable
 
             - name: Move cross-compiled binary
-              if:  startsWith(matrix.arch, 'aarch64')
-              run: mv target/aarch64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
+              if:  contains(matrix.arch, 'unknown-linux-gnu')
+              run: mv target/${{ matrix.arch }}/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
 
-            - name: Move cross-compiled binary
-              if:  startsWith(matrix.arch, 'x86_64-unknown-linux-gnu')
-              run: mv target/x86_64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
-
-            - name: Build Lighthouse for x86_64-apple-darwin portable
-              if:   matrix.arch == 'x86_64-apple-darwin-portable'
-              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
-
-            - name: Build Lighthouse for x86_64-apple-darwin modern
+            - name: Build Lighthouse for x86_64-apple-darwin
               if:   matrix.arch == 'x86_64-apple-darwin'
-              run:  cargo install --path lighthouse --force --locked --features modern,gnosis --profile ${{ matrix.profile }}
-
-            - name: Build Lighthouse for Windows portable
-              if:   matrix.arch == 'x86_64-windows-portable'
               run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
 
-            - name: Build Lighthouse for Windows modern
+            - name: Build Lighthouse for Windows
               if:   matrix.arch == 'x86_64-windows'
-              run:  cargo install --path lighthouse --force --locked --features modern,gnosis --profile ${{ matrix.profile }}
+              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
 
             - name: Configure GPG and create artifacts
               if: startsWith(matrix.arch, 'x86_64-windows') != true
@@ -151,6 +111,11 @@ jobs:
                   cd artifacts
                   tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse
                   echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+                  for ext in "tar.gz" "tar.gz.asc";\
+                  do for f in *.$ext;\
+                    do cp $f "../${f%.$ext}-portable.$ext";\
+                    done;\
+                  done
                   mv *tar.gz* ..
 
             - name: Configure GPG and create artifacts Windows
@@ -179,11 +144,27 @@ jobs:
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   compression-level: 0
 
+            - name: Upload artifact (copy)
+              if: startsWith(matrix.arch, 'x86_64-windows') != true
+              uses: actions/upload-artifact@v4
+              with:
+                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz
+                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz
+                  compression-level: 0
+
             - name: Upload signature
               uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
+                  compression-level: 0
+
+            - name: Upload signature (copy)
+              if: startsWith(matrix.arch, 'x86_64-windows') != true
+              uses: actions/upload-artifact@v4
+              with:
+                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz.asc
+                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz.asc
                   compression-level: 0
 
     draft-release:

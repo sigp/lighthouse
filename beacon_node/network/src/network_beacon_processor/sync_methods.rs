@@ -33,8 +33,6 @@ pub enum ChainSegmentProcessId {
     RangeBatchId(ChainId, Epoch),
     /// Processing ID for a backfill syncing batch.
     BackSyncBatchId(Epoch),
-    /// Processing Id of the parent lookup of a block.
-    ParentLookup(Hash256),
 }
 
 /// Returned when a chain segment import fails.
@@ -117,6 +115,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 "Gossip block is being processed";
                 "action" => "sending rpc block to reprocessing queue",
                 "block_root" => %block_root,
+                "process_type" => ?process_type,
             );
 
             // Send message to work reprocess queue to retry the block
@@ -149,6 +148,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "proposer" => block.message().proposer_index(),
             "slot" => block.slot(),
             "commitments" => commitments_formatted,
+            "process_type" => ?process_type,
         );
 
         let result = self
@@ -267,6 +267,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "slot" => %slot,
                     "block_hash" => %hash,
                 );
+                self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 debug!(
@@ -389,37 +390,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 penalty,
                             },
                             None => BatchProcessResult::NonFaultyFailure,
-                        }
-                    }
-                }
-            }
-            // this is a parent lookup request from the sync manager
-            ChainSegmentProcessId::ParentLookup(chain_head) => {
-                debug!(
-                    self.log, "Processing parent lookup";
-                    "chain_hash" => %chain_head,
-                    "blocks" => downloaded_blocks.len()
-                );
-                // parent blocks are ordered from highest slot to lowest, so we need to process in
-                // reverse
-                match self
-                    .process_blocks(downloaded_blocks.iter().rev(), notify_execution_layer)
-                    .await
-                {
-                    (imported_blocks, Err(e)) => {
-                        debug!(self.log, "Parent lookup failed"; "error" => %e.message);
-                        match e.peer_action {
-                            Some(penalty) => BatchProcessResult::FaultyFailure {
-                                imported_blocks: imported_blocks > 0,
-                                penalty,
-                            },
-                            None => BatchProcessResult::NonFaultyFailure,
-                        }
-                    }
-                    (imported_blocks, Ok(_)) => {
-                        debug!(self.log, "Parent lookup processed successfully");
-                        BatchProcessResult::Success {
-                            was_non_empty: imported_blocks > 0,
                         }
                     }
                 }

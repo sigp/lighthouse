@@ -1,8 +1,8 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
-    ChainSpec, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ForkName,
-    ForkVersionDeserialize, SignedRoot, Uint256,
+    ChainSpec, EthSpec, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
+    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionDeserialize, SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -11,7 +11,7 @@ use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Merge, Capella, Deneb),
+    variants(Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
         derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
         serde(bound = "E: EthSpec", deny_unknown_fields)
@@ -23,13 +23,15 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "E: EthSpec", deny_unknown_fields, untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BuilderBid<E: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "header_merge"))]
-    pub header: ExecutionPayloadHeaderMerge<E>,
+    #[superstruct(only(Bellatrix), partial_getter(rename = "header_bellatrix"))]
+    pub header: ExecutionPayloadHeaderBellatrix<E>,
     #[superstruct(only(Capella), partial_getter(rename = "header_capella"))]
     pub header: ExecutionPayloadHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
     pub header: ExecutionPayloadHeaderDeneb<E>,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Electra), partial_getter(rename = "header_electra"))]
+    pub header: ExecutionPayloadHeaderElectra<E>,
+    #[superstruct(only(Deneb, Electra))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
@@ -68,7 +70,7 @@ pub struct SignedBuilderBid<E: EthSpec> {
     pub signature: Signature,
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for BuilderBid<T> {
+impl<E: EthSpec> ForkVersionDeserialize for BuilderBid<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
@@ -77,9 +79,12 @@ impl<T: EthSpec> ForkVersionDeserialize for BuilderBid<T> {
             |e| serde::de::Error::custom(format!("BuilderBid failed to deserialize: {:?}", e));
 
         Ok(match fork_name {
-            ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Bellatrix => {
+                Self::Bellatrix(serde_json::from_value(value).map_err(convert_err)?)
+            }
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
                     "BuilderBid failed to deserialize: unsupported fork '{}'",
@@ -90,7 +95,7 @@ impl<T: EthSpec> ForkVersionDeserialize for BuilderBid<T> {
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for SignedBuilderBid<T> {
+impl<E: EthSpec> ForkVersionDeserialize for SignedBuilderBid<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,

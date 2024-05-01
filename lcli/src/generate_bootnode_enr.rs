@@ -10,7 +10,7 @@ use std::{fs, net::Ipv4Addr};
 use std::{fs::File, num::NonZeroU16};
 use types::{ChainSpec, EnrForkId, Epoch, EthSpec, Hash256};
 
-pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
+pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let ip: Ipv4Addr = clap_utils::parse_required(matches, "ip")?;
     let udp_port: NonZeroU16 = clap_utils::parse_required(matches, "udp-port")?;
     let tcp_port: NonZeroU16 = clap_utils::parse_required(matches, "tcp-port")?;
@@ -37,7 +37,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         next_fork_version: genesis_fork_version,
         next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
     };
-    let enr = build_enr::<T>(&enr_key, &config, &enr_fork_id)
+    let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id)
         .map_err(|e| format!("Unable to create ENR: {:?}", e))?;
 
     fs::create_dir_all(&output_dir).map_err(|e| format!("Unable to create output-dir: {:?}", e))?;

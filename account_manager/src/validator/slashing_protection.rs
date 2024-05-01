@@ -53,9 +53,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub fn cli_run<T: EthSpec>(
+pub fn cli_run<E: EthSpec>(
     matches: &ArgMatches<'_>,
-    env: Environment<T>,
+    env: Environment<E>,
     validator_base_dir: PathBuf,
 ) -> Result<(), String> {
     let slashing_protection_db_path = validator_base_dir.join(SLASHING_PROTECTION_FILENAME);
@@ -64,7 +64,7 @@ pub fn cli_run<T: EthSpec>(
         .ok_or("Unable to get testnet configuration from the environment")?;
 
     let genesis_validators_root = eth2_network_config
-        .genesis_validators_root::<T>()?
+        .genesis_validators_root::<E>()?
         .ok_or_else(|| "Unable to get genesis state, has genesis occurred?".to_string())?;
 
     match matches.subcommand() {

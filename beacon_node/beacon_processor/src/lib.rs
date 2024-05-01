@@ -187,6 +187,14 @@ const MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN: usize = 16_384;
 /// will be stored before we start dropping them.
 const MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN: usize = 1_024;
 
+/// The maximum number of queued `LightClientOptimisticUpdateRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUEUE_LEN: usize = 512;
+
+/// The maximum number of queued `LightClientFinalityUpdateRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_LIGHT_CLIENT_FINALITY_UPDATE_QUEUE_LEN: usize = 512;
+
 /// The maximum number of priority-0 (highest priority) messages that will be queued before
 /// they begin to be dropped.
 const MAX_API_REQUEST_P0_QUEUE_LEN: usize = 1_024;
@@ -243,6 +251,8 @@ pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
+pub const LIGHT_CLIENT_FINALITY_UPDATE_REQUEST: &str = "light_client_finality_update_request";
+pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST: &str = "light_client_optimistic_update_request";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
 pub const UNKNOWN_LIGHT_CLIENT_UPDATE: &str = "unknown_light_client_update";
@@ -561,7 +571,7 @@ pub enum BlockingOrAsync {
 /// queuing specifics.
 pub enum Work<E: EthSpec> {
     GossipAttestation {
-        attestation: GossipAttestationPackage<E>,
+        attestation: Box<GossipAttestationPackage<E>>,
         process_individual: Box<dyn FnOnce(GossipAttestationPackage<E>) + Send + Sync>,
         process_batch: Box<dyn FnOnce(Vec<GossipAttestationPackage<E>>) + Send + Sync>,
     },
@@ -573,7 +583,7 @@ pub enum Work<E: EthSpec> {
         process_batch: Box<dyn FnOnce(Vec<GossipAttestationPackage<E>>) + Send + Sync>,
     },
     GossipAggregate {
-        aggregate: GossipAggregatePackage<E>,
+        aggregate: Box<GossipAggregatePackage<E>>,
         process_individual: Box<dyn FnOnce(GossipAggregatePackage<E>) + Send + Sync>,
         process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
@@ -614,12 +624,14 @@ pub enum Work<E: EthSpec> {
     ChainSegment(AsyncFn),
     ChainSegmentBackfill(AsyncFn),
     Status(BlockingFn),
-    BlocksByRangeRequest(BlockingFnWithManualSendOnIdle),
-    BlocksByRootsRequest(BlockingFnWithManualSendOnIdle),
+    BlocksByRangeRequest(AsyncFn),
+    BlocksByRootsRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
+    LightClientOptimisticUpdateRequest(BlockingFn),
+    LightClientFinalityUpdateRequest(BlockingFn),
     ApiRequestP0(BlockingOrAsync),
     ApiRequestP1(BlockingOrAsync),
 }
@@ -659,6 +671,8 @@ impl<E: EthSpec> Work<E> {
             Work::BlobsByRangeRequest(_) => BLOBS_BY_RANGE_REQUEST,
             Work::BlobsByRootsRequest(_) => BLOBS_BY_ROOTS_REQUEST,
             Work::LightClientBootstrapRequest(_) => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
+            Work::LightClientOptimisticUpdateRequest(_) => LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST,
+            Work::LightClientFinalityUpdateRequest(_) => LIGHT_CLIENT_FINALITY_UPDATE_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
             Work::GossipBlsToExecutionChange(_) => GOSSIP_BLS_TO_EXECUTION_CHANGE,
@@ -820,7 +834,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut gossip_bls_to_execution_change_queue =
             FifoQueue::new(MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN);
 
-        let mut lcbootstrap_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
+        let mut lc_bootstrap_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
+        let mut lc_optimistic_update_queue =
+            FifoQueue::new(MAX_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUEUE_LEN);
+        let mut lc_finality_update_queue =
+            FifoQueue::new(MAX_LIGHT_CLIENT_FINALITY_UPDATE_QUEUE_LEN);
 
         let mut api_request_p0_queue = FifoQueue::new(MAX_API_REQUEST_P0_QUEUE_LEN);
         let mut api_request_p1_queue = FifoQueue::new(MAX_API_REQUEST_P1_QUEUE_LEN);
@@ -833,7 +851,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             ready_work_tx,
             work_reprocessing_rx,
             &self.executor,
-            slot_clock,
+            Arc::new(slot_clock),
             self.log.clone(),
             maximum_gossip_clock_disparity,
         )?;
@@ -997,7 +1015,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_individual: _,
                                                 process_batch,
                                             } => {
-                                                aggregates.push(aggregate);
+                                                aggregates.push(*aggregate);
                                                 if process_batch_opt.is_none() {
                                                     process_batch_opt = Some(process_batch);
                                                 }
@@ -1057,7 +1075,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_individual: _,
                                                 process_batch,
                                             } => {
-                                                attestations.push(attestation);
+                                                attestations.push(*attestation);
                                                 if process_batch_opt.is_none() {
                                                     process_batch_opt = Some(process_batch);
                                                 }
@@ -1137,9 +1155,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // Handle backfill sync chain segments.
                         } else if let Some(item) = backfill_chain_segment.pop() {
                             self.spawn_worker(item, idle_tx);
-                        // This statement should always be the final else statement.
-                        } else if let Some(item) = lcbootstrap_queue.pop() {
+                        // Handle light client requests.
+                        } else if let Some(item) = lc_bootstrap_queue.pop() {
                             self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = lc_optimistic_update_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = lc_finality_update_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                            // This statement should always be the final else statement.
                         } else {
                             // Let the journal know that a worker is freed and there's nothing else
                             // for it to do.
@@ -1249,7 +1272,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 blbrange_queue.push(work, work_id, &self.log)
                             }
                             Work::LightClientBootstrapRequest { .. } => {
-                                lcbootstrap_queue.push(work, work_id, &self.log)
+                                lc_bootstrap_queue.push(work, work_id, &self.log)
+                            }
+                            Work::LightClientOptimisticUpdateRequest { .. } => {
+                                lc_optimistic_update_queue.push(work, work_id, &self.log)
+                            }
+                            Work::LightClientFinalityUpdateRequest { .. } => {
+                                lc_finality_update_queue.push(work, work_id, &self.log)
                             }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
@@ -1416,7 +1445,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_individual,
                 process_batch: _,
             } => task_spawner.spawn_blocking(move || {
-                process_individual(attestation);
+                process_individual(*attestation);
             }),
             Work::GossipAttestationBatch {
                 attestations,
@@ -1429,7 +1458,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_individual,
                 process_batch: _,
             } => task_spawner.spawn_blocking(move || {
-                process_individual(aggregate);
+                process_individual(*aggregate);
             }),
             Work::GossipAggregateBatch {
                 aggregates,
@@ -1464,7 +1493,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 task_spawner.spawn_blocking(process_fn)
             }
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
-                task_spawner.spawn_blocking_with_manual_send_idle(work)
+                task_spawner.spawn_async(work)
             }
             Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
             Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
@@ -1480,7 +1509,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipLightClientOptimisticUpdate(process_fn)
             | Work::Status(process_fn)
             | Work::GossipBlsToExecutionChange(process_fn)
-            | Work::LightClientBootstrapRequest(process_fn) => {
+            | Work::LightClientBootstrapRequest(process_fn)
+            | Work::LightClientOptimisticUpdateRequest(process_fn)
+            | Work::LightClientFinalityUpdateRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
         };
@@ -1520,23 +1551,6 @@ impl TaskSpawner {
             || {
                 task();
                 drop(self.send_idle_on_drop)
-            },
-            WORKER_TASK_NAME,
-        )
-    }
-
-    /// Spawn a blocking task, passing the `SendOnDrop` into the task.
-    ///
-    /// ## Notes
-    ///
-    /// Users must ensure the `SendOnDrop` is dropped at the appropriate time!
-    pub fn spawn_blocking_with_manual_send_idle<F>(self, task: F)
-    where
-        F: FnOnce(SendOnDrop) + Send + 'static,
-    {
-        self.executor.spawn_blocking(
-            || {
-                task(self.send_idle_on_drop);
             },
             WORKER_TASK_NAME,
         )

@@ -37,10 +37,10 @@ impl SyncDuty {
 
     /// Create a new `SyncDuty` from a `SyncCommittee`, which contains the pubkeys but not the
     /// indices.
-    pub fn from_sync_committee<T: EthSpec>(
+    pub fn from_sync_committee<E: EthSpec>(
         validator_index: u64,
         pubkey: PublicKeyBytes,
-        sync_committee: &SyncCommittee<T>,
+        sync_committee: &SyncCommittee<E>,
     ) -> Option<Self> {
         let validator_sync_committee_indices = sync_committee
             .pubkeys
