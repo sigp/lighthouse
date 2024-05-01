@@ -89,7 +89,9 @@ pub trait RequestState<T: BeaconChainTypes> {
         Ok(())
     }
 
-    /// Send the request to the network service.
+    /// Request the network context to prepare a request of a component of `block_root`. If the
+    /// request is not necessary because the component is already known / processed, return false.
+    /// Return true if it sent a request and we can expect an event back from the network.
     fn make_request(
         &self,
         id: Id,

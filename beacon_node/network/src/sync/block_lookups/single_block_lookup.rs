@@ -15,6 +15,15 @@ use strum::IntoStaticStr;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{EthSpec, SignedBeaconBlock};
 
+// Dedicated enum for LookupResult to force its usage
+#[must_use = "LookupResult must be handled with on_lookup_result"]
+pub enum LookupResult {
+    /// Lookup completed successfully
+    Completed,
+    /// Lookup is expecting some future event from the network
+    Pending,
+}
+
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
     /// Too many failed attempts
@@ -22,10 +31,16 @@ pub enum LookupRequestError {
         /// The failed attempts were primarily due to processing failures.
         cannot_process: bool,
     },
+    /// No peers left to serve this lookup
     NoPeers,
+    /// Error sending event to network or beacon processor
     SendFailed(&'static str),
+    /// Inconsistent lookup request state
     BadState(String),
-    AlreadyImported,
+    /// Lookup failed for some other reason and should be dropped
+    Failed,
+    /// Attempted to retrieve a not known lookup id
+    UnknownLookup,
 }
 
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
@@ -113,27 +128,29 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             .unique()
     }
 
+    /// Makes progress on all requests of this lookup. Any error is not recoverable and must result
+    /// in dropping the lookup. May mark the lookup as completed.
     pub fn continue_requests(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
+    ) -> Result<LookupResult, LookupRequestError> {
         // TODO: Check what's necessary to download, specially for blobs
         self.continue_request::<BlockRequestState<T::EthSpec>>(cx)?;
         self.continue_request::<BlobRequestState<T::EthSpec>>(cx)?;
 
         // If all components of this lookup are already processed, there will be no future events
-        // that can make progress so it must be dropped. This case can happen if we receive the
-        // components from gossip during a retry. This case is not technically an error, but it's
-        // easier to handle this way similarly to `BlockError::BlockIsAlreadyKnown`.
+        // that can make progress so it must be dropped. Consider the lookup completed.
+        // This case can happen if we receive the components from gossip during a retry.
         if self.block_request_state.state.is_processed()
             && self.blob_request_state.state.is_processed()
         {
-            return Err(LookupRequestError::AlreadyImported);
+            Ok(LookupResult::Completed)
+        } else {
+            Ok(LookupResult::Pending)
         }
-
-        Ok(())
     }
 
+    /// Wrapper around `RequestState::continue_request` to inject lookup data
     pub fn continue_request<R: RequestState<T>>(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
@@ -236,7 +253,7 @@ pub enum State<T: Clone> {
     Downloading,
     AwaitingProcess(DownloadResult<T>),
     Processing(DownloadResult<T>),
-    Processed(PeerId),
+    Processed(Option<PeerId>),
 }
 
 /// Object representing the state of a single block or blob lookup request.
@@ -400,7 +417,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
         match &self.state {
             State::Processing(result) => {
                 let peer_id = result.peer_id;
-                self.state = State::Processed(peer_id);
+                self.state = State::Processed(Some(peer_id));
                 Ok(peer_id)
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -409,7 +426,9 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
-    pub fn on_post_process_validation_failure(&mut self) -> Result<PeerId, LookupRequestError> {
+    pub fn on_post_process_validation_failure(
+        &mut self,
+    ) -> Result<Option<PeerId>, LookupRequestError> {
         match &self.state {
             State::Processed(peer_id) => {
                 let peer_id = *peer_id;
@@ -427,7 +446,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
     pub fn on_completed_request(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
             State::AwaitingDownload => {
-                self.state = State::Processed(peer_id);
+                self.state = State::Processed(None);
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -483,17 +502,6 @@ impl<T: Clone> std::fmt::Display for State<T> {
             State::AwaitingProcess { .. } => write!(f, "AwaitingProcessing"),
             State::Processing { .. } => write!(f, "Processing"),
             State::Processed { .. } => write!(f, "Processed"),
-        }
-    }
-}
-
-impl LookupRequestError {
-    pub(crate) fn as_metric(&self) -> &'static str {
-        match self {
-            LookupRequestError::TooManyAttempts { .. } => "TooManyAttempts",
-            LookupRequestError::NoPeers => "NoPeers",
-            LookupRequestError::SendFailed { .. } => "SendFailed",
-            LookupRequestError::BadState { .. } => "BadState",
         }
     }
 }
