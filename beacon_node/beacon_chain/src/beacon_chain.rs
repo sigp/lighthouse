@@ -2113,7 +2113,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_write_lock()
             .on_attestation(
                 self.slot()?,
-                verified.indexed_attestation(),
+                verified.indexed_attestation().to_ref(),
                 AttestationFromBlock::False,
             )
             .map_err(Into::into)
@@ -4944,7 +4944,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
 
             attester_slashings.retain(|slashing| {
-                AttesterSlashing::from(slashing.clone())
+                slashing
+                    .clone()
                     .validate(&state, &self.spec)
                     .map_err(|e| {
                         warn!(
@@ -5282,6 +5283,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                            // TODO(electra): finish consolidations when they're more spec'd out
+                            consolidations: Vec::new().into(),
                         },
                     }),
                     maybe_blobs_and_proofs,
@@ -5387,7 +5390,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.log,
             "Produced beacon block";
             "parent" => ?block.parent_root(),
-            "attestations" => block.body().attestations().len(),
+            "attestations" => block.body().attestations_len(),
             "slot" => block.slot()
         );
 

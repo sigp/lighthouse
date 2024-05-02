@@ -15,8 +15,8 @@ use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation,
-    IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestationRef, RelativeEpoch,
+    SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -238,8 +238,8 @@ pub struct QueuedAttestation {
     target_epoch: Epoch,
 }
 
-impl<E: EthSpec> From<&IndexedAttestation<E>> for QueuedAttestation {
-    fn from(a: &IndexedAttestation<E>) -> Self {
+impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
+    fn from(a: IndexedAttestationRef<'a, E>) -> Self {
         Self {
             slot: a.data().slot,
             attesting_indices: a.attesting_indices_to_vec(),
@@ -940,7 +940,7 @@ where
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#validate_on_attestation
     fn validate_on_attestation(
         &self,
-        indexed_attestation: &IndexedAttestation<E>,
+        indexed_attestation: IndexedAttestationRef<E>,
         is_from_block: AttestationFromBlock,
     ) -> Result<(), InvalidAttestation> {
         // There is no point in processing an attestation with an empty bitfield. Reject
@@ -1037,7 +1037,7 @@ where
     pub fn on_attestation(
         &mut self,
         system_time_current_slot: Slot,
-        attestation: &IndexedAttestation<E>,
+        attestation: IndexedAttestationRef<E>,
         is_from_block: AttestationFromBlock,
     ) -> Result<(), Error<T::Error>> {
         self.update_time(system_time_current_slot)?;

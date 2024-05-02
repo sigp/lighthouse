@@ -11,9 +11,9 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 }
 
 /// Verify an `IndexedAttestation`.
-pub fn is_valid_indexed_attestation<'a, E: EthSpec>(
+pub fn is_valid_indexed_attestation<E: EthSpec>(
     state: &BeaconState<E>,
-    indexed_attestation: IndexedAttestationRef<'a, E>,
+    indexed_attestation: IndexedAttestationRef<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {

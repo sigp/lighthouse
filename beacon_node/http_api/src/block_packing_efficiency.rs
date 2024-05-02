@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{
-    Attestation, BeaconCommittee, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, Epoch,
-    EthSpec, Hash256, OwnedBeaconCommittee, RelativeEpoch, SignedBeaconBlock, Slot,
+    AttestationRef, BeaconCommittee, BeaconState, BeaconStateError, BlindedPayload, ChainSpec,
+    Epoch, EthSpec, Hash256, OwnedBeaconCommittee, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 use warp_utils::reject::{beacon_chain_error, custom_bad_request, custom_server_error};
 
@@ -111,9 +111,9 @@ impl<E: EthSpec> PackingEfficiencyHandler<E> {
         let attestations = block_body.attestations();
 
         let mut attestations_in_block = HashMap::new();
-        for attestation in attestations.iter() {
+        for attestation in attestations {
             match attestation {
-                Attestation::Base(attn) => {
+                AttestationRef::Base(attn) => {
                     for (position, voted) in attn.aggregation_bits.iter().enumerate() {
                         if voted {
                             let unique_attestation = UniqueAttestation {
@@ -133,7 +133,7 @@ impl<E: EthSpec> PackingEfficiencyHandler<E> {
                     }
                 }
                 // TODO(electra) implement electra variant
-                Attestation::Electra(_) => {
+                AttestationRef::Electra(_) => {
                     todo!()
                 }
             }

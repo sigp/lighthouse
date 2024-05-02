@@ -1635,7 +1635,12 @@ pub fn serve<T: BeaconChainTypes>(
                     let (block, execution_optimistic, finalized) =
                         block_id.blinded_block(&chain)?;
                     Ok(api_types::GenericResponse::from(
-                        block.message().body().attestations().clone(),
+                        block
+                            .message()
+                            .body()
+                            .attestations()
+                            .map(|att| att.clone_as_attestation())
+                            .collect::<Vec<_>>(),
                     )
                     .add_execution_optimistic_finalized(execution_optimistic, finalized))
                 })
@@ -1833,7 +1838,7 @@ pub fn serve<T: BeaconChainTypes>(
                     chain
                         .validator_monitor
                         .read()
-                        .register_api_attester_slashing(&slashing);
+                        .register_api_attester_slashing(slashing.to_ref());
 
                     if let ObservationOutcome::New(slashing) = outcome {
                         publish_pubsub_message(

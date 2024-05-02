@@ -170,5 +170,6 @@ mod tests {
     use super::*;
     use crate::*;
 
-    ssz_and_tree_hash_tests!(AttesterSlashing<MainnetEthSpec>);
+    // TODO(electra): should this be done for both variants?
+    ssz_and_tree_hash_tests!(AttesterSlashingBase<MainnetEthSpec>);
 }

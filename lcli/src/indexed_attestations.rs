@@ -35,7 +35,7 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         .into_iter()
         .map(|att| {
             let committee = state.get_beacon_committee(att.data().slot, att.data().index)?;
-            get_indexed_attestation(committee.committee, &att)
+            get_indexed_attestation(committee.committee, att.to_ref())
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Error constructing indexed attestation: {:?}", e))?;
