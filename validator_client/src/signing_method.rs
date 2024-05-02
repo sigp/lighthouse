@@ -7,7 +7,7 @@ use crate::http_metrics::metrics;
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use parking_lot::Mutex;
-use reqwest::{Client, header::ACCEPT};
+use reqwest::{header::ACCEPT, Client};
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
