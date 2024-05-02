@@ -62,6 +62,12 @@ enum Action {
     Continue,
 }
 
+#[derive(Debug)]
+enum LookupTrigger {
+    UnknownParent,
+    Attestation,
+}
+
 pub struct BlockLookups<T: BeaconChainTypes> {
     /// A cache of failed chain lookups to prevent duplicate searches.
     failed_chains: LRUTimeCache<Hash256>,
@@ -141,6 +147,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 Some(block_component),
                 Some(parent_root),
+                LookupTrigger::UnknownParent,
                 &[peer_id],
                 cx,
             );
@@ -155,7 +162,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_source: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) {
-        self.new_current_lookup(block_root, None, None, peer_source, cx);
+        self.new_current_lookup(
+            block_root,
+            None,
+            None,
+            LookupTrigger::Attestation,
+            peer_source,
+            cx,
+        );
     }
 
     /// A block or blob triggers the search of a parent.
@@ -211,7 +225,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // `block_root_to_search` is a failed chain check happens inside new_current_lookup
-        self.new_current_lookup(block_root_to_search, None, None, peers, cx)
+        self.new_current_lookup(
+            block_root_to_search,
+            None,
+            None,
+            LookupTrigger::UnknownParent,
+            peers,
+            cx,
+        )
     }
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
@@ -222,6 +243,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block_root: Hash256,
         block_component: Option<BlockComponent<T::EthSpec>>,
         awaiting_parent: Option<Hash256>,
+        lookup_trigger: LookupTrigger,
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
@@ -278,6 +300,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "{}", msg;
             "peer_ids" => ?peers,
             "block" => ?block_root,
+            "lookup_trigger" => ?lookup_trigger,
         );
         metrics::inc_counter(&metrics::SYNC_LOOKUP_CREATED);
 
