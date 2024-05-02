@@ -237,7 +237,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
     /// constructed.
-    /// Returns true if the lookup is created or already exists
+    /// Returns true if the lookup is created, already exists, or was already completed.
     fn new_current_lookup(
         &mut self,
         block_root: Hash256,
@@ -249,7 +249,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) -> bool {
         // If the lookup is complete, don't create a new one.
         if self.completed_lookups.contains(&block_root) {
-            return false;
+            return true;
         }
 
         // If this block or it's parent is part of a known failed chain, ignore it.
