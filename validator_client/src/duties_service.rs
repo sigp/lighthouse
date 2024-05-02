@@ -897,7 +897,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
                         "Attester duties re-org";
                         "prior_dependent_root" => %prior_dependent_root,
                         "dependent_root" => %dependent_root,
-                        "msg" => "this may happen from time to time"
+                        "note" => "this may happen from time to time"
                     )
                 }
                 *mut_value = (dependent_root, duty_and_proof);
