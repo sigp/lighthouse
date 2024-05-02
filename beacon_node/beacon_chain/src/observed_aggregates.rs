@@ -453,8 +453,8 @@ mod tests {
 
     fn get_attestation(slot: Slot, beacon_block_root: u64) -> Attestation<E> {
         let mut a: Attestation<E> = test_random_instance();
-        a.data.slot = slot;
-        a.data.beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
+        a.data_mut().slot = slot;
+        a.data_mut().beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
         a
     }
 
@@ -480,12 +480,12 @@ mod tests {
 
                     for a in &items {
                         assert_eq!(
-                            store.is_known_subset(a, a.root()),
+                            store.is_known_subset(a.as_reference(), a.as_reference().root()),
                             Ok(false),
                             "should indicate an unknown attestation is unknown"
                         );
                         assert_eq!(
-                            store.observe_item(a, None),
+                            store.observe_item(a.as_reference(), None),
                             Ok(ObserveOutcome::New),
                             "should observe new attestation"
                         );
@@ -493,12 +493,12 @@ mod tests {
 
                     for a in &items {
                         assert_eq!(
-                            store.is_known_subset(a, a.root()),
+                            store.is_known_subset(a.as_reference(), a.as_reference().root()),
                             Ok(true),
                             "should indicate a known attestation is known"
                         );
                         assert_eq!(
-                            store.observe_item(a, Some(a.root())),
+                            store.observe_item(a.as_reference(), Some(a.as_reference().root())),
                             Ok(ObserveOutcome::Subset),
                             "should acknowledge an existing attestation"
                         );
