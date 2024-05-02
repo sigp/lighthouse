@@ -363,7 +363,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             if self
                 .spec
                 .fork_name_at_epoch(signing_epoch)
-                .is_feature_enabled(FeatureName::Deneb)
+                .has_feature(FeatureName::Deneb)
             {
                 SigningContext {
                     domain,

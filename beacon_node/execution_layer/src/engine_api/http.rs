@@ -1217,13 +1217,13 @@ impl HttpJsonRpc {
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<E>, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if fork_name.is_feature_enabled(FeatureName::Deneb) {
+        if fork_name.has_feature(FeatureName::Deneb) {
             if engine_capabilities.get_payload_v3 {
                 self.get_payload_v3(fork_name, payload_id).await
             } else {
                 Err(Error::RequiredMethodUnsupported("engine_getPayloadV3"))
             }
-        } else if fork_name.is_feature_enabled(FeatureName::Bellatrix) {
+        } else if fork_name.has_feature(FeatureName::Bellatrix) {
             if engine_capabilities.get_payload_v2 {
                 self.get_payload_v2(fork_name, payload_id).await
             } else if engine_capabilities.new_payload_v1 {

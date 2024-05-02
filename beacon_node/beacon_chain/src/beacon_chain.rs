@@ -739,9 +739,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Checks if a feature is enabled on the current fork.
-    pub fn is_feature_enabled(&self, feature: FeatureName) -> bool {
+    pub fn has_feature(&self, feature: FeatureName) -> bool {
         if let Ok(current_fork) = self.current_fork() {
-            current_fork.is_feature_enabled(feature)
+            current_fork.has_feature(feature)
         } else {
             false
         }
@@ -2537,7 +2537,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bls_to_execution_change: SignedBlsToExecutionChange,
     ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
         // Ignore BLS to execution changes on gossip prior to Capella.
-        if !self.is_feature_enabled(FeatureName::Capella) {
+        if !self.has_feature(FeatureName::Capella) {
             return Err(Error::BlsToExecutionPriorToCapella);
         }
         self.verify_bls_to_execution_change_for_http_api(bls_to_execution_change)
@@ -5556,7 +5556,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_attributes
         } else {
             let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-            let withdrawals = if prepare_slot_fork.is_feature_enabled(FeatureName::Capella) {
+            let withdrawals = if prepare_slot_fork.has_feature(FeatureName::Capella) {
                 let chain = self.clone();
                 self.spawn_blocking_handle(
                     move || chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot),
@@ -5568,12 +5568,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
-            let parent_beacon_block_root =
-                if prepare_slot_fork.is_feature_enabled(FeatureName::Deneb) {
-                    Some(pre_payload_attributes.parent_beacon_block_root)
-                } else {
-                    None
-                };
+            let parent_beacon_block_root = if prepare_slot_fork.has_feature(FeatureName::Deneb) {
+                Some(pre_payload_attributes.parent_beacon_block_root)
+            } else {
+                None
+            };
 
             //let parent_beacon_block_root = match prepare_slot_fork {
             //    ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => None,

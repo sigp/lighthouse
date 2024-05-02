@@ -117,7 +117,7 @@ pub trait AbstractExecPayload<E: EthSpec>:
     feature_type(
         name = "FeatureName",
         list = "list_all_features",
-        check = "is_feature_enabled"
+        check = "has_feature"
     ),
     variant_attributes(
         derive(
@@ -462,7 +462,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
     feature_type(
         name = "FeatureName",
         list = "list_all_features",
-        check = "is_feature_enabled"
+        check = "has_feature"
     ),
     variant_attributes(
         derive(

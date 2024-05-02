@@ -479,7 +479,7 @@ pub fn serve<E: EthSpec>(
                 let prev_randao = head_state
                     .get_randao_mix(head_state.current_epoch())
                     .map_err(|_| reject("couldn't get prev randao"))?;
-                let expected_withdrawals = if fork.is_feature_enabled(FeatureName::Capella) {
+                let expected_withdrawals = if fork.has_feature(FeatureName::Capella) {
                     Some(
                         builder
                             .beacon_client

@@ -19,7 +19,7 @@ use superstruct::superstruct;
     feature_type(
         name = "FeatureName",
         list = "list_all_features",
-        check = "is_feature_enabled"
+        check = "has_feature"
     ),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]

@@ -42,7 +42,7 @@ impl VoluntaryExit {
     ) -> SignedVoluntaryExit {
         let fork_name = spec.fork_name_at_epoch(self.epoch);
         // EIP-7044
-        let fork_version = if fork_name.is_feature_enabled(FeatureName::Deneb) {
+        let fork_version = if fork_name.has_feature(FeatureName::Deneb) {
             spec.fork_version_for_name(ForkName::Capella)
         } else {
             spec.fork_version_for_name(fork_name)

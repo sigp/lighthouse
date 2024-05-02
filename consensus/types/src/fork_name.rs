@@ -59,7 +59,7 @@ impl ForkName {
         res
     }
 
-    pub fn is_feature_enabled(self, feature: FeatureName) -> bool {
+    pub fn has_feature(self, feature: FeatureName) -> bool {
         self.list_all_enabled_features().contains(&feature)
     }
 

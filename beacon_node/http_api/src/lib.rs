@@ -2046,7 +2046,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     .to_execution_address;
 
                                 // New to P2P *and* op pool, gossip immediately if post-Capella.
-                                let received_pre_capella = if chain.is_feature_enabled(FeatureName::Capella) {
+                                let received_pre_capella = if chain.has_feature(FeatureName::Capella) {
                                     ReceivedPreCapella::No
                                 } else {
                                     ReceivedPreCapella::Yes
