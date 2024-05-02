@@ -3839,7 +3839,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if block.slot() + 2 * T::EthSpec::slots_per_epoch() >= current_slot {
             metrics::observe(
                 &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
-                block.body().attestations().len() as f64,
+                block.body().attestations().count() as f64,
             );
 
             if let Ok(sync_aggregate) = block.body().sync_aggregate() {
@@ -4859,7 +4859,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
         for attestation in self.naive_aggregation_pool.read().iter() {
             let import = |attestation: &Attestation<T::EthSpec>| {
-                let attesting_indices = get_attesting_indices_from_state(&state, attestation)?;
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, attestation.to_ref())?;
                 self.op_pool
                     .insert_attestation(attestation.clone(), attesting_indices)
             };
@@ -4909,7 +4910,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             attestations.retain(|att| {
                 verify_attestation_for_block_inclusion(
                     &state,
-                    att,
+                    att.to_ref(),
                     &mut tmp_ctxt,
                     VerifySignatures::True,
                     &self.spec,
@@ -5050,12 +5051,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     (base, electra)
                 },
             );
-        let (attestations_base, attestations_electra) = attester_slashings.into_iter().fold(
+        let (attestations_base, attestations_electra) = attestations.into_iter().fold(
             (Vec::new(), Vec::new()),
-            |(mut base, mut electra), slashing| {
-                match slashing {
-                    AttesterSlashing::Base(slashing) => base.push(slashing),
-                    AttesterSlashing::Electra(slashing) => electra.push(slashing),
+            |(mut base, mut electra), attestation| {
+                match attestation {
+                    Attestation::Base(attestation) => base.push(attestation),
+                    Attestation::Electra(attestation) => electra.push(attestation),
                 }
                 (base, electra)
             },

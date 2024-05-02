@@ -363,6 +363,12 @@ impl<E: EthSpec> SlotData for Attestation<E> {
     }
 }
 
+impl<'a, E: EthSpec> SlotData for AttestationRef<'a, E> {
+    fn get_slot(&self) -> Slot {
+        self.data().slot
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
