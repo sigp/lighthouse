@@ -50,13 +50,13 @@ impl ForkName {
     }
 
     pub fn list_all_enabled_features(self) -> Vec<FeatureName> {
-        let mut res = vec![];
+        let mut all_features = vec![];
         for (fork, features) in FORK_ORDER {
             if *fork <= self {
-                res.extend(features.iter());
+                all_features.extend(features.iter());
             }
         }
-        res
+        all_features
     }
 
     pub fn has_feature(self, feature: FeatureName) -> bool {

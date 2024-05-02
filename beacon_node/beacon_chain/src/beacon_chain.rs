@@ -743,6 +743,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Ok(current_fork) = self.current_fork() {
             current_fork.has_feature(feature)
         } else {
+            // TODO(superstruct_features): Is this safe?
             false
         }
     }
@@ -5574,13 +5575,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
-            //let parent_beacon_block_root = match prepare_slot_fork {
-            //    ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => None,
-            //    ForkName::Deneb | ForkName::Electra => {
-            //        Some(pre_payload_attributes.parent_beacon_block_root)
-            //    }
-            //};
-
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6616,17 +6610,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name(&self.spec)
             .map_err(Error::InconsistentFork)?;
 
-        match fork_name {
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
-                LightClientBootstrap::from_beacon_state(&mut state, &block, &self.spec)
-                    .map(|bootstrap| Some((bootstrap, fork_name)))
-                    .map_err(Error::LightClientError)
-            }
-            ForkName::Base => Err(Error::UnsupportedFork),
+        if fork_name.has_feature(FeatureName::Altair) {
+            LightClientBootstrap::from_beacon_state(&mut state, &block, &self.spec)
+                .map(|bootstrap| Some((bootstrap, fork_name)))
+                .map_err(Error::LightClientError)
+        } else {
+            Err(Error::UnsupportedFork)
         }
     }
 }

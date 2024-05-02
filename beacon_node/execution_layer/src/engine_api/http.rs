@@ -884,30 +884,34 @@ impl HttpJsonRpc {
     ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        match fork_name {
-            ForkName::Bellatrix => {
-                let response: JsonGetPayloadResponseV1<E> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V2,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V1(response).into())
-            }
-            ForkName::Capella => {
-                let response: JsonGetPayloadResponseV2<E> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V2,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V2(response).into())
-            }
-            ForkName::Base | ForkName::Altair | ForkName::Deneb | ForkName::Electra => Err(
-                Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
-            ),
+        if fork_name.has_feature(FeatureName::Deneb) {
+            Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v2 with {}",
+                fork_name
+            )))
+        } else if fork_name.has_feature(FeatureName::Capella) {
+            let response: JsonGetPayloadResponseV2<E> = self
+                .rpc_request(
+                    ENGINE_GET_PAYLOAD_V2,
+                    params,
+                    ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?;
+            Ok(JsonGetPayloadResponse::V2(response).into())
+        } else if fork_name.has_feature(FeatureName::Bellatrix) {
+            let response: JsonGetPayloadResponseV1<E> = self
+                .rpc_request(
+                    ENGINE_GET_PAYLOAD_V2,
+                    params,
+                    ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?;
+            Ok(JsonGetPayloadResponse::V1(response).into())
+        } else {
+            Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v2 with {}",
+                fork_name
+            )))
         }
     }
 
@@ -918,30 +922,29 @@ impl HttpJsonRpc {
     ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        match fork_name {
-            ForkName::Deneb => {
-                let response: JsonGetPayloadResponseV3<E> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V3,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V3(response).into())
-            }
-            ForkName::Electra => {
-                let response: JsonGetPayloadResponseV4<E> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V3,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V4(response).into())
-            }
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => Err(
-                Error::UnsupportedForkVariant(format!("called get_payload_v3 with {}", fork_name)),
-            ),
+        if fork_name.has_feature(FeatureName::Electra) {
+            let response: JsonGetPayloadResponseV4<E> = self
+                .rpc_request(
+                    ENGINE_GET_PAYLOAD_V3,
+                    params,
+                    ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?;
+            Ok(JsonGetPayloadResponse::V4(response).into())
+        } else if fork_name.has_feature(FeatureName::Deneb) {
+            let response: JsonGetPayloadResponseV3<E> = self
+                .rpc_request(
+                    ENGINE_GET_PAYLOAD_V3,
+                    params,
+                    ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?;
+            Ok(JsonGetPayloadResponse::V3(response).into())
+        } else {
+            Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v3 with {}",
+                fork_name
+            )))
         }
     }
 

@@ -20,7 +20,7 @@ use state_processing::{
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, Address, AggregateSignature, Attestation,
-    BeaconStateError, BitList, ChainSpec, Epoch, EthSpec, ForkName, Hash256, Keypair,
+    BeaconStateError, BitList, ChainSpec, Epoch, EthSpec, FeatureName, ForkName, Hash256, Keypair,
     MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof, Slot, SubnetId, Unsigned,
 };
 
@@ -335,22 +335,22 @@ impl GossipTester {
     }
 
     pub fn earliest_valid_attestation_slot(&self) -> Slot {
-        let offset = match self.harness.spec.fork_name_at_epoch(self.epoch()) {
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-                // Subtract an additional slot since the harness will be exactly on the start of the
-                // slot and the propagation tolerance will allow an extra slot.
-                E::slots_per_epoch() + 1
+        let offset = if self
+            .harness
+            .spec
+            .fork_name_at_epoch(self.epoch())
+            .has_feature(FeatureName::Deneb)
+        {
+            //EIP-7045
+            let epoch_slot_offset = (self.slot() % E::slots_per_epoch()).as_u64();
+            if epoch_slot_offset != 0 {
+                E::slots_per_epoch() + epoch_slot_offset
+            } else {
+                // Here the propagation tolerance will cause the cutoff to be an entire epoch earlier
+                2 * E::slots_per_epoch()
             }
-            // EIP-7045
-            ForkName::Deneb | ForkName::Electra => {
-                let epoch_slot_offset = (self.slot() % E::slots_per_epoch()).as_u64();
-                if epoch_slot_offset != 0 {
-                    E::slots_per_epoch() + epoch_slot_offset
-                } else {
-                    // Here the propagation tolerance will cause the cutoff to be an entire epoch earlier
-                    2 * E::slots_per_epoch()
-                }
-            }
+        } else {
+            E::slots_per_epoch() + 1
         };
 
         self.slot()
