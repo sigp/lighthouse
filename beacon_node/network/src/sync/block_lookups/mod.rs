@@ -30,6 +30,7 @@ mod single_block_lookup;
 mod tests;
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
+const COMPLETED_LOOKUP_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
 
 pub enum BlockComponent<E: EthSpec> {
@@ -65,6 +66,9 @@ pub struct BlockLookups<T: BeaconChainTypes> {
     /// A cache of failed chain lookups to prevent duplicate searches.
     failed_chains: LRUTimeCache<Hash256>,
 
+    /// A cache of completed lookups to prevent duplicate searches.
+    completed_lookups: LRUTimeCache<Hash256>,
+
     // TODO: Why not index lookups by block_root?
     single_block_lookups: FnvHashMap<SingleLookupId, SingleBlockLookup<T>>,
 
@@ -77,6 +81,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         Self {
             failed_chains: LRUTimeCache::new(Duration::from_secs(
                 FAILED_CHAINS_CACHE_EXPIRY_SECONDS,
+            )),
+            completed_lookups: LRUTimeCache::new(Duration::from_secs(
+                COMPLETED_LOOKUP_CACHE_EXPIRY_SECONDS,
             )),
             single_block_lookups: Default::default(),
             log,
@@ -218,6 +225,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
+        // If the lookup is complete, don't create a new one.
+        if self.completed_lookups.contains(&block_root) {
+            return false;
+        }
+
         // If this block or it's parent is part of a known failed chain, ignore it.
         if self.failed_chains.contains(&block_root) {
             debug!(self.log, "Block is from a past failed chain. Dropping"; "block_root" => ?block_root);
@@ -607,6 +619,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 if let Some(lookup) = self.single_block_lookups.remove(&id) {
                     debug!(self.log, "Dropping completed lookup"; "block" => %lookup.block_root());
                     metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
+
+                    // Cache the block root to prevent duplicate searches.
+                    self.completed_lookups.insert(lookup.block_root());
+
                     // Block imported, continue the requests of pending child blocks
                     self.continue_child_lookups(lookup.block_root(), cx);
                     self.update_metrics();
