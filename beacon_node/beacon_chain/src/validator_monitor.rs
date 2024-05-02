@@ -25,9 +25,10 @@ use types::consts::altair::{
     TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
 };
 use types::{
-    Attestation, AttestationData, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError,
-    ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes,
-    SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
+    Attestation, AttestationData, AttesterSlashingRef, BeaconBlockRef, BeaconState,
+    BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
+    IndexedAttestationRef, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
+    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
 
 /// Used for Prometheus labels.
@@ -1410,7 +1411,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     /// Note: Blocks that get orphaned will skew the inclusion distance calculation.
     pub fn register_attestation_in_block(
         &self,
-        indexed_attestation: &IndexedAttestation<E>,
+        indexed_attestation: IndexedAttestationRef<'_, E>,
         parent_slot: Slot,
         spec: &ChainSpec,
     ) {
@@ -1783,30 +1784,30 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register an attester slashing from the gossip network.
-    pub fn register_gossip_attester_slashing(&self, slashing: &AttesterSlashing<E>) {
+    pub fn register_gossip_attester_slashing(&self, slashing: AttesterSlashingRef<'_, E>) {
         self.register_attester_slashing("gossip", slashing)
     }
 
     /// Register an attester slashing from the HTTP API.
-    pub fn register_api_attester_slashing(&self, slashing: &AttesterSlashing<E>) {
+    pub fn register_api_attester_slashing(&self, slashing: AttesterSlashingRef<'_, E>) {
         self.register_attester_slashing("api", slashing)
     }
 
     /// Register an attester slashing included in a *valid* `BeaconBlock`.
-    pub fn register_block_attester_slashing(&self, slashing: &AttesterSlashing<E>) {
+    pub fn register_block_attester_slashing(&self, slashing: AttesterSlashingRef<'_, E>) {
         self.register_attester_slashing("block", slashing)
     }
 
-    fn register_attester_slashing(&self, src: &str, slashing: &AttesterSlashing<E>) {
-        let data = slashing.attestation_1.data();
+    fn register_attester_slashing(&self, src: &str, slashing: AttesterSlashingRef<'_, E>) {
+        let data = slashing.attestation_1().data();
         let attestation_1_indices: HashSet<u64> = slashing
-            .attestation_1
+            .attestation_1()
             .attesting_indices_iter()
             .copied()
             .collect();
 
         slashing
-            .attestation_2
+            .attestation_2()
             .attesting_indices_iter()
             .filter(|index| attestation_1_indices.contains(index))
             .filter_map(|index| self.get_validator(*index))

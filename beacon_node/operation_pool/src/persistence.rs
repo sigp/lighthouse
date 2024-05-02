@@ -39,9 +39,7 @@ pub struct PersistedOperationPool<E: EthSpec> {
     pub attestations: Vec<(Attestation<E>, Vec<u64>)>,
     /// Mapping from sync contribution ID to sync contributions and aggregate.
     pub sync_contributions: PersistedSyncContributions<E>,
-    /// [DEPRECATED] Attester slashings.
-    #[superstruct(only(V5))]
-    pub attester_slashings_v5: Vec<(AttesterSlashing<E>, ForkVersion)>,
+    /// TODO(electra): we've made a DB change here!!!
     /// Attester slashings.
     #[superstruct(only(V12, V14, V15))]
     pub attester_slashings: Vec<SigVerifiedOp<AttesterSlashing<E>, E>>,

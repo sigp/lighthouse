@@ -247,13 +247,12 @@ where
     ) -> Result<()> {
         self.sets
             .sets
-            .reserve(block.message().body().attester_slashings().len() * 2);
+            .reserve(block.message().body().attester_slashings_len() * 2);
 
         block
             .message()
             .body()
             .attester_slashings()
-            .iter()
             .try_for_each(|attester_slashing| {
                 let (set_1, set_2) = attester_slashing_signature_sets(
                     self.state,
@@ -277,13 +276,12 @@ where
     ) -> Result<()> {
         self.sets
             .sets
-            .reserve(block.message().body().attestations().len());
+            .reserve(block.message().body().attestations_len());
 
         block
             .message()
             .body()
             .attestations()
-            .iter()
             .try_for_each(|attestation| {
                 let indexed_attestation = ctxt.get_indexed_attestation(self.state, attestation)?;
 

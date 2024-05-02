@@ -7,12 +7,12 @@ use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, EthSpec, ForkContext, ForkName,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockMerge, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
+    EthSpec, ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
+    SignedBeaconBlockElectra, SignedBeaconBlockMerge, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -239,8 +239,28 @@ impl<E: EthSpec> PubsubMessage<E> {
                         Ok(PubsubMessage::ProposerSlashing(Box::new(proposer_slashing)))
                     }
                     GossipKind::AttesterSlashing => {
-                        let attester_slashing = AttesterSlashing::from_ssz_bytes(data)
-                            .map_err(|e| format!("{:?}", e))?;
+                        // TODO(electra): could an older attester slashing still be floating around during the fork transition?
+                        let attester_slashing =
+                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                                Some(ForkName::Base)
+                                | Some(ForkName::Altair)
+                                | Some(ForkName::Merge)
+                                | Some(ForkName::Capella)
+                                | Some(ForkName::Deneb) => AttesterSlashing::Base(
+                                    AttesterSlashingBase::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Electra) => AttesterSlashing::Electra(
+                                    AttesterSlashingElectra::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                None => {
+                                    return Err(format!(
+                                        "Unknown gossipsub fork digest: {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
+                            };
                         Ok(PubsubMessage::AttesterSlashing(Box::new(attester_slashing)))
                     }
                     GossipKind::SignedContributionAndProof => {

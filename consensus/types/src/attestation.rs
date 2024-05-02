@@ -212,6 +212,15 @@ impl<E: EthSpec> Attestation<E> {
     }
 }
 
+impl<'a, E: EthSpec> AttestationRef<'a, E> {
+    pub fn clone_as_attestation(self) -> Attestation<E> {
+        match self {
+            AttestationRef::Base(att) => Attestation::Base(att.clone()),
+            AttestationRef::Electra(att) => Attestation::Electra(att.clone()),
+        }
+    }
+}
+
 impl<E: EthSpec> AttestationElectra<E> {
     /// Are the aggregation bitfields of these attestations disjoint?
     pub fn signers_disjoint_from(&self, other: &Self) -> bool {
@@ -363,6 +372,12 @@ impl<E: EthSpec> SlotData for Attestation<E> {
     }
 }
 
+impl<'a, E: EthSpec> SlotData for AttestationRef<'a, E> {
+    fn get_slot(&self) -> Slot {
+        self.data().slot
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,5 +409,6 @@ mod tests {
         );
     }
 
-    ssz_and_tree_hash_tests!(Attestation<MainnetEthSpec>);
+    // TODO(electra): can we do this with both variants or should we?
+    ssz_and_tree_hash_tests!(AttestationBase<MainnetEthSpec>);
 }

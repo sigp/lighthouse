@@ -28,7 +28,8 @@ pub use database::{
 };
 pub use error::Error;
 
-use types::{AttesterSlashing, EthSpec, IndexedAttestation, ProposerSlashing};
+use types::{AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra};
+use types::{EthSpec, IndexedAttestation, ProposerSlashing};
 
 #[derive(Debug, PartialEq)]
 pub enum AttesterSlashingStatus<E: EthSpec> {
@@ -59,14 +60,48 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
         match self {
             NotSlashable => None,
             AlreadyDoubleVoted => None,
-            DoubleVote(existing) | SurroundedByExisting(existing) => Some(AttesterSlashing {
-                attestation_1: *existing,
-                attestation_2: new_attestation.clone(),
-            }),
-            SurroundsExisting(existing) => Some(AttesterSlashing {
+            DoubleVote(existing) | SurroundedByExisting(existing) => {
+                match (*existing, new_attestation) {
+                    // TODO(electra) - determine when we would convert a Base attestation to Electra / how to handle mismatched attestations here
+                    (IndexedAttestation::Base(existing_att), IndexedAttestation::Base(new_att)) => {
+                        Some(AttesterSlashing::Base(AttesterSlashingBase {
+                            attestation_1: existing_att,
+                            attestation_2: new_att.clone(),
+                        }))
+                    }
+                    (
+                        IndexedAttestation::Electra(existing_att),
+                        IndexedAttestation::Electra(new_att),
+                    ) => Some(AttesterSlashing::Electra(AttesterSlashingElectra {
+                        attestation_1: existing_att,
+                        attestation_2: new_att.clone(),
+                    })),
+                    _ => panic!("attestations must be of the same type"),
+                }
+            }
+            // TODO(electra): fix this once we superstruct IndexedAttestation (return the correct type)
+            SurroundsExisting(existing) => match (*existing, new_attestation) {
+                (IndexedAttestation::Base(existing_att), IndexedAttestation::Base(new_att)) => {
+                    Some(AttesterSlashing::Base(AttesterSlashingBase {
+                        attestation_1: new_att.clone(),
+                        attestation_2: existing_att,
+                    }))
+                }
+                (
+                    IndexedAttestation::Electra(existing_att),
+                    IndexedAttestation::Electra(new_att),
+                ) => Some(AttesterSlashing::Electra(AttesterSlashingElectra {
+                    attestation_1: new_att.clone(),
+                    attestation_2: existing_att,
+                })),
+                _ => panic!("attestations must be of the same type"),
+            },
+            /*
+            Some(AttesterSlashing::Base(AttesterSlashingBase {
                 attestation_1: new_attestation.clone(),
                 attestation_2: *existing,
-            }),
+            })),
+            */
         }
     }
 }

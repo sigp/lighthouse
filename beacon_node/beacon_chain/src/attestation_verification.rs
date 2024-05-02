@@ -471,7 +471,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         if chain
             .observed_attestations
             .write()
-            .is_known_subset(attestation, attestation_data_root)
+            .is_known_subset(attestation.to_ref(), attestation_data_root)
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_SUBSETS);
@@ -559,7 +559,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                     return Err(Error::AggregatorNotInCommittee { aggregator_index });
                 }
 
-                get_indexed_attestation(committee.committee, attestation)
+                get_indexed_attestation(committee.committee, attestation.to_ref())
                     .map_err(|e| BeaconChainError::from(e).into())
             };
 
@@ -597,7 +597,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
         if let ObserveOutcome::Subset = chain
             .observed_attestations
             .write()
-            .observe_item(attestation, Some(attestation_data_root))
+            .observe_item(attestation.to_ref(), Some(attestation_data_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_SUBSETS);
@@ -1241,7 +1241,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     attestation: &Attestation<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
     map_attestation_committee(chain, attestation, |(committee, committees_per_slot)| {
-        get_indexed_attestation(committee.committee, attestation)
+        get_indexed_attestation(committee.committee, attestation.to_ref())
             .map(|attestation| (attestation, committees_per_slot))
             .map_err(Error::Invalid)
     })

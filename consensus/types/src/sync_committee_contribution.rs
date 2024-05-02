@@ -110,6 +110,12 @@ impl<E: EthSpec> SlotData for SyncCommitteeContribution<E> {
     }
 }
 
+impl<E: EthSpec> SlotData for &SyncCommitteeContribution<E> {
+    fn get_slot(&self) -> Slot {
+        self.slot
+    }
+}
+
 impl SlotData for SyncContributionData {
     fn get_slot(&self) -> Slot {
         self.slot

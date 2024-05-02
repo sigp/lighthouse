@@ -664,7 +664,7 @@ async fn invalid_signature_attester_slashing() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
-        let indexed_attestation = IndexedAttestation {
+        let indexed_attestation = IndexedAttestationBase {
             attesting_indices: vec![0].into(),
             data: AttestationData {
                 slot: Slot::new(0),
@@ -681,7 +681,7 @@ async fn invalid_signature_attester_slashing() {
             },
             signature: junk_aggregate_signature(),
         };
-        let attester_slashing = AttesterSlashing {
+        let attester_slashing = AttesterSlashingBase {
             attestation_1: indexed_attestation.clone(),
             attestation_2: indexed_attestation,
         };
@@ -690,11 +690,36 @@ async fn invalid_signature_attester_slashing() {
             .as_ref()
             .clone()
             .deconstruct();
-        block
-            .body_mut()
-            .attester_slashings_mut()
-            .push(attester_slashing)
-            .expect("should update attester slashing");
+        match &mut block.body_mut() {
+            BeaconBlockBodyRefMut::Base(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing)
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Altair(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing)
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Merge(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing)
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Capella(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing)
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Deneb(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing)
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Electra(_) => {
+                panic!("electra test not implemented!");
+            }
+        }
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
@@ -724,8 +749,34 @@ async fn invalid_signature_attestation() {
             .as_ref()
             .clone()
             .deconstruct();
-        if let Some(attestation) = block.body_mut().attestations_mut().get_mut(0) {
-            attestation.signature = junk_aggregate_signature();
+        match &mut block.body_mut() {
+            BeaconBlockBodyRefMut::Base(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Altair(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Merge(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Capella(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Deneb(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Electra(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+        };
+
+        if block.body().attestations_len() > 0 {
             snapshots[block_index].beacon_block =
                 Arc::new(SignedBeaconBlock::from_block(block, signature));
             update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
@@ -1187,9 +1238,13 @@ async fn verify_block_for_gossip_doppelganger_detection() {
 
     let state = harness.get_current_state();
     let ((block, _), _) = harness.make_block(state.clone(), Slot::new(1)).await;
-
+    let attestations = block
+        .message()
+        .body()
+        .attestations()
+        .map(|att| att.clone_as_attestation())
+        .collect::<Vec<_>>();
     let verified_block = harness.chain.verify_block_for_gossip(block).await.unwrap();
-    let attestations = verified_block.block.message().body().attestations().clone();
     harness
         .chain
         .process_block(
@@ -1202,37 +1257,69 @@ async fn verify_block_for_gossip_doppelganger_detection() {
         .unwrap();
 
     for att in attestations.iter() {
-        let epoch = att.data.target.epoch;
+        let epoch = att.data().target.epoch;
         let committee = state
-            .get_beacon_committee(att.data.slot, att.data.index)
+            .get_beacon_committee(att.data().slot, att.data().index)
             .unwrap();
-        let indexed_attestation = get_indexed_attestation(committee.committee, att).unwrap();
+        let indexed_attestation =
+            get_indexed_attestation(committee.committee, att.to_ref()).unwrap();
 
-        for &index in &indexed_attestation.attesting_indices {
-            let index = index as usize;
+        match indexed_attestation {
+            IndexedAttestation::Base(indexed_attestation) => {
+                for &index in &indexed_attestation.attesting_indices {
+                    let index = index as usize;
 
-            assert!(harness.chain.validator_seen_at_epoch(index, epoch));
+                    assert!(harness.chain.validator_seen_at_epoch(index, epoch));
 
-            // Check the correct beacon cache is populated
-            assert!(harness
-                .chain
-                .observed_block_attesters
-                .read()
-                .validator_has_been_observed(epoch, index)
-                .expect("should check if block attester was observed"));
-            assert!(!harness
-                .chain
-                .observed_gossip_attesters
-                .read()
-                .validator_has_been_observed(epoch, index)
-                .expect("should check if gossip attester was observed"));
-            assert!(!harness
-                .chain
-                .observed_aggregators
-                .read()
-                .validator_has_been_observed(epoch, index)
-                .expect("should check if gossip aggregator was observed"));
-        }
+                    // Check the correct beacon cache is populated
+                    assert!(harness
+                        .chain
+                        .observed_block_attesters
+                        .read()
+                        .validator_has_been_observed(epoch, index)
+                        .expect("should check if block attester was observed"));
+                    assert!(!harness
+                        .chain
+                        .observed_gossip_attesters
+                        .read()
+                        .validator_has_been_observed(epoch, index)
+                        .expect("should check if gossip attester was observed"));
+                    assert!(!harness
+                        .chain
+                        .observed_aggregators
+                        .read()
+                        .validator_has_been_observed(epoch, index)
+                        .expect("should check if gossip aggregator was observed"));
+                }
+            }
+            IndexedAttestation::Electra(indexed_attestation) => {
+                for &index in &indexed_attestation.attesting_indices {
+                    let index = index as usize;
+
+                    assert!(harness.chain.validator_seen_at_epoch(index, epoch));
+
+                    // Check the correct beacon cache is populated
+                    assert!(harness
+                        .chain
+                        .observed_block_attesters
+                        .read()
+                        .validator_has_been_observed(epoch, index)
+                        .expect("should check if block attester was observed"));
+                    assert!(!harness
+                        .chain
+                        .observed_gossip_attesters
+                        .read()
+                        .validator_has_been_observed(epoch, index)
+                        .expect("should check if gossip attester was observed"));
+                    assert!(!harness
+                        .chain
+                        .observed_aggregators
+                        .read()
+                        .validator_has_been_observed(epoch, index)
+                        .expect("should check if gossip aggregator was observed"));
+                }
+            }
+        };
     }
 }
 

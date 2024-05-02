@@ -2,8 +2,9 @@ use crate::AttestationStats;
 use itertools::Itertools;
 use std::collections::HashMap;
 use types::{
-    attestation::{AttestationBase, AttestationElectra}, superstruct, AggregateSignature, Attestation, AttestationData,
-    BeaconState, BitList, BitVector, Checkpoint, Epoch, EthSpec, Hash256, Slot,
+    attestation::{AttestationBase, AttestationElectra},
+    superstruct, AggregateSignature, Attestation, AttestationData, BeaconState, BitList, BitVector,
+    Checkpoint, Epoch, EthSpec, Hash256, Slot,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -121,12 +122,14 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
                 data: self.attestation_data(),
                 signature: indexed_att.signature.clone(),
             }),
-            CompactIndexedAttestation::Electra(indexed_att) => Attestation::Electra(AttestationElectra {
-                aggregation_bits: indexed_att.aggregation_bits.clone(),
-                data: self.attestation_data(),
-                signature: indexed_att.signature.clone(),
-                committee_bits: indexed_att.committee_bits.clone(),
-            }),
+            CompactIndexedAttestation::Electra(indexed_att) => {
+                Attestation::Electra(AttestationElectra {
+                    aggregation_bits: indexed_att.aggregation_bits.clone(),
+                    data: self.attestation_data(),
+                    signature: indexed_att.signature.clone(),
+                    committee_bits: indexed_att.committee_bits.clone(),
+                })
+            }
         }
     }
 }

@@ -23,8 +23,9 @@ use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
+use types::AttesterSlashingBase;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
+    Attestation, AttesterSlashingRef, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
     ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof, ProposerPreparationData,
     SignedBeaconBlock, Slot, Uint256,
 };
@@ -131,8 +132,9 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
     #[allow(clippy::type_complexity)]
+    // TODO(electra): these tests will need to be updated to use new types
     pub steps: Vec<
-        Step<SignedBeaconBlock<E>, BlobsList<E>, Attestation<E>, AttesterSlashing<E>, PowBlock>,
+        Step<SignedBeaconBlock<E>, BlobsList<E>, Attestation<E>, AttesterSlashingBase<E>, PowBlock>,
     >,
 }
 
@@ -249,7 +251,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 } => tester.process_block(block.clone(), blobs.clone(), proofs.clone(), *valid)?,
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::AttesterSlashing { attester_slashing } => {
-                    tester.process_attester_slashing(attester_slashing)
+                    tester.process_attester_slashing(AttesterSlashingRef::Base(attester_slashing))
                 }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
                 Step::OnPayloadInfo {
@@ -591,7 +593,7 @@ impl<E: EthSpec> Tester<E> {
             .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
     }
 
-    pub fn process_attester_slashing(&self, attester_slashing: &AttesterSlashing<E>) {
+    pub fn process_attester_slashing(&self, attester_slashing: AttesterSlashingRef<E>) {
         self.harness
             .chain
             .canonical_head

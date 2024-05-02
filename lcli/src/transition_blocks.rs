@@ -390,7 +390,7 @@ fn do_transition<E: EthSpec>(
         // Signature verification should prime the indexed attestation cache.
         assert_eq!(
             ctxt.num_cached_indexed_attestations(),
-            block.message().body().attestations().len()
+            block.message().body().attestations_len()
         );
     }
 

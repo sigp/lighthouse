@@ -14,8 +14,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
-    AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
-    EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
+    AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
+    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestationRef, RelativeEpoch,
     SignedBeaconBlock, Slot,
 };
 
@@ -238,8 +238,8 @@ pub struct QueuedAttestation {
     target_epoch: Epoch,
 }
 
-impl<E: EthSpec> From<&IndexedAttestation<E>> for QueuedAttestation {
-    fn from(a: &IndexedAttestation<E>) -> Self {
+impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
+    fn from(a: IndexedAttestationRef<'a, E>) -> Self {
         Self {
             slot: a.data().slot,
             attesting_indices: a.attesting_indices_to_vec(),
@@ -940,7 +940,7 @@ where
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#validate_on_attestation
     fn validate_on_attestation(
         &self,
-        indexed_attestation: &IndexedAttestation<E>,
+        indexed_attestation: IndexedAttestationRef<E>,
         is_from_block: AttestationFromBlock,
     ) -> Result<(), InvalidAttestation> {
         // There is no point in processing an attestation with an empty bitfield. Reject
@@ -1037,7 +1037,7 @@ where
     pub fn on_attestation(
         &mut self,
         system_time_current_slot: Slot,
-        attestation: &IndexedAttestation<E>,
+        attestation: IndexedAttestationRef<E>,
         is_from_block: AttestationFromBlock,
     ) -> Result<(), Error<T::Error>> {
         self.update_time(system_time_current_slot)?;
@@ -1086,14 +1086,14 @@ where
     /// Apply an attester slashing to fork choice.
     ///
     /// We assume that the attester slashing provided to this function has already been verified.
-    pub fn on_attester_slashing(&mut self, slashing: &AttesterSlashing<E>) {
-        let attesting_indices_set = |att: &IndexedAttestation<E>| {
+    pub fn on_attester_slashing(&mut self, slashing: AttesterSlashingRef<'_, E>) {
+        let attesting_indices_set = |att: IndexedAttestationRef<'_, E>| {
             att.attesting_indices_iter()
                 .copied()
                 .collect::<BTreeSet<_>>()
         };
-        let att1_indices = attesting_indices_set(&slashing.attestation_1);
-        let att2_indices = attesting_indices_set(&slashing.attestation_2);
+        let att1_indices = attesting_indices_set(slashing.attestation_1());
+        let att2_indices = attesting_indices_set(slashing.attestation_2());
         self.fc_store
             .extend_equivocating_indices(att1_indices.intersection(&att2_indices).copied());
     }

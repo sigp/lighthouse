@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use types::{
     indexed_attestation::IndexedAttestationBase, AggregateSignature, AttestationData,
-    AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch, Hash256, IndexedAttestation,
-    MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BeaconBlockHeader, Checkpoint,
+    Epoch, Hash256, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
@@ -37,9 +37,21 @@ pub fn att_slashing(
     attestation_1: &IndexedAttestation<E>,
     attestation_2: &IndexedAttestation<E>,
 ) -> AttesterSlashing<E> {
-    AttesterSlashing {
-        attestation_1: attestation_1.clone(),
-        attestation_2: attestation_2.clone(),
+    // TODO(electra): fix this one we superstruct IndexedAttestation (return the correct type)
+    match (attestation_1, attestation_2) {
+        (IndexedAttestation::Base(att1), IndexedAttestation::Base(att2)) => {
+            AttesterSlashing::Base(AttesterSlashingBase {
+                attestation_1: att1.clone(),
+                attestation_2: att2.clone(),
+            })
+        }
+        (IndexedAttestation::Electra(att1), IndexedAttestation::Electra(att2)) => {
+            AttesterSlashing::Electra(AttesterSlashingElectra {
+                attestation_1: att1.clone(),
+                attestation_2: att2.clone(),
+            })
+        }
+        _ => panic!("attestations must be of the same type"),
     }
 }
 
@@ -61,8 +73,8 @@ pub fn slashed_validators_from_slashings(slashings: &HashSet<AttesterSlashing<E>
     slashings
         .iter()
         .flat_map(|slashing| {
-            let att1 = &slashing.attestation_1;
-            let att2 = &slashing.attestation_2;
+            let att1 = slashing.attestation_1();
+            let att2 = slashing.attestation_2();
             assert!(
                 att1.is_double_vote(att2) || att1.is_surround_vote(att2),
                 "invalid slashing: {:#?}",

@@ -25,14 +25,14 @@ pub fn get_attesting_indices<E: EthSpec>(
 /// Shortcut for getting the attesting indices while fetching the committee from the state's cache.
 pub fn get_attesting_indices_from_state<E: EthSpec>(
     state: &BeaconState<E>,
-    att: &Attestation<E>,
+    att: AttestationRef<E>,
 ) -> Result<Vec<u64>, BeaconStateError> {
     let committee = state.get_beacon_committee(att.data().slot, att.data().index)?;
     match att {
-        Attestation::Base(att) => {
+        AttestationRef::Base(att) => {
             get_attesting_indices::<E>(committee.committee, &att.aggregation_bits)
         }
         // TODO(electra) implement get_attesting_indices for electra
-        Attestation::Electra(_) => todo!(),
+        AttestationRef::Electra(_) => todo!(),
     }
 }

@@ -428,7 +428,7 @@ impl<E: EthSpec> OperationPool<E> {
 
         let relevant_attester_slashings = reader.iter().flat_map(|slashing| {
             if slashing.signature_is_still_valid(&state.fork()) {
-                AttesterSlashingMaxCover::new(slashing.as_inner(), to_be_slashed, state)
+                AttesterSlashingMaxCover::new(slashing.as_inner().to_ref(), to_be_slashed, state)
             } else {
                 None
             }
@@ -442,7 +442,7 @@ impl<E: EthSpec> OperationPool<E> {
         .into_iter()
         .map(|cover| {
             to_be_slashed.extend(cover.covering_set().keys());
-            cover.intermediate().clone()
+            AttesterSlashingMaxCover::convert_to_object(cover.intermediate())
         })
         .collect()
     }
@@ -463,16 +463,19 @@ impl<E: EthSpec> OperationPool<E> {
             // Check that the attestation's signature is still valid wrt the fork version.
             let signature_ok = slashing.signature_is_still_valid(&head_state.fork());
             // Slashings that don't slash any validators can also be dropped.
-            let slashing_ok =
-                get_slashable_indices_modular(head_state, slashing.as_inner(), |_, validator| {
+            let slashing_ok = get_slashable_indices_modular(
+                head_state,
+                slashing.as_inner().to_ref(),
+                |_, validator| {
                     // Declare that a validator is still slashable if they have not exited prior
                     // to the finalized epoch.
                     //
                     // We cannot check the `slashed` field since the `head` is not finalized and
                     // a fork could un-slash someone.
                     validator.exit_epoch > head_state.finalized_checkpoint().epoch
-                })
-                .map_or(false, |indices| !indices.is_empty());
+                },
+            )
+            .map_or(false, |indices| !indices.is_empty());
 
             signature_ok && slashing_ok
         });
@@ -907,8 +910,8 @@ mod release_tests {
                 })
                 .unwrap();
 
-            let att1_indices = get_attesting_indices_from_state(&state, &att1).unwrap();
-            let att2_indices = get_attesting_indices_from_state(&state, &att2).unwrap();
+            let att1_indices = get_attesting_indices_from_state(&state, att1.to_ref()).unwrap();
+            let att2_indices = get_attesting_indices_from_state(&state, att2.to_ref()).unwrap();
             let att1_split = SplitAttestation::new(att1.clone(), att1_indices);
             let att2_split = SplitAttestation::new(att2.clone(), att2_indices);
 
@@ -981,7 +984,8 @@ mod release_tests {
 
         for (atts, _) in attestations {
             for (att, _) in atts {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
@@ -1051,7 +1055,7 @@ mod release_tests {
 
         for (_, aggregate) in attestations {
             let att = aggregate.unwrap().message.aggregate;
-            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+            let attesting_indices = get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
             op_pool
                 .insert_attestation(att.clone(), attesting_indices.clone())
                 .unwrap();
@@ -1139,7 +1143,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs1.into_iter().chain(aggs2.into_iter()) {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
@@ -1211,7 +1216,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
@@ -1306,7 +1312,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
@@ -1349,7 +1356,7 @@ mod release_tests {
         reward_cache.update(&state).unwrap();
 
         for att in best_attestations {
-            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+            let attesting_indices = get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
             let split_attestation = SplitAttestation::new(att, attesting_indices);
             let mut fresh_validators_rewards = AttMaxCover::new(
                 split_attestation.as_ref(),

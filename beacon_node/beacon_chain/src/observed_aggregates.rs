@@ -10,7 +10,7 @@ use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
 };
 use types::slot_data::SlotData;
-use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
+use types::{Attestation, AttestationRef, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 
 pub type ObservedSyncContributions<E> = ObservedAggregates<
     SyncCommitteeContribution<E>,
@@ -102,30 +102,30 @@ pub trait SubsetItem {
     fn root(&self) -> Hash256;
 }
 
-impl<E: EthSpec> SubsetItem for Attestation<E> {
+impl<'a, E: EthSpec> SubsetItem for AttestationRef<'a, E> {
     type Item = BitList<E::MaxValidatorsPerCommittee>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         match self {
-            Attestation::Base(att) => att.aggregation_bits.is_subset(other),
+            Self::Base(att) => att.aggregation_bits.is_subset(other),
             // TODO(electra) implement electra variant
-            Attestation::Electra(_) => todo!(),
+            Self::Electra(_) => todo!(),
         }
     }
 
     fn is_superset(&self, other: &Self::Item) -> bool {
         match self {
-            Attestation::Base(att) => other.is_subset(&att.aggregation_bits),
+            Self::Base(att) => other.is_subset(&att.aggregation_bits),
             // TODO(electra) implement electra variant
-            Attestation::Electra(_) => todo!(),
+            Self::Electra(_) => todo!(),
         }
     }
 
     /// Returns the sync contribution aggregation bits.
     fn get_item(&self) -> Self::Item {
         match self {
-            Attestation::Base(att) => att.aggregation_bits.clone(),
+            Self::Base(att) => att.aggregation_bits.clone(),
             // TODO(electra) implement electra variant
-            Attestation::Electra(_) => todo!(),
+            Self::Electra(_) => todo!(),
         }
     }
 
@@ -135,7 +135,7 @@ impl<E: EthSpec> SubsetItem for Attestation<E> {
     }
 }
 
-impl<E: EthSpec> SubsetItem for SyncCommitteeContribution<E> {
+impl<'a, E: EthSpec> SubsetItem for &'a SyncCommitteeContribution<E> {
     type Item = BitVector<E::SyncSubcommitteeSize>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         self.aggregation_bits.is_subset(other)
@@ -208,7 +208,7 @@ impl<I> SlotHashSet<I> {
     /// Store the items in self so future observations recognise its existence.
     pub fn observe_item<S: SlotData + SubsetItem<Item = I>>(
         &mut self,
-        item: &S,
+        item: S,
         root: Hash256,
     ) -> Result<ObserveOutcome, Error> {
         if item.get_slot() != self.slot {
@@ -254,7 +254,7 @@ impl<I> SlotHashSet<I> {
     /// the given root and slot.
     pub fn is_known_subset<S: SlotData + SubsetItem<Item = I>>(
         &self,
-        item: &S,
+        item: S,
         root: Hash256,
     ) -> Result<bool, Error> {
         if item.get_slot() != self.slot {
@@ -276,16 +276,43 @@ impl<I> SlotHashSet<I> {
     }
 }
 
+/// Trait for observable items that can be observed from their reference type.
+///
+/// This is used to make observations for `Attestation`s from `AttestationRef`s.
+pub trait AsReference {
+    type Reference<'a>
+    where
+        Self: 'a;
+
+    fn as_reference(&self) -> Self::Reference<'_>;
+}
+
+impl<E: EthSpec> AsReference for Attestation<E> {
+    type Reference<'a> = AttestationRef<'a, E>;
+
+    fn as_reference(&self) -> AttestationRef<'_, E> {
+        self.to_ref()
+    }
+}
+
+impl<E: EthSpec> AsReference for SyncCommitteeContribution<E> {
+    type Reference<'a> = &'a Self;
+
+    fn as_reference(&self) -> &Self {
+        self
+    }
+}
+
 /// Stores the roots of objects for some number of `Slots`, so we can determine if
 /// these have previously been seen on the network.
-pub struct ObservedAggregates<T: SlotData + Consts, E: EthSpec, I> {
+pub struct ObservedAggregates<T: Consts + AsReference, E: EthSpec, I> {
     lowest_permissible_slot: Slot,
     sets: Vec<SlotHashSet<I>>,
     _phantom_spec: PhantomData<E>,
     _phantom_tree_hash: PhantomData<T>,
 }
 
-impl<T: SlotData + Consts, E: EthSpec, I> Default for ObservedAggregates<T, E, I> {
+impl<T: Consts + AsReference, E: EthSpec, I> Default for ObservedAggregates<T, E, I> {
     fn default() -> Self {
         Self {
             lowest_permissible_slot: Slot::new(0),
@@ -296,13 +323,18 @@ impl<T: SlotData + Consts, E: EthSpec, I> Default for ObservedAggregates<T, E, I
     }
 }
 
-impl<T: SlotData + Consts + SubsetItem<Item = I>, E: EthSpec, I> ObservedAggregates<T, E, I> {
+impl<T, E, I> ObservedAggregates<T, E, I>
+where
+    T: Consts + AsReference,
+    E: EthSpec,
+    for<'a> T::Reference<'a>: SubsetItem<Item = I> + SlotData,
+{
     /// Store `item` in `self` keyed at `root`.
     ///
     /// `root` must equal `item.root::<SubsetItem>()`.
     pub fn observe_item(
         &mut self,
-        item: &T,
+        item: T::Reference<'_>,
         root_opt: Option<Hash256>,
     ) -> Result<ObserveOutcome, Error> {
         let index = self.get_set_index(item.get_slot())?;
@@ -319,7 +351,11 @@ impl<T: SlotData + Consts + SubsetItem<Item = I>, E: EthSpec, I> ObservedAggrega
     ///
     /// `root` must equal `item.root::<SubsetItem>()`.
     #[allow(clippy::wrong_self_convention)]
-    pub fn is_known_subset(&mut self, item: &T, root: Hash256) -> Result<bool, Error> {
+    pub fn is_known_subset(
+        &mut self,
+        item: T::Reference<'_>,
+        root: Hash256,
+    ) -> Result<bool, Error> {
         let index = self.get_set_index(item.get_slot())?;
 
         self.sets
@@ -417,8 +453,8 @@ mod tests {
 
     fn get_attestation(slot: Slot, beacon_block_root: u64) -> Attestation<E> {
         let mut a: Attestation<E> = test_random_instance();
-        a.data.slot = slot;
-        a.data.beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
+        a.data_mut().slot = slot;
+        a.data_mut().beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
         a
     }
 
@@ -444,12 +480,12 @@ mod tests {
 
                     for a in &items {
                         assert_eq!(
-                            store.is_known_subset(a, a.root()),
+                            store.is_known_subset(a.as_reference(), a.as_reference().root()),
                             Ok(false),
                             "should indicate an unknown attestation is unknown"
                         );
                         assert_eq!(
-                            store.observe_item(a, None),
+                            store.observe_item(a.as_reference(), None),
                             Ok(ObserveOutcome::New),
                             "should observe new attestation"
                         );
@@ -457,12 +493,12 @@ mod tests {
 
                     for a in &items {
                         assert_eq!(
-                            store.is_known_subset(a, a.root()),
+                            store.is_known_subset(a.as_reference(), a.as_reference().root()),
                             Ok(true),
                             "should indicate a known attestation is known"
                         );
                         assert_eq!(
-                            store.observe_item(a, Some(a.root())),
+                            store.observe_item(a.as_reference(), Some(a.as_reference().root())),
                             Ok(ObserveOutcome::Subset),
                             "should acknowledge an existing attestation"
                         );

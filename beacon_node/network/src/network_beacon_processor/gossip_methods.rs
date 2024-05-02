@@ -1428,7 +1428,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.chain
             .validator_monitor
             .read()
-            .register_gossip_attester_slashing(slashing.as_inner());
+            .register_gossip_attester_slashing(slashing.as_inner().to_ref());
 
         self.chain.import_attester_slashing(slashing);
         debug!(self.log, "Successfully imported attester slashing");

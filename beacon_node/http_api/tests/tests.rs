@@ -1633,7 +1633,13 @@ impl ApiTester {
 
             let expected = block_id.full_block(&self.chain).await.ok().map(
                 |(block, _execution_optimistic, _finalized)| {
-                    block.message().body().attestations().clone().into()
+                    block
+                        .message()
+                        .body()
+                        .attestations()
+                        .map(|att| att.clone_as_attestation())
+                        .collect::<Vec<_>>()
+                        .into()
                 },
             );
 
@@ -1793,7 +1799,14 @@ impl ApiTester {
 
     pub async fn test_post_beacon_pool_attester_slashings_invalid(mut self) -> Self {
         let mut slashing = self.attester_slashing.clone();
-        slashing.attestation_1.data_mut().slot += 1;
+        match &mut slashing {
+            AttesterSlashing::Base(ref mut slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
+            AttesterSlashing::Electra(ref mut slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
+        }
 
         self.client
             .post_beacon_pool_attester_slashings(&slashing)
@@ -3183,8 +3196,10 @@ impl ApiTester {
             .head_beacon_block()
             .message()
             .body()
-            .attestations()[0]
-            .clone();
+            .attestations()
+            .next()
+            .unwrap()
+            .clone_as_attestation();
 
         let result = self
             .client

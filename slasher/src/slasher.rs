@@ -299,7 +299,7 @@ impl<E: EthSpec> Slasher<E> {
                     self.log,
                     "Found double-vote slashing";
                     "validator_index" => validator_index,
-                    "epoch" => slashing.attestation_1.data().target.epoch,
+                    "epoch" => slashing.attestation_1().data().target.epoch,
                 );
                 slashings.insert(slashing);
             }

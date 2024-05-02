@@ -115,10 +115,16 @@ use ethereum_types::{H160, H256};
 
 pub use crate::activation_queue::ActivationQueue;
 pub use crate::aggregate_and_proof::AggregateAndProof;
-pub use crate::attestation::{Attestation, Error as AttestationError};
+pub use crate::attestation::{
+    Attestation, AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut,
+    Error as AttestationError,
+};
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
-pub use crate::attester_slashing::AttesterSlashing;
+pub use crate::attester_slashing::{
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingOnDisk,
+    AttesterSlashingRef, AttesterSlashingRefOnDisk,
+};
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockDeneb,
     BeaconBlockElectra, BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock,
@@ -169,7 +175,9 @@ pub use crate::fork_name::{ForkName, InconsistentFork};
 pub use crate::fork_versioned_response::{ForkVersionDeserialize, ForkVersionedResponse};
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
-pub use crate::indexed_attestation::IndexedAttestation;
+pub use crate::indexed_attestation::{
+    IndexedAttestation, IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
+};
 pub use crate::light_client_bootstrap::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientBootstrapCapella,
     LightClientBootstrapDeneb,
