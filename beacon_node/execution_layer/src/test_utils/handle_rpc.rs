@@ -135,7 +135,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 .get_fork_at_timestamp(*request.timestamp());
             // validate method called correctly according to fork time
             match fork {
-                ForkName::Merge => {
+                ForkName::Bellatrix => {
                     if matches!(request, JsonExecutionPayload::V2(_)) {
                         return Err((
                             format!(
@@ -395,7 +395,7 @@ pub async fn handle_rpc<E: EthSpec>(
                                     .read()
                                     .get_fork_at_timestamp(*pa.timestamp())
                                 {
-                                    ForkName::Merge => {
+                                    ForkName::Bellatrix => {
                                         get_param::<Option<JsonPayloadAttributesV1>>(params, 1)
                                             .map(|opt| opt.map(JsonPayloadAttributes::V1))
                                             .transpose()
@@ -427,7 +427,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     .read()
                     .get_fork_at_timestamp(*pa.timestamp())
                 {
-                    ForkName::Merge => {
+                    ForkName::Bellatrix => {
                         if matches!(pa, JsonPayloadAttributes::V2(_)) {
                             return Err((
                                 format!(

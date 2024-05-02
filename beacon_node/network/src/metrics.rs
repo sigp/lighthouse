@@ -244,6 +244,19 @@ lazy_static! {
         "sync_parent_block_lookups",
         "Number of parent block lookups underway"
     );
+    pub static ref SYNC_LOOKUP_CREATED: Result<IntCounter> = try_create_int_counter(
+        "sync_lookups_created_total",
+        "Total count of sync lookups created",
+    );
+    pub static ref SYNC_LOOKUP_DROPPED: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_lookups_dropped_total",
+        "Total count of sync lookups dropped by reason",
+        &["reason"]
+    );
+    pub static ref SYNC_LOOKUP_COMPLETED: Result<IntCounter> = try_create_int_counter(
+        "sync_lookups_completed_total",
+        "Total count of sync lookups completed",
+    );
 
     /*
      * Block Delay Metrics

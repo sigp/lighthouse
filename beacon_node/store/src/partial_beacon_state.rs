@@ -14,7 +14,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -66,9 +66,9 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
@@ -78,21 +78,21 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Merge, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
     #[superstruct(
-        only(Merge),
-        partial_getter(rename = "latest_execution_payload_header_merge")
+        only(Bellatrix),
+        partial_getter(rename = "latest_execution_payload_header_bellatrix")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderMerge<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderBellatrix<E>,
     #[superstruct(
         only(Capella),
         partial_getter(rename = "latest_execution_payload_header_capella")
@@ -118,6 +118,29 @@ where
     #[ssz(skip_serializing, skip_deserializing)]
     #[superstruct(only(Capella, Deneb, Electra))]
     pub historical_summaries: Option<List<HistoricalSummary, E::HistoricalRootsLimit>>,
+
+    // Electra
+    #[superstruct(only(Electra))]
+    pub deposit_receipts_start_index: u64,
+    #[superstruct(only(Electra))]
+    pub deposit_balance_to_consume: u64,
+    #[superstruct(only(Electra))]
+    pub exit_balance_to_consume: u64,
+    #[superstruct(only(Electra))]
+    pub earliest_exit_epoch: Epoch,
+    #[superstruct(only(Electra))]
+    pub consolidation_balance_to_consume: u64,
+    #[superstruct(only(Electra))]
+    pub earliest_consolidation_epoch: Epoch,
+
+    // TODO(electra) should these be optional?
+    #[superstruct(only(Electra))]
+    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    #[superstruct(only(Electra))]
+    pub pending_partial_withdrawals:
+        List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
+    #[superstruct(only(Electra))]
+    pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -199,11 +222,11 @@ impl<E: EthSpec> PartialBeaconState<E> {
                 ],
                 []
             ),
-            BeaconState::Merge(s) => impl_from_state_forgetful!(
+            BeaconState::Bellatrix(s) => impl_from_state_forgetful!(
                 s,
                 outer,
-                Merge,
-                PartialBeaconStateMerge,
+                Bellatrix,
+                PartialBeaconStateBellatrix,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -261,7 +284,16 @@ impl<E: EthSpec> PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_receipts_start_index,
+                    deposit_balance_to_consume,
+                    exit_balance_to_consume,
+                    earliest_exit_epoch,
+                    consolidation_balance_to_consume,
+                    earliest_consolidation_epoch,
+                    pending_balance_deposits,
+                    pending_partial_withdrawals,
+                    pending_consolidations
                 ],
                 [historical_summaries]
             ),
@@ -467,10 +499,10 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 ],
                 []
             ),
-            PartialBeaconState::Merge(inner) => impl_try_into_beacon_state!(
+            PartialBeaconState::Bellatrix(inner) => impl_try_into_beacon_state!(
                 inner,
-                Merge,
-                BeaconStateMerge,
+                Bellatrix,
+                BeaconStateBellatrix,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -525,7 +557,16 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_receipts_start_index,
+                    deposit_balance_to_consume,
+                    exit_balance_to_consume,
+                    earliest_exit_epoch,
+                    consolidation_balance_to_consume,
+                    earliest_consolidation_epoch,
+                    pending_balance_deposits,
+                    pending_partial_withdrawals,
+                    pending_consolidations
                 ],
                 [historical_summaries]
             ),

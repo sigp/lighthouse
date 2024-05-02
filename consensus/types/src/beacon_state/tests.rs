@@ -1,10 +1,10 @@
 #![cfg(test)]
-use crate::{test_utils::*, ForkName};
+use crate::test_utils::*;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
-    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateCapella,
-    BeaconStateDeneb, BeaconStateElectra, BeaconStateError, BeaconStateMerge, ChainSpec, Domain,
-    Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot, Vector,
+    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
+    ChainSpec, Domain, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec,
+    RelativeEpoch, Slot, Vector,
 };
 use ssz::Encode;
 use std::ops::Mul;
@@ -401,26 +401,5 @@ fn decode_base_and_altair() {
         );
         <BeaconState<MainnetEthSpec>>::from_ssz_bytes(&bad_altair_state.as_ssz_bytes(), &spec)
             .expect_err("bad altair state cannot be decoded");
-    }
-}
-
-#[test]
-fn check_num_fields_pow2() {
-    use metastruct::NumFields;
-    pub type E = MainnetEthSpec;
-
-    for fork_name in ForkName::list_all() {
-        let num_fields = match fork_name {
-            ForkName::Base => BeaconStateBase::<E>::NUM_FIELDS,
-            ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS,
-            ForkName::Merge => BeaconStateMerge::<E>::NUM_FIELDS,
-            ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS,
-            ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS,
-            ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS,
-        };
-        assert_eq!(
-            num_fields.next_power_of_two(),
-            BeaconState::<E>::NUM_FIELDS_POW2
-        );
     }
 }

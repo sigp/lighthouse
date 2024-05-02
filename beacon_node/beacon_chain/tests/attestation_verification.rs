@@ -336,7 +336,7 @@ impl GossipTester {
 
     pub fn earliest_valid_attestation_slot(&self) -> Slot {
         let offset = match self.harness.spec.fork_name_at_epoch(self.epoch()) {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 // Subtract an additional slot since the harness will be exactly on the start of the
                 // slot and the propagation tolerance will allow an extra slot.
                 E::slots_per_epoch() + 1
@@ -1426,7 +1426,10 @@ async fn attestation_verification_use_head_state_fork() {
         .block_at_slot(pre_capella_slot, WhenSlotSkipped::Prev)
         .expect("should not error getting block at slot")
         .expect("should find block at slot");
-    assert_eq!(pre_capella_block.fork_name(&spec).unwrap(), ForkName::Merge);
+    assert_eq!(
+        pre_capella_block.fork_name(&spec).unwrap(),
+        ForkName::Bellatrix
+    );
 
     // Advance slot clock to Capella fork.
     harness.advance_slot();
@@ -1471,7 +1474,7 @@ async fn attestation_verification_use_head_state_fork() {
     // Scenario 2: other node forgot to update their node and signed attestations using bellatrix fork
     {
         let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
-        let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
+        let bellatrix_fork = spec.fork_for_name(ForkName::Bellatrix).unwrap();
         let committee_attestations = harness
             .make_unaggregated_attestations_with_opts(
                 attesters.as_slice(),
@@ -1480,7 +1483,7 @@ async fn attestation_verification_use_head_state_fork() {
                 pre_capella_block.canonical_root().into(),
                 first_capella_slot,
                 MakeAttestationOptions {
-                    fork: merge_fork,
+                    fork: bellatrix_fork,
                     limit: None,
                 },
             )
@@ -1527,7 +1530,10 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
         .block_at_slot(pre_capella_slot, WhenSlotSkipped::Prev)
         .expect("should not error getting block at slot")
         .expect("should find block at slot");
-    assert_eq!(pre_capella_block.fork_name(&spec).unwrap(), ForkName::Merge);
+    assert_eq!(
+        pre_capella_block.fork_name(&spec).unwrap(),
+        ForkName::Bellatrix
+    );
 
     // Advance slot clock to Capella fork.
     harness.advance_slot();
@@ -1569,7 +1575,7 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
     // Scenario 2: other node forgot to update their node and signed attestations using bellatrix fork
     {
         let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
-        let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
+        let bellatrix_fork = spec.fork_for_name(ForkName::Bellatrix).unwrap();
         let aggregates = harness
             .make_attestations_with_opts(
                 attesters.as_slice(),
@@ -1578,7 +1584,7 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
                 pre_capella_block.canonical_root().into(),
                 first_capella_slot,
                 MakeAttestationOptions {
-                    fork: merge_fork,
+                    fork: bellatrix_fork,
                     limit: None,
                 },
             )

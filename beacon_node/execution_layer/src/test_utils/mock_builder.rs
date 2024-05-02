@@ -15,7 +15,7 @@ use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::builder_bid::{
-    BuilderBid, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra, BuilderBidMerge,
+    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     SignedBuilderBid,
 };
 use types::{
@@ -77,7 +77,7 @@ pub trait BidStuff<E: EthSpec> {
 impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
     fn set_fee_recipient(&mut self, fee_recipient: Address) {
         match self.to_mut().header_mut() {
-            ExecutionPayloadHeaderRefMut::Merge(header) => {
+            ExecutionPayloadHeaderRefMut::Bellatrix(header) => {
                 header.fee_recipient = fee_recipient;
             }
             ExecutionPayloadHeaderRefMut::Capella(header) => {
@@ -94,7 +94,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 
     fn set_gas_limit(&mut self, gas_limit: u64) {
         match self.to_mut().header_mut() {
-            ExecutionPayloadHeaderRefMut::Merge(header) => {
+            ExecutionPayloadHeaderRefMut::Bellatrix(header) => {
                 header.gas_limit = gas_limit;
             }
             ExecutionPayloadHeaderRefMut::Capella(header) => {
@@ -115,7 +115,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 
     fn set_parent_hash(&mut self, parent_hash: Hash256) {
         match self.to_mut().header_mut() {
-            ExecutionPayloadHeaderRefMut::Merge(header) => {
+            ExecutionPayloadHeaderRefMut::Bellatrix(header) => {
                 header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
             }
             ExecutionPayloadHeaderRefMut::Capella(header) => {
@@ -132,7 +132,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 
     fn set_prev_randao(&mut self, prev_randao: Hash256) {
         match self.to_mut().header_mut() {
-            ExecutionPayloadHeaderRefMut::Merge(header) => {
+            ExecutionPayloadHeaderRefMut::Bellatrix(header) => {
                 header.prev_randao = prev_randao;
             }
             ExecutionPayloadHeaderRefMut::Capella(header) => {
@@ -149,7 +149,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 
     fn set_block_number(&mut self, block_number: u64) {
         match self.to_mut().header_mut() {
-            ExecutionPayloadHeaderRefMut::Merge(header) => {
+            ExecutionPayloadHeaderRefMut::Bellatrix(header) => {
                 header.block_number = block_number;
             }
             ExecutionPayloadHeaderRefMut::Capella(header) => {
@@ -166,7 +166,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 
     fn set_timestamp(&mut self, timestamp: u64) {
         match self.to_mut().header_mut() {
-            ExecutionPayloadHeaderRefMut::Merge(header) => {
+            ExecutionPayloadHeaderRefMut::Bellatrix(header) => {
                 header.timestamp = timestamp;
             }
             ExecutionPayloadHeaderRefMut::Capella(header) => {
@@ -183,7 +183,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 
     fn set_withdrawals_root(&mut self, withdrawals_root: Hash256) {
         match self.to_mut().header_mut() {
-            ExecutionPayloadHeaderRefMut::Merge(_) => {
+            ExecutionPayloadHeaderRefMut::Bellatrix(_) => {
                 panic!("no withdrawals before capella")
             }
             ExecutionPayloadHeaderRefMut::Capella(header) => {
@@ -336,7 +336,7 @@ pub fn serve<E: EthSpec>(
                         SignedBlindedBeaconBlock::Base(_) | types::SignedBeaconBlock::Altair(_) => {
                             return Err(reject("invalid fork"));
                         }
-                        SignedBlindedBeaconBlock::Merge(block) => {
+                        SignedBlindedBeaconBlock::Bellatrix(block) => {
                             block.message.body.execution_payload.tree_hash_root()
                         }
                         SignedBlindedBeaconBlock::Capella(block) => {
@@ -480,7 +480,7 @@ pub fn serve<E: EthSpec>(
                     .get_randao_mix(head_state.current_epoch())
                     .map_err(|_| reject("couldn't get prev randao"))?;
                 let expected_withdrawals = match fork {
-                    ForkName::Base | ForkName::Altair | ForkName::Merge => None,
+                    ForkName::Base | ForkName::Altair | ForkName::Bellatrix => None,
                     ForkName::Capella | ForkName::Deneb | ForkName::Electra => Some(
                         builder
                             .beacon_client
@@ -496,7 +496,7 @@ pub fn serve<E: EthSpec>(
                     // first to avoid polluting the execution block generator with invalid payload attributes
                     // NOTE: this was part of an effort to add payload attribute uniqueness checks,
                     // which was abandoned because it broke too many tests in subtle ways.
-                    ForkName::Merge | ForkName::Capella => PayloadAttributes::new(
+                    ForkName::Bellatrix | ForkName::Capella => PayloadAttributes::new(
                         timestamp,
                         *prev_randao,
                         fee_recipient,
@@ -577,9 +577,9 @@ pub fn serve<E: EthSpec>(
                                 value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                                 pubkey: builder.builder_sk.public_key().compress(),
                             }),
-                            ForkName::Merge => BuilderBid::Merge(BuilderBidMerge {
+                            ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
                                 header: payload
-                                    .as_merge()
+                                    .as_bellatrix()
                                     .map_err(|_| reject("incorrect payload variant"))?
                                     .into(),
                                 value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
@@ -627,9 +627,9 @@ pub fn serve<E: EthSpec>(
                                 value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                                 pubkey: builder.builder_sk.public_key().compress(),
                             }),
-                            ForkName::Merge => BuilderBid::Merge(BuilderBidMerge {
+                            ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
                                 header: payload
-                                    .as_merge()
+                                    .as_bellatrix()
                                     .map_err(|_| reject("incorrect payload variant"))?
                                     .into(),
                                 value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),

@@ -25,8 +25,8 @@ pub use types::{
     Withdrawal, Withdrawals,
 };
 use types::{
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadMerge,
-    KzgProofs,
+    ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadElectra, KzgProofs,
 };
 use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
@@ -36,8 +36,8 @@ pub mod json_structures;
 mod new_payload_request;
 
 pub use new_payload_request::{
-    NewPayloadRequest, NewPayloadRequestCapella, NewPayloadRequestDeneb, NewPayloadRequestElectra,
-    NewPayloadRequestMerge,
+    NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
+    NewPayloadRequestDeneb, NewPayloadRequestElectra,
 };
 
 pub const LATEST_TAG: &str = "latest";
@@ -155,7 +155,7 @@ pub struct ExecutionBlock {
 
 /// Representation of an execution block with enough detail to reconstruct a payload.
 #[superstruct(
-    variants(Merge, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
         derive(Clone, Debug, PartialEq, Serialize, Deserialize,),
         serde(bound = "E: EthSpec", rename_all = "camelCase"),
@@ -204,26 +204,28 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions
 
     fn try_from(payload: ExecutionPayload<E>) -> Result<Self, Error> {
         let json_payload = match payload {
-            ExecutionPayload::Merge(block) => Self::Merge(ExecutionBlockWithTransactionsMerge {
-                parent_hash: block.parent_hash,
-                fee_recipient: block.fee_recipient,
-                state_root: block.state_root,
-                receipts_root: block.receipts_root,
-                logs_bloom: block.logs_bloom,
-                prev_randao: block.prev_randao,
-                block_number: block.block_number,
-                gas_limit: block.gas_limit,
-                gas_used: block.gas_used,
-                timestamp: block.timestamp,
-                extra_data: block.extra_data,
-                base_fee_per_gas: block.base_fee_per_gas,
-                block_hash: block.block_hash,
-                transactions: block
-                    .transactions
-                    .iter()
-                    .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                    .collect::<Result<Vec<_>, _>>()?,
-            }),
+            ExecutionPayload::Bellatrix(block) => {
+                Self::Bellatrix(ExecutionBlockWithTransactionsBellatrix {
+                    parent_hash: block.parent_hash,
+                    fee_recipient: block.fee_recipient,
+                    state_root: block.state_root,
+                    receipts_root: block.receipts_root,
+                    logs_bloom: block.logs_bloom,
+                    prev_randao: block.prev_randao,
+                    block_number: block.block_number,
+                    gas_limit: block.gas_limit,
+                    gas_used: block.gas_used,
+                    timestamp: block.timestamp,
+                    extra_data: block.extra_data,
+                    base_fee_per_gas: block.base_fee_per_gas,
+                    block_hash: block.block_hash,
+                    transactions: block
+                        .transactions
+                        .iter()
+                        .map(|tx| Transaction::decode(&Rlp::new(tx)))
+                        .collect::<Result<Vec<_>, _>>()?,
+                })
+            }
             ExecutionPayload::Capella(block) => {
                 Self::Capella(ExecutionBlockWithTransactionsCapella {
                     parent_hash: block.parent_hash,
@@ -423,7 +425,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -432,8 +434,11 @@ pub struct ProposeBlindedBlockResponse {
 )]
 #[derive(Clone, Debug, PartialEq)]
 pub struct GetPayloadResponse<E: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload: ExecutionPayloadMerge<E>,
+    #[superstruct(
+        only(Bellatrix),
+        partial_getter(rename = "execution_payload_bellatrix")
+    )]
+    pub execution_payload: ExecutionPayloadBellatrix<E>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload: ExecutionPayloadCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
@@ -482,8 +487,8 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
 {
     fn from(response: GetPayloadResponse<E>) -> Self {
         match response {
-            GetPayloadResponse::Merge(inner) => (
-                ExecutionPayload::Merge(inner.execution_payload),
+            GetPayloadResponse::Bellatrix(inner) => (
+                ExecutionPayload::Bellatrix(inner.execution_payload),
                 inner.block_value,
                 None,
             ),
@@ -529,14 +534,14 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
         header: ExecutionPayloadHeader<E>,
     ) -> Result<ExecutionPayload<E>, String> {
         match header {
-            ExecutionPayloadHeader::Merge(header) => {
+            ExecutionPayloadHeader::Bellatrix(header) => {
                 if self.withdrawals.is_some() {
                     return Err(format!(
                         "block {} is merge but payload body has withdrawals",
                         header.block_hash
                     ));
                 }
-                Ok(ExecutionPayload::Merge(ExecutionPayloadMerge {
+                Ok(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                     parent_hash: header.parent_hash,
                     fee_recipient: header.fee_recipient,
                     state_root: header.state_root,
@@ -627,6 +632,9 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         withdrawals,
                         blob_gas_used: header.blob_gas_used,
                         excess_blob_gas: header.excess_blob_gas,
+                        // TODO(electra)
+                        deposit_receipts: <_>::default(),
+                        withdrawal_requests: <_>::default(),
                     }))
                 } else {
                     Err(format!(

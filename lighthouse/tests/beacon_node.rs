@@ -416,7 +416,7 @@ fn eth1_cache_follow_distance_manual() {
 }
 
 // Tests for Bellatrix flags.
-fn run_merge_execution_endpoints_flag_test(flag: &str) {
+fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
     use sensitive_url::SensitiveUrl;
     let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
     // we don't support redundancy for execution-endpoints
@@ -500,15 +500,15 @@ fn execution_timeout_multiplier_flag() {
         });
 }
 #[test]
-fn merge_execution_endpoints_flag() {
-    run_merge_execution_endpoints_flag_test("execution-endpoints")
+fn bellatrix_execution_endpoints_flag() {
+    run_bellatrix_execution_endpoints_flag_test("execution-endpoints")
 }
 #[test]
-fn merge_execution_endpoint_flag() {
-    run_merge_execution_endpoints_flag_test("execution-endpoint")
+fn bellatrix_execution_endpoint_flag() {
+    run_bellatrix_execution_endpoints_flag_test("execution-endpoint")
 }
 #[test]
-fn merge_jwt_secrets_flag() {
+fn bellatrix_jwt_secrets_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
     file.write_all(b"0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33")
@@ -533,7 +533,7 @@ fn merge_jwt_secrets_flag() {
         });
 }
 #[test]
-fn merge_fee_recipient_flag() {
+fn bellatrix_fee_recipient_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("execution-endpoint", Some("http://meow.cats"))
@@ -1844,6 +1844,19 @@ fn block_cache_size_flag() {
         .flag("block-cache-size", Some("4"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.block_cache_size, new_non_zero_usize(4)));
+}
+#[test]
+fn state_cache_size_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(128)));
+}
+#[test]
+fn state_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("state-cache-size", Some("64"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(64)));
 }
 #[test]
 fn historic_state_cache_size_flag() {

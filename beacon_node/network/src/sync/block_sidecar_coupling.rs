@@ -130,4 +130,30 @@ mod tests {
         assert!(info.is_finished());
         info.into_responses().unwrap();
     }
+
+    #[test]
+    fn empty_blobs_into_responses() {
+        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::BlocksAndBlobs);
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let blocks = (0..4)
+            .map(|_| {
+                // Always generate some blobs.
+                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut rng).0
+            })
+            .collect::<Vec<_>>();
+
+        // Send blocks and complete terminate response
+        for block in blocks {
+            info.add_block_response(Some(block.into()));
+        }
+        info.add_block_response(None);
+        // Expect no blobs returned
+        info.add_sidecar_response(None);
+
+        // Assert response is finished and RpcBlocks can be constructed, even if blobs weren't returned.
+        // This makes sure we don't expect blobs here when they have expired. Checking this logic should
+        // be hendled elsewhere.
+        assert!(info.is_finished());
+        info.into_responses().unwrap();
+    }
 }

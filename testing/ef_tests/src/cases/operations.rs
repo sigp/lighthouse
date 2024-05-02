@@ -20,8 +20,8 @@ use state_processing::{
 };
 use std::fmt::Debug;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyCapella,
-    BeaconBlockBodyDeneb, BeaconBlockBodyMerge, BeaconState, BlindedPayload, Deposit,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconState, BlindedPayload, Deposit,
     ExecutionPayload, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
     SignedVoluntaryExit, SyncAggregate,
 };
@@ -99,7 +99,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
                 spec,
             ),
             BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_) => {
@@ -289,7 +289,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
             Ok(match fork_name {
-                ForkName::Merge => BeaconBlockBody::Merge(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Bellatrix => BeaconBlockBody::Bellatrix(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
                 _ => panic!(),
@@ -330,9 +330,10 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
             Ok(match fork_name {
-                ForkName::Merge => {
-                    let inner = <BeaconBlockBodyMerge<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
-                    BeaconBlockBody::Merge(inner.clone_as_blinded())
+                ForkName::Bellatrix => {
+                    let inner =
+                        <BeaconBlockBodyBellatrix<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Bellatrix(inner.clone_as_blinded())
                 }
                 ForkName::Capella => {
                     let inner = <BeaconBlockBodyCapella<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
@@ -375,7 +376,9 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
+        fork_name != ForkName::Base
+            && fork_name != ForkName::Altair
+            && fork_name != ForkName::Bellatrix
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -407,7 +410,9 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
+        fork_name != ForkName::Base
+            && fork_name != ForkName::Altair
+            && fork_name != ForkName::Bellatrix
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
