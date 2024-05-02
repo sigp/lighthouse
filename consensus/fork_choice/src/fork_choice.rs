@@ -747,27 +747,27 @@ where
             if let Some((parent_justified, parent_finalized)) = parent_checkpoints {
                 (parent_justified, parent_finalized)
             } else {
-                let justification_and_finalization_state =
-                    if block.fork_name_unchecked().has_feature(FeatureName::Altair) {
-                        // NOTE: Processing justification & finalization requires the progressive
-                        // balances cache, but we cannot initialize it here as we only have an
-                        // immutable reference. The state *should* have come straight from block
-                        // processing, which initialises the cache, but if we add other `on_block`
-                        // calls in future it could be worth passing a mutable reference.
-                        per_epoch_processing::altair::process_justification_and_finalization(state)?
-                    } else {
-                        let mut validator_statuses =
-                            per_epoch_processing::base::ValidatorStatuses::new(state, spec)
-                                .map_err(Error::ValidatorStatuses)?;
-                        validator_statuses
-                            .process_attestations(state)
+                let justification_and_finalization_state = if block.has_feature(FeatureName::Altair)
+                {
+                    // NOTE: Processing justification & finalization requires the progressive
+                    // balances cache, but we cannot initialize it here as we only have an
+                    // immutable reference. The state *should* have come straight from block
+                    // processing, which initialises the cache, but if we add other `on_block`
+                    // calls in future it could be worth passing a mutable reference.
+                    per_epoch_processing::altair::process_justification_and_finalization(state)?
+                } else {
+                    let mut validator_statuses =
+                        per_epoch_processing::base::ValidatorStatuses::new(state, spec)
                             .map_err(Error::ValidatorStatuses)?;
-                        per_epoch_processing::base::process_justification_and_finalization(
-                            state,
-                            &validator_statuses.total_balances,
-                            spec,
-                        )?
-                    };
+                    validator_statuses
+                        .process_attestations(state)
+                        .map_err(Error::ValidatorStatuses)?;
+                    per_epoch_processing::base::process_justification_and_finalization(
+                        state,
+                        &validator_statuses.total_balances,
+                        spec,
+                    )?
+                };
 
                 (
                     justification_and_finalization_state.current_justified_checkpoint(),

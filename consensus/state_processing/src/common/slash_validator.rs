@@ -55,15 +55,12 @@ pub fn slash_validator<E: EthSpec>(
     let whistleblower_index = opt_whistleblower_index.unwrap_or(proposer_index);
     let whistleblower_reward =
         validator_effective_balance.safe_div(spec.whistleblower_reward_quotient)?;
-    let proposer_reward = match state {
-        BeaconState::Base(_) => whistleblower_reward.safe_div(spec.proposer_reward_quotient)?,
-        BeaconState::Altair(_)
-        | BeaconState::Bellatrix(_)
-        | BeaconState::Capella(_)
-        | BeaconState::Deneb(_)
-        | BeaconState::Electra(_) => whistleblower_reward
+    let proposer_reward = if state.has_feature(FeatureName::Altair) {
+        whistleblower_reward
             .safe_mul(PROPOSER_WEIGHT)?
-            .safe_div(WEIGHT_DENOMINATOR)?,
+            .safe_div(WEIGHT_DENOMINATOR)?
+    } else {
+        whistleblower_reward.safe_div(spec.proposer_reward_quotient)?
     };
 
     // Ensure the whistleblower index is in the validator registry.

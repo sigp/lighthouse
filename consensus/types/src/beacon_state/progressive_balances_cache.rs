@@ -4,7 +4,7 @@ use crate::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX,
     },
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
+    BeaconStateError, ChainSpec, Epoch, ParticipationFlags,
 };
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
@@ -280,17 +280,5 @@ impl ProgressiveBalancesCache {
         self.inner
             .as_ref()
             .ok_or(BeaconStateError::ProgressiveBalancesCacheNotInitialized)
-    }
-}
-
-/// `ProgressiveBalancesCache` is only enabled from `Altair` as it uses Altair-specific logic.
-pub fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bool {
-    match state {
-        BeaconState::Base(_) => false,
-        BeaconState::Altair(_)
-        | BeaconState::Bellatrix(_)
-        | BeaconState::Capella(_)
-        | BeaconState::Deneb(_)
-        | BeaconState::Electra(_) => true,
     }
 }

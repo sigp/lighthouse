@@ -263,6 +263,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         self.blob_kzg_commitments()
             .map_or(false, |blobs| !blobs.is_empty())
     }
+
+    pub fn has_feature(self, feature: FeatureName) -> bool {
+        self.fork_name().has_feature(feature)
+    }
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, Payload> {

@@ -1579,16 +1579,14 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// Uses the current epoch committee cache, and will error if it isn't initialized.
     pub fn get_activation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
-        Ok(match self {
-            BeaconState::Base(_)
-            | BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_) => self.get_validator_churn_limit(spec)?,
-            BeaconState::Deneb(_) | BeaconState::Electra(_) => std::cmp::min(
+        if self.has_feature(FeatureName::Deneb) {
+            Ok(std::cmp::min(
                 spec.max_per_epoch_activation_churn_limit,
                 self.get_validator_churn_limit(spec)?,
-            ),
-        })
+            ))
+        } else {
+            Ok(self.get_validator_churn_limit(spec)?)
+        }
     }
 
     /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an

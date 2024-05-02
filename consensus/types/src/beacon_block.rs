@@ -235,6 +235,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
         }
     }
 
+    pub fn has_feature(self, feature: FeatureName) -> bool {
+        self.fork_name_unchecked().has_feature(feature)
+    }
+
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
     pub fn body(&self) -> BeaconBlockBodyRef<'a, E, Payload> {
         map_beacon_block_ref_into_beacon_block_body_ref!(&'a _, *self, |block, cons| cons(
