@@ -273,27 +273,17 @@ jobs:
       - name: Install lighthouse
         run: |
           make
-<<<<<<< HEAD
       - name: Install lcli
-        # TODO: uncomment after the version of lcli in https://github.com/sigp/lighthouse/pull/5137
-        # is installed on the runners
-        # if: env.SELF_HOSTED_RUNNERS == 'false'
+        if: env.SELF_HOSTED_RUNNERS == 'false'
         run: make install-lcli
       - name: Run the doppelganger protection failure test script
         run: |
-=======
-    - name: Install lcli
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      run: make install-lcli
-    - name: Run the doppelganger protection failure test script
-      run: |
->>>>>>> sigp/unstable
           cd scripts/tests
           ./doppelganger_protection.sh failure genesis.json
-      - name: Run the doppelganger protection success test script
-        run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh success genesis.json
+          - name: Run the doppelganger protection success test script
+            run: |
+              cd scripts/tests
+              ./doppelganger_protection.sh success genesis.json
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
