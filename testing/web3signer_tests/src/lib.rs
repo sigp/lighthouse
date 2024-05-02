@@ -724,11 +724,11 @@ mod tests {
         .await;
     }
 
-    /// Test all the Merge types.
-    async fn test_merge_types(network: &str, listen_port: u16) {
+    /// Test all the Bellatrix types.
+    async fn test_bellatrix_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
         let spec = &network_config.chain_spec::<E>().unwrap();
-        let merge_fork_slot = spec
+        let bellatrix_fork_slot = spec
             .bellatrix_fork_epoch
             .unwrap()
             .start_slot(E::slots_per_epoch());
@@ -740,14 +740,21 @@ mod tests {
             listen_port,
         )
         .await
-        .assert_signatures_match("beacon_block_merge", |pubkey, validator_store| async move {
-            let mut merge_block = BeaconBlockMerge::empty(spec);
-            merge_block.slot = merge_fork_slot;
-            validator_store
-                .sign_block(pubkey, BeaconBlock::Merge(merge_block), merge_fork_slot)
-                .await
-                .unwrap()
-        })
+        .assert_signatures_match(
+            "beacon_block_bellatrix",
+            |pubkey, validator_store| async move {
+                let mut bellatrix_block = BeaconBlockBellatrix::empty(spec);
+                bellatrix_block.slot = bellatrix_fork_slot;
+                validator_store
+                    .sign_block(
+                        pubkey,
+                        BeaconBlock::Bellatrix(bellatrix_block),
+                        bellatrix_fork_slot,
+                    )
+                    .await
+                    .unwrap()
+            },
+        )
         .await;
     }
 
@@ -760,7 +767,7 @@ mod tests {
 
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
         let spec = &network_config.chain_spec::<E>().unwrap();
-        let merge_fork_slot = spec
+        let bellatrix_fork_slot = spec
             .bellatrix_fork_epoch
             .unwrap()
             .start_slot(E::slots_per_epoch());
@@ -797,9 +804,9 @@ mod tests {
         };
 
         let first_block = || {
-            let mut merge_block = BeaconBlockMerge::empty(spec);
-            merge_block.slot = merge_fork_slot;
-            BeaconBlock::Merge(merge_block)
+            let mut bellatrix_block = BeaconBlockBellatrix::empty(spec);
+            bellatrix_block.slot = bellatrix_fork_slot;
+            BeaconBlock::Bellatrix(bellatrix_block)
         };
 
         let double_vote_block = || {
@@ -914,8 +921,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sepolia_merge_types() {
-        test_merge_types("sepolia", 4252).await
+    async fn sepolia_bellatrix_types() {
+        test_bellatrix_types("sepolia", 4252).await
     }
 
     #[tokio::test]

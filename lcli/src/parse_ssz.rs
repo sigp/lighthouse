@@ -70,9 +70,11 @@ pub fn run_parse_ssz<E: EthSpec>(
         "SignedBeaconBlockAltair" => {
             decode_and_print(&bytes, SignedBeaconBlockAltair::<E>::from_ssz_bytes, format)?
         }
-        "SignedBeaconBlockMerge" | "SignedBeaconBlockBellatrix" => {
-            decode_and_print(&bytes, SignedBeaconBlockMerge::<E>::from_ssz_bytes, format)?
-        }
+        "SignedBeaconBlockBellatrix" => decode_and_print(
+            &bytes,
+            SignedBeaconBlockBellatrix::<E>::from_ssz_bytes,
+            format,
+        )?,
         "SignedBeaconBlockCapella" => decode_and_print(
             &bytes,
             SignedBeaconBlockCapella::<E>::from_ssz_bytes,
@@ -97,8 +99,8 @@ pub fn run_parse_ssz<E: EthSpec>(
         "BeaconStateAltair" => {
             decode_and_print(&bytes, BeaconStateAltair::<E>::from_ssz_bytes, format)?
         }
-        "BeaconStateMerge" | "BeaconStateBellatrix" => {
-            decode_and_print(&bytes, BeaconStateMerge::<E>::from_ssz_bytes, format)?
+        "BeaconStateBellatrix" => {
+            decode_and_print(&bytes, BeaconStateBellatrix::<E>::from_ssz_bytes, format)?
         }
         "BeaconStateCapella" => {
             decode_and_print(&bytes, BeaconStateCapella::<E>::from_ssz_bytes, format)?

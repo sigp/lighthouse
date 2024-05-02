@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
+    consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
     Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestationRef, RelativeEpoch,
     SignedBeaconBlock, Slot,
@@ -751,7 +751,7 @@ where
                     BeaconBlockRef::Electra(_)
                     | BeaconBlockRef::Deneb(_)
                     | BeaconBlockRef::Capella(_)
-                    | BeaconBlockRef::Merge(_)
+                    | BeaconBlockRef::Bellatrix(_)
                     | BeaconBlockRef::Altair(_) => {
                         // NOTE: Processing justification & finalization requires the progressive
                         // balances cache, but we cannot initialize it here as we only have an

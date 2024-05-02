@@ -701,7 +701,7 @@ async fn invalid_signature_attester_slashing() {
                     .push(attester_slashing)
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Merge(ref mut blk) => {
+            BeaconBlockBodyRefMut::Bellatrix(ref mut blk) => {
                 blk.attester_slashings
                     .push(attester_slashing)
                     .expect("should update attester slashing");
@@ -758,7 +758,7 @@ async fn invalid_signature_attestation() {
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Merge(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Bellatrix(ref mut blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),

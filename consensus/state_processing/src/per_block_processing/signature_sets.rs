@@ -390,7 +390,7 @@ where
     let domain = match state {
         BeaconState::Base(_)
         | BeaconState::Altair(_)
-        | BeaconState::Merge(_)
+        | BeaconState::Bellatrix(_)
         | BeaconState::Capella(_) => spec.get_domain(
             exit.epoch,
             Domain::VoluntaryExit,

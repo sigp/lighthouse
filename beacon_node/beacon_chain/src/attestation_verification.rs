@@ -1062,7 +1062,9 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     let current_fork =
         spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
     let earliest_permissible_slot = match current_fork {
-        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => one_epoch_prior,
+        ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
+            one_epoch_prior
+        }
         // EIP-7045
         ForkName::Deneb | ForkName::Electra => one_epoch_prior
             .epoch(E::slots_per_epoch())

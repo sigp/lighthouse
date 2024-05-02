@@ -93,7 +93,7 @@ pub trait EthSpec:
     /// The number of `sync_committee` subnets.
     type SyncCommitteeSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * New in Merge
+     * New in Bellatrix
      */
     type MaxBytesPerTransaction: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxTransactionsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -422,6 +422,10 @@ impl EthSpec for MinimalEthSpec {
     type BytesPerBlob = U131072;
     type MaxBlobCommitmentsPerBlock = U16;
     type KzgCommitmentInclusionProofDepth = U9;
+    type PendingPartialWithdrawalsLimit = U64;
+    type PendingConsolidationsLimit = U64;
+    type MaxDepositReceiptsPerPayload = U4;
+    type MaxWithdrawalRequestsPerPayload = U2;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -448,13 +452,9 @@ impl EthSpec for MinimalEthSpec {
         MaxBlobsPerBlock,
         BytesPerFieldElement,
         PendingBalanceDepositsLimit,
-        PendingPartialWithdrawalsLimit,
-        PendingConsolidationsLimit,
         MaxConsolidations,
-        MaxDepositReceiptsPerPayload,
         MaxAttesterSlashingsElectra,
-        MaxAttestationsElectra,
-        MaxWithdrawalRequestsPerPayload
+        MaxAttestationsElectra
     });
 
     fn default_spec() -> ChainSpec {

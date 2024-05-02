@@ -569,7 +569,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         }
     }
 
-    pub fn with_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
+    pub fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
         &self,
         block_root: &Hash256,
         f: F,
@@ -989,17 +989,17 @@ mod test {
 
         // go to bellatrix slot
         harness.extend_to_slot(bellatrix_fork_slot).await;
-        let merge_head = &harness.chain.head_snapshot().beacon_block;
-        assert!(merge_head.as_merge().is_ok());
-        assert_eq!(merge_head.slot(), bellatrix_fork_slot);
+        let bellatrix_head = &harness.chain.head_snapshot().beacon_block;
+        assert!(bellatrix_head.as_bellatrix().is_ok());
+        assert_eq!(bellatrix_head.slot(), bellatrix_fork_slot);
         assert!(
-            merge_head
+            bellatrix_head
                 .message()
                 .body()
                 .execution_payload()
                 .unwrap()
                 .is_default_with_empty_roots(),
-            "Merge head is default payload"
+            "Bellatrix head is default payload"
         );
         // Trigger the terminal PoW block.
         harness

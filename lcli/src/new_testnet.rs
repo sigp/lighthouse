@@ -21,8 +21,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
-    Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderMerge,
+    Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix,
+    ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
     ForkName, Hash256, Keypair, PublicKey, Validator,
 };
 
@@ -114,9 +114,9 @@ pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                     ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(
                         "genesis fork must be post-merge".to_string(),
                     )),
-                    ForkName::Merge => {
-                        ExecutionPayloadHeaderMerge::<E>::from_ssz_bytes(bytes.as_slice())
-                            .map(ExecutionPayloadHeader::Merge)
+                    ForkName::Bellatrix => {
+                        ExecutionPayloadHeaderBellatrix::<E>::from_ssz_bytes(bytes.as_slice())
+                            .map(ExecutionPayloadHeader::Bellatrix)
                     }
                     ForkName::Capella => {
                         ExecutionPayloadHeaderCapella::<E>::from_ssz_bytes(bytes.as_slice())
@@ -246,10 +246,10 @@ fn initialize_state_with_validators<E: EthSpec>(
 ) -> Result<BeaconState<E>, String> {
     // If no header is provided, then start from a Bellatrix state by default
     let default_header: ExecutionPayloadHeader<E> =
-        ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
+        ExecutionPayloadHeader::Bellatrix(ExecutionPayloadHeaderBellatrix {
             block_hash: ExecutionBlockHash::from_root(eth1_block_hash),
             parent_hash: ExecutionBlockHash::zero(),
-            ..ExecutionPayloadHeaderMerge::default()
+            ..ExecutionPayloadHeaderBellatrix::default()
         });
     let execution_payload_header = execution_payload_header.unwrap_or(default_header);
     // Empty eth1 data
@@ -314,9 +314,9 @@ fn initialize_state_with_validators<E: EthSpec>(
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/bellatrix/beacon-chain.md#testing
-        if let ExecutionPayloadHeader::Merge(ref header) = execution_payload_header {
+        if let ExecutionPayloadHeader::Bellatrix(ref header) = execution_payload_header {
             *state
-                .latest_execution_payload_header_merge_mut()
+                .latest_execution_payload_header_bellatrix_mut()
                 .or(Err("mismatched fork".to_string()))? = header.clone();
         }
     }

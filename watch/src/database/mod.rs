@@ -146,7 +146,7 @@ pub fn insert_beacon_block<E: EthSpec>(
     let full_payload = block_message.execution_payload().ok();
 
     let transaction_count: Option<i32> = if let Some(bellatrix_payload) =
-        full_payload.and_then(|payload| payload.execution_payload_merge().ok())
+        full_payload.and_then(|payload| payload.execution_payload_bellatrix().ok())
     {
         Some(bellatrix_payload.transactions.len() as i32)
     } else {
