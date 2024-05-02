@@ -338,6 +338,31 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     }
 }
 
+impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, E, Payload> {
+    pub fn attestations_mut(
+        &'a mut self,
+    ) -> Box<dyn Iterator<Item = AttestationRefMut<'a, E>> + 'a> {
+        match self {
+            Self::Base(body) => Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base)),
+            Self::Altair(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Merge(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Capella(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Deneb(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Electra(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
+            }
+        }
+    }
+}
+
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, Payload> {
     /// Get the fork_name of this object
     pub fn fork_name(self) -> ForkName {

@@ -116,7 +116,8 @@ use ethereum_types::{H160, H256};
 pub use crate::activation_queue::ActivationQueue;
 pub use crate::aggregate_and_proof::AggregateAndProof;
 pub use crate::attestation::{
-    Attestation, AttestationBase, AttestationElectra, AttestationRef, Error as AttestationError,
+    Attestation, AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut,
+    Error as AttestationError,
 };
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
