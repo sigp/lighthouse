@@ -638,11 +638,35 @@ impl<T: BeaconChainTypes> Router<T> {
     /// Handle a `DataColumnsByRoot` response from the peer.
     pub fn on_data_columns_by_root_response(
         &mut self,
-        _peer_id: PeerId,
-        _request_id: RequestId,
-        _data_column_sidecar: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
+        peer_id: PeerId,
+        request_id: RequestId,
+        data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        // TODO(das) implement `DataColumnsByRoot` response handling
+        let request_id = match request_id {
+            RequestId::Sync(sync_id) => match sync_id {
+                id @ SyncId::DataColumnsByRoot { .. } => id,
+                other => {
+                    crit!(self.log, "DataColumnsByRoot response on incorrect request"; "request" => ?other);
+                    return;
+                }
+            },
+            RequestId::Router => {
+                crit!(self.log, "All DataColumnsByRoot requests belong to sync"; "peer_id" => %peer_id);
+                return;
+            }
+        };
+
+        trace!(
+            self.log,
+            "Received DataColumnsByRoot Response";
+            "peer" => %peer_id,
+        );
+        self.send_to_sync(SyncMessage::RpcDataColumn {
+            request_id,
+            peer_id,
+            data_column,
+            seen_timestamp: timestamp_now(),
+        });
     }
 
     fn handle_beacon_processor_send_result(
