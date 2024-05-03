@@ -34,9 +34,10 @@ lazy_static::lazy_static! {
         "Time between start of the slot and when the block completed broadcast and processing",
         &["provenance"]
     );
-    pub static ref HTTP_API_BLOCK_GOSSIP_TIMES: Result<HistogramVec> = try_create_histogram_vec(
+    pub static ref HTTP_API_BLOCK_GOSSIP_TIMES: Result<HistogramVec> = try_create_histogram_vec_with_buckets(
         "http_api_block_gossip_times",
         "Time between receiving the block on HTTP and publishing it on gossip",
+        decimal_buckets(-2, 2),
         &["provenance"]
     );
     pub static ref HTTP_API_BLOCK_PUBLISHED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
