@@ -56,6 +56,7 @@ use lighthouse_network::rpc::RPCError;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
+use lru_cache::LRUTimeCache;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use std::ops::Sub;
 use std::sync::Arc;
@@ -71,6 +72,11 @@ use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// gossip if no peers are further than this range ahead of us that we have not already downloaded
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
+
+/// Suppress duplicated `UnknownBlockHashFromAttestation` events for some duration of time. In
+/// practice peers are likely to send the same root during a single slot. 30 seconds is a rather
+/// arbitrary number that covers a full slot, but allows recovery if sync get stuck for a few slots.
+const NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS: u64 = 30;
 
 pub type Id = u32;
 
@@ -204,6 +210,10 @@ pub struct SyncManager<T: BeaconChainTypes> {
     backfill_sync: BackFillSync<T>,
 
     block_lookups: BlockLookups<T>,
+    /// debounce duplicated `UnknownBlockHashFromAttestation` for the same root peer tuple. A peer
+    /// may forward us thousands of a attestations, each one triggering an individual event. Only
+    /// one event is useful, the rest generating log noise and wasted cycles
+    notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -260,6 +270,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
             backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
             block_lookups: BlockLookups::new(log.clone()),
+            notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
+                NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
+            )),
             log: log.clone(),
         }
     }
@@ -615,7 +628,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
-                self.handle_unknown_block_root(peer_id, block_root);
+                if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
+                    self.notified_unknown_roots.insert((peer_id, block_root));
+                    self.handle_unknown_block_root(peer_id, block_root);
+                }
             }
             SyncMessage::Disconnect(peer_id) => {
                 debug!(self.log, "Received disconnected message"; "peer_id" => %peer_id);
