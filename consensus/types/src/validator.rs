@@ -194,7 +194,7 @@ impl Validator {
     }
 
     /// Returns `true` if the validator is partially withdrawable.
-    /// 
+    ///
     /// Calls the correct function depending on the provided `fork_name`.
     pub fn is_partially_withdrawable_validator(
         &self,
@@ -204,8 +204,7 @@ impl Validator {
     ) -> bool {
         if current_fork >= ForkName::Electra {
             self.is_partially_withdrawable_validator_electra(balance, spec)
-        }
-        else {
+        } else {
             self.is_partially_withdrawable_validator_capella(balance, spec)
         }
     }
