@@ -23,11 +23,10 @@ use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
-use types::AttesterSlashingBase;
 use types::{
-    Attestation, AttesterSlashingRef, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
-    ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof, ProposerPreparationData,
-    SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState, BlobSidecar,
+    BlobsList, Checkpoint, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
+    ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -134,7 +133,7 @@ pub struct ForkChoiceTest<E: EthSpec> {
     #[allow(clippy::type_complexity)]
     // TODO(electra): these tests will need to be updated to use new types
     pub steps: Vec<
-        Step<SignedBeaconBlock<E>, BlobsList<E>, Attestation<E>, AttesterSlashingBase<E>, PowBlock>,
+        Step<SignedBeaconBlock<E>, BlobsList<E>, Attestation<E>, AttesterSlashing<E>, PowBlock>,
     >,
 }
 
@@ -185,10 +184,24 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation)))
                         .map(|attestation| Step::Attestation { attestation })
                 }
-                Step::AttesterSlashing { attester_slashing } => {
-                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
-                        .map(|attester_slashing| Step::AttesterSlashing { attester_slashing })
-                }
+                Step::AttesterSlashing { attester_slashing } => match fork_name {
+                    ForkName::Base
+                    | ForkName::Altair
+                    | ForkName::Bellatrix
+                    | ForkName::Capella
+                    | ForkName::Deneb => {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                            .map(|attester_slashing| Step::AttesterSlashing {
+                                attester_slashing: AttesterSlashing::Base(attester_slashing),
+                            })
+                    }
+                    ForkName::Electra => {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                            .map(|attester_slashing| Step::AttesterSlashing {
+                                attester_slashing: AttesterSlashing::Electra(attester_slashing),
+                            })
+                    }
+                },
                 Step::PowBlock { pow_block } => {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", pow_block)))
                         .map(|pow_block| Step::PowBlock { pow_block })
@@ -251,7 +264,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 } => tester.process_block(block.clone(), blobs.clone(), proofs.clone(), *valid)?,
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::AttesterSlashing { attester_slashing } => {
-                    tester.process_attester_slashing(AttesterSlashingRef::Base(attester_slashing))
+                    tester.process_attester_slashing(attester_slashing.to_ref())
                 }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
                 Step::OnPayloadInfo {
