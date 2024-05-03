@@ -25,14 +25,14 @@ pub fn process_registry_updates<E: EthSpec>(
         .iter()
         .enumerate()
         .filter(|(_, validator)| {
-            validator.is_eligible_for_activation_queue(&fork_name, spec) || is_ejectable(validator)
+            validator.is_eligible_for_activation_queue(spec, fork_name) || is_ejectable(validator)
         })
         .map(|(idx, _)| idx)
         .collect();
 
     for index in indices_to_update {
         let validator = state.get_validator_mut(index)?;
-        if validator.is_eligible_for_activation_queue(&fork_name, spec) {
+        if validator.is_eligible_for_activation_queue(spec, fork_name) {
             validator.activation_eligibility_epoch = current_epoch.safe_add(1)?;
         }
         if is_ejectable(validator) {

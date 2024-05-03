@@ -57,26 +57,23 @@ impl Validator {
 
     /// Returns `true` if the validator is eligible to join the activation queue.
     ///
-    /// Calls the appropriate function given the fork_name.
+    /// Calls the correct function depending on the provided `fork_name`.
     pub fn is_eligible_for_activation_queue(
         &self,
-        current_fork: &ForkName,
         spec: &ChainSpec,
+        current_fork: ForkName,
     ) -> bool {
-        match current_fork {
-            ForkName::Base
-            | ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb => self.is_eligible_for_activation_queue_base(spec),
-            ForkName::Electra => self.is_eligible_for_activation_queue_electra(spec),
+        if current_fork >= ForkName::Electra {
+            self.is_eligible_for_activation_queue_electra(spec)
+        } else {
+            self.is_eligible_for_activation_queue_base(spec)
         }
     }
 
     /// Returns `true` if the validator is eligible to join the activation queue.
     ///
     /// Spec v0.12.1
-    pub fn is_eligible_for_activation_queue_base(&self, spec: &ChainSpec) -> bool {
+    fn is_eligible_for_activation_queue_base(&self, spec: &ChainSpec) -> bool {
         self.activation_eligibility_epoch == spec.far_future_epoch
             && self.effective_balance == spec.max_effective_balance
     }
@@ -84,7 +81,7 @@ impl Validator {
     /// Returns `true` if the validator is eligible to join the activation queue.
     ///
     /// Modified in electra as part of EIP 7251.
-    pub fn is_eligible_for_activation_queue_electra(&self, spec: &ChainSpec) -> bool {
+    fn is_eligible_for_activation_queue_electra(&self, spec: &ChainSpec) -> bool {
         self.activation_eligibility_epoch == spec.far_future_epoch
             && self.effective_balance >= spec.min_activation_balance
     }
@@ -157,17 +154,77 @@ impl Validator {
 
     /// Returns `true` if the validator is fully withdrawable at some epoch.
     ///
-    /// Note: Modified in electra.
-    pub fn is_fully_withdrawable_at(&self, balance: u64, epoch: Epoch, spec: &ChainSpec) -> bool {
+    /// Calls the correct function depending on the provided `fork_name`.
+    pub fn is_fully_withdrawable_at(
+        &self,
+        balance: u64,
+        epoch: Epoch,
+        spec: &ChainSpec,
+        current_fork: ForkName,
+    ) -> bool {
+        if current_fork >= ForkName::Electra {
+            self.is_fully_withdrawable_at_electra(balance, epoch, spec)
+        } else {
+            self.is_fully_withdrawable_at_capella(balance, epoch, spec)
+        }
+    }
+
+    /// Returns `true` if the validator is fully withdrawable at some epoch.
+    fn is_fully_withdrawable_at_capella(
+        &self,
+        balance: u64,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> bool {
+        self.has_eth1_withdrawal_credential(spec) && self.withdrawable_epoch <= epoch && balance > 0
+    }
+
+    /// Returns `true` if the validator is fully withdrawable at some epoch.
+    ///
+    /// Modified in electra as part of EIP 7251.
+    fn is_fully_withdrawable_at_electra(
+        &self,
+        balance: u64,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> bool {
         self.has_execution_withdrawal_credential(spec)
             && self.withdrawable_epoch <= epoch
             && balance > 0
     }
 
     /// Returns `true` if the validator is partially withdrawable.
+    /// 
+    /// Calls the correct function depending on the provided `fork_name`.
+    pub fn is_partially_withdrawable_validator(
+        &self,
+        balance: u64,
+        spec: &ChainSpec,
+        current_fork: ForkName,
+    ) -> bool {
+        if current_fork >= ForkName::Electra {
+            self.is_partially_withdrawable_validator_electra(balance, spec)
+        }
+        else {
+            self.is_partially_withdrawable_validator_capella(balance, spec)
+        }
+    }
+
+    /// Returns `true` if the validator is partially withdrawable.
+    fn is_partially_withdrawable_validator_capella(&self, balance: u64, spec: &ChainSpec) -> bool {
+        self.has_eth1_withdrawal_credential(spec)
+            && self.effective_balance == spec.max_effective_balance
+            && balance > spec.max_effective_balance
+    }
+
+    /// Returns `true` if the validator is partially withdrawable.
     ///
-    /// Note: Modified in electra.
-    pub fn is_partially_withdrawable_validator(&self, balance: u64, spec: &ChainSpec) -> bool {
+    /// Modified in electra as part of EIP 7251.
+    pub fn is_partially_withdrawable_validator_electra(
+        &self,
+        balance: u64,
+        spec: &ChainSpec,
+    ) -> bool {
         let max_effective_balance = self.get_validator_max_effective_balance(spec);
         let has_max_effective_balance = self.effective_balance == max_effective_balance;
         let has_excess_balance = balance > max_effective_balance;
