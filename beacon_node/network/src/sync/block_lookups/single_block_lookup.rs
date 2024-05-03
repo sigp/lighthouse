@@ -1,5 +1,5 @@
-use super::common::{AwaitingParent, BlockIsProcessed};
-use super::{BlockComponent, PeerId};
+use super::common::{AwaitingParent, BlockIsProcessed, ResponseType};
+use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
@@ -150,7 +150,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         }
     }
 
-    /// Wrapper around `RequestState::continue_request` to inject lookup data
+    /// Potentially makes progress on this request if it's in a progress-able state
     pub fn continue_request<R: RequestState<T>>(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
@@ -163,13 +163,43 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             .peek_downloaded_data()
             .map(|block| block.num_expected_blobs());
         let block_is_processed = self.block_request_state.state.is_processed();
-        R::request_state_mut(self).continue_request(
-            id,
-            AwaitingParent(awaiting_parent),
-            downloaded_block_expected_blobs,
-            BlockIsProcessed(block_is_processed),
-            cx,
-        )
+        let request = R::request_state_mut(self);
+
+        // Attempt to progress awaiting downloads
+        if request.get_state().is_awaiting_download() {
+            // Verify the current request has not exceeded the maximum number of attempts.
+            let request_state = request.get_state();
+            if request_state.failed_attempts() >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
+                let cannot_process = request_state.more_failed_processing_attempts();
+                return Err(LookupRequestError::TooManyAttempts { cannot_process });
+            }
+
+            let peer_id = request
+                .get_state_mut()
+                .use_rand_available_peer()
+                .ok_or(LookupRequestError::NoPeers)?;
+
+            // make_request returns true only if a request needs to be made
+            if request.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
+                request.get_state_mut().on_download_start()?;
+            } else {
+                request.get_state_mut().on_completed_request()?;
+            }
+
+        // Otherwise, attempt to progress awaiting processing
+        // If this request is awaiting a parent lookup to be processed, do not send for processing.
+        // The request will be rejected with unknown parent error.
+        } else if !awaiting_parent
+            && (block_is_processed || matches!(R::response_type(), ResponseType::Block))
+        {
+            // maybe_start_processing returns Some if state == AwaitingProcess. This pattern is
+            // useful to conditionally access the result data.
+            if let Some(result) = request.get_state_mut().maybe_start_processing() {
+                return R::send_for_processing(id, result, cx);
+            }
+        }
+
+        Ok(())
     }
 
     /// Add all given peers to both block and blob request states.

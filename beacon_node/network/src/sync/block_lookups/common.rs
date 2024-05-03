@@ -26,11 +26,6 @@ pub enum ResponseType {
 /// is further back than the most recent head slot.
 pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 
-/// Wrapper around bool to prevent mixing this argument with `BlockIsProcessed`
-pub(crate) struct AwaitingParent(pub bool);
-/// Wrapper around bool to prevent mixing this argument with `AwaitingParent`
-pub(crate) struct BlockIsProcessed(pub bool);
-
 /// This trait unifies common single block lookup functionality across blocks and blobs. This
 /// includes making requests, verifying responses, and handling processing results. A
 /// `SingleBlockLookup` includes both a `BlockRequestState` and a `BlobRequestState`, this trait is
@@ -42,52 +37,6 @@ pub(crate) struct BlockIsProcessed(pub bool);
 pub trait RequestState<T: BeaconChainTypes> {
     /// The type created after validation.
     type VerifiedResponseType: Clone;
-
-    /// Potentially makes progress on this request if it's in a progress-able state
-    fn continue_request(
-        &mut self,
-        id: Id,
-        awaiting_parent: AwaitingParent,
-        downloaded_block_expected_blobs: Option<usize>,
-        block_is_processed: BlockIsProcessed,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
-        // Attempt to progress awaiting downloads
-        if self.get_state().is_awaiting_download() {
-            // Verify the current request has not exceeded the maximum number of attempts.
-            let request_state = self.get_state();
-            if request_state.failed_attempts() >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
-                let cannot_process = request_state.more_failed_processing_attempts();
-                return Err(LookupRequestError::TooManyAttempts { cannot_process });
-            }
-
-            let peer_id = self
-                .get_state_mut()
-                .use_rand_available_peer()
-                .ok_or(LookupRequestError::NoPeers)?;
-
-            // make_request returns true only if a request needs to be made
-            if self.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
-                self.get_state_mut().on_download_start()?;
-            } else {
-                self.get_state_mut().on_completed_request()?;
-            }
-
-        // Otherwise, attempt to progress awaiting processing
-        // If this request is awaiting a parent lookup to be processed, do not send for processing.
-        // The request will be rejected with unknown parent error.
-        } else if !awaiting_parent.0
-            && (block_is_processed.0 || matches!(Self::response_type(), ResponseType::Block))
-        {
-            // maybe_start_processing returns Some if state == AwaitingProcess. This pattern is
-            // useful to conditionally access the result data.
-            if let Some(result) = self.get_state_mut().maybe_start_processing() {
-                return Self::send_for_processing(id, result, cx);
-            }
-        }
-
-        Ok(())
-    }
 
     /// Request the network context to prepare a request of a component of `block_root`. If the
     /// request is not necessary because the component is already known / processed, return false.
