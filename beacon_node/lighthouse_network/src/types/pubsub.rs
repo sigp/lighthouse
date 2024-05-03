@@ -239,7 +239,6 @@ impl<E: EthSpec> PubsubMessage<E> {
                         Ok(PubsubMessage::ProposerSlashing(Box::new(proposer_slashing)))
                     }
                     GossipKind::AttesterSlashing => {
-                        // TODO(electra): could an older attester slashing still be floating around during the fork transition?
                         let attester_slashing =
                             match fork_context.from_context_bytes(gossip_topic.fork_digest) {
                                 Some(ForkName::Base)

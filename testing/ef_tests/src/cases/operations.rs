@@ -122,8 +122,15 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         "attester_slashing".into()
     }
 
-    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        Ok(Self::Base(ssz_decode_file(path)?))
+    fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        Ok(match fork_name {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb => Self::Base(ssz_decode_file(path)?),
+            ForkName::Electra => Self::Electra(ssz_decode_file(path)?),
+        })
     }
 
     fn apply_to(
