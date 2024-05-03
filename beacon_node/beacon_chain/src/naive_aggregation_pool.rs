@@ -1,10 +1,13 @@
 use crate::metrics;
+use crate::observed_aggregates::AsReference;
 use std::collections::HashMap;
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::slot_data::SlotData;
 use types::sync_committee_contribution::SyncContributionData;
-use types::{Attestation, AttestationData, EthSpec, Hash256, Slot, SyncCommitteeContribution};
+use types::{
+    Attestation, AttestationData, AttestationRef, EthSpec, Hash256, Slot, SyncCommitteeContribution,
+};
 
 type AttestationDataRoot = Hash256;
 type SyncDataRoot = Hash256;
@@ -59,12 +62,15 @@ pub enum Error {
 
 /// Implemented for items in the `NaiveAggregationPool`. Requires that items implement `SlotData`,
 /// which means they have an associated slot. This handles aggregation of items that are inserted.
-pub trait AggregateMap {
+pub trait AggregateMap
+where
+    for<'a> <Self::Value as AsReference>::Reference<'a>: SlotData,
+{
     /// `Key` should be a hash of `Data`.
     type Key;
 
     /// The item stored in the map
-    type Value: Clone + SlotData;
+    type Value: Clone + SlotData + AsReference;
 
     /// The unique fields of `Value`, hashed to create `Key`.
     type Data: SlotData;
@@ -73,7 +79,10 @@ pub trait AggregateMap {
     fn new(initial_capacity: usize) -> Self;
 
     /// Insert a `Value` into `Self`, returning a result.
-    fn insert(&mut self, value: &Self::Value) -> Result<InsertOutcome, Error>;
+    fn insert(
+        &mut self,
+        value: <Self::Value as AsReference>::Reference<'_>,
+    ) -> Result<InsertOutcome, Error>;
 
     /// Get a `Value` from `Self` based on `Data`.
     fn get(&self, data: &Self::Data) -> Option<Self::Value>;
@@ -121,18 +130,18 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
     /// Insert an attestation into `self`, aggregating it into the pool.
     ///
     /// The given attestation (`a`) must only have one signature.
-    fn insert(&mut self, a: &Self::Value) -> Result<InsertOutcome, Error> {
+    fn insert(&mut self, a: AttestationRef<E>) -> Result<InsertOutcome, Error> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT);
 
         let set_bits = match a {
-            Attestation::Base(att) => att
+            AttestationRef::Base(att) => att
                 .aggregation_bits
                 .iter()
                 .enumerate()
                 .filter(|(_i, bit)| *bit)
                 .map(|(i, _bit)| i)
                 .collect::<Vec<_>>(),
-            Attestation::Electra(att) => att
+            AttestationRef::Electra(att) => att
                 .aggregation_bits
                 .iter()
                 .enumerate()
@@ -169,7 +178,8 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
                 return Err(Error::ReachedMaxItemsPerSlot(MAX_ATTESTATIONS_PER_SLOT));
             }
 
-            self.map.insert(attestation_data_root, a.clone());
+            self.map
+                .insert(attestation_data_root, a.clone_as_attestation());
             Ok(InsertOutcome::NewItemInserted { committee_index })
         }
     }
@@ -344,12 +354,20 @@ impl<E: EthSpec> AggregateMap for SyncContributionAggregateMap<E> {
 /// `current_slot - SLOTS_RETAINED` will be removed and any future item with a slot lower
 /// than that will also be refused. Pruning is done automatically based upon the items it
 /// receives and it can be triggered manually.
-pub struct NaiveAggregationPool<T: AggregateMap> {
+pub struct NaiveAggregationPool<T>
+where
+    T: AggregateMap,
+    for<'a> <T::Value as AsReference>::Reference<'a>: SlotData,
+{
     lowest_permissible_slot: Slot,
     maps: HashMap<Slot, T>,
 }
 
-impl<T: AggregateMap> Default for NaiveAggregationPool<T> {
+impl<T> Default for NaiveAggregationPool<T>
+where
+    T: AggregateMap,
+    for<'a> <T::Value as AsReference>::Reference<'a>: SlotData,
+{
     fn default() -> Self {
         Self {
             lowest_permissible_slot: Slot::new(0),
@@ -358,7 +376,11 @@ impl<T: AggregateMap> Default for NaiveAggregationPool<T> {
     }
 }
 
-impl<T: AggregateMap> NaiveAggregationPool<T> {
+impl<T> NaiveAggregationPool<T>
+where
+    T: AggregateMap,
+    for<'a> <T::Value as AsReference>::Reference<'a>: SlotData,
+{
     /// Insert an item into `self`, aggregating it into the pool.
     ///
     /// The given item must only have one signature and have an
@@ -366,7 +388,10 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
     ///
     /// The pool may be pruned if the given item has a slot higher than any
     /// previously seen.
-    pub fn insert(&mut self, item: &T::Value) -> Result<InsertOutcome, Error> {
+    pub fn insert(
+        &mut self,
+        item: <T::Value as AsReference>::Reference<'_>,
+    ) -> Result<InsertOutcome, Error> {
         let _timer = T::start_insert_timer();
         let slot = item.get_slot();
         let lowest_permissible_slot = self.lowest_permissible_slot;
@@ -602,10 +627,10 @@ mod tests {
                     let mut a = $get_method_name(Slot::new(0));
 
                     let mut pool: NaiveAggregationPool<$map_type<E>> =
-                        NaiveAggregationPool::default();
+                        NaiveAggregationPool::<$map_type<E>>::default();
 
                     assert_eq!(
-                        pool.insert(&a),
+                        pool.insert(a.as_reference()),
                         Err(Error::NoAggregationBitsSet),
                         "should not accept item without any signatures"
                     );
@@ -613,12 +638,12 @@ mod tests {
                     $sign_method_name(&mut a, 0, Hash256::random());
 
                     assert_eq!(
-                        pool.insert(&a),
+                        pool.insert(a.as_reference()),
                         Ok(InsertOutcome::NewItemInserted { committee_index: 0 }),
                         "should accept new item"
                     );
                     assert_eq!(
-                        pool.insert(&a),
+                        pool.insert(a.as_reference()),
                         Ok(InsertOutcome::SignatureAlreadyKnown { committee_index: 0 }),
                         "should acknowledge duplicate signature"
                     );
@@ -631,7 +656,7 @@ mod tests {
                     $sign_method_name(&mut a, 1, Hash256::random());
 
                     assert_eq!(
-                        pool.insert(&a),
+                        pool.insert(a.as_reference()),
                         Err(Error::MoreThanOneAggregationBitSet(2)),
                         "should not accept item with multiple signatures"
                     );
@@ -647,15 +672,15 @@ mod tests {
                     $sign_method_name(&mut a_1, 1, genesis_validators_root);
 
                     let mut pool: NaiveAggregationPool<$map_type<E>> =
-                        NaiveAggregationPool::default();
+                        NaiveAggregationPool::<$map_type<E>>::default();
 
                     assert_eq!(
-                        pool.insert(&a_0),
+                        pool.insert(a_0.as_reference()),
                         Ok(InsertOutcome::NewItemInserted { committee_index: 0 }),
                         "should accept a_0"
                     );
                     assert_eq!(
-                        pool.insert(&a_1),
+                        pool.insert(a_1.as_reference()),
                         Ok(InsertOutcome::SignatureAggregated { committee_index: 1 }),
                         "should accept a_1"
                     );
@@ -665,7 +690,7 @@ mod tests {
                         .expect("should not error while getting attestation");
 
                     let mut a_01 = a_0.clone();
-                    a_01.aggregate(&a_1);
+                    a_01.aggregate(a_1.as_reference());
 
                     assert_eq!(retrieved, a_01, "retrieved item should be aggregated");
 
@@ -681,7 +706,7 @@ mod tests {
                     $block_root_mutator(&mut a_different, different_root);
 
                     assert_eq!(
-                        pool.insert(&a_different),
+                        pool.insert(a_different.as_reference()),
                         Ok(InsertOutcome::NewItemInserted { committee_index: 2 }),
                         "should accept a_different"
                     );
@@ -700,7 +725,7 @@ mod tests {
                     $sign_method_name(&mut base, 0, Hash256::random());
 
                     let mut pool: NaiveAggregationPool<$map_type<E>> =
-                        NaiveAggregationPool::default();
+                        NaiveAggregationPool::<$map_type<E>>::default();
 
                     for i in 0..SLOTS_RETAINED * 2 {
                         let slot = Slot::from(i);
@@ -708,7 +733,7 @@ mod tests {
                         $slot_mutator(&mut a, slot);
 
                         assert_eq!(
-                            pool.insert(&a),
+                            pool.insert(a.as_reference()),
                             Ok(InsertOutcome::NewItemInserted { committee_index: 0 }),
                             "should accept new item"
                         );
@@ -749,7 +774,7 @@ mod tests {
                     $sign_method_name(&mut base, 0, Hash256::random());
 
                     let mut pool: NaiveAggregationPool<$map_type<E>> =
-                        NaiveAggregationPool::default();
+                        NaiveAggregationPool::<$map_type<E>>::default();
 
                     for i in 0..=$item_limit {
                         let mut a = base.clone();
@@ -757,13 +782,13 @@ mod tests {
 
                         if i < $item_limit {
                             assert_eq!(
-                                pool.insert(&a),
+                                pool.insert(a.as_reference()),
                                 Ok(InsertOutcome::NewItemInserted { committee_index: 0 }),
                                 "should accept item below limit"
                             );
                         } else {
                             assert_eq!(
-                                pool.insert(&a),
+                                pool.insert(a.as_reference()),
                                 Err(Error::ReachedMaxItemsPerSlot($item_limit)),
                                 "should not accept item above limit"
                             );

@@ -894,7 +894,7 @@ mod release_tests {
         );
 
         for (atts, aggregate) in &attestations {
-            let att2 = aggregate.as_ref().unwrap().message.aggregate.clone();
+            let att2 = aggregate.as_ref().unwrap().message().aggregate().clone();
 
             let att1 = atts
                 .into_iter()
@@ -902,7 +902,7 @@ mod release_tests {
                 .take(2)
                 .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
                     if let Some(mut a) = att {
-                        a.aggregate(&new_att);
+                        a.aggregate(new_att.to_ref());
                         Some(a)
                     } else {
                         Some(new_att.clone())
@@ -911,9 +911,9 @@ mod release_tests {
                 .unwrap();
 
             let att1_indices = get_attesting_indices_from_state(&state, att1.to_ref()).unwrap();
-            let att2_indices = get_attesting_indices_from_state(&state, att2.to_ref()).unwrap();
+            let att2_indices = get_attesting_indices_from_state(&state, att2).unwrap();
             let att1_split = SplitAttestation::new(att1.clone(), att1_indices);
-            let att2_split = SplitAttestation::new(att2.clone(), att2_indices);
+            let att2_split = SplitAttestation::new(att2.clone_as_attestation(), att2_indices);
 
             assert_eq!(
                 att1.num_set_aggregation_bits(),
@@ -1054,12 +1054,13 @@ mod release_tests {
         );
 
         for (_, aggregate) in attestations {
-            let att = aggregate.unwrap().message.aggregate;
-            let attesting_indices = get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
+            let agg = aggregate.unwrap();
+            let att = agg.message().aggregate();
+            let attesting_indices = get_attesting_indices_from_state(&state, att).unwrap();
             op_pool
-                .insert_attestation(att.clone(), attesting_indices.clone())
+                .insert_attestation(att.clone_as_attestation(), attesting_indices.clone())
                 .unwrap();
-            op_pool.insert_attestation(att, attesting_indices).unwrap();
+            op_pool.insert_attestation(att.clone_as_attestation(), attesting_indices).unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
@@ -1108,7 +1109,7 @@ mod release_tests {
                         None,
                         |att, new_att| {
                             if let Some(mut a) = att {
-                                a.aggregate(new_att);
+                                a.aggregate(new_att.to_ref());
                                 Some(a)
                             } else {
                                 Some(new_att.clone())
@@ -1131,7 +1132,7 @@ mod release_tests {
                         None,
                         |att, new_att| {
                             if let Some(mut a) = att {
-                                a.aggregate(new_att);
+                                a.aggregate(new_att.to_ref());
                                 Some(a)
                             } else {
                                 Some(new_att.clone())
@@ -1208,7 +1209,7 @@ mod release_tests {
                         .fold::<Attestation<MainnetEthSpec>, _>(
                             att_0.clone(),
                             |mut att, new_att| {
-                                att.aggregate(new_att);
+                                att.aggregate(new_att.to_ref());
                                 att
                             },
                         )
@@ -1304,7 +1305,7 @@ mod release_tests {
                         .fold::<Attestation<MainnetEthSpec>, _>(
                             att_0.clone(),
                             |mut att, new_att| {
-                                att.aggregate(new_att);
+                                att.aggregate(new_att.to_ref());
                                 att
                             },
                         )

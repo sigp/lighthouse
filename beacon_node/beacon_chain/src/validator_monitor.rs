@@ -1331,7 +1331,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             slot_clock,
         );
 
-        let aggregator_index = signed_aggregate_and_proof.message.aggregator_index;
+        let aggregator_index = signed_aggregate_and_proof.message().aggregator_index();
         if let Some(validator) = self.get_validator(aggregator_index) {
             let id = &validator.id;
 

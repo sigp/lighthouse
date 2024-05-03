@@ -3327,8 +3327,14 @@ impl ApiTester {
 
     pub async fn test_get_validator_aggregate_and_proofs_invalid(mut self) -> Self {
         let mut aggregate = self.get_aggregate().await;
-
-        aggregate.message.aggregate.data_mut().slot += 1;
+        match &mut aggregate {
+            SignedAggregateAndProof::Base(ref mut aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+            SignedAggregateAndProof::Electra(ref mut aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+        }
 
         self.client
             .post_validator_aggregate_and_proof::<E>(&[aggregate])

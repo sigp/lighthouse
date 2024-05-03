@@ -87,7 +87,7 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
         .send(NetworkMessage::Publish {
             messages: vec![PubsubMessage::Attestation(Box::new((
                 attestation.subnet_id(),
-                attestation.attestation().clone(),
+                attestation.attestation().clone_as_attestation(),
             )))],
         })
         .map_err(|_| Error::Publication)?;

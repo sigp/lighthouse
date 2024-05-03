@@ -605,11 +605,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             {
                 Ok(()) => {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {
-                        let attestation = &signed_aggregate_and_proof.message.aggregate;
+                        let attestation = signed_aggregate_and_proof.message().aggregate();
                         info!(
                             log,
                             "Successfully published attestation";
-                            "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
+                            "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
                             "signatures" => attestation.num_set_aggregation_bits(),
                             "head_block" => format!("{:?}", attestation.data().beacon_block_root),
                             "committee_index" => attestation.data().index,
@@ -620,12 +620,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 }
                 Err(e) => {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {
-                        let attestation = &signed_aggregate_and_proof.message.aggregate;
+                        let attestation = &signed_aggregate_and_proof.message().aggregate();
                         crit!(
                             log,
                             "Failed to publish attestation";
                             "error" => %e,
-                            "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
+                            "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
                             "committee_index" => attestation.data().index,
                             "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",

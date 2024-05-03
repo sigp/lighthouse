@@ -38,7 +38,7 @@ pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     RandaoReveal(Epoch),
     BeaconBlock(&'a BeaconBlock<E, Payload>),
     AttestationData(&'a AttestationData),
-    SignedAggregateAndProof(&'a AggregateAndProof<E>),
+    SignedAggregateAndProof(AggregateAndProofRef<'a, E>),
     SelectionProof(Slot),
     SyncSelectionProof(&'a SyncAggregatorSelectionData),
     SyncCommitteeSignature {

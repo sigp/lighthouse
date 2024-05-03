@@ -9,7 +9,8 @@ use std::sync::Arc;
 use types::{
     Attestation, AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
     EthSpec, ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair,
+    ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
+    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
     SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
@@ -154,10 +155,29 @@ impl<E: EthSpec> PubsubMessage<E> {
                 // the ssz decoders
                 match gossip_topic.kind() {
                     GossipKind::BeaconAggregateAndProof => {
-                        let agg_and_proof = SignedAggregateAndProof::from_ssz_bytes(data)
-                            .map_err(|e| format!("{:?}", e))?;
+                        let signed_aggregate_and_proof =
+                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                                Some(ForkName::Base)
+                                | Some(ForkName::Altair)
+                                | Some(ForkName::Bellatrix)
+                                | Some(ForkName::Capella)
+                                | Some(ForkName::Deneb) => SignedAggregateAndProof::Base(
+                                    SignedAggregateAndProofBase::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Electra) => SignedAggregateAndProof::Electra(
+                                    SignedAggregateAndProofElectra::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                None => {
+                                    return Err(format!(
+                                        "Unknown gossipsub fork digest: {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
+                            };
                         Ok(PubsubMessage::AggregateAndProofAttestation(Box::new(
-                            agg_and_proof,
+                            signed_aggregate_and_proof,
                         )))
                     }
                     GossipKind::Attestation(subnet_id) => {
@@ -362,9 +382,9 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,
                 "Aggregate and Proof: slot: {}, index: {}, aggregator_index: {}",
-                att.message.aggregate.data().slot,
-                att.message.aggregate.data().index,
-                att.message.aggregator_index,
+                att.message().aggregate().data().slot,
+                att.message().aggregate().data().index,
+                att.message().aggregator_index(),
             ),
             PubsubMessage::Attestation(data) => write!(
                 f,

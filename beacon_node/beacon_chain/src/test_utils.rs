@@ -1358,7 +1358,7 @@ where
                                 committee_attestations.iter().skip(1).fold(
                                     attestation.clone(),
                                     |mut agg, (att, _)| {
-                                        agg.aggregate(att);
+                                        agg.aggregate(att.to_ref());
                                         agg
                                     },
                                 )

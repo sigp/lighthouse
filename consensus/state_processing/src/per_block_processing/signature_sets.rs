@@ -425,7 +425,7 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let slot = signed_aggregate_and_proof.message.aggregate.data().slot;
+    let slot = signed_aggregate_and_proof.message().aggregate().data().slot;
 
     let domain = spec.get_domain(
         slot.epoch(E::slots_per_epoch()),
@@ -434,8 +434,8 @@ where
         genesis_validators_root,
     );
     let message = slot.signing_root(domain);
-    let signature = &signed_aggregate_and_proof.message.selection_proof;
-    let validator_index = signed_aggregate_and_proof.message.aggregator_index;
+    let signature = signed_aggregate_and_proof.message().selection_proof();
+    let validator_index = signed_aggregate_and_proof.message().aggregator_index();
 
     Ok(SignatureSet::single_pubkey(
         signature,
@@ -456,8 +456,8 @@ where
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let target_epoch = signed_aggregate_and_proof
-        .message
-        .aggregate
+        .message()
+        .aggregate()
         .data()
         .target
         .epoch;
@@ -468,9 +468,9 @@ where
         fork,
         genesis_validators_root,
     );
-    let message = signed_aggregate_and_proof.message.signing_root(domain);
-    let signature = &signed_aggregate_and_proof.signature;
-    let validator_index = signed_aggregate_and_proof.message.aggregator_index;
+    let message = signed_aggregate_and_proof.message().signing_root(domain);
+    let signature = signed_aggregate_and_proof.signature();
+    let validator_index = signed_aggregate_and_proof.message().aggregator_index();
 
     Ok(SignatureSet::single_pubkey(
         signature,
