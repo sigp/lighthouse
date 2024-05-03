@@ -233,7 +233,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .iter_mut()
             .find(|(_id, lookup)| lookup.is_for_block(block_root))
         {
-            trace!(self.log, "Adding peer to existing single block lookup"; "block_root" => %block_root);
+            trace!(self.log, "Adding peer to existing single block lookup"; "block_root" => ?block_root);
             lookup.add_peers(peers);
             if let Some(block_component) = block_component {
                 let component_type = block_component.get_type();
@@ -615,6 +615,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // Block imported, continue the requests of pending child blocks
                     self.continue_child_lookups(lookup.block_root(), cx);
                     self.update_metrics();
+                } else {
+                    debug!(self.log, "Attempting to drop non-existent lookup"; "id" => id);
                 }
             }
             Err(error) => {
