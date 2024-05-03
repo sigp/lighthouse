@@ -162,10 +162,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             && self.blob_request_state.state.is_processed()
     }
 
-    /// Remove peer from all request states
-    pub fn remove_peer(&mut self, peer_id: &PeerId) {
-        self.block_request_state.state.remove_peer(peer_id);
-        self.blob_request_state.state.remove_peer(peer_id);
+    /// Remove peer from available peers. Return true if there are no more available peers and all
+    /// requests are not expecting any future event (AwaitingDownload).
+    pub fn remove_peer(&mut self, peer_id: &PeerId) -> bool {
+        self.block_request_state.state.remove_peer(peer_id)
+            && self.blob_request_state.state.remove_peer(peer_id)
     }
 }
 
@@ -414,9 +415,11 @@ impl<T: Clone> SingleLookupRequestState<T> {
         self.available_peers.insert(*peer_id);
     }
 
-    /// If a peer disconnects, this request could be failed. If so, an error is returned
-    pub fn remove_peer(&mut self, disconnected_peer_id: &PeerId) {
+    /// Remove peer from available peers. Return true if there are no more available peers and the
+    /// request is not expecting any future event (AwaitingDownload).
+    pub fn remove_peer(&mut self, disconnected_peer_id: &PeerId) -> bool {
         self.available_peers.remove(disconnected_peer_id);
+        self.available_peers.is_empty() && self.is_awaiting_download()
     }
 
     pub fn get_used_peers(&self) -> impl Iterator<Item = &PeerId> {

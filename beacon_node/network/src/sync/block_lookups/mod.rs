@@ -367,10 +367,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Error responses */
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
-        /* Check disconnection for single lookups */
-        for (_, lookup) in self.single_block_lookups.iter_mut() {
-            lookup.remove_peer(peer_id);
-        }
+        self.single_block_lookups.retain(|_, lookup| {
+            if lookup.remove_peer(peer_id) {
+                debug!(self.log, "Dropping single lookup after peer disconnection"; "block_root" => ?lookup.block_root());
+                false
+            } else {
+                true
+            }
+        });
     }
 
     /* Processing responses */
