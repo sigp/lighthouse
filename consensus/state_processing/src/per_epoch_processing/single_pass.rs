@@ -466,7 +466,7 @@ fn process_single_registry_update(
 ) -> Result<(), Error> {
     let current_epoch = state_ctxt.current_epoch;
 
-    if validator.is_eligible_for_activation_queue(spec) {
+    if validator.is_eligible_for_activation_queue(&state_ctxt.fork_name, spec) {
         validator.make_mut()?.activation_eligibility_epoch = current_epoch.safe_add(1)?;
     }
 

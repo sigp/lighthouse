@@ -1,5 +1,5 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
     PublicKeyBytes,
 };
 use serde::{Deserialize, Serialize};
@@ -57,8 +57,34 @@ impl Validator {
 
     /// Returns `true` if the validator is eligible to join the activation queue.
     ///
-    /// Modified in electra
-    pub fn is_eligible_for_activation_queue(&self, spec: &ChainSpec) -> bool {
+    /// Calls the appropriate function given the fork_name.
+    pub fn is_eligible_for_activation_queue(
+        &self,
+        current_fork: &ForkName,
+        spec: &ChainSpec,
+    ) -> bool {
+        match current_fork {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb => self.is_eligible_for_activation_queue_base(spec),
+            ForkName::Electra => self.is_eligible_for_activation_queue_electra(spec),
+        }
+    }
+
+    /// Returns `true` if the validator is eligible to join the activation queue.
+    ///
+    /// Spec v0.12.1
+    pub fn is_eligible_for_activation_queue_base(&self, spec: &ChainSpec) -> bool {
+        self.activation_eligibility_epoch == spec.far_future_epoch
+            && self.effective_balance == spec.max_effective_balance
+    }
+
+    /// Returns `true` if the validator is eligible to join the activation queue.
+    ///
+    /// Modified in electra as part of EIP 7251.
+    pub fn is_eligible_for_activation_queue_electra(&self, spec: &ChainSpec) -> bool {
         self.activation_eligibility_epoch == spec.far_future_epoch
             && self.effective_balance >= spec.min_activation_balance
     }
