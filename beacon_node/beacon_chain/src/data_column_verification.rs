@@ -1,8 +1,10 @@
 use crate::block_verification::{process_block_slash_info, BlockSlashInfo};
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::kzg_utils::validate_data_column;
+use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use kzg::{Error as KzgError, Kzg};
 use ssz_derive::{Decode, Encode};
+use std::iter;
 use std::sync::Arc;
 use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
 use types::{
@@ -180,15 +182,10 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
 /// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_data_column<E: EthSpec>(
     data_column: Arc<DataColumnSidecar<E>>,
-    _kzg: &Kzg,
+    kzg: &Kzg,
 ) -> Result<KzgVerifiedDataColumn<E>, KzgError> {
-    // TODO(das): validate data column
-    // validate_blob::<E>(
-    //     kzg,
-    //     &data_column.blob,
-    //     data_column.kzg_commitment,
-    //     data_column.kzg_proof,
-    // )?;
+    let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
+    validate_data_column(kzg, iter::once(&data_column))?;
     Ok(KzgVerifiedDataColumn { data_column })
 }
 
@@ -198,13 +195,14 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
 pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
-    _data_column_iter: I,
-    _kzg: &'a Kzg,
+    data_column_iter: I,
+    kzg: &'a Kzg,
 ) -> Result<(), KzgError>
 where
-    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>>,
+    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
-    // TODO(das): implement kzg verification
+    let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
+    validate_data_column(kzg, data_column_iter)?;
     Ok(())
 }
 

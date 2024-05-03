@@ -13,7 +13,7 @@ pub use c_kzg::{
     Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
     BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
 };
-use c_kzg::{Cell, CELLS_PER_BLOB};
+pub use c_kzg::{Cell, CELLS_PER_EXT_BLOB};
 use mockall::automock;
 
 #[derive(Debug)]
@@ -151,8 +151,14 @@ impl Kzg {
     pub fn compute_cells_and_proofs(
         &self,
         blob: &Blob,
-    ) -> Result<(Box<[Cell; CELLS_PER_BLOB]>, Box<[KzgProof; CELLS_PER_BLOB]>), Error> {
-        let (cells, proofs) = c_kzg::Cell::compute_cells_and_proofs(blob, &self.trusted_setup)
+    ) -> Result<
+        (
+            Box<[Cell; CELLS_PER_EXT_BLOB]>,
+            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
+        ),
+        Error,
+    > {
+        let (cells, proofs) = c_kzg::Cell::compute_cells_and_kzg_proofs(blob, &self.trusted_setup)
             .map_err(Into::<Error>::into)?;
         let proofs = Box::new(proofs.map(|proof| KzgProof::from(proof.to_bytes().into_inner())));
         Ok((cells, proofs))
@@ -166,25 +172,17 @@ impl Kzg {
     pub fn verify_cell_proof_batch(
         &self,
         cells: &[Cell],
-        kzg_proofs: &[KzgProof],
+        kzg_proofs: &[Bytes48],
         coordinates: &[(u64, u64)],
-        kzg_commitments: &[KzgCommitment],
+        kzg_commitments: &[Bytes48],
     ) -> Result<(), Error> {
-        let commitments_bytes: Vec<Bytes48> = kzg_commitments
-            .iter()
-            .map(|comm| Bytes48::from(*comm))
-            .collect();
-        let proofs_bytes: Vec<Bytes48> = kzg_proofs
-            .iter()
-            .map(|proof| Bytes48::from(*proof))
-            .collect();
         let (rows, columns): (Vec<u64>, Vec<u64>) = coordinates.iter().cloned().unzip();
-        if !c_kzg::KzgProof::verify_cell_proof_batch(
-            &commitments_bytes,
+        if !c_kzg::KzgProof::verify_cell_kzg_proof_batch(
+            kzg_commitments,
             &rows,
             &columns,
             cells,
-            &proofs_bytes,
+            kzg_proofs,
             &self.trusted_setup,
         )? {
             Err(Error::KzgVerificationFailed)
@@ -196,18 +194,24 @@ impl Kzg {
 
 pub mod mock {
     use crate::{Error, KzgProof};
-    use c_kzg::{Blob, Cell, CELLS_PER_BLOB};
+    use c_kzg::{Blob, Cell, CELLS_PER_EXT_BLOB};
 
     pub const MOCK_KZG_BYTES_PER_CELL: usize = 2048;
 
     #[allow(clippy::type_complexity)]
     pub fn compute_cells_and_proofs(
         _blob: &Blob,
-    ) -> Result<(Box<[Cell; CELLS_PER_BLOB]>, Box<[KzgProof; CELLS_PER_BLOB]>), Error> {
+    ) -> Result<
+        (
+            Box<[Cell; CELLS_PER_EXT_BLOB]>,
+            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
+        ),
+        Error,
+    > {
         let empty_cell = Cell::new([0; MOCK_KZG_BYTES_PER_CELL]);
         Ok((
-            Box::new([empty_cell; CELLS_PER_BLOB]),
-            Box::new([KzgProof::empty(); CELLS_PER_BLOB]),
+            Box::new([empty_cell; CELLS_PER_EXT_BLOB]),
+            Box::new([KzgProof::empty(); CELLS_PER_EXT_BLOB]),
         ))
     }
 }
