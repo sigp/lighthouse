@@ -508,6 +508,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = vec![];
+    let fork_name = state.fork_name_unchecked();
 
     let bound = std::cmp::min(
         state.validators().len() as u64,
@@ -518,7 +519,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
         let balance = *state.balances().get(validator_index as usize).ok_or(
             BeaconStateError::BalancesOutOfBounds(validator_index as usize),
         )?;
-        if validator.is_fully_withdrawable_at(balance, epoch, spec) {
+        if validator.is_fully_withdrawable_at(balance, epoch, spec, fork_name) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
                 validator_index,
@@ -528,7 +529,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 amount: balance,
             });
             withdrawal_index.safe_add_assign(1)?;
-        } else if validator.is_partially_withdrawable_validator(balance, spec) {
+        } else if validator.is_partially_withdrawable_validator(balance, spec, fork_name) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
                 validator_index,
