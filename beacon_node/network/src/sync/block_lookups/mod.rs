@@ -1,7 +1,7 @@
 use self::parent_chain::{compute_parent_chains, NodeChain};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
-use super::manager::{BlockProcessType, BlockProcessingResult};
+use super::manager::{BlockProcessSource, BlockProcessType, BlockProcessingResult};
 use super::network_context::{RpcProcessingResult, SyncNetworkContext};
 use crate::metrics;
 use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
@@ -397,18 +397,35 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_processing_result(
         &mut self,
         process_type: BlockProcessType,
+        source: BlockProcessSource,
         result: BlockProcessingResult<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) {
+        let id = match source {
+            BlockProcessSource::Rpc(id) => id,
+            BlockProcessSource::Gossip(block_root) => {
+                if let Some(lookup) = self
+                    .single_block_lookups
+                    .iter()
+                    .find(|(_, lookup)| lookup.is_for_block(block_root))
+                {
+                    *lookup.0
+                } else {
+                    // Ok to ignore gossip process events
+                    return;
+                }
+            }
+        };
+
         let lookup_result = match process_type {
-            BlockProcessType::SingleBlock { id } => {
+            BlockProcessType::SingleBlock => {
                 self.on_processing_result_inner::<BlockRequestState<T::EthSpec>>(id, result, cx)
             }
-            BlockProcessType::SingleBlob { id } => {
+            BlockProcessType::SingleBlob => {
                 self.on_processing_result_inner::<BlobRequestState<T::EthSpec>>(id, result, cx)
             }
         };
-        self.on_lookup_result(process_type.id(), lookup_result, "processing_result", cx);
+        self.on_lookup_result(id, lookup_result, "processing_result", cx);
     }
 
     pub fn on_processing_result_inner<R: RequestState<T>>(
@@ -521,15 +538,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                     other => {
                         debug!(self.log, "Invalid lookup component"; "block_root" => ?block_root, "component" => ?R::response_type(), "error" => ?other);
-                        let peer_id = request_state.on_processing_failure()?;
-                        cx.report_peer(
-                            peer_id,
-                            PeerAction::MidToleranceError,
-                            match R::response_type() {
-                                ResponseType::Block => "lookup_block_processing_failure",
-                                ResponseType::Blob => "lookup_blobs_processing_failure",
-                            },
-                        );
+
+                        // If this request is processing from gossip, on_processing_failure returns
+                        // None. That is ok, as the gossip handler will downscore the peer in case of errors.
+                        if let Some(peer_id) = request_state.on_processing_failure()? {
+                            cx.report_peer(
+                                peer_id,
+                                PeerAction::MidToleranceError,
+                                match R::response_type() {
+                                    ResponseType::Block => "lookup_block_processing_failure",
+                                    ResponseType::Blob => "lookup_blobs_processing_failure",
+                                },
+                            );
+                        }
 
                         Action::Retry
                     }

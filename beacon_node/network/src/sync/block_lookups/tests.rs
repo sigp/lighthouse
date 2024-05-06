@@ -341,7 +341,8 @@ impl TestRig {
 
     fn single_block_component_processed(&mut self, id: Id, result: BlockProcessingResult<E>) {
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            process_type: BlockProcessType::SingleBlock { id },
+            process_type: BlockProcessType::SingleBlock,
+            source: BlockProcessSource::Rpc(id),
             result,
         })
     }
@@ -356,7 +357,8 @@ impl TestRig {
 
     fn single_blob_component_processed(&mut self, id: Id, result: BlockProcessingResult<E>) {
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            process_type: BlockProcessType::SingleBlob { id },
+            process_type: BlockProcessType::SingleBlob,
+            source: BlockProcessSource::Rpc(id),
             result,
         })
     }

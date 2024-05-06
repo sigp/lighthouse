@@ -2,7 +2,7 @@ use super::common::ResponseType;
 use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
-use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
 use itertools::Itertools;
 use rand::seq::IteratorRandom;
@@ -179,11 +179,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 .use_rand_available_peer()
                 .ok_or(LookupRequestError::NoPeers)?;
 
-            // make_request returns true only if a request needs to be made
-            if request.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
-                request.get_state_mut().on_download_start()?;
-            } else {
-                request.get_state_mut().on_completed_request()?;
+            match request.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
+                LookupRequestResult::RequestSent => request.get_state_mut().on_download_start()?,
+                LookupRequestResult::NoRequestNeeded => {
+                    request.get_state_mut().on_completed_request()?
+                }
+                LookupRequestResult::AwaitingOtherSource => {
+                    request.get_state_mut().on_processing_from_other_source()?
+                }
             }
 
         // Otherwise, attempt to progress awaiting processing
@@ -262,12 +265,18 @@ pub struct DownloadResult<T: Clone> {
     pub peer_id: PeerId,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum State<T: Clone> {
     AwaitingDownload,
     Downloading,
     AwaitingProcess(DownloadResult<T>),
-    Processing(DownloadResult<T>),
+    /// Request is processing:
+    /// - `Processing(Some)` if lookup sync downloaded and sent to process this request
+    /// - `Processing(None)` if another source (i.e. gossip) sent this block for processing
+    Processing(Option<DownloadResult<T>>),
+    /// Request is processed:
+    /// - `Processed(Some)` if lookup sync downloaded and sent to process this request
+    /// - `Processed(None)` if another source (i.e. gossip) sent this component for processing
     Processed(Option<PeerId>),
 }
 
@@ -327,7 +336,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
             State::AwaitingDownload => None,
             State::Downloading { .. } => None,
             State::AwaitingProcess(result) => Some(&result.value),
-            State::Processing(result) => Some(&result.value),
+            State::Processing(result) => result.as_ref().map(|r| &r.value),
             State::Processed { .. } => None,
         }
     }
@@ -392,7 +401,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
         match &self.state {
             State::AwaitingProcess(result) => {
                 let result = result.clone();
-                self.state = State::Processing(result.clone());
+                self.state = State::Processing(Some(result.clone()));
                 Some(result)
             }
             _ => None,
@@ -403,10 +412,13 @@ impl<T: Clone> SingleLookupRequestState<T> {
     /// processing latter.
     pub fn revert_to_awaiting_processing(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
-            State::Processing(result) => {
+            State::Processing(Some(result)) => {
                 self.state = State::AwaitingProcess(result.clone());
                 Ok(())
             }
+            State::Processing(None) => Err(LookupRequestError::BadState(
+                "Can not revert to AwaitingProcessing a request sent for processing from another source".to_owned(),
+            )),
             other => Err(LookupRequestError::BadState(format!(
                 "Bad state on revert_to_awaiting_processing expected Processing got {other}"
             ))),
@@ -414,10 +426,10 @@ impl<T: Clone> SingleLookupRequestState<T> {
     }
 
     /// Registers a failure in processing a block.
-    pub fn on_processing_failure(&mut self) -> Result<PeerId, LookupRequestError> {
+    pub fn on_processing_failure(&mut self) -> Result<Option<PeerId>, LookupRequestError> {
         match &self.state {
             State::Processing(result) => {
-                let peer_id = result.peer_id;
+                let peer_id = result.as_ref().map(|r| r.peer_id);
                 self.failed_processing = self.failed_processing.saturating_add(1);
                 self.state = State::AwaitingDownload;
                 Ok(peer_id)
@@ -428,12 +440,12 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
-    pub fn on_processing_success(&mut self) -> Result<PeerId, LookupRequestError> {
+    pub fn on_processing_success(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
             State::Processing(result) => {
-                let peer_id = result.peer_id;
-                self.state = State::Processed(Some(peer_id));
-                Ok(peer_id)
+                let peer_id = result.as_ref().map(|r| r.peer_id);
+                self.state = State::Processed(peer_id);
+                Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
                 "Bad state on_processing_success expected Processing got {other}"
@@ -466,6 +478,21 @@ impl<T: Clone> SingleLookupRequestState<T> {
             }
             other => Err(LookupRequestError::BadState(format!(
                 "Bad state on_completed_request expected AwaitingDownload got {other}"
+            ))),
+        }
+    }
+
+    /// Mark a request as complete without any download or processing
+    pub fn on_processing_from_other_source(&mut self) -> Result<(), LookupRequestError> {
+        match &self.state {
+            State::AwaitingDownload => {
+                // Can't track downloaded data if component is processing from gossip. No need to
+                // either, gossip handler will downscore the peer on error.
+                self.state = State::Processing(None);
+                Ok(())
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on_processing_another_thread expected AwaitingDownload got {other}"
             ))),
         }
     }
@@ -514,12 +541,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
 impl<T: Clone> std::fmt::Display for State<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            State::AwaitingDownload => write!(f, "AwaitingDownload"),
-            State::Downloading { .. } => write!(f, "Downloading"),
-            State::AwaitingProcess { .. } => write!(f, "AwaitingProcessing"),
-            State::Processing { .. } => write!(f, "Processing"),
-            State::Processed { .. } => write!(f, "Processed"),
-        }
+        write!(f, "{}", Into::<&'static str>::into(self))
     }
 }

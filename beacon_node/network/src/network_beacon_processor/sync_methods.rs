@@ -1,5 +1,6 @@
 use crate::metrics;
 use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
+use crate::sync::manager::BlockProcessSource;
 use crate::sync::BatchProcessResult;
 use crate::sync::{
     manager::{BlockProcessType, SyncMessage},
@@ -53,7 +54,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         block: RpcBlock<T::EthSpec>,
         seen_timestamp: Duration,
-        process_type: BlockProcessType,
+        source: BlockProcessSource,
     ) -> AsyncFn {
         let process_fn = async move {
             let reprocess_tx = self.reprocess_tx.clone();
@@ -62,7 +63,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 block_root,
                 block,
                 seen_timestamp,
-                process_type,
+                source,
                 reprocess_tx,
                 duplicate_cache,
             )
@@ -77,20 +78,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         block: RpcBlock<T::EthSpec>,
         seen_timestamp: Duration,
-        process_type: BlockProcessType,
+        source: BlockProcessSource,
     ) -> (AsyncFn, BlockingFn) {
         // An async closure which will import the block.
         let process_fn = self.clone().generate_rpc_beacon_block_process_fn(
             block_root,
             block,
             seen_timestamp,
-            process_type.clone(),
+            source.clone(),
         );
         // A closure which will ignore the block.
         let ignore_fn = move || {
             // Sync handles these results
             self.send_sync_message(SyncMessage::BlockComponentProcessed {
-                process_type,
+                process_type: BlockProcessType::SingleBlock,
+                source,
                 result: crate::sync::manager::BlockProcessingResult::Ignored,
             });
         };
@@ -104,7 +106,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         block: RpcBlock<T::EthSpec>,
         seen_timestamp: Duration,
-        process_type: BlockProcessType,
+        source: BlockProcessSource,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         duplicate_cache: DuplicateCache,
     ) {
@@ -115,7 +117,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 "Gossip block is being processed";
                 "action" => "sending rpc block to reprocessing queue",
                 "block_root" => %block_root,
-                "process_type" => ?process_type,
+                "source" => ?source,
             );
 
             // Send message to work reprocess queue to retry the block
@@ -123,7 +125,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 block_root,
                 block,
                 seen_timestamp,
-                process_type,
+                source,
             );
             let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
                 beacon_block_root: block_root,
@@ -148,7 +150,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "proposer" => block.message().proposer_index(),
             "slot" => block.slot(),
             "commitments" => commitments_formatted,
-            "process_type" => ?process_type,
+            "source" => ?source,
         );
 
         let result = self
@@ -170,21 +172,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             if reprocess_tx.try_send(reprocess_msg).is_err() {
                 error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %hash)
             };
-            if matches!(process_type, BlockProcessType::SingleBlock { .. }) {
-                self.chain.block_times_cache.write().set_time_observed(
-                    hash,
-                    slot,
-                    seen_timestamp,
-                    None,
-                    None,
-                );
+            self.chain.block_times_cache.write().set_time_observed(
+                hash,
+                slot,
+                seen_timestamp,
+                None,
+                None,
+            );
 
-                self.chain.recompute_head_at_current_slot().await;
-            }
+            self.chain.recompute_head_at_current_slot().await;
         }
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            process_type,
+            process_type: BlockProcessType::SingleBlock,
+            source,
             result: result.into(),
         });
 
@@ -201,11 +202,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
         seen_timestamp: Duration,
-        process_type: BlockProcessType,
+        source: BlockProcessSource,
     ) -> AsyncFn {
         let process_fn = async move {
             self.clone()
-                .process_rpc_blobs(block_root, blobs, seen_timestamp, process_type)
+                .process_rpc_blobs(block_root, blobs, seen_timestamp, source)
                 .await;
         };
         Box::pin(process_fn)
@@ -217,7 +218,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
         seen_timestamp: Duration,
-        process_type: BlockProcessType,
+        source: BlockProcessSource,
     ) {
         let Some(slot) = blobs
             .iter()
@@ -298,7 +299,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            process_type,
+            process_type: BlockProcessType::SingleBlob,
+            source,
             result: result.into(),
         });
     }
