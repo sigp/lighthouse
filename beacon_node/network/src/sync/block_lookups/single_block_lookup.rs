@@ -175,8 +175,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Add peer to all request states. The peer must be able to serve this request.
     /// Returns true if the peer was newly inserted into some request state.
     pub fn add_peer(&mut self, peer_id: PeerId) -> bool {
-        self.block_request_state.state.add_peer(&peer_id)
-            || self.blob_request_state.state.add_peer(&peer_id)
+        let inserted_block = self.block_request_state.state.add_peer(&peer_id);
+        let inserted_blob = self.blob_request_state.state.add_peer(&peer_id);
+        inserted_block || inserted_blob
     }
 
     /// Returns true if the block has already been downloaded.
