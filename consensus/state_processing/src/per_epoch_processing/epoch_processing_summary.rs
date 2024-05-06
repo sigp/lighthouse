@@ -100,6 +100,10 @@ impl<E: EthSpec> EpochProcessingSummary<E> {
             &metrics::PARTICIPATION_PREV_EPOCH_SOURCE_ATTESTING_GWEI_TOTAL,
             self.previous_epoch_source_attesting_balance()? as i64,
         );
+        metrics::set_gauge(
+            &metrics::PARTICIPATION_CURRENT_EPOCH_TOTAL_ACTIVE_GWEI_TOTAL,
+            self.current_epoch_total_active_balance() as i64,
+        );
 
         Ok(())
     }

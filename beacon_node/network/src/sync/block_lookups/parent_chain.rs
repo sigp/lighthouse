@@ -55,7 +55,7 @@ pub(crate) fn compute_parent_chains(nodes: &[Node]) -> Vec<NodeChain> {
     // Iterate blocks with no children
     for tip in nodes {
         let mut block_root = tip.block_root;
-        if parent_to_child.get(&block_root).is_none() {
+        if !parent_to_child.contains_key(&block_root) {
             let mut chain = vec![];
 
             // Resolve chain of blocks
