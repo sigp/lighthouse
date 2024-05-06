@@ -18,12 +18,16 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
-    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData, VoluntaryExit,
+    Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch,
+    EthSpec, Fork, ForkName, Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature,
+    SignedBeaconBlock, SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    VoluntaryExit,
+};
+use types::{
+    AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, SignedAggregateAndProof,
+    SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
 };
 
 pub use crate::doppelganger_service::DoppelgangerStatus;
@@ -801,16 +805,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_epoch = aggregate.data().target.epoch;
         let signing_context = self.signing_context(Domain::AggregateAndProof, signing_epoch);
 
-        let message = AggregateAndProof {
-            aggregator_index,
-            aggregate,
-            selection_proof: selection_proof.into(),
+        let message = match aggregate {
+            Attestation::Base(att) => AggregateAndProof::Base(AggregateAndProofBase {
+                aggregator_index,
+                aggregate: att,
+                selection_proof: selection_proof.into(),
+            }),
+            Attestation::Electra(att) => AggregateAndProof::Electra(AggregateAndProofElectra {
+                aggregator_index,
+                aggregate: att,
+                selection_proof: selection_proof.into(),
+            }),
         };
 
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
         let signature = signing_method
             .get_signature::<E, BlindedPayload<E>>(
-                SignableMessage::SignedAggregateAndProof(&message),
+                SignableMessage::SignedAggregateAndProof(message.to_ref()),
                 signing_context,
                 &self.spec,
                 &self.task_executor,
@@ -819,7 +830,17 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         metrics::inc_counter_vec(&metrics::SIGNED_AGGREGATES_TOTAL, &[metrics::SUCCESS]);
 
-        Ok(SignedAggregateAndProof { message, signature })
+        match message {
+            AggregateAndProof::Base(message) => {
+                Ok(SignedAggregateAndProof::Base(SignedAggregateAndProofBase {
+                    message,
+                    signature,
+                }))
+            }
+            AggregateAndProof::Electra(message) => Ok(SignedAggregateAndProof::Electra(
+                SignedAggregateAndProofElectra { message, signature },
+            )),
+        }
     }
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to

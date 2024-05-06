@@ -1,10 +1,14 @@
 use super::{
-    AggregateAndProof, Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey,
-    SelectionProof, Signature, SignedRoot,
+    AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofRef,
+};
+use super::{
+    Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey, SelectionProof, Signature,
+    SignedRoot,
 };
 use crate::test_utils::TestRandom;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -12,22 +16,36 @@ use tree_hash_derive::TreeHash;
 /// gossipsub topic.
 ///
 /// Spec v0.12.1
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    TreeHash,
-    arbitrary::Arbitrary,
+#[superstruct(
+    variants(Base, Electra),
+    variant_attributes(
+        derive(
+            arbitrary::Arbitrary,
+            Debug,
+            Clone,
+            PartialEq,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            TestRandom,
+            TreeHash,
+        ),
+        serde(bound = "E: EthSpec"),
+        arbitrary(bound = "E: EthSpec"),
+    )
 )]
-#[serde(bound = "E: EthSpec")]
+#[derive(
+    arbitrary::Arbitrary, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, TreeHash,
+)]
+#[serde(untagged)]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[arbitrary(bound = "E: EthSpec")]
 pub struct SignedAggregateAndProof<E: EthSpec> {
     /// The `AggregateAndProof` that was signed.
+    #[superstruct(flatten)]
     pub message: AggregateAndProof<E>,
     /// The aggregate attestation.
     pub signature: Signature,
@@ -57,7 +75,7 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
             spec,
         );
 
-        let target_epoch = message.aggregate.data().slot.epoch(E::slots_per_epoch());
+        let target_epoch = message.aggregate().data().slot.epoch(E::slots_per_epoch());
         let domain = spec.get_domain(
             target_epoch,
             Domain::AggregateAndProof,
@@ -66,9 +84,28 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
         );
         let signing_message = message.signing_root(domain);
 
-        SignedAggregateAndProof {
-            message,
-            signature: secret_key.sign(signing_message),
+        match message {
+            AggregateAndProof::Base(message) => {
+                SignedAggregateAndProof::Base(SignedAggregateAndProofBase {
+                    message,
+                    signature: secret_key.sign(signing_message),
+                })
+            }
+            AggregateAndProof::Electra(message) => {
+                SignedAggregateAndProof::Electra(SignedAggregateAndProofElectra {
+                    message,
+                    signature: secret_key.sign(signing_message),
+                })
+            }
+        }
+    }
+
+    pub fn message(&self) -> AggregateAndProofRef<E> {
+        match self {
+            SignedAggregateAndProof::Base(message) => AggregateAndProofRef::Base(&message.message),
+            SignedAggregateAndProof::Electra(message) => {
+                AggregateAndProofRef::Electra(&message.message)
+            }
         }
     }
 }

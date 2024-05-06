@@ -24,8 +24,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState, BlobSidecar,
-    BlobsList, Checkpoint, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
+    Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
+    BlobSidecar, BlobsList, Checkpoint, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
     ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
@@ -589,11 +589,11 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn process_attestation(&self, attestation: &Attestation<E>) -> Result<(), Error> {
-        let (indexed_attestation, _) =
-            obtain_indexed_attestation_and_committees_per_slot(&self.harness.chain, attestation)
-                .map_err(|e| {
-                    Error::InternalError(format!("attestation indexing failed with {:?}", e))
-                })?;
+        let (indexed_attestation, _) = obtain_indexed_attestation_and_committees_per_slot(
+            &self.harness.chain,
+            attestation.to_ref(),
+        )
+        .map_err(|e| Error::InternalError(format!("attestation indexing failed with {:?}", e)))?;
         let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
             ManuallyVerifiedAttestation {
                 attestation,
@@ -865,8 +865,8 @@ pub struct ManuallyVerifiedAttestation<'a, T: BeaconChainTypes> {
 }
 
 impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for ManuallyVerifiedAttestation<'a, T> {
-    fn attestation(&self) -> &Attestation<T::EthSpec> {
-        self.attestation
+    fn attestation(&self) -> AttestationRef<T::EthSpec> {
+        self.attestation.to_ref()
     }
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {

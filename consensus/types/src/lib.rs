@@ -114,7 +114,9 @@ pub mod runtime_var_list;
 use ethereum_types::{H160, H256};
 
 pub use crate::activation_queue::ActivationQueue;
-pub use crate::aggregate_and_proof::AggregateAndProof;
+pub use crate::aggregate_and_proof::{
+    AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofRef,
+};
 pub use crate::attestation::{
     Attestation, AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut,
     Error as AttestationError,
@@ -218,7 +220,9 @@ pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use crate::runtime_var_list::RuntimeVariableList;
 pub use crate::selection_proof::SelectionProof;
 pub use crate::shuffling_id::AttestationShufflingId;
-pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
+pub use crate::signed_aggregate_and_proof::{
+    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
+};
 pub use crate::signed_beacon_block::{
     ssz_tagged_signed_beacon_block, ssz_tagged_signed_beacon_block_arc, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,

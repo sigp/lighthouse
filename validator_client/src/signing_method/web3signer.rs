@@ -43,7 +43,7 @@ pub enum Web3SignerObject<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     AggregationSlot {
         slot: Slot,
     },
-    AggregateAndProof(&'a AggregateAndProof<E>),
+    AggregateAndProof(AggregateAndProofRef<'a, E>),
     Attestation(&'a AttestationData),
     BeaconBlock {
         version: ForkName,

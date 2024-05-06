@@ -39,15 +39,10 @@ use tree_hash_derive::TreeHash;
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct AttesterSlashing<E: EthSpec> {
-    // TODO(electra) change this to `#[superstruct(flatten)]` when 0.8 is out..
-    #[superstruct(only(Base), partial_getter(rename = "attestation_1_base"))]
-    pub attestation_1: IndexedAttestationBase<E>,
-    #[superstruct(only(Electra), partial_getter(rename = "attestation_1_electra"))]
-    pub attestation_1: IndexedAttestationElectra<E>,
-    #[superstruct(only(Base), partial_getter(rename = "attestation_2_base"))]
-    pub attestation_2: IndexedAttestationBase<E>,
-    #[superstruct(only(Electra), partial_getter(rename = "attestation_2_electra"))]
-    pub attestation_2: IndexedAttestationElectra<E>,
+    #[superstruct(flatten)]
+    pub attestation_1: IndexedAttestation<E>,
+    #[superstruct(flatten)]
+    pub attestation_2: IndexedAttestation<E>,
 }
 
 /// This is a copy of the `AttesterSlashing` enum but with `Encode` and `Decode` derived

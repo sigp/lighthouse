@@ -42,7 +42,8 @@ pub enum Error {
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
-    )
+    ),
+    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent"))
 )]
 #[derive(
     Debug,
@@ -123,22 +124,24 @@ impl<E: EthSpec> Attestation<E> {
     /// Aggregate another Attestation into this one.
     ///
     /// The aggregation bitfields must be disjoint, and the data must be the same.
-    pub fn aggregate(&mut self, other: &Self) {
+    pub fn aggregate(&mut self, other: AttestationRef<E>) {
         match self {
-            Attestation::Base(att) => {
-                debug_assert!(other.as_base().is_ok());
-
-                if let Ok(other) = other.as_base() {
-                    att.aggregate(other)
+            Attestation::Base(att) => match other {
+                AttestationRef::Base(oth) => {
+                    att.aggregate(oth);
                 }
-            }
-            Attestation::Electra(att) => {
-                debug_assert!(other.as_electra().is_ok());
-
-                if let Ok(other) = other.as_electra() {
-                    att.aggregate(other)
+                AttestationRef::Electra(_) => {
+                    debug_assert!(false, "Cannot aggregate base and electra attestations");
                 }
-            }
+            },
+            Attestation::Electra(att) => match other {
+                AttestationRef::Base(_) => {
+                    debug_assert!(false, "Cannot aggregate base and electra attestations");
+                }
+                AttestationRef::Electra(oth) => {
+                    att.aggregate(oth);
+                }
+            },
         }
     }
 
@@ -215,8 +218,22 @@ impl<E: EthSpec> Attestation<E> {
 impl<'a, E: EthSpec> AttestationRef<'a, E> {
     pub fn clone_as_attestation(self) -> Attestation<E> {
         match self {
-            AttestationRef::Base(att) => Attestation::Base(att.clone()),
-            AttestationRef::Electra(att) => Attestation::Electra(att.clone()),
+            Self::Base(att) => Attestation::Base(att.clone()),
+            Self::Electra(att) => Attestation::Electra(att.clone()),
+        }
+    }
+
+    pub fn is_aggregation_bits_zero(self) -> bool {
+        match self {
+            Self::Base(att) => att.aggregation_bits.is_zero(),
+            Self::Electra(att) => att.aggregation_bits.is_zero(),
+        }
+    }
+
+    pub fn num_set_aggregation_bits(&self) -> usize {
+        match self {
+            Self::Base(att) => att.aggregation_bits.num_set_bits(),
+            Self::Electra(att) => att.aggregation_bits.num_set_bits(),
         }
     }
 }

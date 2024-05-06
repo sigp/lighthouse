@@ -3368,9 +3368,9 @@ pub fn serve<T: BeaconChainTypes>(
                                     "Failure verifying aggregate and proofs";
                                     "error" => format!("{:?}", e),
                                     "request_index" => index,
-                                    "aggregator_index" => aggregate.message.aggregator_index,
-                                    "attestation_index" => aggregate.message.aggregate.data().index,
-                                    "attestation_slot" => aggregate.message.aggregate.data().slot,
+                                    "aggregator_index" => aggregate.message().aggregator_index(),
+                                    "attestation_index" => aggregate.message().aggregate().data().index,
+                                    "attestation_slot" => aggregate.message().aggregate().data().slot,
                                 );
                                 failures.push(api_types::Failure::new(index, format!("Verification: {:?}", e)));
                             }
@@ -3389,7 +3389,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     "Failure applying verified aggregate attestation to fork choice";
                                     "error" => format!("{:?}", e),
                                     "request_index" => index,
-                                    "aggregator_index" => verified_aggregate.aggregate().message.aggregator_index,
+                                    "aggregator_index" => verified_aggregate.aggregate().message().aggregator_index(),
                                     "attestation_index" => verified_aggregate.attestation().data().index,
                                     "attestation_slot" => verified_aggregate.attestation().data().slot,
                                 );

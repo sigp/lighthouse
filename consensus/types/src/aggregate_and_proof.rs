@@ -1,39 +1,77 @@
+use super::{Attestation, AttestationBase, AttestationElectra, AttestationRef};
 use super::{
-    Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof,
-    Signature, SignedRoot,
+    ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof, Signature,
+    SignedRoot,
 };
 use crate::test_utils::TestRandom;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-/// A Validators aggregate attestation and selection proof.
-///
-/// Spec v0.12.1
-#[derive(
-    arbitrary::Arbitrary,
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    TreeHash,
+#[superstruct(
+    variants(Base, Electra),
+    variant_attributes(
+        derive(
+            arbitrary::Arbitrary,
+            Debug,
+            Clone,
+            PartialEq,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            TestRandom,
+            TreeHash,
+        ),
+        serde(bound = "E: EthSpec"),
+        arbitrary(bound = "E: EthSpec"),
+    ),
+    ref_attributes(
+        derive(Debug, PartialEq, TreeHash, Serialize,),
+        serde(bound = "E: EthSpec"),
+        tree_hash(enum_behaviour = "transparent")
+    )
 )]
-#[serde(bound = "E: EthSpec")]
+#[derive(
+    arbitrary::Arbitrary, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, TreeHash,
+)]
+#[serde(untagged)]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[arbitrary(bound = "E: EthSpec")]
 pub struct AggregateAndProof<E: EthSpec> {
     /// The index of the validator that created the attestation.
     #[serde(with = "serde_utils::quoted_u64")]
+    #[superstruct(getter(copy))]
     pub aggregator_index: u64,
     /// The aggregate attestation.
+    #[superstruct(flatten)]
     pub aggregate: Attestation<E>,
     /// A proof provided by the validator that permits them to publish on the
     /// `beacon_aggregate_and_proof` gossipsub topic.
     pub selection_proof: Signature,
+}
+
+impl<'a, E: EthSpec> AggregateAndProofRef<'a, E> {
+    /// Returns `true` if `validator_pubkey` signed over `self.aggregate.data.slot`.
+    pub fn aggregate(self) -> AttestationRef<'a, E> {
+        match self {
+            AggregateAndProofRef::Base(a) => AttestationRef::Base(&a.aggregate),
+            AggregateAndProofRef::Electra(a) => AttestationRef::Electra(&a.aggregate),
+        }
+    }
+}
+impl<E: EthSpec> AggregateAndProof<E> {
+    /// Returns `true` if `validator_pubkey` signed over `self.aggregate.data.slot`.
+    pub fn aggregate(&self) -> AttestationRef<E> {
+        match self {
+            AggregateAndProof::Base(a) => AttestationRef::Base(&a.aggregate),
+            AggregateAndProof::Electra(a) => AttestationRef::Electra(&a.aggregate),
+        }
+    }
 }
 
 impl<E: EthSpec> AggregateAndProof<E> {
@@ -62,10 +100,17 @@ impl<E: EthSpec> AggregateAndProof<E> {
             })
             .into();
 
-        Self {
-            aggregator_index,
-            aggregate,
-            selection_proof,
+        match aggregate {
+            Attestation::Base(attestation) => Self::Base(AggregateAndProofBase {
+                aggregator_index,
+                aggregate: attestation,
+                selection_proof,
+            }),
+            Attestation::Electra(attestation) => Self::Electra(AggregateAndProofElectra {
+                aggregator_index,
+                aggregate: attestation,
+                selection_proof,
+            }),
         }
     }
 
@@ -77,16 +122,17 @@ impl<E: EthSpec> AggregateAndProof<E> {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> bool {
-        let target_epoch = self.aggregate.data().slot.epoch(E::slots_per_epoch());
+        let target_epoch = self.aggregate().data().slot.epoch(E::slots_per_epoch());
         let domain = spec.get_domain(
             target_epoch,
             Domain::SelectionProof,
             fork,
             genesis_validators_root,
         );
-        let message = self.aggregate.data().slot.signing_root(domain);
-        self.selection_proof.verify(validator_pubkey, message)
+        let message = self.aggregate().data().slot.signing_root(domain);
+        self.selection_proof().verify(validator_pubkey, message)
     }
 }
 
 impl<E: EthSpec> SignedRoot for AggregateAndProof<E> {}
+impl<'a, E: EthSpec> SignedRoot for AggregateAndProofRef<'a, E> {}
