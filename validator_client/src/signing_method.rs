@@ -7,7 +7,7 @@ use crate::http_metrics::metrics;
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use parking_lot::Mutex;
-use reqwest::Client;
+use reqwest::{header::ACCEPT, Client};
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -243,6 +243,7 @@ impl SigningMethod {
                 // Request a signature from the Web3Signer instance via HTTP(S).
                 let response: SigningResponse = http_client
                     .post(signing_url.clone())
+                    .header(ACCEPT, "application/json")
                     .json(&request)
                     .send()
                     .await
