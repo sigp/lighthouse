@@ -172,17 +172,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         )
     }
 
-    /// Add all given peers to both block and blob request states.
-    pub fn add_peer(&mut self, peer_id: PeerId) {
-        self.block_request_state.state.add_peer(&peer_id);
-        self.blob_request_state.state.add_peer(&peer_id);
-    }
-
-    /// Add all given peers to both block and blob request states.
-    pub fn add_peers(&mut self, peers: &[PeerId]) {
-        for peer in peers {
-            self.add_peer(*peer);
-        }
+    /// Add peer to all request states. The peer must be able to serve this request.
+    /// Returns true if the peer was newly inserted into some request state.
+    pub fn add_peer(&mut self, peer_id: PeerId) -> bool {
+        let inserted_block = self.block_request_state.state.add_peer(&peer_id);
+        let inserted_blob = self.blob_request_state.state.add_peer(&peer_id);
+        inserted_block || inserted_blob
     }
 
     /// Returns true if the block has already been downloaded.
@@ -464,9 +459,10 @@ impl<T: Clone> SingleLookupRequestState<T> {
         self.failed_processing >= self.failed_downloading
     }
 
-    /// This method should be used for peers wrapped in `PeerId::BlockAndBlobs`.
-    pub fn add_peer(&mut self, peer_id: &PeerId) {
-        self.available_peers.insert(*peer_id);
+    /// Add peer to this request states. The peer must be able to serve this request.
+    /// Returns true if the peer is newly inserted.
+    pub fn add_peer(&mut self, peer_id: &PeerId) -> bool {
+        self.available_peers.insert(*peer_id)
     }
 
     /// If a peer disconnects, this request could be failed. If so, an error is returned
