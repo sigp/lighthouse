@@ -450,8 +450,25 @@ impl TestRig {
         })
     }
 
-    fn peer_disconnected(&mut self, peer_id: PeerId) {
-        self.send_sync_message(SyncMessage::Disconnect(peer_id));
+    fn peer_disconnected(&mut self, disconnected_peer_id: PeerId) {
+        self.send_sync_message(SyncMessage::Disconnect(disconnected_peer_id));
+
+        // Return RPCErrors for all active requests of peer
+        self.drain_network_rx();
+        while let Ok(request_id) = self.pop_received_network_event(|ev| match ev {
+            NetworkMessage::SendRequest {
+                peer_id,
+                request_id: RequestId::Sync(id),
+                ..
+            } if *peer_id == disconnected_peer_id => Some(*id),
+            _ => None,
+        }) {
+            self.send_sync_message(SyncMessage::RpcError {
+                peer_id: disconnected_peer_id,
+                request_id,
+                error: RPCError::Disconnected,
+            });
+        }
     }
 
     fn drain_network_rx(&mut self) {

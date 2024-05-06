@@ -57,7 +57,7 @@ use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, o, trace, warn, Logger};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
@@ -267,9 +267,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 beacon_chain.clone(),
                 log.clone(),
             ),
-            range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
-            backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
-            block_lookups: BlockLookups::new(log.clone()),
+            range_sync: RangeSync::new(
+                beacon_chain.clone(),
+                log.new(o!("service" => "range_sync")),
+            ),
+            backfill_sync: BackFillSync::new(
+                beacon_chain.clone(),
+                network_globals,
+                log.new(o!("service" => "backfill_sync")),
+            ),
+            block_lookups: BlockLookups::new(log.new(o!("service"=> "lookup_sync"))),
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
             )),
@@ -379,9 +386,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
         self.block_lookups.peer_disconnected(peer_id);
         // Regardless of the outcome, we update the sync status.
-        let _ = self
-            .backfill_sync
-            .peer_disconnected(peer_id, &mut self.network);
+        let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.update_sync_state();
     }
 
