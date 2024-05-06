@@ -3,7 +3,8 @@ use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -652,6 +653,7 @@ pub struct EngineCapabilities {
     pub new_payload_v1: bool,
     pub new_payload_v2: bool,
     pub new_payload_v3: bool,
+    pub new_payload_v4: bool,
     pub forkchoice_updated_v1: bool,
     pub forkchoice_updated_v2: bool,
     pub forkchoice_updated_v3: bool,
@@ -660,6 +662,7 @@ pub struct EngineCapabilities {
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
+    pub get_payload_v4: bool,
     pub get_client_version_v1: bool,
 }
 
@@ -674,6 +677,9 @@ impl EngineCapabilities {
         }
         if self.new_payload_v3 {
             response.push(ENGINE_NEW_PAYLOAD_V3);
+        }
+        if self.new_payload_v4 {
+            response.push(ENGINE_NEW_PAYLOAD_V4);
         }
         if self.forkchoice_updated_v1 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V1);
@@ -698,6 +704,9 @@ impl EngineCapabilities {
         }
         if self.get_payload_v3 {
             response.push(ENGINE_GET_PAYLOAD_V3);
+        }
+        if self.get_payload_v4 {
+            response.push(ENGINE_GET_PAYLOAD_V4);
         }
         if self.get_client_version_v1 {
             response.push(ENGINE_GET_CLIENT_VERSION_V1);
