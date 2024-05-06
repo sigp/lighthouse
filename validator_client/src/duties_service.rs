@@ -480,18 +480,6 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
         .validator_store
         .voting_pubkeys(DoppelgangerStatus::ignored);
 
-    let current_slot_opt = duties_service.slot_clock.now();
-    let next_poll_slot_opt = current_slot_opt.map(|slot| slot.saturating_add(E::slots_per_epoch()));
-
-    let is_first_slot_of_epoch = if let Some(current_slot) = current_slot_opt {
-        let current_epoch_first_slot = current_slot
-            .epoch(E::slots_per_epoch())
-            .start_slot(E::slots_per_epoch());
-        current_slot == current_epoch_first_slot
-    } else {
-        false
-    };
-
     for pubkey in all_pubkeys {
         // This is on its own line to avoid some weirdness with locks and if statements.
         let is_known = duties_service
@@ -502,7 +490,16 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
             .is_some();
 
         if !is_known {
+            let current_slot_opt = duties_service.slot_clock.now();
+
             if let Some(current_slot) = current_slot_opt {
+                let is_first_slot_of_epoch = {
+                    let current_epoch_first_slot = current_slot
+                        .epoch(E::slots_per_epoch())
+                        .start_slot(E::slots_per_epoch());
+                    current_slot == current_epoch_first_slot
+                };
+
                 // Query an unknown validator later if it was queried within the last epoch, or if
                 // the current slot is the first slot of an epoch.
                 let poll_later = duties_service
@@ -569,7 +566,8 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                 // This is not necessarily an error, it just means the validator is not yet known to
                 // the beacon chain.
                 Ok(None) => {
-                    if let Some(next_poll_slot) = next_poll_slot_opt {
+                    if let Some(current_slot) = current_slot_opt {
+                        let next_poll_slot = current_slot.saturating_add(E::slots_per_epoch());
                         duties_service
                             .unknown_validator_next_poll_slots
                             .write()
