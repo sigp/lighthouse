@@ -159,6 +159,7 @@ pub enum Error {
     IndexNotSupported(usize),
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
+    PartialWithdrawalCountInvalid(usize),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -2097,11 +2098,12 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         validator_index: usize,
         spec: &ChainSpec,
+        current_fork: ForkName,
     ) -> Result<u64, Error> {
         let max_effective_balance = self
             .validators()
             .get(validator_index)
-            .map(|validator| validator.get_validator_max_effective_balance(spec))
+            .map(|validator| validator.get_validator_max_effective_balance(spec, current_fork))
             .ok_or(Error::UnknownValidator(validator_index))?;
         Ok(std::cmp::min(
             *self

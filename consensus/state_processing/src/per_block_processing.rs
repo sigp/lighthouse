@@ -503,12 +503,60 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
 pub fn get_expected_withdrawals<E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<Withdrawals<E>, BlockProcessingError> {
+) -> Result<(Withdrawals<E>, Option<usize>), BlockProcessingError> {
     let epoch = state.current_epoch();
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = vec![];
     let fork_name = state.fork_name_unchecked();
+
+    // [New in Electra:EIP7251]
+    // Consume pending partial withdrawals
+    let partial_withdrawals_count =
+        if let Ok(partial_withdrawals) = state.pending_partial_withdrawals() {
+            for withdrawal in partial_withdrawals {
+                if withdrawal.withdrawable_epoch > epoch
+                    || withdrawals.len() == spec.max_pending_partials_per_withdrawals_sweep as usize
+                {
+                    break;
+                }
+
+                let withdrawal_balance = state
+                    .balances()
+                    .get(withdrawal.index as usize)
+                    .copied()
+                    .ok_or(BeaconStateError::BalancesOutOfBounds(
+                    withdrawal.index as usize,
+                ))?;
+                let validator = state.validators().get(withdrawal.index as usize).ok_or(
+                    BeaconStateError::UnknownValidator(withdrawal.index as usize),
+                )?;
+
+                let has_sufficient_effective_balance =
+                    validator.effective_balance >= spec.min_activation_balance;
+                let has_excess_balance = withdrawal_balance > spec.min_activation_balance;
+
+                if validator.exit_epoch == spec.far_future_epoch
+                    && has_sufficient_effective_balance
+                    && has_excess_balance
+                {
+                    let withdrawable_balance = std::cmp::min(
+                        withdrawal_balance.safe_sub(spec.min_activation_balance)?,
+                        withdrawal.amount,
+                    );
+                    withdrawals.push(Withdrawal {
+                        index: withdrawal_index,
+                        validator_index: withdrawal.index,
+                        address: Address::from_slice(&validator.withdrawal_credentials[12..]),
+                        amount: withdrawable_balance,
+                    });
+                    withdrawal_index.safe_add_assign(1)?;
+                }
+            }
+            Some(withdrawals.len())
+        } else {
+            None
+        };
 
     let bound = std::cmp::min(
         state.validators().len() as u64,
@@ -536,7 +584,10 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 address: validator
                     .get_eth1_withdrawal_address(spec)
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
-                amount: balance.safe_sub(spec.max_effective_balance)?,
+                amount: balance.safe_sub(
+                    validator
+                        .get_validator_max_effective_balance(spec, state.fork_name_unchecked()),
+                )?,
             });
             withdrawal_index.safe_add_assign(1)?;
         }
@@ -548,7 +599,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
             .safe_rem(state.validators().len() as u64)?;
     }
 
-    Ok(withdrawals.into())
+    Ok((withdrawals.into(), partial_withdrawals_count))
 }
 
 /// Apply withdrawals to the state.
@@ -558,9 +609,9 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     match state {
-        BeaconState::Bellatrix(_) => Ok(()),
         BeaconState::Capella(_) | BeaconState::Deneb(_) | BeaconState::Electra(_) => {
-            let expected_withdrawals = get_expected_withdrawals(state, spec)?;
+            let (expected_withdrawals, partial_withdrawals_count) =
+                get_expected_withdrawals(state, spec)?;
             let expected_root = expected_withdrawals.tree_hash_root();
             let withdrawals_root = payload.withdrawals_root()?;
 
@@ -577,6 +628,19 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
                     withdrawal.validator_index as usize,
                     withdrawal.amount,
                 )?;
+            }
+
+            // Update pending partial withdrawals [New in Electra:EIP7251]
+            if let Some(partial_withdrawals_count) = partial_withdrawals_count {
+                let new_partial_withdrawals = state
+                    .pending_partial_withdrawals()?
+                    .to_vec()
+                    .get(partial_withdrawals_count..)
+                    .ok_or(BeaconStateError::PartialWithdrawalCountInvalid(
+                        partial_withdrawals_count,
+                    ))?
+                    .to_vec();
+                *state.pending_partial_withdrawals_mut()? = List::new(new_partial_withdrawals)?;
             }
 
             // Update the next withdrawal index if this block contained withdrawals
@@ -606,6 +670,6 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
             Ok(())
         }
         // these shouldn't even be encountered but they're here for completeness
-        BeaconState::Base(_) | BeaconState::Altair(_) => Ok(()),
+        BeaconState::Base(_) | BeaconState::Altair(_) | BeaconState::Bellatrix(_) => Ok(()),
     }
 }
