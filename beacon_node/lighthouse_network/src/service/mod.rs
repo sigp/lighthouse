@@ -1379,7 +1379,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
         let peer_id = event.peer_id;
 
         if !self.peer_manager().is_connected(&peer_id) {
-            // Sync expectes a RPCError::Disconnected to drop associated lookups with this peer.
+            // Sync expects a RPCError::Disconnected to drop associated lookups with this peer.
             // Silencing this event breaks the API contract with RPC where every request ends with
             // - A stream termination event, or
             // - An RPCError event
