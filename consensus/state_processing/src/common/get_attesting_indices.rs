@@ -1,25 +1,162 @@
 use types::*;
 
-/// Returns validator indices which participated in the attestation, sorted by increasing index.
-pub fn get_attesting_indices<E: EthSpec>(
-    committee: &[usize],
-    bitlist: &BitList<E::MaxValidatorsPerCommittee>,
-) -> Result<Vec<u64>, BeaconStateError> {
-    if bitlist.len() != committee.len() {
-        return Err(BeaconStateError::InvalidBitfield);
+pub mod attesting_indices_base {
+    use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
+    use types::*;
+
+    /// Convert `attestation` to (almost) indexed-verifiable form.
+    ///
+    /// Spec v0.12.1
+    pub fn get_indexed_attestation<E: EthSpec>(
+        committee: &[usize],
+        attestation: &AttestationBase<E>,
+    ) -> Result<IndexedAttestation<E>, BlockOperationError<Invalid>> {
+        let attesting_indices =
+            get_attesting_indices::<E>(committee, &attestation.aggregation_bits)?;
+
+        Ok(IndexedAttestation::Base(IndexedAttestationBase {
+            attesting_indices: VariableList::new(attesting_indices)?,
+            data: attestation.data.clone(),
+            signature: attestation.signature.clone(),
+        }))
     }
 
-    let mut indices = Vec::with_capacity(bitlist.num_set_bits());
-
-    for (i, validator_index) in committee.iter().enumerate() {
-        if let Ok(true) = bitlist.get(i) {
-            indices.push(*validator_index as u64)
+    /// Returns validator indices which participated in the attestation, sorted by increasing index.
+    pub fn get_attesting_indices<E: EthSpec>(
+        committee: &[usize],
+        bitlist: &BitList<E::MaxValidatorsPerCommittee>,
+    ) -> Result<Vec<u64>, BeaconStateError> {
+        if bitlist.len() != committee.len() {
+            return Err(BeaconStateError::InvalidBitfield);
         }
+
+        let mut indices = Vec::with_capacity(bitlist.num_set_bits());
+
+        for (i, validator_index) in committee.iter().enumerate() {
+            if let Ok(true) = bitlist.get(i) {
+                indices.push(*validator_index as u64)
+            }
+        }
+
+        indices.sort_unstable();
+
+        Ok(indices)
+    }
+}
+
+pub mod attesting_indices_electra {
+    use std::collections::{HashMap, HashSet};
+
+    use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
+    use itertools::Itertools;
+    use safe_arith::SafeArith;
+    use types::*;
+
+    pub fn get_indexed_attestation<E: EthSpec>(
+        committees: &[BeaconCommittee],
+        attestation: &AttestationElectra<E>,
+    ) -> Result<IndexedAttestation<E>, BlockOperationError<Invalid>> {
+        let attesting_indices = get_attesting_indices::<E>(
+            committees,
+            &attestation.aggregation_bits,
+            &attestation.committee_bits,
+        )?;
+
+        Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
+            attesting_indices: VariableList::new(attesting_indices)?,
+            data: attestation.data.clone(),
+            signature: attestation.signature.clone(),
+        }))
     }
 
-    indices.sort_unstable();
+    pub fn get_indexed_attestation_from_state<E: EthSpec>(
+        beacon_state: &BeaconState<E>,
+        attestation: &AttestationElectra<E>,
+    ) -> Result<IndexedAttestation<E>, BlockOperationError<Invalid>> {
+        let committees = beacon_state.get_beacon_committees_at_slot(attestation.data.slot)?;
+        let attesting_indices = get_attesting_indices::<E>(
+            &committees,
+            &attestation.aggregation_bits,
+            &attestation.committee_bits,
+        )?;
 
-    Ok(indices)
+        Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
+            attesting_indices: VariableList::new(attesting_indices)?,
+            data: attestation.data.clone(),
+            signature: attestation.signature.clone(),
+        }))
+    }
+
+    /// Shortcut for getting the attesting indices while fetching the committee from the state's cache.
+    pub fn get_attesting_indices_from_state<E: EthSpec>(
+        state: &BeaconState<E>,
+        att: &AttestationElectra<E>,
+    ) -> Result<Vec<u64>, BeaconStateError> {
+        let committees = state.get_beacon_committees_at_slot(att.data.slot)?;
+        get_attesting_indices::<E>(&committees, &att.aggregation_bits, &att.committee_bits)
+    }
+
+    /// Returns validator indices which participated in the attestation, sorted by increasing index.
+    pub fn get_attesting_indices<E: EthSpec>(
+        committees: &[BeaconCommittee],
+        aggregation_bits: &BitList<E::MaxValidatorsPerCommitteePerSlot>,
+        committee_bits: &BitVector<E::MaxCommitteesPerSlot>,
+    ) -> Result<Vec<u64>, BeaconStateError> {
+        let mut output: HashSet<u64> = HashSet::new();
+
+        let committee_indices = get_committee_indices::<E>(committee_bits);
+
+        let committee_offset = 0;
+
+        let committees_map: HashMap<u64, &BeaconCommittee> = committees
+            .iter()
+            .map(|committee| (committee.index, committee))
+            .collect();
+
+        for index in committee_indices {
+            if let Some(&beacon_committee) = committees_map.get(&index) {
+                if aggregation_bits.len() != beacon_committee.committee.len() {
+                    return Err(BeaconStateError::InvalidBitfield);
+                }
+                let committee_attesters = beacon_committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, &index)| {
+                        if let Ok(aggregation_bit_index) = committee_offset.safe_add(i) {
+                            if aggregation_bits.get(aggregation_bit_index).unwrap_or(false) {
+                                return Some(index as u64);
+                            }
+                        }
+                        None
+                    })
+                    .collect::<HashSet<u64>>();
+
+                output.extend(committee_attesters);
+
+                committee_offset.safe_add(beacon_committee.committee.len())?;
+            } else {
+                return Err(Error::NoCommitteeFound);
+            }
+
+            // TODO(electra) what should we do when theres no committee found for a given index?
+        }
+
+        let mut indices = output.into_iter().collect_vec();
+        indices.sort_unstable();
+
+        Ok(indices)
+    }
+
+    fn get_committee_indices<E: EthSpec>(
+        committee_bits: &BitVector<E::MaxCommitteesPerSlot>,
+    ) -> Vec<CommitteeIndex> {
+        committee_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
+    }
 }
 
 /// Shortcut for getting the attesting indices while fetching the committee from the state's cache.
@@ -27,12 +164,16 @@ pub fn get_attesting_indices_from_state<E: EthSpec>(
     state: &BeaconState<E>,
     att: AttestationRef<E>,
 ) -> Result<Vec<u64>, BeaconStateError> {
-    let committee = state.get_beacon_committee(att.data().slot, att.data().index)?;
     match att {
         AttestationRef::Base(att) => {
-            get_attesting_indices::<E>(committee.committee, &att.aggregation_bits)
+            let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
+            attesting_indices_base::get_attesting_indices::<E>(
+                committee.committee,
+                &att.aggregation_bits,
+            )
         }
-        // TODO(electra) implement get_attesting_indices for electra
-        AttestationRef::Electra(_) => todo!(),
+        AttestationRef::Electra(att) => {
+            attesting_indices_electra::get_attesting_indices_from_state::<E>(state, att)
+        }
     }
 }

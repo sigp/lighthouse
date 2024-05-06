@@ -236,6 +236,13 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
             Self::Electra(att) => att.aggregation_bits.num_set_bits(),
         }
     }
+
+    pub fn committee_index(&self) -> u64 {
+        match self {
+            AttestationRef::Base(att) => att.data.index,
+            AttestationRef::Electra(att) => att.committee_index(),
+        }
+    }
 }
 
 impl<E: EthSpec> AttestationElectra<E> {
@@ -380,6 +387,18 @@ impl<E: EthSpec> AttestationBase<E> {
 
             Ok(())
         }
+    }
+
+    pub fn extend_aggregation_bits(
+        &self,
+    ) -> Result<BitList<E::MaxValidatorsPerCommitteePerSlot>, ssz_types::Error> {
+        let mut extended_aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot> =
+            BitList::with_capacity(self.aggregation_bits.len())?;
+
+        for (i, bit) in self.aggregation_bits.iter().enumerate() {
+            extended_aggregation_bits.set(i, bit)?;
+        }
+        Ok(extended_aggregation_bits)
     }
 }
 

@@ -2,7 +2,7 @@ use crate::attestation_storage::{AttestationRef, CompactIndexedAttestation};
 use crate::max_cover::MaxCover;
 use crate::reward_cache::RewardCache;
 use state_processing::common::{
-    base, get_attestation_participation_flag_indices, get_attesting_indices,
+    base, get_attestation_participation_flag_indices, attesting_indices_base::get_attesting_indices,
 };
 use std::collections::HashMap;
 use types::{

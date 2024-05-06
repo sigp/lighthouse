@@ -81,8 +81,15 @@ impl<E: EthSpec> SplitAttestation<E> {
                     index: data.index,
                 })
             }
-            // TODO(electra) implement electra variant
-            Attestation::Electra(_) => todo!(),
+            Attestation::Electra(attn) => {
+                CompactIndexedAttestation::Electra(CompactIndexedAttestationElectra {
+                    attesting_indices,
+                    aggregation_bits: attn.aggregation_bits,
+                    signature: attestation.signature().clone(),
+                    index: data.index,
+                    committee_bits: attn.committee_bits,
+                })
+            },
         };
 
         Self {

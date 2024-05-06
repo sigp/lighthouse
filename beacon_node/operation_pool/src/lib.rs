@@ -1060,7 +1060,9 @@ mod release_tests {
             op_pool
                 .insert_attestation(att.clone_as_attestation(), attesting_indices.clone())
                 .unwrap();
-            op_pool.insert_attestation(att.clone_as_attestation(), attesting_indices).unwrap();
+            op_pool
+                .insert_attestation(att.clone_as_attestation(), attesting_indices)
+                .unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
