@@ -1,4 +1,4 @@
-use super::common::{AwaitingParent, BlockIsProcessed, ResponseType};
+use super::common::ResponseType;
 use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;

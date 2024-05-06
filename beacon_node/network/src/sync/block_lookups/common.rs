@@ -1,9 +1,7 @@
 use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, SingleBlockLookup, SingleLookupRequestState,
 };
-use crate::sync::block_lookups::{
-    BlobRequestState, BlockRequestState, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
-};
+use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, PeerId};
 use crate::sync::manager::{BlockProcessType, Id, SLOT_IMPORT_TOLERANCE};
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
