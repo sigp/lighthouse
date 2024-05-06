@@ -89,7 +89,7 @@ impl<E: EthSpec> SplitAttestation<E> {
                     index: data.index,
                     committee_bits: attn.committee_bits,
                 })
-            },
+            }
         };
 
         Self {
