@@ -212,7 +212,7 @@ impl InvalidPayloadRig {
             .unwrap();
     }
 
-    async fn import_block_parametric<F: Fn(&BlockError<E>) -> bool>(
+    async fn import_block_parametric<F: Fn(&BlockError) -> bool>(
         &mut self,
         new_payload_response: Payload,
         forkchoice_response: Payload,
