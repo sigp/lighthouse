@@ -24,7 +24,7 @@ pub struct OnDiskConsensusContext<E: EthSpec> {
     indexed_attestations: HashMap<
         (
             AttestationData,
-            BitList<E::MaxValidatorsPerCommitteePerSlot>,
+            BitList<E::MaxValidatorsPerSlot>,
         ),
         IndexedAttestation<E>,
     >,

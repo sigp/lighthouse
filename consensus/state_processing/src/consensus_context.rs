@@ -25,7 +25,7 @@ pub struct ConsensusContext<E: EthSpec> {
     pub indexed_attestations: HashMap<
         (
             AttestationData,
-            BitList<E::MaxValidatorsPerCommitteePerSlot>,
+            BitList<E::MaxValidatorsPerSlot>,
         ),
         IndexedAttestation<E>,
     >,
@@ -208,7 +208,7 @@ impl<E: EthSpec> ConsensusContext<E> {
         attestations: HashMap<
             (
                 AttestationData,
-                BitList<E::MaxValidatorsPerCommitteePerSlot>,
+                BitList<E::MaxValidatorsPerSlot>,
             ),
             IndexedAttestation<E>,
         >,

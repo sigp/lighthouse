@@ -610,7 +610,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
         let indexed_attestation: IndexedAttestationElectra<E> = IndexedAttestationElectra {
             attesting_indices: VariableList::new(vec![
                 0_u64;
-                E::MaxValidatorsPerCommitteePerSlot::to_usize(
+                E::MaxValidatorsPerSlot::to_usize(
                 )
             ])
             .unwrap(),
@@ -626,10 +626,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
             E::max_attester_slashings_electra()
         ]
         .into();
-        // TODO(electra): check this
         let attestation = AttestationElectra {
             aggregation_bits: BitList::with_capacity(
-                E::MaxValidatorsPerCommitteePerSlot::to_usize(),
+                E::MaxValidatorsPerSlot::to_usize(),
             )
             .unwrap(),
             data: AttestationData::default(),

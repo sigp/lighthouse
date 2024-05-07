@@ -1032,21 +1032,40 @@ where
             *state.get_block_root(target_slot)?
         };
 
-        // TODO(electra) make test fork-agnostic
-        Ok(Attestation::Base(AttestationBase {
-            aggregation_bits: BitList::with_capacity(committee_len)?,
-            data: AttestationData {
-                slot,
-                index,
-                beacon_block_root,
-                source: state.current_justified_checkpoint(),
-                target: Checkpoint {
-                    epoch,
-                    root: target_root,
+        if self.spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
+            let mut committee_bits = BitVector::default();
+            committee_bits.set(index as usize, true)?;
+            Ok(Attestation::Electra(AttestationElectra {
+                aggregation_bits: BitList::with_capacity(committee_len)?,
+                committee_bits,
+                data: AttestationData {
+                    slot,
+                    index: 0u64,
+                    beacon_block_root,
+                    source: state.current_justified_checkpoint(),
+                    target: Checkpoint {
+                        epoch,
+                        root: target_root,
+                    },
                 },
-            },
-            signature: AggregateSignature::empty(),
-        }))
+                signature: AggregateSignature::empty(),
+            }))
+        } else {
+            Ok(Attestation::Base(AttestationBase {
+                aggregation_bits: BitList::with_capacity(committee_len)?,
+                data: AttestationData {
+                    slot,
+                    index,
+                    beacon_block_root,
+                    source: state.current_justified_checkpoint(),
+                    target: Checkpoint {
+                        epoch,
+                        root: target_root,
+                    },
+                },
+                signature: AggregateSignature::empty(),
+            }))
+        }
     }
 
     /// A list of attestations for each committee for the given slot.
@@ -1121,11 +1140,20 @@ where
                             )
                             .unwrap();
 
-                        attestation
-                            .aggregation_bits_base_mut()
-                            .unwrap()
-                            .set(i, true)
-                            .unwrap();
+                        match attestation {
+                            Attestation::Base(ref mut att) => {
+                                att
+                                    .aggregation_bits
+                                    .set(i, true)
+                                    .unwrap()
+                            },
+                            Attestation::Electra(ref mut att) => {
+                                att
+                                    .aggregation_bits
+                                    .set(i, true)
+                                    .unwrap()
+                            },
+                        }
 
                         *attestation.signature_mut() = {
                             let domain = self.spec.get_domain(

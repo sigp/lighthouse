@@ -28,7 +28,7 @@ pub struct CompactIndexedAttestation<E: EthSpec> {
     #[superstruct(only(Base), partial_getter(rename = "aggregation_bits_base"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
-    pub aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot>,
+    pub aggregation_bits: BitList<E::MaxValidatorsPerSlot>,
     pub signature: AggregateSignature,
     pub index: u64,
     #[superstruct(only(Electra))]
@@ -164,8 +164,8 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
             (CompactIndexedAttestation::Base(this), CompactIndexedAttestation::Base(other)) => {
                 this.signers_disjoint_from(other)
             }
-            (CompactIndexedAttestation::Electra(_), CompactIndexedAttestation::Electra(_)) => {
-                todo!()
+            (CompactIndexedAttestation::Electra(this), CompactIndexedAttestation::Electra(other)) => {
+                this.signers_disjoint_from(other)
             }
             // TODO(electra) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
             _ => false,
@@ -177,8 +177,8 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
             (CompactIndexedAttestation::Base(this), CompactIndexedAttestation::Base(other)) => {
                 this.aggregate(other)
             }
-            (CompactIndexedAttestation::Electra(_), CompactIndexedAttestation::Electra(_)) => {
-                todo!()
+            (CompactIndexedAttestation::Electra(this), CompactIndexedAttestation::Electra(other)) => {
+                this.aggregate(other)
             }
             // TODO(electra) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
             _ => (),
@@ -205,13 +205,34 @@ impl<E: EthSpec> CompactIndexedAttestationBase<E> {
     }
 }
 
+impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
+    // TODO(electra) update to match spec requirements
+    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
+        self.aggregation_bits
+            .intersection(&other.aggregation_bits)
+            .is_zero()
+    }
+
+    // TODO(electra) update to match spec requirements
+    pub fn aggregate(&mut self, other: &Self) {
+        self.attesting_indices = self
+            .attesting_indices
+            .drain(..)
+            .merge(other.attesting_indices.iter().copied())
+            .dedup()
+            .collect();
+        self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
+        self.signature.add_assign_aggregate(&other.signature);
+    }
+}
+
 impl<E: EthSpec> AttestationMap<E> {
     pub fn insert(&mut self, attestation: Attestation<E>, attesting_indices: Vec<u64>) {
         let SplitAttestation {
             checkpoint,
             data,
             indexed,
-        } = SplitAttestation::new(attestation, attesting_indices);
+        } = SplitAttestation::new(attestation.clone(), attesting_indices);
 
         let attestation_map = self.checkpoint_map.entry(checkpoint).or_default();
         let attestations = attestation_map.attestations.entry(data).or_default();
@@ -220,14 +241,24 @@ impl<E: EthSpec> AttestationMap<E> {
         // NOTE: this is sub-optimal and in future we will remove this in favour of max-clique
         // aggregation.
         let mut aggregated = false;
-        for existing_attestation in attestations.iter_mut() {
-            if existing_attestation.signers_disjoint_from(&indexed) {
-                existing_attestation.aggregate(&indexed);
-                aggregated = true;
-            } else if *existing_attestation == indexed {
-                aggregated = true;
-            }
-        }
+
+        match attestation {
+            Attestation::Base(_) => {
+                for existing_attestation in attestations.iter_mut() {
+                    if existing_attestation.signers_disjoint_from(&indexed) {
+                        existing_attestation.aggregate(&indexed);
+                        aggregated = true;
+                    } else if *existing_attestation == indexed {
+                        aggregated = true;
+                    }
+                }
+            },
+            // TODO(electra) in order to be devnet ready, we can skip
+            // aggregating here for now. this will result in "poorly"
+            // constructed blocks, but that should be fine for devnet
+            Attestation::Electra(_) => (),
+        };
+       
 
         if !aggregated {
             attestations.push(indexed);

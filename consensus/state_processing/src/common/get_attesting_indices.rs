@@ -99,7 +99,7 @@ pub mod attesting_indices_electra {
     /// Returns validator indices which participated in the attestation, sorted by increasing index.
     pub fn get_attesting_indices<E: EthSpec>(
         committees: &[BeaconCommittee],
-        aggregation_bits: &BitList<E::MaxValidatorsPerCommitteePerSlot>,
+        aggregation_bits: &BitList<E::MaxValidatorsPerSlot>,
         committee_bits: &BitVector<E::MaxCommitteesPerSlot>,
     ) -> Result<Vec<u64>, BeaconStateError> {
         let mut output: HashSet<u64> = HashSet::new();

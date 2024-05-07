@@ -830,8 +830,13 @@ async fn invalid_attestation_empty_bitfield() {
         .await
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
-            |attestation, _| {
-                *attestation.attesting_indices_base_mut().unwrap() = vec![].into();
+            |attestation, _| match attestation {
+                IndexedAttestation::Base(ref mut att) => {
+                    att.attesting_indices = vec![].into();
+                }
+                IndexedAttestation::Electra(ref mut att) => {
+                    att.attesting_indices = vec![].into();
+                }
             },
             |result| {
                 assert_invalid_attestation!(result, InvalidAttestation::EmptyAggregationBitfield)

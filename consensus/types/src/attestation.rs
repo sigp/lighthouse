@@ -65,7 +65,7 @@ pub struct Attestation<E: EthSpec> {
     #[superstruct(only(Base), partial_getter(rename = "aggregation_bits_base"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
-    pub aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot>,
+    pub aggregation_bits: BitList<E::MaxValidatorsPerSlot>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
     #[superstruct(only(Electra))]
@@ -391,8 +391,8 @@ impl<E: EthSpec> AttestationBase<E> {
 
     pub fn extend_aggregation_bits(
         &self,
-    ) -> Result<BitList<E::MaxValidatorsPerCommitteePerSlot>, ssz_types::Error> {
-        let mut extended_aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot> =
+    ) -> Result<BitList<E::MaxValidatorsPerSlot>, ssz_types::Error> {
+        let mut extended_aggregation_bits: BitList<E::MaxValidatorsPerSlot> =
             BitList::with_capacity(self.aggregation_bits.len())?;
 
         for (i, bit) in self.aggregation_bits.iter().enumerate() {

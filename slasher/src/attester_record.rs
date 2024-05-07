@@ -80,7 +80,7 @@ impl<E: EthSpec> IndexedAttesterRecord<E> {
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
 struct IndexedAttestationHeader<E: EthSpec> {
-    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommitteePerSlot>,
+    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot>,
     pub data_root: Hash256,
     pub signature: AggregateSignature,
 }
