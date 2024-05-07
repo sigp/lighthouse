@@ -6,6 +6,7 @@ use crate::common::{
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use types::typenum::U33;
 use types::validator::is_compounding_withdrawal_credential;
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
@@ -403,22 +404,26 @@ pub fn process_deposits<E: EthSpec>(
 
     // Update the state in series.
     for deposit in deposits {
-        apply_deposit(state, deposit, spec, false)?;
+        apply_deposit(state, deposit.data.clone(), None, spec)?;
     }
 
     Ok(())
 }
 
-/// Process a single deposit, optionally verifying its merkle proof.
+/// Process a single deposit, verifying its merkle proof if provided.
 pub fn apply_deposit<E: EthSpec>(
     state: &mut BeaconState<E>,
-    deposit: &Deposit,
+    deposit_data: DepositData,
+    proof: Option<FixedVector<Hash256, U33>>,
     spec: &ChainSpec,
-    verify_merkle_proof: bool,
 ) -> Result<(), BlockProcessingError> {
     let deposit_index = state.eth1_deposit_index() as usize;
-    if verify_merkle_proof {
-        verify_deposit_merkle_proof(state, deposit, state.eth1_deposit_index(), spec)
+    if let Some(proof) = proof {
+        let deposit = Deposit {
+            proof,
+            data: deposit_data.clone(),
+        };
+        verify_deposit_merkle_proof(state, &deposit, state.eth1_deposit_index(), spec)
             .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
@@ -426,10 +431,10 @@ pub fn apply_deposit<E: EthSpec>(
 
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
-    let validator_index = get_existing_validator_index(state, &deposit.data.pubkey)
+    let validator_index = get_existing_validator_index(state, &deposit_data.pubkey)
         .map_err(|e| e.into_with_index(deposit_index))?;
 
-    let amount = deposit.data.amount;
+    let amount = deposit_data.amount;
 
     if let Some(index) = validator_index {
         // [Modified in Electra:EIP7251]
@@ -441,9 +446,9 @@ pub fn apply_deposit<E: EthSpec>(
                 .get(index as usize)
                 .ok_or(BeaconStateError::UnknownValidator(index as usize))?;
 
-            if is_compounding_withdrawal_credential(deposit.data.withdrawal_credentials, spec)
+            if is_compounding_withdrawal_credential(deposit_data.withdrawal_credentials, spec)
                 && validator.has_eth1_withdrawal_credential(spec)
-                && is_valid_deposit_signature(&deposit.data, spec).is_ok()
+                && is_valid_deposit_signature(&deposit_data, spec).is_ok()
             {
                 state.switch_to_compounding_validator(index as usize, spec)?;
             }
@@ -454,7 +459,7 @@ pub fn apply_deposit<E: EthSpec>(
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
-        if is_valid_deposit_signature(&deposit.data, spec).is_err() {
+        if is_valid_deposit_signature(&deposit_data, spec).is_err() {
             return Ok(());
         }
 
@@ -475,8 +480,8 @@ pub fn apply_deposit<E: EthSpec>(
         };
         // Create a new validator.
         let validator = Validator {
-            pubkey: deposit.data.pubkey,
-            withdrawal_credentials: deposit.data.withdrawal_credentials,
+            pubkey: deposit_data.pubkey,
+            withdrawal_credentials: deposit_data.withdrawal_credentials,
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,
             exit_epoch: spec.far_future_epoch,
@@ -611,5 +616,27 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
                 })?;
         }
     }
+    Ok(())
+}
+
+pub fn process_deposit_receipts<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    receipts: &[DepositReceipt],
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    for receipt in receipts {
+        // Set deposit receipt start index
+        if state.deposit_receipts_start_index()? == spec.unset_deposit_receipts_start_index {
+            *state.deposit_receipts_start_index_mut()? = receipt.index
+        }
+        let deposit_data = DepositData {
+            pubkey: receipt.pubkey,
+            withdrawal_credentials: receipt.withdrawal_credentials,
+            amount: receipt.amount,
+            signature: receipt.signature.clone().into(),
+        };
+        apply_deposit(state, deposit_data, None, spec)?
+    }
+
     Ok(())
 }
