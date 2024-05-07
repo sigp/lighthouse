@@ -25,6 +25,7 @@ use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{Epoch, Hash256};
+use std::fmt;
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -33,6 +34,15 @@ pub enum ChainSegmentProcessId {
     RangeBatchId(ChainId, Epoch),
     /// Processing ID for a backfill syncing batch.
     BackSyncBatchId(Epoch),
+}
+
+impl fmt::Display for ChainSegmentProcessId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::RangeBatchId(_,_) => write!(f, "Range Sync"),
+            Self::BackSyncBatchId(_) => write!(f, "Backfill Sync"),
+        }
+    }
 }
 
 /// Returned when a chain segment import fails.

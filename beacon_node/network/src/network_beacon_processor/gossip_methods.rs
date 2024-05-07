@@ -1141,6 +1141,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
+        // TODO(block source)
+
         let result = self
             .chain
             .process_block_with_early_caching(block_root, verified_block, NotifyExecutionLayer::Yes)
