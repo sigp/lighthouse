@@ -451,7 +451,10 @@ pub enum ExitInvalid {
     /// The specified validator has already initiated exit.
     AlreadyInitiatedExit(u64),
     /// The exit is for a future epoch.
-    FutureEpoch { state: Epoch, exit: Epoch },
+    FutureEpoch {
+        state: Epoch,
+        exit: Epoch,
+    },
     /// The validator has not been active for long enough.
     TooYoungToExit {
         current_epoch: Epoch,
@@ -462,6 +465,7 @@ pub enum ExitInvalid {
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
+    PendingWithdrawalInQueue(u64),
 }
 
 #[derive(Debug, PartialEq, Clone)]

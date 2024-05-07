@@ -19,16 +19,22 @@ pub fn initiate_validator_exit<E: EthSpec>(
     state.build_exit_cache(spec)?;
 
     // Compute exit queue epoch
-    let delayed_epoch = state.compute_activation_exit_epoch(state.current_epoch(), spec)?;
-    let mut exit_queue_epoch = state
-        .exit_cache()
-        .max_epoch()?
-        .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
-    let exit_queue_churn = state.exit_cache().get_churn_at(exit_queue_epoch)?;
+    let exit_queue_epoch = if state.fork_name_unchecked() >= ForkName::Electra {
+        let effective_balance = state.get_validator(index)?.effective_balance;
+        state.compute_exit_epoch_and_update_churn(effective_balance, spec)?
+    } else {
+        let delayed_epoch = state.compute_activation_exit_epoch(state.current_epoch(), spec)?;
+        let mut exit_queue_epoch = state
+            .exit_cache()
+            .max_epoch()?
+            .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
+        let exit_queue_churn = state.exit_cache().get_churn_at(exit_queue_epoch)?;
 
-    if exit_queue_churn >= state.get_validator_churn_limit(spec)? {
-        exit_queue_epoch.safe_add_assign(1)?;
-    }
+        if exit_queue_churn >= state.get_validator_churn_limit(spec)? {
+            exit_queue_epoch.safe_add_assign(1)?;
+        }
+        exit_queue_epoch
+    };
 
     let validator = state.get_validator_cow(index)?;
 
