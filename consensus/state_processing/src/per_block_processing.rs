@@ -20,7 +20,7 @@ pub use verify_attestation::{
 };
 pub use verify_bls_to_execution_change::verify_bls_to_execution_change;
 pub use verify_deposit::{
-    get_existing_validator_index, verify_deposit_merkle_proof, verify_deposit_signature,
+    get_existing_validator_index, is_valid_deposit_signature, verify_deposit_merkle_proof,
 };
 pub use verify_exit::verify_exit;
 

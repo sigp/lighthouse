@@ -6,6 +6,7 @@ use crate::common::{
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use types::validator::is_compounding_withdrawal_credential;
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
@@ -431,15 +432,47 @@ pub fn apply_deposit<E: EthSpec>(
     let amount = deposit.data.amount;
 
     if let Some(index) = validator_index {
-        // Update the existing validator balance.
-        increase_balance(state, index as usize, amount)?;
+        // [Modified in Electra:EIP7251]
+        if let Ok(pending_balance_deposits) = state.pending_balance_deposits_mut() {
+            pending_balance_deposits.push(PendingBalanceDeposit { index, amount })?;
+
+            let validator = state
+                .validators()
+                .get(index as usize)
+                .ok_or(BeaconStateError::UnknownValidator(index as usize))?;
+
+            if is_compounding_withdrawal_credential(deposit.data.withdrawal_credentials, spec)
+                && validator.has_eth1_withdrawal_credential(spec)
+                && is_valid_deposit_signature(&deposit.data, spec).is_ok()
+            {
+                state.switch_to_compounding_validator(index as usize, spec)?;
+            }
+        } else {
+            // Update the existing validator balance.
+            increase_balance(state, index as usize, amount)?;
+        }
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
-        if verify_deposit_signature(&deposit.data, spec).is_err() {
+        if is_valid_deposit_signature(&deposit.data, spec).is_err() {
             return Ok(());
         }
 
+        let new_validator_index = state.validators().len();
+
+        // [Modified in Electra:EIP7251]
+        let (effective_balance, state_balance) = if state.fork_name_unchecked() >= ForkName::Electra
+        {
+            (0, 0)
+        } else {
+            (
+                std::cmp::min(
+                    amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
+                    spec.max_effective_balance,
+                ),
+                amount,
+            )
+        };
         // Create a new validator.
         let validator = Validator {
             pubkey: deposit.data.pubkey,
@@ -448,14 +481,11 @@ pub fn apply_deposit<E: EthSpec>(
             activation_epoch: spec.far_future_epoch,
             exit_epoch: spec.far_future_epoch,
             withdrawable_epoch: spec.far_future_epoch,
-            effective_balance: std::cmp::min(
-                amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
-                spec.max_effective_balance,
-            ),
+            effective_balance,
             slashed: false,
         };
         state.validators_mut().push(validator)?;
-        state.balances_mut().push(deposit.data.amount)?;
+        state.balances_mut().push(state_balance)?;
 
         // Altair or later initializations.
         if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {
@@ -466,6 +496,14 @@ pub fn apply_deposit<E: EthSpec>(
         }
         if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
             inactivity_scores.push(0)?;
+        }
+
+        // [New in Electra:EIP7251]
+        if let Ok(pending_balance_deposits) = state.pending_balance_deposits_mut() {
+            pending_balance_deposits.push(PendingBalanceDeposit {
+                index: new_validator_index as u64,
+                amount,
+            })?;
         }
     }
 
