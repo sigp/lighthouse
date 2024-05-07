@@ -547,7 +547,13 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     withdrawals.push(Withdrawal {
                         index: withdrawal_index,
                         validator_index: withdrawal.index,
-                        address: Address::from_slice(&validator.withdrawal_credentials[12..]),
+                        address: Address::from_slice(
+                            validator
+                                .withdrawal_credentials
+                                .0
+                                .get(12..)
+                                .ok_or(BeaconStateError::IndexNotSupported(12))?,
+                        ),
                         amount: withdrawable_balance,
                     });
                     withdrawal_index.safe_add_assign(1)?;
@@ -634,12 +640,9 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
             if let Some(partial_withdrawals_count) = partial_withdrawals_count {
                 let new_partial_withdrawals = state
                     .pending_partial_withdrawals()?
-                    .to_vec()
-                    .get(partial_withdrawals_count..)
-                    .ok_or(BeaconStateError::PartialWithdrawalCountInvalid(
-                        partial_withdrawals_count,
-                    ))?
-                    .to_vec();
+                    .iter_from(partial_withdrawals_count)?
+                    .cloned()
+                    .collect::<Vec<_>>();
                 *state.pending_partial_withdrawals_mut()? = List::new(new_partial_withdrawals)?;
             }
 
