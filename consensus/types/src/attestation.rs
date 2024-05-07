@@ -337,7 +337,6 @@ impl<E: EthSpec> AttestationBase<E> {
     pub fn aggregate(&mut self, other: &Self) {
         debug_assert_eq!(self.data, other.data);
         debug_assert!(self.signers_disjoint_from(other));
-
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
     }

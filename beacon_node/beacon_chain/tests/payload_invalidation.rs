@@ -1207,7 +1207,7 @@ async fn attesting_to_optimistic_head() {
             .chain
             .naive_aggregation_pool
             .write()
-            .insert(&attestation)
+            .insert(attestation.to_ref())
             .unwrap();
 
         attestation

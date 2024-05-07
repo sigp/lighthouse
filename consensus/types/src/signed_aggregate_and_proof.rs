@@ -2,7 +2,7 @@ use super::{
     AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofRef,
 };
 use super::{
-    Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey, SelectionProof, Signature,
+    AttestationRef, ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey, SelectionProof, Signature,
     SignedRoot,
 };
 use crate::test_utils::TestRandom;
@@ -58,7 +58,7 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
     /// If `selection_proof.is_none()` it will be computed locally.
     pub fn from_aggregate(
         aggregator_index: u64,
-        aggregate: Attestation<E>,
+        aggregate: AttestationRef<'_, E>,
         selection_proof: Option<SelectionProof>,
         secret_key: &SecretKey,
         fork: &Fork,

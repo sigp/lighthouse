@@ -1388,7 +1388,7 @@ where
 
                         let signed_aggregate = SignedAggregateAndProof::from_aggregate(
                             aggregator_index as u64,
-                            aggregate,
+                            aggregate.to_ref(),
                             None,
                             &self.validator_keypairs[aggregator_index].sk,
                             &fork,
