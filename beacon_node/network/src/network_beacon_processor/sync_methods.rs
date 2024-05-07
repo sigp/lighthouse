@@ -8,6 +8,7 @@ use crate::sync::{
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
+use beacon_chain::data_column_verification::verify_kzg_for_data_column_list;
 use beacon_chain::{
     validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainError,
     BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
@@ -307,11 +308,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn validate_rpc_data_columns(
         self: Arc<NetworkBeaconProcessor<T>>,
         _block_root: Hash256,
-        _data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
+        data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
         _seen_timestamp: Duration,
     ) -> Result<(), String> {
-        // TODO(das): validate data column sidecar KZG commitment
-        Ok(())
+        let kzg = self.chain.kzg.as_ref().ok_or("Kzg not initialized")?;
+        verify_kzg_for_data_column_list(data_columns.iter(), kzg).map_err(|err| format!("{err:?}"))
     }
 
     /// Process a sampling completed event, inserting it into fork-choice
