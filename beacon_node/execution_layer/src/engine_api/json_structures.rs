@@ -105,6 +105,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
     #[superstruct(only(V4))]
+    // TODO(electra): Field name should be changed post devnet-0. See https://github.com/ethereum/execution-apis/pull/544
     pub deposit_requests: VariableList<JsonDepositRequest, E::MaxDepositReceiptsPerPayload>,
     #[superstruct(only(V4))]
     pub withdrawal_requests:
