@@ -298,7 +298,23 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             verify_kzg_for_blob_list(all_blobs.iter(), kzg)?;
         }
 
-        // TODO(das) verify kzg for all data columns
+        let all_data_columns: DataColumnSidecarList<T::EthSpec> = blocks
+            .iter()
+            .filter(|block| self.data_columns_required_for_block(block.as_block()))
+            // this clone is cheap as it's cloning an Arc
+            .filter_map(|block| block.data_columns().cloned())
+            .flatten()
+            .collect::<Vec<_>>()
+            .into();
+
+        // verify kzg for all data columns at once
+        if !all_data_columns.is_empty() {
+            let kzg = self
+                .kzg
+                .as_ref()
+                .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
+            verify_kzg_for_data_column_list(all_data_columns.iter(), kzg)?;
+        }
 
         for block in blocks {
             let (block_root, block, blobs, data_columns) = block.deconstruct();

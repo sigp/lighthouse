@@ -71,6 +71,14 @@ impl<E: EthSpec> RpcBlock<E> {
             RpcBlockInner::BlockAndDataColumns(_, _) => None,
         }
     }
+
+    pub fn data_columns(&self) -> Option<&DataColumnSidecarList<E>> {
+        match &self.block {
+            RpcBlockInner::Block(_) => None,
+            RpcBlockInner::BlockAndBlobs(_, _) => None,
+            RpcBlockInner::BlockAndDataColumns(_, data_columns) => Some(data_columns),
+        }
+    }
 }
 
 /// Note: This variant is intentionally private because we want to safely construct the
