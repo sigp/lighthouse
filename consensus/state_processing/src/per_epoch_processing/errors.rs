@@ -25,6 +25,7 @@ pub enum EpochProcessingError {
     InvalidFlagIndex(usize),
     MilhouseError(milhouse::Error),
     EpochCache(EpochCacheError),
+    SinglePassMissingActivationQueue,
 }
 
 impl From<InclusionError> for EpochProcessingError {
