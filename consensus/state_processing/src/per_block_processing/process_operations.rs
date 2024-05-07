@@ -357,17 +357,34 @@ pub fn process_deposits<E: EthSpec>(
     deposits: &[Deposit],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let expected_deposit_len = std::cmp::min(
-        E::MaxDeposits::to_u64(),
-        state.get_outstanding_deposit_len()?,
-    );
-    block_verify!(
-        deposits.len() as u64 == expected_deposit_len,
-        BlockProcessingError::DepositCountInvalid {
-            expected: expected_deposit_len as usize,
-            found: deposits.len(),
-        }
-    );
+    // [Modified in Electra:EIP6110]
+    // Disable former deposit mechanism once all prior deposits are processed
+    //
+    // If `deposit_receipts_start_index` does not exist as a field on `state`, electra is disabled
+    // which means we always want to use the old check, so this field defaults to `u64::MAX`.
+    let eth1_deposit_index_limit = state.deposit_receipts_start_index().unwrap_or(u64::MAX);
+
+    if state.eth1_deposit_index() < eth1_deposit_index_limit {
+        let expected_deposit_len = std::cmp::min(
+            E::MaxDeposits::to_u64(),
+            state.get_outstanding_deposit_len()?,
+        );
+        block_verify!(
+            deposits.len() as u64 == expected_deposit_len,
+            BlockProcessingError::DepositCountInvalid {
+                expected: expected_deposit_len as usize,
+                found: deposits.len(),
+            }
+        );
+    } else {
+        block_verify!(
+            deposits.len() as u64 == 0,
+            BlockProcessingError::DepositCountInvalid {
+                expected: 0,
+                found: deposits.len(),
+            }
+        );
+    }
 
     // Verify merkle proofs in parallel.
     deposits
