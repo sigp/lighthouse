@@ -339,12 +339,25 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
+    /// Request block of `block_root` if necessary by checking:
+    /// - If the da_checker has a pending block from gossip or a previous request
+    ///
+    /// Returns false if no request was made, because the block is already imported
     pub fn block_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
         peer_id: PeerId,
-        request: BlocksByRootSingleRequest,
+        block_root: Hash256,
     ) -> Result<bool, &'static str> {
+        if self
+            .chain
+            .reqresp_pre_import_cache
+            .read()
+            .contains_key(&block_root)
+        {
+            return Ok(false);
+        }
+
         let id = SingleLookupReqId {
             lookup_id,
             req_id: self.next_id(),
@@ -354,10 +367,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "block_root" => ?request.0,
+            "block_root" => ?block_root,
             "peer" => %peer_id,
             "id" => ?id
         );
+
+        let request = BlocksByRootSingleRequest(block_root);
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
@@ -376,7 +391,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// - If the da_checker has a pending block
     /// - If the da_checker has pending blobs from gossip
     ///
-    /// Returns false if no request was made, because we don't need to fetch (more) blobs.
+    /// Returns false if no request was made, because we don't need to import (more) blobs.
     pub fn blob_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,

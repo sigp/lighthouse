@@ -63,6 +63,11 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         ProvenancedBlock::Local(block_contents, _) => (block_contents, true),
         ProvenancedBlock::Builder(block_contents, _) => (block_contents, false),
     };
+    let provenance = if is_locally_built_block {
+        "local"
+    } else {
+        "builder"
+    };
     let block = block_contents.inner_block().clone();
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     debug!(log, "Signed block received in HTTP API"; "slot" => block.slot());
@@ -79,7 +84,18 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             .checked_sub(seen_timestamp)
             .unwrap_or_else(|| Duration::from_secs(0));
 
-        info!(log, "Signed block published to network via HTTP API"; "slot" => block.slot(), "publish_delay" => ?publish_delay);
+        metrics::observe_timer_vec(
+            &metrics::HTTP_API_BLOCK_GOSSIP_TIMES,
+            &[provenance],
+            publish_delay,
+        );
+
+        info!(
+            log,
+            "Signed block published to network via HTTP API";
+            "slot" => block.slot(),
+            "publish_delay_ms" => publish_delay.as_millis()
+        );
 
         match block.as_ref() {
             SignedBeaconBlock::Base(_)
