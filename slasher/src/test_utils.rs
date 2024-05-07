@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 use types::{
-    indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra}, AggregateSignature, AttestationData,
-    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BeaconBlockHeader, Checkpoint,
-    Epoch, Hash256, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
+    indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra},
+    AggregateSignature, AttestationData, AttesterSlashing, AttesterSlashingBase,
+    AttesterSlashingElectra, BeaconBlockHeader, Checkpoint, Epoch, Hash256, IndexedAttestation,
+    MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
-
 
 pub fn indexed_att_electra(
     attesting_indices: impl AsRef<[u64]>,
