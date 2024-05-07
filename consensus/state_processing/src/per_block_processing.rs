@@ -521,16 +521,8 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     break;
                 }
 
-                let withdrawal_balance = state
-                    .balances()
-                    .get(withdrawal.index as usize)
-                    .copied()
-                    .ok_or(BeaconStateError::BalancesOutOfBounds(
-                    withdrawal.index as usize,
-                ))?;
-                let validator = state.validators().get(withdrawal.index as usize).ok_or(
-                    BeaconStateError::UnknownValidator(withdrawal.index as usize),
-                )?;
+                let withdrawal_balance = state.get_balance(withdrawal.index as usize)?;
+                let validator = state.get_validator(withdrawal.index as usize)?;
 
                 let has_sufficient_effective_balance =
                     validator.effective_balance >= spec.min_activation_balance;
@@ -547,13 +539,9 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     withdrawals.push(Withdrawal {
                         index: withdrawal_index,
                         validator_index: withdrawal.index,
-                        address: Address::from_slice(
-                            validator
-                                .withdrawal_credentials
-                                .0
-                                .get(12..)
-                                .ok_or(BeaconStateError::IndexNotSupported(12))?,
-                        ),
+                        address: validator
+                            .get_execution_withdrawal_address(spec)
+                            .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?,
                         amount: withdrawable_balance,
                     });
                     withdrawal_index.safe_add_assign(1)?;

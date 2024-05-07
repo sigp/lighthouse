@@ -550,19 +550,15 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
             continue;
         };
 
-        let validator = state
-            .validators()
-            .get(index)
-            .ok_or(BeaconStateError::UnknownValidator(index))?;
+        let validator = state.get_validator(index)?;
 
         // Verify withdrawal credentials
         let has_correct_credential = validator.has_execution_withdrawal_credential(spec);
         let is_correct_source_address = validator
-            .withdrawal_credentials
-            .as_bytes()
-            .get(12..)
-            .ok_or(BeaconStateError::IndexNotSupported(12))?
-            == request.source_address.as_bytes();
+            .get_execution_withdrawal_address(spec)
+            .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?
+            == request.source_address;
+
         if !(has_correct_credential && is_correct_source_address) {
             continue;
         }
@@ -595,10 +591,7 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
             continue;
         }
 
-        let balance = *state
-            .balances()
-            .get(index)
-            .ok_or(BeaconStateError::UnknownValidator(index))?;
+        let balance = state.get_balance(index)?;
         let has_sufficient_effective_balance =
             validator.effective_balance >= spec.min_activation_balance;
         let has_excess_balance = balance
@@ -692,18 +685,8 @@ pub fn process_consolidations<E: EthSpec>(
             }
         }
 
-        let source_validator = state
-            .validators()
-            .get(consolidation.source_index as usize)
-            .ok_or(BeaconStateError::UnknownValidator(
-                consolidation.source_index as usize,
-            ))?;
-        let target_validator = state
-            .validators()
-            .get(consolidation.target_index as usize)
-            .ok_or(BeaconStateError::UnknownValidator(
-                consolidation.target_index as usize,
-            ))?;
+        let source_validator = state.get_validator(consolidation.source_index as usize)?;
+        let target_validator = state.get_validator(consolidation.target_index as usize)?;
 
         // Verify the source and the target are active
         let current_epoch = state.current_epoch();
@@ -790,12 +773,7 @@ pub fn process_consolidations<E: EthSpec>(
             source_validator.effective_balance,
             spec,
         )?;
-        let source_validator = state
-            .validators_mut()
-            .get_mut(consolidation.source_index as usize)
-            .ok_or(BeaconStateError::UnknownValidator(
-                consolidation.source_index as usize,
-            ))?;
+        let source_validator = state.get_validator_mut(consolidation.source_index as usize)?;
         // Initiate source validator exit and append pending consolidation
         source_validator.exit_epoch = exit_epoch;
         source_validator.withdrawable_epoch = source_validator

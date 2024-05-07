@@ -1469,6 +1469,14 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
+    /// Get the balance of a single validator.
+    pub fn get_balance(&self, validator_index: usize) -> Result<u64, Error> {
+        self.balances()
+            .get(validator_index)
+            .ok_or(Error::BalancesOutOfBounds(validator_index))
+            .copied()
+    }
+
     /// Get a mutable reference to the balance of a single validator.
     pub fn get_balance_mut(&mut self, validator_index: usize) -> Result<&mut u64, Error> {
         self.balances_mut()
