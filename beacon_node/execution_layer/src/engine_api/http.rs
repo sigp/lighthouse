@@ -937,7 +937,6 @@ impl HttpJsonRpc {
             | ForkName::Altair
             | ForkName::Bellatrix
             | ForkName::Capella
-            // TODO(pawan): make sure electra should not support getpayloadv3
             | ForkName::Electra => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v3 with {}",
                 fork_name
@@ -953,16 +952,6 @@ impl HttpJsonRpc {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
-            ForkName::Deneb => {
-                let response: JsonGetPayloadResponseV3<E> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V4,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V3(response).into())
-            }
             ForkName::Electra => {
                 let response: JsonGetPayloadResponseV4<E> = self
                     .rpc_request(
@@ -973,9 +962,14 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V4(response).into())
             }
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => Err(
-                Error::UnsupportedForkVariant(format!("called get_payload_v4 with {}", fork_name)),
-            ),
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v4 with {}",
+                fork_name
+            ))),
         }
     }
 
@@ -1235,11 +1229,11 @@ impl HttpJsonRpc {
                 }
             }
             NewPayloadRequest::Electra(new_payload_request_electra) => {
-                if engine_capabilities.new_payload_v3 {
+                if engine_capabilities.new_payload_v4 {
                     self.new_payload_v4_electra(new_payload_request_electra)
                         .await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV3"))
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
                 }
             }
         }
@@ -1263,13 +1257,18 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayload"))
                 }
             }
-            ForkName::Deneb | ForkName::Electra => {
-                if engine_capabilities.get_payload_v4 {
-                    self.get_payload_v4(fork_name, payload_id).await
-                } else if engine_capabilities.get_payload_v3 {
+            ForkName::Deneb => {
+                if engine_capabilities.get_payload_v3 {
                     self.get_payload_v3(fork_name, payload_id).await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_getPayloadV3"))
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv3"))
+                }
+            }
+            ForkName::Electra => {
+                if engine_capabilities.get_payload_v4 {
+                    self.get_payload_v4(fork_name, payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv4"))
                 }
             }
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
