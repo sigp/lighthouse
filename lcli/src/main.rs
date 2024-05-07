@@ -433,7 +433,7 @@ fn main() {
                     .takes_value(true)
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
-                    .possible_values(&["bellatrix", "capella", "deneb", "electra"])
+                    .possible_values(&["bellatrix", "capella", "deneb", "electra", "eip7594"])
             )
         )
         .subcommand(
@@ -625,6 +625,15 @@ fn main() {
                         .takes_value(true)
                         .help(
                             "The epoch at which to enable the Electra hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("eip7594-fork-epoch")
+                        .long("eip7594-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the Eip7594 hard fork",
                         ),
                 )
                 .arg(

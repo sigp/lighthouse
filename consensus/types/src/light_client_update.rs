@@ -221,7 +221,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     signature_slot: block.slot(),
                 })
             }
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 let attested_header =
                     LightClientHeaderDeneb::block_to_light_client_header(attested_block)?;
                 let finalized_header =
@@ -247,7 +247,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 Self::Altair(LightClientUpdateAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => Self::Capella(LightClientUpdateCapella::from_ssz_bytes(bytes)?),
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 Self::Deneb(LightClientUpdateDeneb::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {

@@ -15,8 +15,8 @@ use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::builder_bid::{
-    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
-    SignedBuilderBid,
+    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidEip7594,
+    BuilderBidElectra, SignedBuilderBid,
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
@@ -89,6 +89,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.fee_recipient = fee_recipient;
             }
+            ExecutionPayloadHeaderRefMut::Eip7594(header) => {
+                header.fee_recipient = fee_recipient;
+            }
         }
     }
 
@@ -104,6 +107,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.gas_limit = gas_limit;
             }
             ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.gas_limit = gas_limit;
+            }
+            ExecutionPayloadHeaderRefMut::Eip7594(header) => {
                 header.gas_limit = gas_limit;
             }
         }
@@ -127,6 +133,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
             }
+            ExecutionPayloadHeaderRefMut::Eip7594(header) => {
+                header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
+            }
         }
     }
 
@@ -142,6 +151,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.prev_randao = prev_randao;
             }
             ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.prev_randao = prev_randao;
+            }
+            ExecutionPayloadHeaderRefMut::Eip7594(header) => {
                 header.prev_randao = prev_randao;
             }
         }
@@ -161,6 +173,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.block_number = block_number;
             }
+            ExecutionPayloadHeaderRefMut::Eip7594(header) => {
+                header.block_number = block_number;
+            }
         }
     }
 
@@ -178,6 +193,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.timestamp = timestamp;
             }
+            ExecutionPayloadHeaderRefMut::Eip7594(header) => {
+                header.timestamp = timestamp;
+            }
         }
     }
 
@@ -193,6 +211,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.withdrawals_root = withdrawals_root;
             }
             ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.withdrawals_root = withdrawals_root;
+            }
+            ExecutionPayloadHeaderRefMut::Eip7594(header) => {
                 header.withdrawals_root = withdrawals_root;
             }
         }
@@ -348,6 +369,9 @@ pub fn serve<E: EthSpec>(
                         SignedBlindedBeaconBlock::Electra(block) => {
                             block.message.body.execution_payload.tree_hash_root()
                         }
+                        SignedBlindedBeaconBlock::Eip7594(block) => {
+                            block.message.body.execution_payload.tree_hash_root()
+                        }
                     };
                     let payload = builder
                         .el
@@ -481,14 +505,16 @@ pub fn serve<E: EthSpec>(
                     .map_err(|_| reject("couldn't get prev randao"))?;
                 let expected_withdrawals = match fork {
                     ForkName::Base | ForkName::Altair | ForkName::Bellatrix => None,
-                    ForkName::Capella | ForkName::Deneb | ForkName::Electra => Some(
-                        builder
-                            .beacon_client
-                            .get_expected_withdrawals(&StateId::Head)
-                            .await
-                            .unwrap()
-                            .data,
-                    ),
+                    ForkName::Capella | ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
+                        Some(
+                            builder
+                                .beacon_client
+                                .get_expected_withdrawals(&StateId::Head)
+                                .await
+                                .unwrap()
+                                .data,
+                        )
+                    }
                 };
 
                 let payload_attributes = match fork {
@@ -503,13 +529,15 @@ pub fn serve<E: EthSpec>(
                         expected_withdrawals,
                         None,
                     ),
-                    ForkName::Deneb | ForkName::Electra => PayloadAttributes::new(
-                        timestamp,
-                        *prev_randao,
-                        fee_recipient,
-                        expected_withdrawals,
-                        Some(head_block_root),
-                    ),
+                    ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
+                        PayloadAttributes::new(
+                            timestamp,
+                            *prev_randao,
+                            fee_recipient,
+                            expected_withdrawals,
+                            Some(head_block_root),
+                        )
+                    }
                     ForkName::Base | ForkName::Altair => {
                         return Err(reject("invalid fork"));
                     }
@@ -550,6 +578,17 @@ pub fn serve<E: EthSpec>(
                             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                                 header: payload
                                     .as_electra()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Eip7594 => BuilderBid::Eip7594(BuilderBidEip7594 {
+                                header: payload
+                                    .as_eip7594()
                                     .map_err(|_| reject("incorrect payload variant"))?
                                     .into(),
                                 blob_kzg_commitments: maybe_blobs_bundle
@@ -600,6 +639,17 @@ pub fn serve<E: EthSpec>(
                             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                                 header: payload
                                     .as_electra()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Eip7594 => BuilderBid::Eip7594(BuilderBidEip7594 {
+                                header: payload
+                                    .as_eip7594()
                                     .map_err(|_| reject("incorrect payload variant"))?
                                     .into(),
                                 blob_kzg_commitments: maybe_blobs_bundle

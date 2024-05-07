@@ -748,7 +748,8 @@ where
                 (parent_justified, parent_finalized)
             } else {
                 let justification_and_finalization_state = match block {
-                    BeaconBlockRef::Electra(_)
+                    BeaconBlockRef::Eip7594(_)
+                    | BeaconBlockRef::Electra(_)
                     | BeaconBlockRef::Deneb(_)
                     | BeaconBlockRef::Capella(_)
                     | BeaconBlockRef::Bellatrix(_)

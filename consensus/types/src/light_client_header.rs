@@ -81,7 +81,7 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Capella => LightClientHeader::Capella(
                 LightClientHeaderCapella::block_to_light_client_header(block)?,
             ),
-            ForkName::Deneb | ForkName::Electra => LightClientHeader::Deneb(
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => LightClientHeader::Deneb(
                 LightClientHeaderDeneb::block_to_light_client_header(block)?,
             ),
         };
@@ -96,7 +96,7 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Capella => {
                 LightClientHeader::Capella(LightClientHeaderCapella::from_ssz_bytes(bytes)?)
             }
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 LightClientHeader::Deneb(LightClientHeaderDeneb::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
@@ -120,7 +120,7 @@ impl<E: EthSpec> LightClientHeader<E> {
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Bellatrix => 0,
-            ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
+            ForkName::Capella | ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
         }
@@ -204,9 +204,11 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientHeader<E> {
             ForkName::Capella => serde_json::from_value(value)
                 .map(|light_client_header| Self::Capella(light_client_header))
                 .map_err(serde::de::Error::custom),
-            ForkName::Deneb | ForkName::Electra => serde_json::from_value(value)
-                .map(|light_client_header| Self::Deneb(light_client_header))
-                .map_err(serde::de::Error::custom),
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
+                serde_json::from_value(value)
+                    .map(|light_client_header| Self::Deneb(light_client_header))
+                    .map_err(serde::de::Error::custom)
+            }
             ForkName::Base => Err(serde::de::Error::custom(format!(
                 "LightClientHeader deserialization for {fork_name} not implemented"
             ))),

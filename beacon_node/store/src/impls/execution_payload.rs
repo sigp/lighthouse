@@ -2,7 +2,7 @@ use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
     BlobSidecarList, EthSpec, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadElectra,
+    ExecutionPayloadDeneb, ExecutionPayloadEip7594, ExecutionPayloadElectra,
 };
 
 macro_rules! impl_store_item {
@@ -26,6 +26,7 @@ impl_store_item!(ExecutionPayloadBellatrix);
 impl_store_item!(ExecutionPayloadCapella);
 impl_store_item!(ExecutionPayloadDeneb);
 impl_store_item!(ExecutionPayloadElectra);
+impl_store_item!(ExecutionPayloadEip7594);
 impl_store_item!(BlobSidecarList);
 
 /// This fork-agnostic implementation should be only used for writing.

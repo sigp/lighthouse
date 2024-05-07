@@ -342,7 +342,7 @@ impl GossipTester {
                 E::slots_per_epoch() + 1
             }
             // EIP-7045
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 let epoch_slot_offset = (self.slot() % E::slots_per_epoch()).as_u64();
                 if epoch_slot_offset != 0 {
                     E::slots_per_epoch() + epoch_slot_offset

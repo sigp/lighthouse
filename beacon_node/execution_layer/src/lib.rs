@@ -47,7 +47,8 @@ use types::builder_bid::BuilderBid;
 use types::non_zero_usize::new_non_zero_usize;
 use types::payload::BlockProductionVersion;
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, KzgProofs, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionPayloadEip7594, KzgProofs,
+    SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
@@ -114,6 +115,12 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
             },
             BuilderBid::Electra(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Electra(builder_bid.header).into(),
+                block_value: builder_bid.value,
+                kzg_commitments: builder_bid.blob_kzg_commitments,
+                blobs_and_proofs: None,
+            },
+            BuilderBid::Eip7594(builder_bid) => BlockProposalContents::PayloadAndBlobs {
+                payload: ExecutionPayloadHeader::Eip7594(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
@@ -1808,6 +1815,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Capella => ExecutionPayloadCapella::default().into(),
                 ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
                 ForkName::Electra => ExecutionPayloadElectra::default().into(),
+                ForkName::Eip7594 => ExecutionPayloadEip7594::default().into(),
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);
                 }
@@ -1877,6 +1885,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
                 ForkName::Deneb => Ok(Some(ExecutionPayloadDeneb::default().into())),
                 ForkName::Electra => Ok(Some(ExecutionPayloadElectra::default().into())),
+                ForkName::Eip7594 => Ok(Some(ExecutionPayloadEip7594::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
                     format!("called get_payload_by_hash_from_engine with {}", fork),
                 )),
@@ -2008,6 +2017,35 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     // withdrawal_requests: electra_block.withdrawal_requests,
                     deposit_receipts: <_>::default(),
                     withdrawal_requests: <_>::default(),
+                })
+            }
+            ExecutionBlockWithTransactions::Eip7594(eip7594_block) => {
+                let withdrawals = VariableList::new(
+                    eip7594_block
+                        .withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeWithdrawals)?;
+                ExecutionPayload::Eip7594(ExecutionPayloadEip7594 {
+                    parent_hash: eip7594_block.parent_hash,
+                    fee_recipient: eip7594_block.fee_recipient,
+                    state_root: eip7594_block.state_root,
+                    receipts_root: eip7594_block.receipts_root,
+                    logs_bloom: eip7594_block.logs_bloom,
+                    prev_randao: eip7594_block.prev_randao,
+                    block_number: eip7594_block.block_number,
+                    gas_limit: eip7594_block.gas_limit,
+                    gas_used: eip7594_block.gas_used,
+                    timestamp: eip7594_block.timestamp,
+                    extra_data: eip7594_block.extra_data,
+                    base_fee_per_gas: eip7594_block.base_fee_per_gas,
+                    block_hash: eip7594_block.block_hash,
+                    transactions: convert_transactions(eip7594_block.transactions)?,
+                    withdrawals,
+                    blob_gas_used: eip7594_block.blob_gas_used,
+                    excess_blob_gas: eip7594_block.excess_blob_gas,
                 })
             }
         };

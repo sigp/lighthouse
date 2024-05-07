@@ -1,8 +1,9 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
     ChainSpec, EthSpec, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
-    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionDeserialize, SignedRoot, Uint256,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderEip7594, ExecutionPayloadHeaderElectra,
+    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ForkName, ForkVersionDeserialize,
+    SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -11,7 +12,7 @@ use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra, Eip7594),
     variant_attributes(
         derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
         serde(bound = "E: EthSpec", deny_unknown_fields)
@@ -31,7 +32,9 @@ pub struct BuilderBid<E: EthSpec> {
     pub header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(only(Electra), partial_getter(rename = "header_electra"))]
     pub header: ExecutionPayloadHeaderElectra<E>,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Eip7594), partial_getter(rename = "header_eip7594"))]
+    pub header: ExecutionPayloadHeaderEip7594<E>,
+    #[superstruct(only(Deneb, Electra, Eip7594))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
@@ -85,6 +88,7 @@ impl<E: EthSpec> ForkVersionDeserialize for BuilderBid<E> {
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Eip7594 => Self::Eip7594(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
                     "BuilderBid failed to deserialize: unsupported fork '{}'",

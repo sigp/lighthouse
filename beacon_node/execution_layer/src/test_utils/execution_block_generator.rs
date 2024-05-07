@@ -22,8 +22,9 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
-    ExecutionPayloadHeader, ForkName, Hash256, Transaction, Transactions, Uint256,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadEip7594,
+    ExecutionPayloadElectra, ExecutionPayloadHeader, ForkName, Hash256, Transaction, Transactions,
+    Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -662,13 +663,32 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     deposit_receipts: vec![].into(),
                     withdrawal_requests: vec![].into(),
                 }),
+                ForkName::Eip7594 => ExecutionPayload::Eip7594(ExecutionPayloadEip7594 {
+                    parent_hash: head_block_hash,
+                    fee_recipient: pa.suggested_fee_recipient,
+                    receipts_root: Hash256::repeat_byte(42),
+                    state_root: Hash256::repeat_byte(43),
+                    logs_bloom: vec![0; 256].into(),
+                    prev_randao: pa.prev_randao,
+                    block_number: parent.block_number() + 1,
+                    gas_limit: GAS_LIMIT,
+                    gas_used: GAS_USED,
+                    timestamp: pa.timestamp,
+                    extra_data: "block gen was here".as_bytes().to_vec().into(),
+                    base_fee_per_gas: Uint256::one(),
+                    block_hash: ExecutionBlockHash::zero(),
+                    transactions: vec![].into(),
+                    withdrawals: pa.withdrawals.clone().into(),
+                    blob_gas_used: 0,
+                    excess_blob_gas: 0,
+                }),
                 _ => unreachable!(),
             },
         };
 
         match execution_payload.fork_name() {
             ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {}
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 // get random number between 0 and Max Blobs
                 let mut rng = self.rng.lock();
                 let num_blobs = rng.gen::<usize>() % (E::max_blobs_per_block() + 1);
@@ -808,6 +828,12 @@ pub fn generate_genesis_header<E: EthSpec>(
         }
         ForkName::Electra => {
             let mut header = ExecutionPayloadHeader::Electra(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            *header.transactions_root_mut() = empty_transactions_root;
+            Some(header)
+        }
+        ForkName::Eip7594 => {
+            let mut header = ExecutionPayloadHeader::Eip7594(<_>::default());
             *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
             *header.transactions_root_mut() = empty_transactions_root;
             Some(header)

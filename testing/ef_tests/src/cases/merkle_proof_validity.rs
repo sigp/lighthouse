@@ -3,7 +3,8 @@ use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use tree_hash::Hash256;
 use types::{
-    BeaconBlockBody, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState, FullPayload,
+    BeaconBlockBody, BeaconBlockBodyDeneb, BeaconBlockBodyEip7594, BeaconBlockBodyElectra,
+    BeaconState, FullPayload,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -103,6 +104,10 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
             }
             ForkName::Electra => {
                 ssz_decode_file::<BeaconBlockBodyElectra<E>>(&path.join("object.ssz_snappy"))?
+                    .into()
+            }
+            ForkName::Eip7594 => {
+                ssz_decode_file::<BeaconBlockBodyEip7594<E>>(&path.join("object.ssz_snappy"))?
                     .into()
             }
         };

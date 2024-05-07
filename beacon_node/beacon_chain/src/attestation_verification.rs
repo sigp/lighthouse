@@ -1067,7 +1067,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
             one_epoch_prior
         }
         // EIP-7045
-        ForkName::Deneb | ForkName::Electra => one_epoch_prior
+        ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => one_epoch_prior
             .epoch(E::slots_per_epoch())
             .start_slot(E::slots_per_epoch()),
     };

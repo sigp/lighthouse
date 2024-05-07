@@ -12,7 +12,7 @@ use superstruct::superstruct;
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Capella, Deneb, Electra),
+    variants(Capella, Deneb, Electra, Eip7594),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -29,12 +29,15 @@ pub struct ConfigAndPreset {
     pub bellatrix_preset: BellatrixPreset,
     #[serde(flatten)]
     pub capella_preset: CapellaPreset,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Deneb, Electra, Eip7594))]
     #[serde(flatten)]
     pub deneb_preset: DenebPreset,
     #[superstruct(only(Electra))]
     #[serde(flatten)]
     pub electra_preset: ElectraPreset,
+    #[superstruct(only(Eip7594))]
+    #[serde(flatten)]
+    pub eip7594_preset: ElectraPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, Value>,

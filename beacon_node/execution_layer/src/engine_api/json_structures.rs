@@ -207,6 +207,35 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
     }
 }
 
+impl<E: EthSpec> From<ExecutionPayloadEip7594<E>> for JsonExecutionPayloadV3<E> {
+    fn from(payload: ExecutionPayloadEip7594<E>) -> Self {
+        JsonExecutionPayloadV3 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+        }
+    }
+}
+
 impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
     fn from(execution_payload: ExecutionPayload<E>) -> Self {
         match execution_payload {
@@ -214,6 +243,7 @@ impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
             ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
             ExecutionPayload::Deneb(payload) => JsonExecutionPayload::V3(payload.into()),
             ExecutionPayload::Electra(payload) => JsonExecutionPayload::V4(payload.into()),
+            ExecutionPayload::Eip7594(payload) => JsonExecutionPayload::V3(payload.into()),
         }
     }
 }
@@ -322,6 +352,35 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
             // TODO(electra)
             deposit_receipts: Default::default(),
             withdrawal_requests: Default::default(),
+        }
+    }
+}
+
+impl<E: EthSpec> From<JsonExecutionPayloadV3<E>> for ExecutionPayloadEip7594<E> {
+    fn from(payload: JsonExecutionPayloadV3<E>) -> Self {
+        ExecutionPayloadEip7594 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
         }
     }
 }

@@ -12,12 +12,3 @@ MAX_BLOB_COMMITMENTS_PER_BLOCK: 4096
 MAX_BLOBS_PER_BLOCK: 6
 # `floorlog2(BLOB_KZG_COMMITMENTS_GINDEX) + 1 + ceillog2(MAX_BLOB_COMMITMENTS_PER_BLOCK)` = 4 + 1 + 12 = 17
 KZG_COMMITMENT_INCLUSION_PROOF_DEPTH: 17
-
-# EIP-7594 (temporary in Deneb for the purpose of prototyping)
-# ---------------------------------------------------------------
-# `uint64(2**6)` (= 64)
-FIELD_ELEMENTS_PER_CELL: 64
-# uint64(floorlog2(get_generalized_index(BeaconBlockBody, 'blob_kzg_commitments'))
-KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH: 4
-# `uint64((FIELD_ELEMENTS_PER_BLOB * 2) // FIELD_ELEMENTS_PER_CELL)` (= 128)
-NUMBER_OF_COLUMNS: 128

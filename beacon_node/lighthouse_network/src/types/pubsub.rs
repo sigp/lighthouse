@@ -11,8 +11,9 @@ use types::{
     ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
     ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlockDeneb, SignedBeaconBlockEip7594, SignedBeaconBlockElectra,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,6 +201,10 @@ impl<E: EthSpec> PubsubMessage<E> {
                                     SignedBeaconBlockElectra::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
+                                Some(ForkName::Eip7594) => SignedBeaconBlock::<E>::Eip7594(
+                                    SignedBeaconBlockEip7594::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
                                 None => {
                                     return Err(format!(
                                         "Unknown gossipsub fork digest: {:?}",
@@ -211,7 +216,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                     }
                     GossipKind::BlobSidecar(blob_index) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            Some(ForkName::Deneb | ForkName::Electra) => {
+                            Some(ForkName::Deneb | ForkName::Electra | ForkName::Eip7594) => {
                                 let blob_sidecar = Arc::new(
                                     BlobSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
@@ -235,7 +240,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                     }
                     GossipKind::DataColumnSidecar(subnet_id) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            Some(ForkName::Deneb | ForkName::Electra) => {
+                            Some(ForkName::Deneb | ForkName::Electra | ForkName::Eip7594) => {
                                 let col_sidecar = Arc::new(
                                     DataColumnSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,

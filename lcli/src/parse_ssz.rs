@@ -88,6 +88,11 @@ pub fn run_parse_ssz<E: EthSpec>(
             SignedBeaconBlockElectra::<E>::from_ssz_bytes,
             format,
         )?,
+        "SignedBeaconBlockEip7594" => decode_and_print(
+            &bytes,
+            SignedBeaconBlockEip7594::<E>::from_ssz_bytes,
+            format,
+        )?,
         "BeaconState" => decode_and_print::<BeaconState<E>>(
             &bytes,
             |bytes| BeaconState::from_ssz_bytes(bytes, spec),
@@ -110,6 +115,9 @@ pub fn run_parse_ssz<E: EthSpec>(
         }
         "BeaconStateElectra" => {
             decode_and_print(&bytes, BeaconStateElectra::<E>::from_ssz_bytes, format)?
+        }
+        "BeaconStateEip7594" => {
+            decode_and_print(&bytes, BeaconStateEip7594::<E>::from_ssz_bytes, format)?
         }
         "BlobSidecar" => decode_and_print(&bytes, BlobSidecar::<E>::from_ssz_bytes, format)?,
         other => return Err(format!("Unknown type: {}", other)),

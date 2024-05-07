@@ -82,7 +82,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                 Self::Altair(LightClientBootstrapAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella::from_ssz_bytes(bytes)?),
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 Self::Deneb(LightClientBootstrapDeneb::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
@@ -104,7 +104,8 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb
-            | ForkName::Electra => {
+            | ForkName::Electra
+            | ForkName::Eip7594 => {
                 <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
                     + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
@@ -138,11 +139,13 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                 current_sync_committee,
                 current_sync_committee_branch,
             }),
-            ForkName::Deneb | ForkName::Electra => Self::Deneb(LightClientBootstrapDeneb {
-                header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
-                current_sync_committee,
-                current_sync_committee_branch,
-            }),
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
+                Self::Deneb(LightClientBootstrapDeneb {
+                    header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
+                    current_sync_committee,
+                    current_sync_committee_branch,
+                })
+            }
         };
 
         Ok(light_client_bootstrap)

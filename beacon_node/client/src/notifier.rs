@@ -3,6 +3,7 @@ use beacon_chain::{
     bellatrix_readiness::{BellatrixReadiness, GenesisExecutionPayloadStatus, MergeConfig},
     capella_readiness::CapellaReadiness,
     deneb_readiness::DenebReadiness,
+    eip7594_readiness::Eip7594Readiness,
     electra_readiness::ElectraReadiness,
     BeaconChain, BeaconChainTypes, ExecutionStatus,
 };
@@ -323,6 +324,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             capella_readiness_logging(current_slot, &beacon_chain, &log).await;
             deneb_readiness_logging(current_slot, &beacon_chain, &log).await;
             electra_readiness_logging(current_slot, &beacon_chain, &log).await;
+            eip7594_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -598,6 +600,57 @@ async fn electra_readiness_logging<T: BeaconChainTypes>(
         readiness => warn!(
             log,
             "Not ready for Electra";
+            "hint" => "try updating the execution endpoint",
+            "info" => %readiness,
+        ),
+    }
+}
+/// Provides some helpful logging to users to indicate if their node is ready for Eip7594.
+async fn eip7594_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    // TODO(das): update check here
+    let eip7594_completed = true;
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if eip7594_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_eip7594(current_slot)
+    {
+        return;
+    }
+
+    if eip7594_completed && !has_execution_layer {
+        // When adding a new fork, add a check for the next fork readiness here.
+        error!(
+            log,
+            "Execution endpoint required";
+            "info" => "you need a Eip7594 enabled execution engine to validate blocks."
+        );
+        return;
+    }
+
+    match beacon_chain.check_eip7594_readiness().await {
+        Eip7594Readiness::Ready => {
+            info!(
+                log,
+                "Ready for Eip7594";
+                "info" => "ensure the execution endpoint is updated to the latest Eip7594/Prague release"
+            )
+        }
+        readiness @ Eip7594Readiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                log,
+                "Not ready for Eip7594";
+                "hint" => "the execution endpoint may be offline",
+                "info" => %readiness,
+            )
+        }
+        readiness => warn!(
+            log,
+            "Not ready for Eip7594";
             "hint" => "try updating the execution endpoint",
             "info" => %readiness,
         ),

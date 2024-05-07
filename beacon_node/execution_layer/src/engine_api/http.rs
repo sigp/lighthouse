@@ -769,6 +769,14 @@ impl HttpJsonRpc {
                 )
                 .await?,
             ),
+            ForkName::Eip7594 => ExecutionBlockWithTransactions::Eip7594(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
             ForkName::Base | ForkName::Altair => {
                 return Err(Error::UnsupportedForkVariant(format!(
                     "called get_block_by_hash_with_txns with fork {:?}",
@@ -820,6 +828,27 @@ impl HttpJsonRpc {
             JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
             new_payload_request_deneb.versioned_hashes,
             new_payload_request_deneb.parent_beacon_block_root,
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V3,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn new_payload_v3_eip7594<E: EthSpec>(
+        &self,
+        new_payload_request_eip7594: NewPayloadRequestEip7594<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::V3(new_payload_request_eip7594.execution_payload.clone().into()),
+            new_payload_request_eip7594.versioned_hashes,
+            new_payload_request_eip7594.parent_beacon_block_root,
         ]);
 
         let response: JsonPayloadStatusV1 = self
@@ -905,9 +934,14 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Base | ForkName::Altair | ForkName::Deneb | ForkName::Electra => Err(
-                Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
-            ),
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Deneb
+            | ForkName::Electra
+            | ForkName::Eip7594 => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v2 with {}",
+                fork_name
+            ))),
         }
     }
 
@@ -938,6 +972,16 @@ impl HttpJsonRpc {
                     )
                     .await?;
                 Ok(JsonGetPayloadResponse::V4(response).into())
+            }
+            ForkName::Eip7594 => {
+                let response: JsonGetPayloadResponseV3<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V3,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V3(response).into())
             }
             ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => Err(
                 Error::UnsupportedForkVariant(format!("called get_payload_v3 with {}", fork_name)),
@@ -1206,6 +1250,14 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV3"))
                 }
             }
+            NewPayloadRequest::Eip7594(new_payload_request_eip7594) => {
+                if engine_capabilities.new_payload_v3 {
+                    self.new_payload_v3_eip7594(new_payload_request_eip7594)
+                        .await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV3"))
+                }
+            }
         }
     }
 
@@ -1227,7 +1279,7 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayload"))
                 }
             }
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 if engine_capabilities.get_payload_v3 {
                     self.get_payload_v3(fork_name, payload_id).await
                 } else {

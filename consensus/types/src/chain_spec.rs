@@ -192,8 +192,10 @@ pub struct ChainSpec {
     pub max_per_epoch_activation_exit_churn_limit: u64,
 
     /*
-     * DAS params
+     * DAS EIP-7594 hard fork  params
      */
+    pub eip7594_fork_version: [u8; 4],
+    pub eip7594_fork_epoch: Option<Epoch>,
     pub peer_das_epoch: Option<Epoch>,
     pub custody_requirement: u64,
 
@@ -340,6 +342,7 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_version,
             ForkName::Deneb => self.deneb_fork_version,
             ForkName::Electra => self.electra_fork_version,
+            ForkName::Eip7594 => self.eip7594_fork_version,
         }
     }
 
@@ -352,6 +355,7 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_epoch,
             ForkName::Deneb => self.deneb_fork_epoch,
             ForkName::Electra => self.electra_fork_epoch,
+            ForkName::Eip7594 => self.eip7594_fork_epoch,
         }
     }
 
@@ -764,6 +768,8 @@ impl ChainSpec {
             /*
              * DAS params
              */
+            eip7594_fork_version: [0x06, 00, 00, 00],
+            eip7594_fork_epoch: None,
             peer_das_epoch: None,
             custody_requirement: 1,
 
@@ -871,7 +877,9 @@ impl ChainSpec {
             electra_fork_epoch: None,
             max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 0)
                 .expect("pow does not overflow"),
-            // PeerDAS
+            // PeerDAS (EIP-7594)
+            eip7594_fork_version: [0x06, 0x00, 0x00, 0x01],
+            eip7594_fork_epoch: None,
             peer_das_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
@@ -1077,6 +1085,8 @@ impl ChainSpec {
             /*
              * DAS params
              */
+            eip7594_fork_version: [0x06, 0x00, 0x00, 0x64],
+            eip7594_fork_epoch: None,
             peer_das_epoch: None,
             custody_requirement: 1,
             /*

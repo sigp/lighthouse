@@ -882,9 +882,9 @@ where
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
-                (signed_block, block_response.blob_items)
-            }
+            SignedBeaconBlock::Deneb(_)
+            | SignedBeaconBlock::Electra(_)
+            | SignedBeaconBlock::Eip7594(_) => (signed_block, block_response.blob_items),
         };
 
         (block_contents, block_response.state)
@@ -946,9 +946,9 @@ where
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
-                (signed_block, block_response.blob_items)
-            }
+            SignedBeaconBlock::Deneb(_)
+            | SignedBeaconBlock::Electra(_)
+            | SignedBeaconBlock::Eip7594(_) => (signed_block, block_response.blob_items),
         };
         (block_contents, pre_state)
     }

@@ -17,6 +17,7 @@ pub enum ForkName {
     Capella,
     Deneb,
     Electra,
+    Eip7594,
 }
 
 impl ForkName {
@@ -89,6 +90,15 @@ impl ForkName {
                 spec.electra_fork_epoch = Some(Epoch::new(0));
                 spec
             }
+            ForkName::Eip7594 => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
+                spec.eip7594_fork_epoch = Some(Epoch::new(0));
+                spec.electra_fork_epoch = None;
+                spec
+            }
         }
     }
 
@@ -103,6 +113,7 @@ impl ForkName {
             ForkName::Capella => Some(ForkName::Bellatrix),
             ForkName::Deneb => Some(ForkName::Capella),
             ForkName::Electra => Some(ForkName::Deneb),
+            ForkName::Eip7594 => Some(ForkName::Deneb),
         }
     }
 
@@ -117,6 +128,7 @@ impl ForkName {
             ForkName::Capella => Some(ForkName::Deneb),
             ForkName::Deneb => Some(ForkName::Electra),
             ForkName::Electra => None,
+            ForkName::Eip7594 => None,
         }
     }
 }
@@ -170,6 +182,10 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Electra(value), extra_data)
             }
+            ForkName::Eip7594 => {
+                let (value, extra_data) = $body;
+                ($t::Eip7594(value), extra_data)
+            }
         }
     };
 }
@@ -185,6 +201,7 @@ impl FromStr for ForkName {
             "capella" => ForkName::Capella,
             "deneb" => ForkName::Deneb,
             "electra" => ForkName::Electra,
+            "eip7594" => ForkName::Eip7594,
             _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
     }
@@ -199,6 +216,7 @@ impl Display for ForkName {
             ForkName::Capella => "capella".fmt(f),
             ForkName::Deneb => "deneb".fmt(f),
             ForkName::Electra => "electra".fmt(f),
+            ForkName::Eip7594 => "eip7594".fmt(f),
         }
     }
 }

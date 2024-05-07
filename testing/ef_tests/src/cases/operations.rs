@@ -102,7 +102,8 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => {
+            | BeaconState::Electra(_)
+            | BeaconState::Eip7594(_) => {
                 initialize_progressive_balances_cache(state, spec)?;
                 altair_deneb::process_attestation(
                     state,

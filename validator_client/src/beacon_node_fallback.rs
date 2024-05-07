@@ -314,6 +314,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "endpoint_electra_fork_epoch" => ?beacon_node_spec.electra_fork_epoch,
                 "hint" => UPDATE_REQUIRED_LOG_HINT,
             );
+        } else if beacon_node_spec.eip7594_fork_epoch != spec.eip7594_fork_epoch {
+            warn!(
+                log,
+                "Beacon node has mismatched EIP7594 fork epoch";
+                "endpoint" => %self.beacon_node,
+                "eip7594_fork_epoch" => ?beacon_node_spec.eip7594_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
+            );
         }
 
         Ok(())

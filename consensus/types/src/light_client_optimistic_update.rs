@@ -86,13 +86,15 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
-            ForkName::Deneb | ForkName::Electra => Self::Deneb(LightClientOptimisticUpdateDeneb {
-                attested_header: LightClientHeaderDeneb::block_to_light_client_header(
-                    attested_block,
-                )?,
-                sync_aggregate,
-                signature_slot,
-            }),
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
+                Self::Deneb(LightClientOptimisticUpdateDeneb {
+                    attested_header: LightClientHeaderDeneb::block_to_light_client_header(
+                        attested_block,
+                    )?,
+                    sync_aggregate,
+                    signature_slot,
+                })
+            }
             ForkName::Base => return Err(Error::AltairForkNotActive),
         };
 
@@ -139,7 +141,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Capella => {
                 Self::Capella(LightClientOptimisticUpdateCapella::from_ssz_bytes(bytes)?)
             }
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 Self::Deneb(LightClientOptimisticUpdateDeneb::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
@@ -161,7 +163,8 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb
-            | ForkName::Electra => {
+            | ForkName::Electra
+            | ForkName::Eip7594 => {
                 <LightClientOptimisticUpdateAltair<E> as Encode>::ssz_fixed_len()
                     + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }

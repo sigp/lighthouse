@@ -214,13 +214,6 @@ pub struct DenebPreset {
     pub max_blob_commitments_per_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub field_elements_per_blob: u64,
-    // EIP-7594 DAS presets - to be moved to the next fork
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub field_elements_per_cell: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub kzg_commitments_inclusion_proof_depth: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub number_of_columns: u64,
 }
 
 impl DenebPreset {
@@ -229,10 +222,28 @@ impl DenebPreset {
             max_blobs_per_block: E::max_blobs_per_block() as u64,
             max_blob_commitments_per_block: E::max_blob_commitments_per_block() as u64,
             field_elements_per_blob: E::field_elements_per_blob() as u64,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct Eip7594Preset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub field_elements_per_cell: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub field_elements_per_ext_blob: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub kzg_commitments_inclusion_proof_depth: u64,
+}
+
+impl Eip7594Preset {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {
             field_elements_per_cell: E::field_elements_per_cell() as u64,
+            field_elements_per_ext_blob: E::field_elements_per_blob() as u64,
             kzg_commitments_inclusion_proof_depth: E::kzg_commitments_inclusion_proof_depth()
                 as u64,
-            number_of_columns: E::number_of_columns() as u64,
         }
     }
 }

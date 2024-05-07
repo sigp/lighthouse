@@ -110,12 +110,13 @@ pub trait EthSpec:
     type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type MaxBlobCommitmentsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type FieldElementsPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type KzgCommitmentInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * New in PeerDAS
      */
+    type FieldElementsPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type FieldElementsPerExtBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MinCustodyRequirement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type DataColumnSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type DataColumnCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -291,6 +292,11 @@ pub trait EthSpec:
         Self::FieldElementsPerBlob::to_usize()
     }
 
+    /// Returns the `FIELD_ELEMENTS_PER_EXT_BLOB` constant for this specification.
+    fn field_elements_per_ext_blob() -> usize {
+        Self::FieldElementsPerExtBlob::to_usize()
+    }
+
     /// Returns the `FIELD_ELEMENTS_PER_CELL` constant for this specification.
     fn field_elements_per_cell() -> usize {
         Self::FieldElementsPerCell::to_usize()
@@ -409,6 +415,7 @@ impl EthSpec for MainnetEthSpec {
     type BytesPerFieldElement = U32;
     type FieldElementsPerBlob = U4096;
     type FieldElementsPerCell = U64;
+    type FieldElementsPerExtBlob = U8192;
     type BytesPerBlob = U131072;
     type KzgCommitmentInclusionProofDepth = U17;
     type MinCustodyRequirement = U1;
@@ -456,6 +463,7 @@ impl EthSpec for MinimalEthSpec {
     type MaxWithdrawalsPerPayload = U4;
     type FieldElementsPerBlob = U4096;
     type FieldElementsPerCell = U64;
+    type FieldElementsPerExtBlob = U8192;
     type BytesPerBlob = U131072;
     type MaxBlobCommitmentsPerBlock = U16;
     type KzgCommitmentInclusionProofDepth = U9;
@@ -545,6 +553,7 @@ impl EthSpec for GnosisEthSpec {
     type MaxBlobCommitmentsPerBlock = U4096;
     type FieldElementsPerBlob = U4096;
     type FieldElementsPerCell = U64;
+    type FieldElementsPerExtBlob = U8192;
     type BytesPerFieldElement = U32;
     type BytesPerBlob = U131072;
     type KzgCommitmentInclusionProofDepth = U17;

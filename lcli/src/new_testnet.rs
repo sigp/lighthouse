@@ -18,13 +18,13 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
     Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix,
     ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
     ForkName, Hash256, Keypair, PublicKey, Validator,
 };
+use types::{ExecutionBlockHash, ExecutionPayloadHeaderEip7594};
 
 pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
@@ -129,6 +129,10 @@ pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                     ForkName::Electra => {
                         ExecutionPayloadHeaderElectra::<E>::from_ssz_bytes(bytes.as_slice())
                             .map(ExecutionPayloadHeader::Electra)
+                    }
+                    ForkName::Eip7594 => {
+                        ExecutionPayloadHeaderEip7594::<E>::from_ssz_bytes(bytes.as_slice())
+                            .map(ExecutionPayloadHeader::Eip7594)
                     }
                 }
                 .map_err(|e| format!("SSZ decode failed: {:?}", e))

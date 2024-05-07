@@ -67,6 +67,7 @@ pub fn previous_fork(fork_name: ForkName) -> ForkName {
         ForkName::Capella => ForkName::Bellatrix,
         ForkName::Deneb => ForkName::Capella,
         ForkName::Electra => ForkName::Deneb,
+        ForkName::Eip7594 => ForkName::Deneb,
     }
 }
 

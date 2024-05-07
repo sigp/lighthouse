@@ -107,7 +107,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 };
                 Self::Capella(finality_update)
             }
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 let finality_update = LightClientFinalityUpdateDeneb {
                     attested_header: LightClientHeaderDeneb::block_to_light_client_header(
                         attested_block,
@@ -153,7 +153,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             ForkName::Capella => {
                 Self::Capella(LightClientFinalityUpdateCapella::from_ssz_bytes(bytes)?)
             }
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Eip7594 => {
                 Self::Deneb(LightClientFinalityUpdateDeneb::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
@@ -175,7 +175,8 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb
-            | ForkName::Electra => {
+            | ForkName::Electra
+            | ForkName::Eip7594 => {
                 <LightClientFinalityUpdateAltair<E> as Encode>::ssz_fixed_len()
                     + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
