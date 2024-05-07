@@ -1142,17 +1142,11 @@ where
 
                         match attestation {
                             Attestation::Base(ref mut att) => {
-                                att
-                                    .aggregation_bits
-                                    .set(i, true)
-                                    .unwrap()
-                            },
+                                att.aggregation_bits.set(i, true).unwrap()
+                            }
                             Attestation::Electra(ref mut att) => {
-                                att
-                                    .aggregation_bits
-                                    .set(i, true)
-                                    .unwrap()
-                            },
+                                att.aggregation_bits.set(i, true).unwrap()
+                            }
                         }
 
                         *attestation.signature_mut() = {

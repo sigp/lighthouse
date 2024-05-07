@@ -164,9 +164,10 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
             (CompactIndexedAttestation::Base(this), CompactIndexedAttestation::Base(other)) => {
                 this.signers_disjoint_from(other)
             }
-            (CompactIndexedAttestation::Electra(this), CompactIndexedAttestation::Electra(other)) => {
-                this.signers_disjoint_from(other)
-            }
+            (
+                CompactIndexedAttestation::Electra(this),
+                CompactIndexedAttestation::Electra(other),
+            ) => this.signers_disjoint_from(other),
             // TODO(electra) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
             _ => false,
         }
@@ -177,9 +178,10 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
             (CompactIndexedAttestation::Base(this), CompactIndexedAttestation::Base(other)) => {
                 this.aggregate(other)
             }
-            (CompactIndexedAttestation::Electra(this), CompactIndexedAttestation::Electra(other)) => {
-                this.aggregate(other)
-            }
+            (
+                CompactIndexedAttestation::Electra(this),
+                CompactIndexedAttestation::Electra(other),
+            ) => this.aggregate(other),
             // TODO(electra) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
             _ => (),
         }
@@ -252,13 +254,12 @@ impl<E: EthSpec> AttestationMap<E> {
                         aggregated = true;
                     }
                 }
-            },
+            }
             // TODO(electra) in order to be devnet ready, we can skip
             // aggregating here for now. this will result in "poorly"
             // constructed blocks, but that should be fine for devnet
             Attestation::Electra(_) => (),
         };
-       
 
         if !aggregated {
             attestations.push(indexed);

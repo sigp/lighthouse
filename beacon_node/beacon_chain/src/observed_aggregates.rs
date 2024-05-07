@@ -17,11 +17,8 @@ pub type ObservedSyncContributions<E> = ObservedAggregates<
     E,
     BitVector<<E as types::EthSpec>::SyncSubcommitteeSize>,
 >;
-pub type ObservedAggregateAttestations<E> = ObservedAggregates<
-    Attestation<E>,
-    E,
-    BitList<<E as types::EthSpec>::MaxValidatorsPerSlot>,
->;
+pub type ObservedAggregateAttestations<E> =
+    ObservedAggregates<Attestation<E>, E, BitList<<E as types::EthSpec>::MaxValidatorsPerSlot>>;
 
 /// A trait use to associate capacity constants with the type being stored in `ObservedAggregates`.
 pub trait Consts {
@@ -111,7 +108,7 @@ impl<'a, E: EthSpec> SubsetItem for AttestationRef<'a, E> {
                     return extended_aggregation_bits.is_subset(other);
                 }
                 false
-            },
+            }
             Self::Electra(att) => att.aggregation_bits.is_subset(other),
         }
     }
@@ -123,7 +120,7 @@ impl<'a, E: EthSpec> SubsetItem for AttestationRef<'a, E> {
                     return other.is_subset(&extended_aggregation_bits);
                 }
                 false
-            },
+            }
             Self::Electra(att) => other.is_subset(&att.aggregation_bits),
         }
     }

@@ -22,13 +22,8 @@ pub struct ConsensusContext<E: EthSpec> {
     /// Block root of the block at `slot`.
     pub current_block_root: Option<Hash256>,
     /// Cache of indexed attestations constructed during block processing.
-    pub indexed_attestations: HashMap<
-        (
-            AttestationData,
-            BitList<E::MaxValidatorsPerSlot>,
-        ),
-        IndexedAttestation<E>,
-    >,
+    pub indexed_attestations:
+        HashMap<(AttestationData, BitList<E::MaxValidatorsPerSlot>), IndexedAttestation<E>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -206,10 +201,7 @@ impl<E: EthSpec> ConsensusContext<E> {
     pub fn set_indexed_attestations(
         mut self,
         attestations: HashMap<
-            (
-                AttestationData,
-                BitList<E::MaxValidatorsPerSlot>,
-            ),
+            (AttestationData, BitList<E::MaxValidatorsPerSlot>),
             IndexedAttestation<E>,
         >,
     ) -> Self {
