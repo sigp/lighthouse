@@ -39,6 +39,18 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
     }
 
+    if state.fork_name_unchecked() >= ForkName::Electra {
+        let requests = block_body.execution_payload()?.withdrawal_requests()?;
+        if let Some(requests) = requests {
+            process_execution_layer_withdrawal_requests(state, &requests, spec)?;
+        }
+        let receipts = block_body.execution_payload()?.deposit_receipts()?;
+        if let Some(receipts) = receipts {
+            process_deposit_receipts(state, &receipts, spec)?;
+        }
+        process_consolidations(state, block_body.consolidations()?, verify_signatures, spec)?;
+    }
+
     Ok(())
 }
 
