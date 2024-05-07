@@ -160,6 +160,7 @@ pub enum Error {
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
+    NonExecutionAddresWithdrawalCredential,
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.

@@ -171,6 +171,7 @@ where
         self.include_exits(block)?;
         self.include_sync_aggregate(block)?;
         self.include_bls_to_execution_changes(block)?;
+        self.include_consolidations(block)?;
 
         Ok(())
     }
@@ -354,6 +355,27 @@ where
                     bls_to_execution_change,
                     self.spec,
                 )?);
+            }
+        }
+        Ok(())
+    }
+
+    /// Includes all signatures in `self.block.body.consolidations` for verification.
+    pub fn include_consolidations<Payload: AbstractExecPayload<E>>(
+        &mut self,
+        block: &'a SignedBeaconBlock<E, Payload>,
+    ) -> Result<()> {
+        if let Ok(consolidations) = block.message().body().consolidations() {
+            self.sets.sets.reserve(consolidations.len());
+            for consolidation in consolidations {
+                let set = consolidation_signature_set(
+                    self.state,
+                    self.get_pubkey.clone(),
+                    consolidation,
+                    self.spec,
+                )?;
+
+                self.sets.push(set);
             }
         }
         Ok(())
