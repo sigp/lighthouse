@@ -2,8 +2,8 @@ use super::{
     AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofRef,
 };
 use super::{
-    AttestationRef, ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey, SelectionProof, Signature,
-    SignedRoot,
+    AttestationRef, ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey, SelectionProof,
+    Signature, SignedRoot,
 };
 use crate::test_utils::TestRandom;
 use serde::{Deserialize, Serialize};

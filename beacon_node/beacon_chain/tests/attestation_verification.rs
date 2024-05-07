@@ -14,16 +14,18 @@ use beacon_chain::{
 use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use lazy_static::lazy_static;
+use ssz_types::BitVector;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,
 };
 use tree_hash::TreeHash;
 use types::{
+    signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
     test_utils::generate_deterministic_keypair, Address, AggregateSignature, Attestation,
-    BeaconStateError, BitList, ChainSpec, Epoch, EthSpec, ForkName, Hash256, Keypair, signed_aggregate_and_proof::SignedAggregateAndProofRefMut, AttestationRef, AttestationRefMut,
-    MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof, Slot, SubnetId, Unsigned,
+    AttestationRef, AttestationRefMut, BeaconStateError, BitList, ChainSpec, Epoch, EthSpec,
+    ForkName, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof,
+    Slot, SubnetId, Unsigned,
 };
-use ssz_types::BitVector;
 
 pub type E = MainnetEthSpec;
 
@@ -310,19 +312,11 @@ impl GossipTester {
 
         match invalid_aggregate.to_mut() {
             SignedAggregateAndProofRefMut::Base(att) => {
-                att.message.aggregator_index = att
-                    .message
-                    .aggregator_index
-                    .checked_sub(1)
-                    .unwrap();
+                att.message.aggregator_index = att.message.aggregator_index.checked_sub(1).unwrap();
             }
             SignedAggregateAndProofRefMut::Electra(att) => {
-                att.message.aggregator_index = att
-                    .message
-                    .aggregator_index
-                    .checked_sub(1)
-                    .unwrap();
-            } 
+                att.message.aggregator_index = att.message.aggregator_index.checked_sub(1).unwrap();
+            }
         }
 
         Self {
@@ -375,7 +369,10 @@ impl GossipTester {
     }
 
     pub fn non_aggregator(&self) -> (usize, SecretKey) {
-        get_non_aggregator(&self.harness.chain, &self.valid_aggregate.message().aggregate())
+        get_non_aggregator(
+            &self.harness.chain,
+            &self.valid_aggregate.message().aggregate(),
+        )
     }
 
     pub fn import_valid_aggregate(self) -> Self {
@@ -504,10 +501,12 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate from future slot",
-            |tester, a| {
-                match a.to_mut() {
-                    SignedAggregateAndProofRefMut::Base(att) => att.message.aggregate.data.slot = tester.slot() + 1,
-                    SignedAggregateAndProofRefMut::Electra(att) => att.message.aggregate.data.slot = tester.slot() + 1,
+            |tester, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregate.data.slot = tester.slot() + 1
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.slot = tester.slot() + 1
                 }
             },
             |tester, err| {
@@ -535,7 +534,6 @@ async fn aggregated_gossip_verification() {
                             too_early_slot.epoch(E::slots_per_epoch());
                     }
                 }
-               
             },
             |tester, err| {
                 let valid_early_slot = tester.earliest_valid_attestation_slot();
@@ -559,10 +557,12 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "attestation with invalid target epoch",
-            |_, a| {
-                match a.to_mut() {
-                    SignedAggregateAndProofRefMut::Base(att) => att.message.aggregate.data.target.epoch += 1,
-                    SignedAggregateAndProofRefMut::Electra(att) => att.message.aggregate.data.target.epoch += 1,
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregate.data.target.epoch += 1
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.target.epoch += 1
                 }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidTargetEpoch { .. })),
@@ -574,8 +574,12 @@ async fn aggregated_gossip_verification() {
         .inspect_aggregate_err(
             "attestation with invalid target root",
             |_, a| match a.to_mut() {
-                SignedAggregateAndProofRefMut::Base(att) => att.message.aggregate.data.target.root = Hash256::repeat_byte(42),
-                SignedAggregateAndProofRefMut::Electra(att) => att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
+                }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidTargetRoot { .. })),
         )
@@ -586,12 +590,13 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate with unknown head block",
-            |_, a| {
-                match a.to_mut() {
-                    SignedAggregateAndProofRefMut::Base(att) => att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42),
-                    SignedAggregateAndProofRefMut::Electra(att) => att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
                 }
-               
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+                }
             },
             |_, err| {
                 assert!(matches!(
@@ -610,20 +615,18 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate with no participants",
-            |_, a| {
-                match a.to_mut() {
-                    SignedAggregateAndProofRefMut::Base(att) => {
-                        let aggregation_bits = &mut att.message.aggregate.aggregation_bits;
-                        aggregation_bits.difference_inplace(&aggregation_bits.clone());
-                        assert!(aggregation_bits.is_zero());
-                        att.message.aggregate.signature = AggregateSignature::infinity()
-                    },
-                    SignedAggregateAndProofRefMut::Electra(att) => {
-                        let aggregation_bits = &mut att.message.aggregate.aggregation_bits;
-                        aggregation_bits.difference_inplace(&aggregation_bits.clone());
-                        assert!(aggregation_bits.is_zero());
-                        att.message.aggregate.signature = AggregateSignature::infinity()
-                    }
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    let aggregation_bits = &mut att.message.aggregate.aggregation_bits;
+                    aggregation_bits.difference_inplace(&aggregation_bits.clone());
+                    assert!(aggregation_bits.is_zero());
+                    att.message.aggregate.signature = AggregateSignature::infinity()
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    let aggregation_bits = &mut att.message.aggregate.aggregation_bits;
+                    aggregation_bits.difference_inplace(&aggregation_bits.clone());
+                    assert!(aggregation_bits.is_zero());
+                    att.message.aggregate.signature = AggregateSignature::infinity()
                 }
             },
             |_, err| assert!(matches!(err, AttnError::EmptyAggregationBitfield)),
@@ -635,10 +638,12 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate with bad signature",
-            |tester, a| {
-                match a.to_mut() {
-                    SignedAggregateAndProofRefMut::Base(att) => att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42)),
-                    SignedAggregateAndProofRefMut::Electra(att) => att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
+            |tester, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
                 }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
@@ -699,7 +704,6 @@ async fn aggregated_gossip_verification() {
                         };
                     }
                 }
-                
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
         )
@@ -716,7 +720,7 @@ async fn aggregated_gossip_verification() {
                 match a.to_mut() {
                     SignedAggregateAndProofRefMut::Base(att) => {
                         att.message.aggregate.signature = agg_sig;
-                    },
+                    }
                     SignedAggregateAndProofRefMut::Electra(att) => {
                         att.message.aggregate.signature = agg_sig;
                     }
@@ -731,10 +735,12 @@ async fn aggregated_gossip_verification() {
             "aggregate with too-high aggregator index",
             |_, a| match a.to_mut() {
                 SignedAggregateAndProofRefMut::Base(att) => {
-                    att.message.aggregator_index = <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
-                },
+                    att.message.aggregator_index =
+                        <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
+                }
                 SignedAggregateAndProofRefMut::Electra(att) => {
-                    att.message.aggregator_index = <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
+                    att.message.aggregator_index =
+                        <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
                 }
             },
             |_, err| {
@@ -757,7 +763,7 @@ async fn aggregated_gossip_verification() {
             |_, a| match a.to_mut() {
                 SignedAggregateAndProofRefMut::Base(att) => {
                     att.message.aggregator_index = VALIDATOR_COUNT as u64
-                },
+                }
                 SignedAggregateAndProofRefMut::Electra(att) => {
                     att.message.aggregator_index = VALIDATOR_COUNT as u64
                 }
@@ -772,7 +778,7 @@ async fn aggregated_gossip_verification() {
                     // However, the following error is triggered first:
                     AttnError::AggregatorNotInCommittee {
                         aggregator_index
-                    } | 
+                    } |
                     // unless were working with electra attestations
                     // in which case this error is triggered instead:
                     AttnError::AggregatorPubkeyUnknown(
@@ -844,10 +850,12 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate from aggregator that has already been seen",
-            |_, a| {
-                match a.to_mut() {
-                    SignedAggregateAndProofRefMut::Base(att) => att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42),
-                    SignedAggregateAndProofRefMut::Electra(att) => att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42),
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
                 }
             },
             |tester, err| {
@@ -873,7 +881,7 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation with invalid committee index",
-            |tester, a, _| { 
+            |tester, a, _| {
                 match a.to_mut() {
                     AttestationRefMut::Base(attn) => {
                         attn.data.index =  tester

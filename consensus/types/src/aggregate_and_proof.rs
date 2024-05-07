@@ -1,4 +1,4 @@
-use super::{AttestationRef, AttestationBase, AttestationElectra};
+use super::{AttestationBase, AttestationElectra, AttestationRef};
 use super::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof, Signature,
     SignedRoot,

@@ -1263,10 +1263,10 @@ async fn verify_block_for_gossip_doppelganger_detection() {
                 let committee = state
                     .get_beacon_committee(att.data.slot, att.data.index)
                     .unwrap();
-                    attesting_indices_base::get_indexed_attestation(committee.committee, att).unwrap()
-            },
+                attesting_indices_base::get_indexed_attestation(committee.committee, att).unwrap()
+            }
             Attestation::Electra(att) => {
-                    attesting_indices_electra::get_indexed_attestation_from_state(&state, att).unwrap()
+                attesting_indices_electra::get_indexed_attestation_from_state(&state, att).unwrap()
             }
         };
 
