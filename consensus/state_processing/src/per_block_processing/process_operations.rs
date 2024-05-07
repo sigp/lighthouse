@@ -509,3 +509,107 @@ pub fn apply_deposit<E: EthSpec>(
 
     Ok(())
 }
+
+pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    requests: &[ExecutionLayerWithdrawalRequest],
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    for request in requests {
+        let amount = request.amount;
+        let is_full_exit_request = amount == spec.full_exit_request_amount;
+
+        // If partial withdrawal queue is full, only full exits are processed
+        if state.pending_partial_withdrawals()?.len() == E::pending_partial_withdrawals_limit()
+            && !is_full_exit_request
+        {
+            continue;
+        }
+
+        // Verify pubkey exists
+        let index_opt = state.get_validator_index(&request.validator_pubkey)?;
+        let Some(index) = index_opt else {
+            continue;
+        };
+
+        let validator = state
+            .validators()
+            .get(index)
+            .ok_or(BeaconStateError::UnknownValidator(index))?;
+
+        // Verify withdrawal credentials
+        let has_correct_credential = validator.has_execution_withdrawal_credential(spec);
+        let is_correct_source_address = validator
+            .withdrawal_credentials
+            .as_bytes()
+            .get(12..)
+            .ok_or(BeaconStateError::IndexNotSupported(12))?
+            == request.source_address.as_bytes();
+        if !(has_correct_credential && is_correct_source_address) {
+            continue;
+        }
+
+        // Verify the validator is active
+        if !validator.is_active_at(state.current_epoch()) {
+            continue;
+        }
+
+        // Verify exit has not been initiated
+        if validator.exit_epoch != spec.far_future_epoch {
+            continue;
+        }
+
+        // Verify the validator has been active long enough
+        if state.current_epoch()
+            < validator
+                .activation_epoch
+                .safe_add(spec.shard_committee_period)?
+        {
+            continue;
+        }
+
+        let pending_balance_to_withdraw = state.get_pending_balance_to_withdraw(index)?;
+        if is_full_exit_request {
+            // Only exit validator if it has no pending withdrawals in the queue
+            if pending_balance_to_withdraw == 0 {
+                initiate_validator_exit(state, index, spec)?
+            }
+            continue;
+        }
+
+        let balance = *state
+            .balances()
+            .get(index)
+            .ok_or(BeaconStateError::UnknownValidator(index))?;
+        let has_sufficient_effective_balance =
+            validator.effective_balance >= spec.min_activation_balance;
+        let has_excess_balance = balance
+            > spec
+                .min_activation_balance
+                .safe_add(pending_balance_to_withdraw)?;
+
+        // Only allow partial withdrawals with compounding withdrawal credentials
+        if validator.has_compounding_withdrawal_credential(spec)
+            && has_sufficient_effective_balance
+            && has_excess_balance
+        {
+            let to_withdraw = std::cmp::min(
+                balance
+                    .safe_sub(spec.min_activation_balance)?
+                    .safe_sub(pending_balance_to_withdraw)?,
+                amount,
+            );
+            let exit_queue_epoch = state.compute_exit_epoch_and_update_churn(to_withdraw, spec)?;
+            let withdrawable_epoch =
+                exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
+            state
+                .pending_partial_withdrawals_mut()?
+                .push(PendingPartialWithdrawal {
+                    index: index as u64,
+                    amount: to_withdraw,
+                    withdrawable_epoch,
+                })?;
+        }
+    }
+    Ok(())
+}
