@@ -1,5 +1,5 @@
-use super::common::{AwaitingParent, BlockIsProcessed};
-use super::{BlockComponent, PeerId};
+use super::common::ResponseType;
+use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::SyncNetworkContext;
@@ -15,6 +15,15 @@ use strum::IntoStaticStr;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{EthSpec, SignedBeaconBlock};
 
+// Dedicated enum for LookupResult to force its usage
+#[must_use = "LookupResult must be handled with on_lookup_result"]
+pub enum LookupResult {
+    /// Lookup completed successfully
+    Completed,
+    /// Lookup is expecting some future event from the network
+    Pending,
+}
+
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
     /// Too many failed attempts
@@ -22,9 +31,16 @@ pub enum LookupRequestError {
         /// The failed attempts were primarily due to processing failures.
         cannot_process: bool,
     },
+    /// No peers left to serve this lookup
     NoPeers,
+    /// Error sending event to network or beacon processor
     SendFailed(&'static str),
+    /// Inconsistent lookup request state
     BadState(String),
+    /// Lookup failed for some other reason and should be dropped
+    Failed,
+    /// Attempted to retrieve a not known lookup id
+    UnknownLookup,
 }
 
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
@@ -112,16 +128,29 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             .unique()
     }
 
+    /// Makes progress on all requests of this lookup. Any error is not recoverable and must result
+    /// in dropping the lookup. May mark the lookup as completed.
     pub fn continue_requests(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
+    ) -> Result<LookupResult, LookupRequestError> {
         // TODO: Check what's necessary to download, specially for blobs
         self.continue_request::<BlockRequestState<T::EthSpec>>(cx)?;
         self.continue_request::<BlobRequestState<T::EthSpec>>(cx)?;
-        Ok(())
+
+        // If all components of this lookup are already processed, there will be no future events
+        // that can make progress so it must be dropped. Consider the lookup completed.
+        // This case can happen if we receive the components from gossip during a retry.
+        if self.block_request_state.state.is_processed()
+            && self.blob_request_state.state.is_processed()
+        {
+            Ok(LookupResult::Completed)
+        } else {
+            Ok(LookupResult::Pending)
+        }
     }
 
+    /// Potentially makes progress on this request if it's in a progress-able state
     pub fn continue_request<R: RequestState<T>>(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
@@ -134,26 +163,51 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             .peek_downloaded_data()
             .map(|block| block.num_expected_blobs());
         let block_is_processed = self.block_request_state.state.is_processed();
-        R::request_state_mut(self).continue_request(
-            id,
-            AwaitingParent(awaiting_parent),
-            downloaded_block_expected_blobs,
-            BlockIsProcessed(block_is_processed),
-            cx,
-        )
-    }
+        let request = R::request_state_mut(self);
 
-    /// Add all given peers to both block and blob request states.
-    pub fn add_peer(&mut self, peer_id: PeerId) {
-        self.block_request_state.state.add_peer(&peer_id);
-        self.blob_request_state.state.add_peer(&peer_id);
-    }
+        // Attempt to progress awaiting downloads
+        if request.get_state().is_awaiting_download() {
+            // Verify the current request has not exceeded the maximum number of attempts.
+            let request_state = request.get_state();
+            if request_state.failed_attempts() >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
+                let cannot_process = request_state.more_failed_processing_attempts();
+                return Err(LookupRequestError::TooManyAttempts { cannot_process });
+            }
 
-    /// Add all given peers to both block and blob request states.
-    pub fn add_peers(&mut self, peers: &[PeerId]) {
-        for peer in peers {
-            self.add_peer(*peer);
+            let peer_id = request
+                .get_state_mut()
+                .use_rand_available_peer()
+                .ok_or(LookupRequestError::NoPeers)?;
+
+            // make_request returns true only if a request needs to be made
+            if request.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
+                request.get_state_mut().on_download_start()?;
+            } else {
+                request.get_state_mut().on_completed_request()?;
+            }
+
+        // Otherwise, attempt to progress awaiting processing
+        // If this request is awaiting a parent lookup to be processed, do not send for processing.
+        // The request will be rejected with unknown parent error.
+        } else if !awaiting_parent
+            && (block_is_processed || matches!(R::response_type(), ResponseType::Block))
+        {
+            // maybe_start_processing returns Some if state == AwaitingProcess. This pattern is
+            // useful to conditionally access the result data.
+            if let Some(result) = request.get_state_mut().maybe_start_processing() {
+                return R::send_for_processing(id, result, cx);
+            }
         }
+
+        Ok(())
+    }
+
+    /// Add peer to all request states. The peer must be able to serve this request.
+    /// Returns true if the peer was newly inserted into some request state.
+    pub fn add_peer(&mut self, peer_id: PeerId) -> bool {
+        let inserted_block = self.block_request_state.state.add_peer(&peer_id);
+        let inserted_blob = self.blob_request_state.state.add_peer(&peer_id);
+        inserted_block || inserted_blob
     }
 
     /// Returns true if the block has already been downloaded.
@@ -162,21 +216,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             && self.blob_request_state.state.is_processed()
     }
 
-    /// Checks both the block and blob request states to see if the peer is disconnected.
-    ///
-    /// Returns true if the lookup should be dropped.
-    pub fn should_drop_lookup_on_disconnected_peer(&mut self, peer_id: &PeerId) -> bool {
-        self.block_request_state.state.remove_peer(peer_id);
-        self.blob_request_state.state.remove_peer(peer_id);
-
-        if self.all_available_peers().count() == 0 {
-            return true;
-        }
-
-        // Note: if the peer disconnected happens to have an on-going request associated with this
-        // lookup we will receive an RPCError and the lookup will fail. No need to manually retry
-        // now.
-        false
+    /// Remove peer from available peers. Return true if there are no more available peers and all
+    /// requests are not expecting any future event (AwaitingDownload).
+    pub fn remove_peer(&mut self, peer_id: &PeerId) -> bool {
+        self.block_request_state.state.remove_peer(peer_id)
+            && self.blob_request_state.state.remove_peer(peer_id)
     }
 }
 
@@ -224,7 +268,7 @@ pub enum State<T: Clone> {
     Downloading,
     AwaitingProcess(DownloadResult<T>),
     Processing(DownloadResult<T>),
-    Processed(PeerId),
+    Processed(Option<PeerId>),
 }
 
 /// Object representing the state of a single block or blob lookup request.
@@ -388,7 +432,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
         match &self.state {
             State::Processing(result) => {
                 let peer_id = result.peer_id;
-                self.state = State::Processed(peer_id);
+                self.state = State::Processed(Some(peer_id));
                 Ok(peer_id)
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -397,7 +441,9 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
-    pub fn on_post_process_validation_failure(&mut self) -> Result<PeerId, LookupRequestError> {
+    pub fn on_post_process_validation_failure(
+        &mut self,
+    ) -> Result<Option<PeerId>, LookupRequestError> {
         match &self.state {
             State::Processed(peer_id) => {
                 let peer_id = *peer_id;
@@ -411,6 +457,19 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
+    /// Mark a request as complete without any download or processing
+    pub fn on_completed_request(&mut self) -> Result<(), LookupRequestError> {
+        match &self.state {
+            State::AwaitingDownload => {
+                self.state = State::Processed(None);
+                Ok(())
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on_completed_request expected AwaitingDownload got {other}"
+            ))),
+        }
+    }
+
     /// The total number of failures, whether it be processing or downloading.
     pub fn failed_attempts(&self) -> u8 {
         self.failed_processing + self.failed_downloading
@@ -420,14 +479,17 @@ impl<T: Clone> SingleLookupRequestState<T> {
         self.failed_processing >= self.failed_downloading
     }
 
-    /// This method should be used for peers wrapped in `PeerId::BlockAndBlobs`.
-    pub fn add_peer(&mut self, peer_id: &PeerId) {
-        self.available_peers.insert(*peer_id);
+    /// Add peer to this request states. The peer must be able to serve this request.
+    /// Returns true if the peer is newly inserted.
+    pub fn add_peer(&mut self, peer_id: &PeerId) -> bool {
+        self.available_peers.insert(*peer_id)
     }
 
-    /// If a peer disconnects, this request could be failed. If so, an error is returned
-    pub fn remove_peer(&mut self, disconnected_peer_id: &PeerId) {
+    /// Remove peer from available peers. Return true if there are no more available peers and the
+    /// request is not expecting any future event (AwaitingDownload).
+    pub fn remove_peer(&mut self, disconnected_peer_id: &PeerId) -> bool {
         self.available_peers.remove(disconnected_peer_id);
+        self.available_peers.is_empty() && self.is_awaiting_download()
     }
 
     pub fn get_used_peers(&self) -> impl Iterator<Item = &PeerId> {
@@ -458,17 +520,6 @@ impl<T: Clone> std::fmt::Display for State<T> {
             State::AwaitingProcess { .. } => write!(f, "AwaitingProcessing"),
             State::Processing { .. } => write!(f, "Processing"),
             State::Processed { .. } => write!(f, "Processed"),
-        }
-    }
-}
-
-impl LookupRequestError {
-    pub(crate) fn as_metric(&self) -> &'static str {
-        match self {
-            LookupRequestError::TooManyAttempts { .. } => "TooManyAttempts",
-            LookupRequestError::NoPeers => "NoPeers",
-            LookupRequestError::SendFailed { .. } => "SendFailed",
-            LookupRequestError::BadState { .. } => "BadState",
         }
     }
 }

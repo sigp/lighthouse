@@ -1,13 +1,9 @@
 use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, SingleBlockLookup, SingleLookupRequestState,
 };
-use crate::sync::block_lookups::{
-    BlobRequestState, BlockRequestState, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
-};
+use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, PeerId};
 use crate::sync::manager::{BlockProcessType, Id, SLOT_IMPORT_TOLERANCE};
-use crate::sync::network_context::{
-    BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest, SyncNetworkContext,
-};
+use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use std::sync::Arc;
@@ -28,11 +24,6 @@ pub enum ResponseType {
 /// is further back than the most recent head slot.
 pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 
-/// Wrapper around bool to prevent mixing this argument with `BlockIsProcessed`
-pub(crate) struct AwaitingParent(pub bool);
-/// Wrapper around bool to prevent mixing this argument with `AwaitingParent`
-pub(crate) struct BlockIsProcessed(pub bool);
-
 /// This trait unifies common single block lookup functionality across blocks and blobs. This
 /// includes making requests, verifying responses, and handling processing results. A
 /// `SingleBlockLookup` includes both a `BlockRequestState` and a `BlobRequestState`, this trait is
@@ -42,57 +33,12 @@ pub(crate) struct BlockIsProcessed(pub bool);
 /// safety when handling a block/blob response ensuring we only mutate the correct corresponding
 /// state.
 pub trait RequestState<T: BeaconChainTypes> {
-    /// The type of the request .
-    type RequestType;
-
     /// The type created after validation.
     type VerifiedResponseType: Clone;
 
-    /// Potentially makes progress on this request if it's in a progress-able state
-    fn continue_request(
-        &mut self,
-        id: Id,
-        awaiting_parent: AwaitingParent,
-        downloaded_block_expected_blobs: Option<usize>,
-        block_is_processed: BlockIsProcessed,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
-        // Attempt to progress awaiting downloads
-        if self.get_state().is_awaiting_download() {
-            // Verify the current request has not exceeded the maximum number of attempts.
-            let request_state = self.get_state();
-            if request_state.failed_attempts() >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
-                let cannot_process = request_state.more_failed_processing_attempts();
-                return Err(LookupRequestError::TooManyAttempts { cannot_process });
-            }
-
-            let peer_id = self
-                .get_state_mut()
-                .use_rand_available_peer()
-                .ok_or(LookupRequestError::NoPeers)?;
-
-            // make_request returns true only if a request was made
-            if self.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
-                self.get_state_mut().on_download_start()?;
-            }
-
-        // Otherwise, attempt to progress awaiting processing
-        // If this request is awaiting a parent lookup to be processed, do not send for processing.
-        // The request will be rejected with unknown parent error.
-        } else if !awaiting_parent.0
-            && (block_is_processed.0 || matches!(Self::response_type(), ResponseType::Block))
-        {
-            // maybe_start_processing returns Some if state == AwaitingProcess. This pattern is
-            // useful to conditionally access the result data.
-            if let Some(result) = self.get_state_mut().maybe_start_processing() {
-                return Self::send_for_processing(id, result, cx);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Send the request to the network service.
+    /// Request the network context to prepare a request of a component of `block_root`. If the
+    /// request is not necessary because the component is already known / processed, return false.
+    /// Return true if it sent a request and we can expect an event back from the network.
     fn make_request(
         &self,
         id: Id,
@@ -126,7 +72,6 @@ pub trait RequestState<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
-    type RequestType = BlocksByRootSingleRequest;
     type VerifiedResponseType = Arc<SignedBeaconBlock<T::EthSpec>>;
 
     fn make_request(
@@ -136,12 +81,8 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
         _: Option<usize>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<bool, LookupRequestError> {
-        cx.block_lookup_request(
-            id,
-            peer_id,
-            BlocksByRootSingleRequest(self.requested_block_root),
-        )
-        .map_err(LookupRequestError::SendFailed)
+        cx.block_lookup_request(id, peer_id, self.requested_block_root)
+            .map_err(LookupRequestError::SendFailed)
     }
 
     fn send_for_processing(
@@ -179,7 +120,6 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
 }
 
 impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
-    type RequestType = BlobsByRootSingleBlockRequest;
     type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
 
     fn make_request(
