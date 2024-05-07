@@ -20,7 +20,7 @@ use slasher::{DatabaseBackendOverride, Slasher};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use types::EthSpec;
+use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> =
@@ -79,6 +79,14 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         if !client_config.chain.enable_lock_timeouts {
             info!(log, "Disabling lock timeouts globally");
             TimeoutRwLock::disable_timeouts()
+        }
+
+        if let Err(invalid_forks_and_epochs) = check_spec_fork_epochs(&spec) {
+            warn!(
+                log,
+                "Fork epoch(s) is not a multiple of 256";
+                "invalid_forks_and_epochs" => ?invalid_forks_and_epochs,
+            );
         }
 
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
@@ -182,6 +190,29 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     }
 }
 
+fn check_spec_fork_epochs(spec: &ChainSpec) -> Result<(), Vec<(ForkName, Epoch)>> {
+    let is_invalid_fork_epoch = |epoch: Epoch| epoch % 256 != 0;
+
+    let forks_with_invalid_epoch = [
+        (ForkName::Altair, spec.altair_fork_epoch),
+        (ForkName::Bellatrix, spec.bellatrix_fork_epoch),
+        (ForkName::Capella, spec.capella_fork_epoch),
+        (ForkName::Deneb, spec.deneb_fork_epoch),
+        (ForkName::Electra, spec.electra_fork_epoch),
+    ]
+    .iter()
+    .filter_map(|(fork, fork_epoch_opt)| {
+        fork_epoch_opt.and_then(|epoch| is_invalid_fork_epoch(epoch).then_some((*fork, epoch)))
+    })
+    .collect::<Vec<_>>();
+
+    if forks_with_invalid_epoch.is_empty() {
+        Ok(())
+    } else {
+        Err(forks_with_invalid_epoch)
+    }
+}
+
 impl<E: EthSpec> Deref for ProductionBeaconNode<E> {
     type Target = ProductionClient<E>;
 
@@ -203,5 +234,25 @@ struct Discv5Executor(task_executor::TaskExecutor);
 impl lighthouse_network::discv5::Executor for Discv5Executor {
     fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
         self.0.spawn(future, "discv5")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use types::MinimalEthSpec;
+
+    #[test]
+    fn test_check_spec_fork_epochs_256_multiples() {
+        let mut spec = MinimalEthSpec::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(256));
+        spec.deneb_fork_epoch = Some(Epoch::new(257));
+        spec.electra_fork_epoch = None;
+        let result = check_spec_fork_epochs(&spec);
+        assert_eq!(
+            result,
+            Err(vec![(ForkName::Deneb, spec.deneb_fork_epoch.unwrap())])
+        );
     }
 }
