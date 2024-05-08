@@ -8,7 +8,7 @@ use beacon_chain::{
 use beacon_processor::work_reprocessing_queue::{QueuedSamplingRequest, ReprocessQueueMessage};
 use itertools::process_results;
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRootRequest,
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
@@ -932,6 +932,221 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         log_results(peer_id, req, blobs_sent);
 
         Ok(())
+    }
+
+    /// Handle a `DataColumnsByRange` request from the peer.
+    pub fn handle_data_columns_by_range_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        req: DataColumnsByRangeRequest,
+    ) {
+        debug!(self.log, "Received DataColumnsByRange Request";
+            "peer_id" => %peer_id,
+            "count" => req.count,
+            "start_slot" => req.start_slot,
+        );
+
+        // Should not send more than max request data columns
+        if req.max_data_columns_requested::<T::EthSpec>()
+            > self.chain.spec.max_request_data_column_sidecars
+        {
+            return self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::InvalidRequest,
+                "Request exceeded `MAX_REQUEST_DATA_COLUMN_SIDECARS`".into(),
+                request_id,
+            );
+        }
+
+        let request_start_slot = Slot::from(req.start_slot);
+
+        let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
+            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+            None => {
+                debug!(self.log, "Deneb fork is disabled");
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::InvalidRequest,
+                    "Deneb fork is disabled".into(),
+                    request_id,
+                );
+                return;
+            }
+        };
+
+        let oldest_data_column_slot = self
+            .chain
+            .store
+            .get_data_column_info()
+            .oldest_data_column_slot
+            .unwrap_or(data_availability_boundary_slot);
+
+        if request_start_slot < oldest_data_column_slot {
+            debug!(
+                self.log,
+                "Range request start slot is older than data availability boundary.";
+                "requested_slot" => request_start_slot,
+                "oldest_data_column_slot" => oldest_data_column_slot,
+                "data_availability_boundary" => data_availability_boundary_slot
+            );
+
+            return if data_availability_boundary_slot < oldest_data_column_slot {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "data columns pruned within boundary".into(),
+                    request_id,
+                )
+            } else {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::InvalidRequest,
+                    "Req outside availability period".into(),
+                    request_id,
+                )
+            };
+        }
+
+        let forwards_block_root_iter =
+            match self.chain.forwards_iter_block_roots(request_start_slot) {
+                Ok(iter) => iter,
+                Err(BeaconChainError::HistoricalBlockError(
+                    HistoricalBlockError::BlockOutOfRange {
+                        slot,
+                        oldest_block_slot,
+                    },
+                )) => {
+                    debug!(self.log, "Range request failed during backfill";
+                        "requested_slot" => slot,
+                        "oldest_known_slot" => oldest_block_slot
+                    );
+                    return self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Backfilling".into(),
+                        request_id,
+                    );
+                }
+                Err(e) => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ServerError,
+                        "Database error".into(),
+                        request_id,
+                    );
+                    return error!(self.log, "Unable to obtain root iter";
+                        "request" => ?req,
+                        "peer" => %peer_id,
+                        "error" => ?e
+                    );
+                }
+            };
+
+        // Use `WhenSlotSkipped::Prev` to get the most recent block root prior to
+        // `request_start_slot` in order to check whether the `request_start_slot` is a skip.
+        let mut last_block_root = req.start_slot.checked_sub(1).and_then(|prev_slot| {
+            self.chain
+                .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
+                .ok()
+                .flatten()
+        });
+
+        // Pick out the required blocks, ignoring skip-slots.
+        let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
+            iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
+                // map skip slots to None
+                .map(|(root, _)| {
+                    let result = if Some(root) == last_block_root {
+                        None
+                    } else {
+                        Some(root)
+                    };
+                    last_block_root = Some(root);
+                    result
+                })
+                .collect::<Vec<Option<Hash256>>>()
+        });
+
+        let block_roots = match maybe_block_roots {
+            Ok(block_roots) => block_roots,
+            Err(e) => {
+                return error!(self.log, "Error during iteration over blocks";
+                    "request" => ?req,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                )
+            }
+        };
+
+        // remove all skip slots
+        let block_roots = block_roots.into_iter().flatten();
+
+        let mut data_columns_sent = 0;
+        let mut send_response = true;
+
+        for root in block_roots {
+            match self.chain.get_data_columns(&root) {
+                Ok(data_column_sidecar_list) => {
+                    for data_column_sidecar in data_column_sidecar_list.iter() {
+                        for &data_column_id in req.data_column_ids.iter() {
+                            if data_column_sidecar.id() == data_column_id {
+                                data_columns_sent += 1;
+                                self.send_network_message(NetworkMessage::SendResponse {
+                                    peer_id,
+                                    response: Response::DataColumnsByRange(Some(
+                                        data_column_sidecar.clone(),
+                                    )),
+                                    id: request_id,
+                                });
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        self.log,
+                        "Error fetching data columns block root";
+                        "request" => ?req,
+                        "peer" => %peer_id,
+                        "block_root" => ?root,
+                        "error" => ?e
+                    );
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ServerError,
+                        "No data columns and failed fetching corresponding block".into(),
+                        request_id,
+                    );
+                    send_response = false;
+                    break;
+                }
+            }
+        }
+
+        let current_slot = self
+            .chain
+            .slot()
+            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
+
+        debug!(
+            self.log,
+            "DataColumnsByRange Response processed";
+            "peer" => %peer_id,
+            "start_slot" => req.start_slot,
+            "current_slot" => current_slot,
+            "requested" => req.count,
+            "returned" => data_columns_sent
+        );
+
+        if send_response {
+            // send the stream terminator
+            self.send_network_message(NetworkMessage::SendResponse {
+                peer_id,
+                response: Response::DataColumnsByRange(None),
+                id: request_id,
+            });
+        }
     }
 
     /// Helper function to ensure single item protocol always end with either a single chunk or an

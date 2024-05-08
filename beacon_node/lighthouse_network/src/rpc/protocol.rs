@@ -252,6 +252,9 @@ pub enum Protocol {
     /// The `DataColumnSidecarsByRoot` protocol name.
     #[strum(serialize = "data_column_sidecars_by_root")]
     DataColumnsByRoot,
+    /// The `DataColumnSidecarsByRange` protocol name.
+    #[strum(serialize = "data_column_sidecars_by_range")]
+    DataColumnsByRange,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -278,6 +281,7 @@ impl Protocol {
             Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
             Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
             Protocol::DataColumnsByRoot => Some(ResponseTermination::DataColumnsByRoot),
+            Protocol::DataColumnsByRange => Some(ResponseTermination::DataColumnsByRange),
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
@@ -305,6 +309,7 @@ pub enum SupportedProtocol {
     BlobsByRangeV1,
     BlobsByRootV1,
     DataColumnsByRootV1,
+    DataColumnsByRangeV1,
     PingV1,
     MetaDataV1,
     MetaDataV2,
@@ -325,6 +330,7 @@ impl SupportedProtocol {
             SupportedProtocol::BlobsByRangeV1 => "1",
             SupportedProtocol::BlobsByRootV1 => "1",
             SupportedProtocol::DataColumnsByRootV1 => "1",
+            SupportedProtocol::DataColumnsByRangeV1 => "1",
             SupportedProtocol::PingV1 => "1",
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
@@ -345,6 +351,7 @@ impl SupportedProtocol {
             SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
             SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
             SupportedProtocol::DataColumnsByRootV1 => Protocol::DataColumnsByRoot,
+            SupportedProtocol::DataColumnsByRangeV1 => Protocol::DataColumnsByRange,
             SupportedProtocol::PingV1 => Protocol::Ping,
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
@@ -486,6 +493,10 @@ impl ProtocolId {
             ),
             Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
             Protocol::DataColumnsByRoot => RpcLimits::new(0, spec.max_data_columns_by_root_request),
+            Protocol::DataColumnsByRange => RpcLimits::new(
+                <DataColumnsByRangeRequest as Encode>::ssz_fixed_len(),
+                <DataColumnsByRangeRequest as Encode>::ssz_fixed_len(),
+            ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -512,10 +523,8 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
-            Protocol::DataColumnsByRoot => RpcLimits::new(
-                DataColumnSidecar::<E>::min_size(),
-                DataColumnSidecar::<E>::max_size(),
-            ),
+            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(),
+            Protocol::DataColumnsByRange =>rpc_data_column_limits::<E>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -545,6 +554,7 @@ impl ProtocolId {
             | SupportedProtocol::BlobsByRangeV1
             | SupportedProtocol::BlobsByRootV1
             | SupportedProtocol::DataColumnsByRootV1
+            | SupportedProtocol::DataColumnsByRangeV1
             | SupportedProtocol::LightClientBootstrapV1
             | SupportedProtocol::LightClientOptimisticUpdateV1
             | SupportedProtocol::LightClientFinalityUpdateV1 => true,
@@ -582,6 +592,13 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     RpcLimits::new(
         BlobSidecar::<E>::empty().as_ssz_bytes().len(),
         BlobSidecar::<E>::max_size(),
+    )
+}
+
+pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
+    RpcLimits::new(
+        DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
+        DataColumnSidecar::<E>::max_size(),
     )
 }
 
@@ -665,6 +682,7 @@ pub enum InboundRequest<E: EthSpec> {
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
     DataColumnsByRoot(DataColumnsByRootRequest),
+    DataColumnsByRange(DataColumnsByRangeRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
     LightClientFinalityUpdate,
@@ -686,6 +704,7 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             InboundRequest::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
+            InboundRequest::DataColumnsByRange(req) => req.data_column_ids.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
@@ -710,6 +729,7 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
             InboundRequest::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
             InboundRequest::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
+            InboundRequest::DataColumnsByRange(_) => SupportedProtocol::DataColumnsByRangeV1,
             InboundRequest::Ping(_) => SupportedProtocol::PingV1,
             InboundRequest::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
@@ -736,6 +756,7 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             InboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             InboundRequest::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
+            InboundRequest::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
             InboundRequest::Status(_) => unreachable!(),
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
@@ -847,6 +868,9 @@ impl<E: EthSpec> std::fmt::Display for InboundRequest<E> {
             InboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             InboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
             InboundRequest::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),
+            InboundRequest::DataColumnsByRange(req) => {
+                write!(f, "Data columns by range: {:?}", req)
+            }
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {

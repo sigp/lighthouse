@@ -16,6 +16,8 @@ use crate::rpc::{
     OutboundRequest, SubstreamId,
 };
 
+use super::methods::DataColumnsByRangeRequest;
+
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
 
@@ -51,6 +53,8 @@ pub enum Request {
     BlobsByRoot(BlobsByRootRequest),
     /// A request data columns root request.
     DataColumnsByRoot(DataColumnsByRootRequest),
+    /// A request data columns by range request.
+    DataColumnsByRange(DataColumnsByRangeRequest),
 }
 
 impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
@@ -81,6 +85,7 @@ impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
             Request::BlobsByRoot(r) => OutboundRequest::BlobsByRoot(r),
             Request::DataColumnsByRoot(r) => OutboundRequest::DataColumnsByRoot(r),
+            Request::DataColumnsByRange(r) => OutboundRequest::DataColumnsByRange(r),
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
@@ -100,6 +105,8 @@ pub enum Response<E: EthSpec> {
     BlocksByRange(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
     BlobsByRange(Option<Arc<BlobSidecar<E>>>),
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_Range request.
+    DataColumnsByRange(Option<Arc<DataColumnSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
@@ -136,6 +143,12 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
             Response::DataColumnsByRoot(r) => match r {
                 Some(d) => RPCCodedResponse::Success(RPCResponse::DataColumnsByRoot(d)),
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::DataColumnsByRoot),
+            },
+            Response::DataColumnsByRange(r) => match r {
+                Some(d) => RPCCodedResponse::Success(RPCResponse::DataColumnsByRange(d)),
+                None => {
+                    RPCCodedResponse::StreamTermination(ResponseTermination::DataColumnsByRange)
+                }
             },
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
             Response::LightClientBootstrap(b) => {

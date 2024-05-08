@@ -92,6 +92,8 @@ pub enum RequestId {
     DataColumnsByRoot(Id),
     /// Range request that is composed by both a block range request and a blob range request.
     RangeBlockAndBlobs { id: Id },
+    /// Range request that is composed by both a block range request and a blob range request.
+    RangeBlockAndDataColumns { id: Id },
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -384,6 +386,29 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.on_single_data_column_response(id, peer_id, RpcEvent::RPCError(error))
             }
             RequestId::RangeBlockAndBlobs { id } => {
+                if let Some(sender_id) = self.network.range_request_failed(id) {
+                    match sender_id {
+                        RangeRequestId::RangeSync { chain_id, batch_id } => {
+                            self.range_sync.inject_error(
+                                &mut self.network,
+                                peer_id,
+                                batch_id,
+                                chain_id,
+                                id,
+                            );
+                            self.update_sync_state();
+                        }
+                        RangeRequestId::BackfillSync { batch_id } => match self
+                            .backfill_sync
+                            .inject_error(&mut self.network, batch_id, &peer_id, id)
+                        {
+                            Ok(_) => {}
+                            Err(_) => self.update_sync_state(),
+                        },
+                    }
+                }
+            }
+            RequestId::RangeBlockAndDataColumns { id } => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
                     match sender_id {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
@@ -934,6 +959,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             RequestId::RangeBlockAndBlobs { id } => {
+                todo!("TODO(das): handle sampling for range sync based on {id}");
+            }
+            RequestId::RangeBlockAndDataColumns { id } => {
                 todo!("TODO(das): handle sampling for range sync based on {id}");
             }
         }

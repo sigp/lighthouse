@@ -295,6 +295,25 @@ impl BlobsByRangeRequest {
     }
 }
 
+/// Request a number of beacon data columns from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct DataColumnsByRangeRequest {
+    /// The starting slot to request data columns.
+    pub start_slot: u64,
+
+    /// The number of slots from the start slot.
+    pub count: u64,
+
+    /// The list of beacon block roots and column indices being requested.
+    pub data_column_ids: Vec<DataColumnIdentifier>,
+}
+
+impl DataColumnsByRangeRequest {
+    pub fn max_data_columns_requested<E: EthSpec>(&self) -> u64 {
+        self.count.saturating_mul(E::max_blobs_per_block() as u64)
+    }
+}
+
 /// Request a number of beacon block roots from a peer.
 #[superstruct(
     variants(V1, V2),
@@ -433,6 +452,9 @@ pub enum RPCResponse<E: EthSpec> {
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
     DataColumnsByRoot(Arc<DataColumnSidecar<E>>),
 
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_RANGE request.
+    DataColumnsByRange(Arc<DataColumnSidecar<E>>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -457,6 +479,9 @@ pub enum ResponseTermination {
 
     /// Data column sidecars by root stream termination.
     DataColumnsByRoot,
+
+    /// Data column sidecars by range stream termination.
+    DataColumnsByRange,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -548,6 +573,7 @@ impl<E: EthSpec> RPCResponse<E> {
             RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
             RPCResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
             RPCResponse::DataColumnsByRoot(_) => Protocol::DataColumnsByRoot,
+            RPCResponse::DataColumnsByRange(_) => Protocol::DataColumnsByRange,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -595,6 +621,13 @@ impl<E: EthSpec> std::fmt::Display for RPCResponse<E> {
             }
             RPCResponse::DataColumnsByRoot(sidecar) => {
                 write!(f, "DataColumnsByRoot: Data column slot: {}", sidecar.slot())
+            }
+            RPCResponse::DataColumnsByRange(sidecar) => {
+                write!(
+                    f,
+                    "DataColumnsByRange: Data column slot: {}",
+                    sidecar.slot()
+                )
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
