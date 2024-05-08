@@ -239,6 +239,7 @@ impl<E: EthSpec> AttestationMap<E> {
         let attestation_map = self.checkpoint_map.entry(checkpoint).or_default();
         let attestations = attestation_map.attestations.entry(data).or_default();
 
+        // TODO(electra):
         // Greedily aggregate the attestation with all existing attestations.
         // NOTE: this is sub-optimal and in future we will remove this in favour of max-clique
         // aggregation.
