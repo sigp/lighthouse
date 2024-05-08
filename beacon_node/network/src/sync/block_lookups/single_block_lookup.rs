@@ -208,7 +208,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Remove peer from available peers. Return true if there are no more available peers and all
     /// requests are not expecting any future event (AwaitingDownload).
     pub fn remove_peer(&mut self, peer_id: &PeerId) -> bool {
-        self.peers.remove(peer_id)
+        self.peers.remove(peer_id);
+
+        self.peers.is_empty()
+            && self.block_request_state.state.is_awaiting_download()
+            && self.blob_request_state.state.is_awaiting_download()
+            && self.custody_request_state.state.is_awaiting_download()
     }
 
     /// Selects a random peer from available peers if any, inserts it in used peers and returns it.

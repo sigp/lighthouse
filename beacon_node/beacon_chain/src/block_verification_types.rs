@@ -158,7 +158,7 @@ impl<E: EthSpec> RpcBlock<E> {
 
         if let Ok(block_commitments) = block.message().body().blob_kzg_commitments() {
             // The number of required custody columns is out of scope here.
-            if block_commitments.len() > 0 && custody_columns.len() == 0 {
+            if !block_commitments.is_empty() && custody_columns.is_empty() {
                 return Err(AvailabilityCheckError::MissingCustodyColumns);
             }
         }
