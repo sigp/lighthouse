@@ -3285,6 +3285,7 @@ impl ApiTester {
             .unwrap()
             .data;
 
+        // TODO(electra) make fork-agnostic
         let mut attestation = Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
             data: attestation_data,
@@ -3303,7 +3304,7 @@ impl ApiTester {
 
         SignedAggregateAndProof::from_aggregate(
             i as u64,
-            attestation,
+            attestation.to_ref(),
             Some(proof),
             &kp.sk,
             &fork,

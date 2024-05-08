@@ -13,7 +13,7 @@ use lazy_static::lazy_static;
 use logging::test_logger;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
-    common::get_indexed_attestation,
+    common::{attesting_indices_base, attesting_indices_electra},
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
     per_slot_processing, BlockProcessingError, ConsensusContext, VerifyBlockRoot,
 };
@@ -1258,11 +1258,17 @@ async fn verify_block_for_gossip_doppelganger_detection() {
 
     for att in attestations.iter() {
         let epoch = att.data().target.epoch;
-        let committee = state
-            .get_beacon_committee(att.data().slot, att.data().index)
-            .unwrap();
-        let indexed_attestation =
-            get_indexed_attestation(committee.committee, att.to_ref()).unwrap();
+        let indexed_attestation = match att {
+            Attestation::Base(att) => {
+                let committee = state
+                    .get_beacon_committee(att.data.slot, att.data.index)
+                    .unwrap();
+                attesting_indices_base::get_indexed_attestation(committee.committee, att).unwrap()
+            }
+            Attestation::Electra(att) => {
+                attesting_indices_electra::get_indexed_attestation_from_state(&state, att).unwrap()
+            }
+        };
 
         match indexed_attestation {
             IndexedAttestation::Base(indexed_attestation) => {

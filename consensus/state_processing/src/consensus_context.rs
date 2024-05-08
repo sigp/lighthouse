@@ -1,4 +1,4 @@
-use crate::common::get_indexed_attestation;
+use crate::common::{attesting_indices_base, attesting_indices_electra};
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use crate::EpochCacheError;
 use std::collections::{hash_map::Entry, HashMap};
@@ -22,13 +22,8 @@ pub struct ConsensusContext<E: EthSpec> {
     /// Block root of the block at `slot`.
     pub current_block_root: Option<Hash256>,
     /// Cache of indexed attestations constructed during block processing.
-    pub indexed_attestations: HashMap<
-        (
-            AttestationData,
-            BitList<E::MaxValidatorsPerCommitteePerSlot>,
-        ),
-        IndexedAttestation<E>,
-    >,
+    pub indexed_attestations:
+        HashMap<(AttestationData, BitList<E::MaxValidatorsPerSlot>), IndexedAttestation<E>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -159,32 +154,40 @@ impl<E: EthSpec> ConsensusContext<E> {
         state: &BeaconState<E>,
         attestation: AttestationRef<'a, E>,
     ) -> Result<IndexedAttestationRef<E>, BlockOperationError<AttestationInvalid>> {
-        let aggregation_bits = match attestation {
+        match attestation {
             AttestationRef::Base(attn) => {
-                let mut extended_aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot> =
-                    BitList::with_capacity(attn.aggregation_bits.len())
-                        .map_err(BeaconStateError::from)?;
+                let extended_aggregation_bits = attn
+                    .extend_aggregation_bits()
+                    .map_err(BeaconStateError::from)?;
 
-                for (i, bit) in attn.aggregation_bits.iter().enumerate() {
-                    extended_aggregation_bits
-                        .set(i, bit)
-                        .map_err(BeaconStateError::from)?;
+                let key = (attn.data.clone(), extended_aggregation_bits);
+
+                match self.indexed_attestations.entry(key) {
+                    Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+                    Entry::Vacant(vacant) => {
+                        let committee =
+                            state.get_beacon_committee(attn.data.slot, attn.data.index)?;
+                        let indexed_attestation = attesting_indices_base::get_indexed_attestation(
+                            committee.committee,
+                            attn,
+                        )?;
+                        Ok(vacant.insert(indexed_attestation))
+                    }
                 }
-                extended_aggregation_bits
             }
-            AttestationRef::Electra(attn) => attn.aggregation_bits.clone(),
-        };
+            AttestationRef::Electra(attn) => {
+                let key = (attn.data.clone(), attn.aggregation_bits.clone());
 
-        let key = (attestation.data().clone(), aggregation_bits);
-
-        match self.indexed_attestations.entry(key) {
-            Entry::Occupied(occupied) => Ok(occupied.into_mut()),
-            Entry::Vacant(vacant) => {
-                let committee = state
-                    .get_beacon_committee(attestation.data().slot, attestation.data().index)?;
-                let indexed_attestation =
-                    get_indexed_attestation(committee.committee, attestation)?;
-                Ok(vacant.insert(indexed_attestation))
+                match self.indexed_attestations.entry(key) {
+                    Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+                    Entry::Vacant(vacant) => {
+                        let indexed_attestation =
+                            attesting_indices_electra::get_indexed_attestation_from_state(
+                                state, attn,
+                            )?;
+                        Ok(vacant.insert(indexed_attestation))
+                    }
+                }
             }
         }
         .map(|indexed_attestation| (*indexed_attestation).to_ref())
@@ -198,10 +201,7 @@ impl<E: EthSpec> ConsensusContext<E> {
     pub fn set_indexed_attestations(
         mut self,
         attestations: HashMap<
-            (
-                AttestationData,
-                BitList<E::MaxValidatorsPerCommitteePerSlot>,
-            ),
+            (AttestationData, BitList<E::MaxValidatorsPerSlot>),
             IndexedAttestation<E>,
         >,
     ) -> Self {

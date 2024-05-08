@@ -161,6 +161,7 @@ pub enum Error {
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
     NonExecutionAddresWithdrawalCredential,
+    NoCommitteeFound,
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.

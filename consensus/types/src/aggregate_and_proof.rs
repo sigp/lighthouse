@@ -1,4 +1,4 @@
-use super::{Attestation, AttestationBase, AttestationElectra, AttestationRef};
+use super::{AttestationBase, AttestationElectra, AttestationRef};
 use super::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof, Signature,
     SignedRoot,
@@ -81,7 +81,7 @@ impl<E: EthSpec> AggregateAndProof<E> {
     /// If `selection_proof.is_none()` it will be computed locally.
     pub fn from_aggregate(
         aggregator_index: u64,
-        aggregate: Attestation<E>,
+        aggregate: AttestationRef<'_, E>,
         selection_proof: Option<SelectionProof>,
         secret_key: &SecretKey,
         fork: &Fork,
@@ -101,14 +101,14 @@ impl<E: EthSpec> AggregateAndProof<E> {
             .into();
 
         match aggregate {
-            Attestation::Base(attestation) => Self::Base(AggregateAndProofBase {
+            AttestationRef::Base(attestation) => Self::Base(AggregateAndProofBase {
                 aggregator_index,
-                aggregate: attestation,
+                aggregate: attestation.clone(),
                 selection_proof,
             }),
-            Attestation::Electra(attestation) => Self::Electra(AggregateAndProofElectra {
+            AttestationRef::Electra(attestation) => Self::Electra(AggregateAndProofElectra {
                 aggregator_index,
-                aggregate: attestation,
+                aggregate: attestation.clone(),
                 selection_proof,
             }),
         }

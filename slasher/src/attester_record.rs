@@ -80,7 +80,7 @@ impl<E: EthSpec> IndexedAttesterRecord<E> {
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]
 struct IndexedAttestationHeader<E: EthSpec> {
-    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommitteePerSlot>,
+    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot>,
     pub data_root: Hash256,
     pub signature: AggregateSignature,
 }
@@ -106,15 +106,15 @@ impl<E: EthSpec> From<IndexedAttestation<E>> for AttesterRecord {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::indexed_att;
+    use crate::test_utils::indexed_att_electra;
 
     // Check correctness of fast hashing
     #[test]
     fn fast_hash() {
         let data = vec![
-            indexed_att(vec![], 0, 0, 0),
-            indexed_att(vec![1, 2, 3], 12, 14, 1),
-            indexed_att(vec![4], 0, 5, u64::MAX),
+            indexed_att_electra(vec![], 0, 0, 0),
+            indexed_att_electra(vec![1, 2, 3], 12, 14, 1),
+            indexed_att_electra(vec![4], 0, 5, u64::MAX),
         ];
         for att in data {
             assert_eq!(
