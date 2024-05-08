@@ -18,7 +18,6 @@ use beacon_processor::{
 };
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
-use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
