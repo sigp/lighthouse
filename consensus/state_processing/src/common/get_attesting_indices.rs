@@ -119,7 +119,7 @@ pub mod attesting_indices_electra {
             if let Some(&beacon_committee) = committees_map.get(&index) {
                 // This check is new to the spec's `process_attestation` in Electra.
                 if index >= committee_count_per_slot {
-                    return Err(BeaconStateError::InvalidBitfield);
+                    return Err(BeaconStateError::InvalidCommitteeIndex(index));
                 }
                 participant_count.safe_add_assign(beacon_committee.committee.len() as u64)?;
                 let committee_attesters = beacon_committee
@@ -140,7 +140,7 @@ pub mod attesting_indices_electra {
 
                 committee_offset.safe_add(beacon_committee.committee.len())?;
             } else {
-                return Err(Error::NoCommitteeFound);
+                return Err(Error::NoCommitteeFound(index));
             }
         }
 
