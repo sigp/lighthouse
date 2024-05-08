@@ -524,7 +524,7 @@ impl ProtocolId {
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(),
-            Protocol::DataColumnsByRange =>rpc_data_column_limits::<E>(),
+            Protocol::DataColumnsByRange => rpc_data_column_limits::<E>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),

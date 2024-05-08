@@ -8,7 +8,7 @@ use beacon_chain::{
 use beacon_processor::work_reprocessing_queue::{QueuedSamplingRequest, ReprocessQueueMessage};
 use itertools::process_results;
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
