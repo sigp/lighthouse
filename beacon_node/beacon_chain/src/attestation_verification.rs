@@ -560,6 +560,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                             })?;
 
                         if let Some(committee) = committee {
+                            // TODO(electra):
                             // Note: this clones the signature which is known to be a relatively slow operation.
                             //
                             // Future optimizations should remove this clone.
@@ -599,7 +600,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
 
         let indexed_attestation = match map_attestation_committees(
             chain,
-            &attestation,
+            attestation,
             get_indexed_attestation_with_committee,
         ) {
             Ok(indexed_attestation) => indexed_attestation,
@@ -1281,7 +1282,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: AttestationRef<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
-    map_attestation_committees(chain, &attestation, |(committees, committees_per_slot)| {
+    map_attestation_committees(chain, attestation, |(committees, committees_per_slot)| {
         match attestation {
             AttestationRef::Base(att) => {
                 let committee = committees
@@ -1335,7 +1336,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
 /// from disk and then update the `shuffling_cache`.
 fn map_attestation_committees<T, F, R>(
     chain: &BeaconChain<T>,
-    attestation: &AttestationRef<T::EthSpec>,
+    attestation: AttestationRef<T::EthSpec>,
     map_fn: F,
 ) -> Result<R, Error>
 where
