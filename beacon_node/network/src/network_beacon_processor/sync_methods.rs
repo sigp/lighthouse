@@ -18,14 +18,15 @@ use beacon_processor::{
 };
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
 use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::BlockImportSource;
 use types::{Epoch, Hash256};
-use std::fmt;
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -39,7 +40,7 @@ pub enum ChainSegmentProcessId {
 impl fmt::Display for ChainSegmentProcessId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::RangeBatchId(_,_) => write!(f, "Range Sync"),
+            Self::RangeBatchId(_, _) => write!(f, "Range Sync"),
             Self::BackSyncBatchId(_) => write!(f, "Backfill Sync"),
         }
     }
@@ -163,7 +164,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .process_block_with_early_caching(block_root, block, NotifyExecutionLayer::Yes)
+            .process_block_with_early_caching(
+                block_root,
+                block,
+                BlockImportSource::Lookup,
+                NotifyExecutionLayer::Yes,
+            )
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);

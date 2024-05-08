@@ -31,8 +31,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256, IndexedAttestation,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    beacon_block::BlockImportSource, Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256,
+    IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
     SyncSubnetId,
@@ -1145,7 +1145,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .process_block_with_early_caching(block_root, verified_block, NotifyExecutionLayer::Yes)
+            .process_block_with_early_caching(
+                block_root,
+                verified_block,
+                BlockImportSource::Gossip,
+                NotifyExecutionLayer::Yes,
+            )
             .await;
 
         match &result {

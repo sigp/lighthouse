@@ -4,6 +4,7 @@ use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
+use std::fmt;
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -834,6 +835,23 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
                 e
             )))?
         ))
+    }
+}
+pub enum BlockImportSource {
+    Gossip,
+    Lookup,
+    RangeSync,
+    HttpApi,
+}
+
+impl fmt::Display for BlockImportSource {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BlockImportSource::Gossip => write!(f, "Gossip"),
+            BlockImportSource::Lookup => write!(f, "Lookup"),
+            BlockImportSource::RangeSync => write!(f, "RangeSync"),
+            BlockImportSource::HttpApi => write!(f, "HttpApi"),
+        }
     }
 }
 
