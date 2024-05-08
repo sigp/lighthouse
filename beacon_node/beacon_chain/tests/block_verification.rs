@@ -473,6 +473,7 @@ async fn assert_invalid_signature(
             )
             .unwrap(),
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await;
@@ -541,6 +542,7 @@ async fn invalid_signature_gossip_block() {
                         signed_block.canonical_root(),
                         Arc::new(signed_block),
                         NotifyExecutionLayer::Yes,
+                        BlockImportSource::Lookup,
                         || Ok(()),
                     )
                     .await,
@@ -875,6 +877,7 @@ async fn block_gossip_verification() {
                 gossip_verified.block_root,
                 gossip_verified,
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             )
             .await
@@ -1165,6 +1168,7 @@ async fn verify_block_for_gossip_slashing_detection() {
             verified_block.block_root,
             verified_block,
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -1196,6 +1200,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             verified_block.block_root,
             verified_block,
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -1342,6 +1347,7 @@ async fn add_base_block_to_altair_chain() {
                 base_block.canonical_root(),
                 Arc::new(base_block.clone()),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             )
             .await
@@ -1477,6 +1483,7 @@ async fn add_altair_block_to_base_chain() {
                 altair_block.canonical_root(),
                 Arc::new(altair_block.clone()),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             )
             .await
