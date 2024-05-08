@@ -437,7 +437,7 @@ mod tests {
         assert_eq!(signature, 288 + 16);
 
         let attestation_expected = aggregation_bits + attestation_data + signature;
-        // TODO(electra) since we've removed attestation aggregation for electra variant 
+        // TODO(electra) since we've removed attestation aggregation for electra variant
         // i've updated the attestation value expected from 488 544
         // assert_eq!(attestation_expected, 488);
         assert_eq!(attestation_expected, 488);
