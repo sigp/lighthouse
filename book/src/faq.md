@@ -401,7 +401,7 @@ If the ports are open, you should have incoming peers. To check that you have in
 
 If you have incoming peers, it should return a lot of data containing information of peers. If the response is empty, it means that you have no incoming peers and there the ports are not open. You may want to double check if the port forward was correctly set up.
 
-2. Check that you do not lower the number of peers using the flag `--target-peers`. The default is 100. A lower value set will lower the maximum number of peers your node can connect to, which may potentially interrupt the validator performance. We recommend users to leave the `--target peers` untouched to keep a diverse set of peers.
+2. Check that you do not lower the number of peers using the flag `--target-peers`. The default is 80. A lower value set will lower the maximum number of peers your node can connect to, which may potentially interrupt the validator performance. We recommend users to leave the `--target peers` untouched to keep a diverse set of peers.
 
 3. Ensure that you have a quality router for the internet connection. For example, if you connect the router to many devices including the node, it may be possible that the router cannot handle all routing tasks, hence struggling to keep up the number of peers. Therefore, using a quality router for the node is important to keep a healthy number of peers.
 

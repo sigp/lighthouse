@@ -37,15 +37,6 @@ pub enum ChainSegmentProcessId {
     BackSyncBatchId(Epoch),
 }
 
-impl fmt::Display for ChainSegmentProcessId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::RangeBatchId(_, _) => write!(f, "Range Sync"),
-            Self::BackSyncBatchId(_) => write!(f, "Backfill Sync"),
-        }
-    }
-}
-
 /// Returned when a chain segment import fails.
 struct ChainSegmentFailed {
     /// To be displayed in logs.
