@@ -112,7 +112,10 @@ type_name_generic!(PendingAttestation);
 type_name!(ProposerSlashing);
 type_name_generic!(SignedAggregateAndProof);
 type_name_generic!(SignedAggregateAndProofBase, "SignedAggregateAndProofBase");
-type_name_generic!(SignedAggregateAndProofElectra, "SignedAggregateAndProofElectra");
+type_name_generic!(
+    SignedAggregateAndProofElectra,
+    "SignedAggregateAndProofElectra"
+);
 type_name_generic!(SignedBeaconBlock);
 type_name!(SignedBeaconBlockHeader);
 type_name_generic!(SignedContributionAndProof);
