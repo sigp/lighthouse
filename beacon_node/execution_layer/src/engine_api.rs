@@ -41,6 +41,8 @@ pub use new_payload_request::{
     NewPayloadRequestDeneb, NewPayloadRequestElectra,
 };
 
+use self::json_structures::{JsonDepositRequest, JsonWithdrawalRequest};
+
 pub const LATEST_TAG: &str = "latest";
 
 pub type PayloadId = [u8; 8];
@@ -64,6 +66,8 @@ pub enum Error {
     TransitionConfigurationMismatch,
     SszError(ssz_types::Error),
     DeserializeWithdrawals(ssz_types::Error),
+    DeserializeDepositReceipts(ssz_types::Error),
+    DeserializeWithdrawalRequests(ssz_types::Error),
     BuilderApi(builder_client::Error),
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
@@ -198,6 +202,10 @@ pub struct ExecutionBlockWithTransactions<E: EthSpec> {
     #[superstruct(only(Deneb, Electra))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
+    #[superstruct(only(Electra))]
+    pub deposit_receipts: Vec<JsonDepositRequest>,
+    #[superstruct(only(Electra))]
+    pub withdrawal_requests: Vec<JsonWithdrawalRequest>,
 }
 
 impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions<E> {
@@ -305,6 +313,16 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions
                         .collect(),
                     blob_gas_used: block.blob_gas_used,
                     excess_blob_gas: block.excess_blob_gas,
+                    deposit_receipts: block
+                        .deposit_receipts
+                        .into_iter()
+                        .map(|deposit| deposit.into())
+                        .collect(),
+                    withdrawal_requests: block
+                        .withdrawal_requests
+                        .into_iter()
+                        .map(|withdrawal| withdrawal.into())
+                        .collect(),
                 })
             }
         };
