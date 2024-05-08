@@ -68,10 +68,20 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
 ) -> Result<IndexedAttestationRef<'ctxt, E>> {
     let data = attestation.data();
 
-    verify!(
-        data.index < state.get_committee_count_at_slot(data.slot)?,
-        Invalid::BadCommitteeIndex
-    );
+    // TODO(electra) choosing a validation based on the attestation's fork
+    // rather than the state's fork makes this simple, but technically the spec
+    // defines this verification based on the state's fork.
+    match attestation {
+        AttestationRef::Base(_) => {
+            verify!(
+                data.index < state.get_committee_count_at_slot(data.slot)?,
+                Invalid::BadCommitteeIndex
+            );
+        }
+        AttestationRef::Electra(_) => {
+            verify!(data.index == 0, Invalid::BadCommitteeIndex);
+        }
+    }
 
     // Verify the Casper FFG vote.
     verify_casper_ffg_vote(attestation, state)?;
