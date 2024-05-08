@@ -59,7 +59,7 @@ pub struct IndexedAttestation<E: EthSpec> {
     pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommittee>,
     #[superstruct(only(Electra), partial_getter(rename = "attesting_indices_electra"))]
     #[serde(with = "quoted_variable_list_u64")]
-    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerCommitteePerSlot>,
+    pub attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
 }

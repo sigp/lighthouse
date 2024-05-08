@@ -1917,18 +1917,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
         drop(cache_timer);
 
-        // TODO(electra) implement electra variant
-        Ok(Attestation::Base(AttestationBase {
-            aggregation_bits: BitList::with_capacity(committee_len)?,
-            data: AttestationData {
-                slot: request_slot,
-                index: request_index,
-                beacon_block_root,
-                source: justified_checkpoint,
-                target,
-            },
-            signature: AggregateSignature::empty(),
-        }))
+        if self.spec.fork_name_at_slot::<T::EthSpec>(request_slot) >= ForkName::Electra {
+            let mut committee_bits = BitVector::default();
+            if committee_len > 0 {
+                committee_bits.set(request_index as usize, true)?;
+            }
+            Ok(Attestation::Electra(AttestationElectra {
+                aggregation_bits: BitList::with_capacity(committee_len)?,
+                data: AttestationData {
+                    slot: request_slot,
+                    index: 0u64,
+                    beacon_block_root,
+                    source: justified_checkpoint,
+                    target,
+                },
+                committee_bits,
+                signature: AggregateSignature::empty(),
+            }))
+        } else {
+            Ok(Attestation::Base(AttestationBase {
+                aggregation_bits: BitList::with_capacity(committee_len)?,
+                data: AttestationData {
+                    slot: request_slot,
+                    index: request_index,
+                    beacon_block_root,
+                    source: justified_checkpoint,
+                    target,
+                },
+                signature: AggregateSignature::empty(),
+            }))
+        }
     }
 
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for

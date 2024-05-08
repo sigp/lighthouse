@@ -608,12 +608,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
         let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
         // TODO(electra): check this
         let indexed_attestation: IndexedAttestationElectra<E> = IndexedAttestationElectra {
-            attesting_indices: VariableList::new(vec![
-                0_u64;
-                E::MaxValidatorsPerCommitteePerSlot::to_usize(
-                )
-            ])
-            .unwrap(),
+            attesting_indices: VariableList::new(vec![0_u64; E::MaxValidatorsPerSlot::to_usize()])
+                .unwrap(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
         };
@@ -626,12 +622,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
             E::max_attester_slashings_electra()
         ]
         .into();
-        // TODO(electra): check this
         let attestation = AttestationElectra {
-            aggregation_bits: BitList::with_capacity(
-                E::MaxValidatorsPerCommitteePerSlot::to_usize(),
-            )
-            .unwrap(),
+            aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerSlot::to_usize()).unwrap(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
             // TODO(electra): does this actually allocate the size correctly?
