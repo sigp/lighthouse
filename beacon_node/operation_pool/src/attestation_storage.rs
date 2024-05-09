@@ -283,9 +283,7 @@ impl<E: EthSpec> AttestationMap<E> {
         let Some(attestation_map) = self.checkpoint_map.get_mut(&checkpoint_key) else {
             return;
         };
-        for (_, compact_indexed_attestations) in
-            attestation_map.attestations.iter_mut()
-        {
+        for (_, compact_indexed_attestations) in attestation_map.attestations.iter_mut() {
             let unaggregated_attestations = std::mem::take(compact_indexed_attestations);
             let mut aggregated_attestations: Vec<CompactIndexedAttestation<E>> = vec![];
 
@@ -313,7 +311,6 @@ impl<E: EthSpec> AttestationMap<E> {
                     } else {
                         aggregated_attestations.push(committee_attestation);
                     }
-
                 } else {
                     best_attestations_by_committee.insert(
                         committee_attestation.committee_index(),
@@ -321,7 +318,6 @@ impl<E: EthSpec> AttestationMap<E> {
                     );
                 }
             }
-
 
             // TODO(electra): aggregate all the best attestations by committee
             // (use btreemap sort order to get order by committee index)
