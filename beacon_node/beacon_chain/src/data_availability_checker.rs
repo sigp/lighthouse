@@ -439,11 +439,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block.num_expected_blobs() > 0 && self.data_columns_required_for_epoch(block.epoch())
     }
 
-    /// Returns true if the given epoch is greater than or equal to the `PEER_DAS_EPOCH`.
+    /// Returns true if the given epoch is greater than or equal to the `EIP7594_FORK_EPOCH`.
     fn is_peer_das_enabled_for_epoch(&self, block_epoch: Epoch) -> bool {
         self.spec
-            .peer_das_epoch
-            .map_or(false, |peer_das_epoch| block_epoch >= peer_das_epoch)
+            .eip7594_fork_epoch
+            .map_or(false, |eip7594_fork_epoch| {
+                block_epoch >= eip7594_fork_epoch
+            })
     }
 
     /// The epoch at which we require a data availability check in block processing.

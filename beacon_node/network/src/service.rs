@@ -754,7 +754,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         }
                     }
                 } else {
-                    // TODO(das): subscribe after `PEER_DAS_EPOCH`
+                    // TODO(das): subscribe after `EIP7594_FORK_EPOCH`
                     for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
                         self.network_globals.local_enr().node_id().raw().into(),
                         self.network_globals

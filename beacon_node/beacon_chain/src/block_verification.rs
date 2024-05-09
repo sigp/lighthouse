@@ -738,8 +738,10 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
 
         let peer_das_enabled = chain
             .spec
-            .peer_das_epoch
-            .map_or(false, |peer_das_epoch| block.epoch() >= peer_das_epoch);
+            .eip7594_fork_epoch
+            .map_or(false, |eip7594_fork_epoch| {
+                block.epoch() >= eip7594_fork_epoch
+            });
 
         let gossip_verified_data_columns = if peer_das_enabled {
             build_gossip_verified_data_columns(chain, &block, gossip_verified_blobs.as_ref())?

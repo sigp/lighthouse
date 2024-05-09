@@ -194,7 +194,7 @@ pub struct ChainSpec {
     /*
      * DAS params
      */
-    pub peer_das_epoch: Option<Epoch>,
+    pub eip7594_fork_epoch: Option<Epoch>,
     pub custody_requirement: u64,
 
     /*
@@ -764,7 +764,7 @@ impl ChainSpec {
             /*
              * DAS params
              */
-            peer_das_epoch: None,
+            eip7594_fork_epoch: None,
             custody_requirement: 1,
 
             /*
@@ -872,7 +872,7 @@ impl ChainSpec {
             max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 0)
                 .expect("pow does not overflow"),
             // PeerDAS
-            peer_das_epoch: None,
+            eip7594_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -1077,7 +1077,7 @@ impl ChainSpec {
             /*
              * DAS params
              */
-            peer_das_epoch: None,
+            eip7594_fork_epoch: None,
             custody_requirement: 1,
             /*
              * Network specific
@@ -1216,7 +1216,7 @@ pub struct Config {
     #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
-    pub peer_das_epoch: Option<MaybeQuoted<Epoch>>,
+    pub eip7594_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -1608,8 +1608,8 @@ impl Config {
                 .electra_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
-            peer_das_epoch: spec
-                .peer_das_epoch
+            eip7594_fork_epoch: spec
+                .eip7594_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
@@ -1689,7 +1689,7 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch,
             electra_fork_version,
-            peer_das_epoch,
+            eip7594_fork_epoch,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1751,7 +1751,7 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
             electra_fork_version,
-            peer_das_epoch: peer_das_epoch.map(|q| q.value),
+            eip7594_fork_epoch: eip7594_fork_epoch.map(|q| q.value),
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
