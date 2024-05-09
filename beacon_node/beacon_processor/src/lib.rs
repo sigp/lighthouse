@@ -119,6 +119,8 @@ pub struct BeaconProcessorQueueLengths {
     bbroots_queue: usize,
     blbroots_queue: usize,
     blbrange_queue: usize,
+    dcbroots_queue: usize,
+    dcbrange_queue: usize,
     gossip_bls_to_execution_change_queue: usize,
     lc_bootstrap_queue: usize,
     lc_optimistic_update_queue: usize,
@@ -172,6 +174,9 @@ impl BeaconProcessorQueueLengths {
             bbroots_queue: 1024,
             blbroots_queue: 1024,
             blbrange_queue: 1024,
+            // TODO(das): pick proper values
+            dcbroots_queue: 1024,
+            dcbrange_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
             lc_bootstrap_queue: 1024,
             lc_optimistic_update_queue: 512,
@@ -230,6 +235,8 @@ pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
+pub const DATA_COLUMNS_BY_ROOTS_REQUEST: &str = "data_columns_by_roots_request";
+pub const DATA_COLUMNS_BY_RANGE_REQUEST: &str = "data_columns_by_range_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const LIGHT_CLIENT_FINALITY_UPDATE_REQUEST: &str = "light_client_finality_update_request";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST: &str = "light_client_optimistic_update_request";
@@ -609,6 +616,8 @@ pub enum Work<E: EthSpec> {
     BlocksByRootsRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
+    DataColumnsByRootsRequest(BlockingFn),
+    DataColumnsByRangeRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
@@ -652,6 +661,8 @@ impl<E: EthSpec> Work<E> {
             Work::BlocksByRootsRequest(_) => BLOCKS_BY_ROOTS_REQUEST,
             Work::BlobsByRangeRequest(_) => BLOBS_BY_RANGE_REQUEST,
             Work::BlobsByRootsRequest(_) => BLOBS_BY_ROOTS_REQUEST,
+            Work::DataColumnsByRootsRequest(_) => DATA_COLUMNS_BY_ROOTS_REQUEST,
+            Work::DataColumnsByRangeRequest(_) => DATA_COLUMNS_BY_RANGE_REQUEST,
             Work::LightClientBootstrapRequest(_) => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::LightClientOptimisticUpdateRequest(_) => LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST,
             Work::LightClientFinalityUpdateRequest(_) => LIGHT_CLIENT_FINALITY_UPDATE_REQUEST,
@@ -816,6 +827,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut bbroots_queue = FifoQueue::new(queue_lengths.bbroots_queue);
         let mut blbroots_queue = FifoQueue::new(queue_lengths.blbroots_queue);
         let mut blbrange_queue = FifoQueue::new(queue_lengths.blbrange_queue);
+        let mut dcbroots_queue = FifoQueue::new(queue_lengths.dcbroots_queue);
+        let mut dcbrange_queue = FifoQueue::new(queue_lengths.dcbrange_queue);
 
         let mut gossip_bls_to_execution_change_queue =
             FifoQueue::new(queue_lengths.gossip_bls_to_execution_change_queue);
@@ -1110,6 +1123,17 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // and BlocksByRoot)
                         } else if let Some(item) = status_queue.pop() {
                             self.spawn_worker(item, idle_tx);
+                        // Prioritize by_root requests over by_range as the former are time
+                        // sensitive for recovery
+                        } else if let Some(item) = bbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = blbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = dcbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = dcbrange_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        // by_range sync after sampling
                         } else if let Some(item) = bbrange_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = bbroots_queue.pop() {
@@ -1281,6 +1305,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             Work::BlobsByRootsRequest { .. } => {
                                 blbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::DataColumnsByRootsRequest { .. } => {
+                                dcbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::DataColumnsByRangeRequest { .. } => {
+                                dcbrange_queue.push(work, work_id, &self.log)
                             }
                             Work::UnknownLightClientOptimisticUpdate { .. } => {
                                 unknown_light_client_update_queue.push(work, work_id, &self.log)
@@ -1483,7 +1513,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipDataColumnSidecar(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),
-            Work::BlobsByRangeRequest(process_fn) | Work::BlobsByRootsRequest(process_fn) => {
+            Work::BlobsByRangeRequest(process_fn)
+            | Work::BlobsByRootsRequest(process_fn)
+            | Work::DataColumnsByRootsRequest(process_fn)
+            | Work::DataColumnsByRangeRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {

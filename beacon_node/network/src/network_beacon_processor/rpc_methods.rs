@@ -4,7 +4,9 @@ use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use itertools::process_results;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
+};
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
@@ -312,6 +314,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         Ok(())
+    }
+
+    /// Handle a `DataColumnsByRoot` request from the peer.
+    pub fn handle_data_columns_by_root_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        _request_id: PeerRequestId,
+        request: DataColumnsByRootRequest,
+    ) {
+        // TODO(das): implement handler
+        debug!(self.log, "Received DataColumnsByRoot Request";
+            "peer_id" => %peer_id,
+            "count" => request.data_column_ids.len()
+        );
     }
 
     /// Handle a `LightClientBootstrap` request from the peer.
@@ -813,6 +829,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         log_results(peer_id, req, blobs_sent);
 
         Ok(())
+    }
+
+    /// Handle a `DataColumnsByRange` request from the peer.
+    pub fn handle_data_columns_by_range_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        _request_id: PeerRequestId,
+        req: DataColumnsByRangeRequest,
+    ) {
+        // TODO(das): implement handler
+        debug!(self.log, "Received DataColumnsByRange Request";
+            "peer_id" => %peer_id,
+            "count" => req.count,
+            "start_slot" => req.start_slot,
+        );
     }
 
     /// Helper function to ensure single item protocol always end with either a single chunk or an
