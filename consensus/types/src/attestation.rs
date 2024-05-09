@@ -67,9 +67,9 @@ pub struct Attestation<E: EthSpec> {
     #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerSlot>,
     pub data: AttestationData,
-    pub signature: AggregateSignature,
     #[superstruct(only(Electra))]
     pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
+    pub signature: AggregateSignature,
 }
 
 impl<E: EthSpec> Decode for Attestation<E> {
