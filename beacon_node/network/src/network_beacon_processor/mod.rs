@@ -13,7 +13,7 @@ use beacon_processor::{
     WorkEvent as BeaconWorkEvent,
 };
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRootRequest,
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
@@ -689,6 +689,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::DataColumnsByRootsRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `DataColumnsByRange`s from the RPC network.
+    pub fn send_data_columns_by_range_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: DataColumnsByRangeRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_data_columns_by_range_request(peer_id, request_id, request);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::DataColumnsByRangeRequest(Box::new(process_fn)),
         })
     }
 

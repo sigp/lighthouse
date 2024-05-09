@@ -194,6 +194,10 @@ const MAX_BLOBS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
 /// will be stored before we start dropping them.
 const MAX_DATA_COLUMNS_BY_ROOTS_QUEUE_LEN: usize = 2_048;
 
+/// The maximum number of queued `DataColumnsByRangeRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_DATA_COLUMNS_BY_RANGE_QUEUE_LEN: usize = 2_048;
+
 /// Maximum number of `SignedBlsToExecutionChange` messages to queue before dropping them.
 ///
 /// This value is set high to accommodate the large spike that is expected immediately after Capella
@@ -272,6 +276,7 @@ pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
 pub const DATA_COLUMNS_BY_ROOTS_REQUEST: &str = "data_columns_by_roots_request";
+pub const DATA_COLUMNS_BY_RANGE_REQUEST: &str = "data_columns_by_range_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const LIGHT_CLIENT_FINALITY_UPDATE_REQUEST: &str = "light_client_finality_update_request";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST: &str = "light_client_optimistic_update_request";
@@ -663,6 +668,7 @@ pub enum Work<E: EthSpec> {
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
     DataColumnsByRootsRequest(BlockingFn),
+    DataColumnsByRangeRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
@@ -710,6 +716,7 @@ impl<E: EthSpec> Work<E> {
             Work::BlobsByRangeRequest(_) => BLOBS_BY_RANGE_REQUEST,
             Work::BlobsByRootsRequest(_) => BLOBS_BY_ROOTS_REQUEST,
             Work::DataColumnsByRootsRequest(_) => DATA_COLUMNS_BY_ROOTS_REQUEST,
+            Work::DataColumnsByRangeRequest(_) => DATA_COLUMNS_BY_RANGE_REQUEST,
             Work::LightClientBootstrapRequest(_) => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::LightClientOptimisticUpdateRequest(_) => LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST,
             Work::LightClientFinalityUpdateRequest(_) => LIGHT_CLIENT_FINALITY_UPDATE_REQUEST,
@@ -878,6 +885,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut blbroots_queue = FifoQueue::new(MAX_BLOBS_BY_ROOTS_QUEUE_LEN);
         let mut blbrange_queue = FifoQueue::new(MAX_BLOBS_BY_RANGE_QUEUE_LEN);
         let mut dcbroots_queue = FifoQueue::new(MAX_DATA_COLUMNS_BY_ROOTS_QUEUE_LEN);
+        let mut dcbrange_queue = FifoQueue::new(MAX_DATA_COLUMNS_BY_RANGE_QUEUE_LEN);
 
         let mut gossip_bls_to_execution_change_queue =
             FifoQueue::new(MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN);
@@ -1188,6 +1196,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = dcbroots_queue.pop() {
                             self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = dcbrange_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
                         // Prioritize sampling requests after block syncing requests
                         } else if let Some(item) = unknown_block_sampling_request_queue.pop() {
                             self.spawn_worker(item, idle_tx);
@@ -1371,6 +1381,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             Work::DataColumnsByRootsRequest { .. } => {
                                 dcbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::DataColumnsByRangeRequest { .. } => {
+                                dcbrange_queue.push(work, work_id, &self.log)
                             }
                             Work::UnknownLightClientOptimisticUpdate { .. } => {
                                 unknown_light_client_update_queue.push(work, work_id, &self.log)
@@ -1592,7 +1605,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }),
             Work::BlobsByRangeRequest(process_fn)
             | Work::BlobsByRootsRequest(process_fn)
-            | Work::DataColumnsByRootsRequest(process_fn) => {
+            | Work::DataColumnsByRootsRequest(process_fn)
+            | Work::DataColumnsByRangeRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
