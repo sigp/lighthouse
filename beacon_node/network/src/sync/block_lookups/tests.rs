@@ -1634,8 +1634,8 @@ fn custody_lookup_happy_path() {
     // Should not request blobs
     let id = r.expect_block_lookup_request(block.canonical_root());
     r.complete_valid_block_request(id, block.into(), true);
-    // TODO(das): do not hardcode 4
-    let custody_ids = r.expect_only_data_columns_by_root_requests(block_root, 4);
+    let custody_column_count = E::min_custody_requirement() * E::data_columns_per_subnet();
+    let custody_ids = r.expect_only_data_columns_by_root_requests(block_root, custody_column_count);
     r.complete_valid_custody_request(custody_ids, data_columns, false);
     r.expect_no_active_lookups();
 }

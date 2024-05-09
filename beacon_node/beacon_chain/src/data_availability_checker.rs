@@ -137,7 +137,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Return the set of imported custody column indexes for `block_root`. Returns None if there is
     /// no block component for `block_root`.
-    pub fn imported_custody_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
+    pub fn imported_custody_column_indices(&self, block_root: &Hash256) -> Option<Vec<u64>> {
         self.availability_cache
             .peek_pending_components(block_root, |components| {
                 components.map(|components| components.get_cached_data_columns_indices())
@@ -196,9 +196,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         };
 
         // TODO(das): report which column is invalid for proper peer scoring
+        // TODO(das): batch KZG verification here
         let verified_custody_columns = custody_columns
             .into_iter()
-            .map(|c| KzgVerifiedCustodyDataColumn::new(c, kzg).map_err(AvailabilityCheckError::Kzg))
+            .map(|c| KzgVerifiedCustodyDataColumn::new(c, kzg))
             .collect::<Result<Vec<_>, _>>()?;
 
         self.availability_cache

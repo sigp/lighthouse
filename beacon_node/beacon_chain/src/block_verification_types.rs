@@ -96,10 +96,7 @@ enum RpcBlockInner<E: EthSpec> {
     BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarList<E>),
     /// This variant is used with parent lookups and by-range responses. It should have all
     /// requested data columns, all block roots matching for this block.
-    BlockAndCustodyColumns(
-        Arc<SignedBeaconBlock<E>>,
-        VariableList<CustodyDataColumn<E>, <E as EthSpec>::DataColumnCount>,
-    ),
+    BlockAndCustodyColumns(Arc<SignedBeaconBlock<E>>, CustodyDataColumnList<E>),
 }
 
 impl<E: EthSpec> RpcBlock<E> {
@@ -150,35 +147,6 @@ impl<E: EthSpec> RpcBlock<E> {
         let inner = match blobs {
             Some(blobs) => RpcBlockInner::BlockAndBlobs(block, blobs),
             None => RpcBlockInner::Block(block),
-        };
-        Ok(Self {
-            block_root,
-            block: inner,
-        })
-    }
-
-    pub fn new_with_custody_columns(
-        block_root: Option<Hash256>,
-        block: Arc<SignedBeaconBlock<E>>,
-        custody_columns: Vec<CustodyDataColumn<E>>,
-    ) -> Result<Self, AvailabilityCheckError> {
-        let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-
-        if let Ok(block_commitments) = block.message().body().blob_kzg_commitments() {
-            // The number of required custody columns is out of scope here.
-            if !block_commitments.is_empty() && custody_columns.is_empty() {
-                return Err(AvailabilityCheckError::MissingCustodyColumns);
-            }
-        }
-        // Treat empty blob lists as if they are missing.
-        let inner = if custody_columns.is_empty() {
-            RpcBlockInner::BlockAndCustodyColumns(
-                block,
-                VariableList::new(custody_columns)
-                    .expect("TODO(das): custody vec should never exceed len"),
-            )
-        } else {
-            RpcBlockInner::Block(block)
         };
         Ok(Self {
             block_root,
