@@ -146,36 +146,3 @@ impl<E: EthSpec> Case for SszStaticWithSpec<SignedBeaconBlock<E>> {
         Ok(())
     }
 }
-
-// impl<E: EthSpec> Case for SszStaticWithSpec<AttesterSlashing<E>> {
-//     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-//         let spec = &testing_spec::<E>(fork_name);
-//         check_serialization(&self.value, &self.serialized, |bytes| {
-//             SignedBeaconBlock::from_ssz_bytes(bytes, spec)
-//         })?;
-//         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
-//         Ok(())
-//     }
-// }
-
-// impl<E: EthSpec> Case for SszStaticWithSpec<AggregateAndProof<E>> {
-//     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-//         let spec = &testing_spec::<E>(fork_name);
-//         check_serialization(&self.value, &self.serialized, |bytes| {
-//             SignedBeaconBlock::from_ssz_bytes(bytes, spec)
-//         })?;
-//         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
-//         Ok(())
-//     }
-// }
-
-// impl<E: EthSpec> Case for SszStaticWithSpec<SignedAggregateAndProof<E>> {
-//     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-//         let spec = &testing_spec::<E>(fork_name);
-//         check_serialization(&self.value, &self.serialized, |bytes| {
-//             SignedBeaconBlock::from_ssz_bytes(bytes, spec)
-//         })?;
-//         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
-//         Ok(())
-//     }
-// }
