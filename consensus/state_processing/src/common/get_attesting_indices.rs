@@ -155,7 +155,7 @@ pub mod attesting_indices_electra {
         Ok(indices)
     }
 
-    fn get_committee_indices<E: EthSpec>(
+    pub fn get_committee_indices<E: EthSpec>(
         committee_bits: &BitVector<E::MaxCommitteesPerSlot>,
     ) -> Vec<CommitteeIndex> {
         committee_bits

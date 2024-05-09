@@ -45,7 +45,10 @@ use proto_array::Block as ProtoBlock;
 use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
-    common::{attesting_indices_base, attesting_indices_electra},
+    common::{
+        attesting_indices_base,
+        attesting_indices_electra::{self, get_committee_indices},
+    },
     per_block_processing::errors::{AttestationValidationError, BlockOperationError},
     signature_sets::{
         indexed_attestation_signature_set_from_pubkeys,
@@ -139,6 +142,12 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     ValidatorIndexTooHigh(usize),
+    /// The validator index is not set to zero after Electra.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    CommitteeIndexNonZero(usize),
     /// The `attestation.data.beacon_block_root` block is unknown.
     ///
     /// ## Peer scoring
@@ -187,6 +196,12 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     NotExactlyOneAggregationBitSet(usize),
+    /// The attestation doesn't have only one aggregation bit set.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    NotExactlyOneCommitteeBitSet(usize),
     /// We have already observed an attestation for the `validator_index` and refuse to process
     /// another.
     ///
@@ -465,6 +480,9 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                 epoch: attestation.data().target.epoch,
             });
         }
+
+        // [New in Electra:EIP7549]
+        verify_committee_index(attestation, &chain.spec)?;
 
         // Ensure the valid aggregated attestation has not already been seen locally.
         let attestation_data = attestation.data();
@@ -774,6 +792,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         if num_aggregation_bits != 1 {
             return Err(Error::NotExactlyOneAggregationBitSet(num_aggregation_bits));
         }
+
+        // [New in Electra:EIP7549]
+        verify_committee_index(attestation, &chain.spec)?;
 
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
@@ -1101,14 +1122,13 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
 
     let current_fork =
         spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
-    let earliest_permissible_slot = match current_fork {
-        ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-            one_epoch_prior
-        }
-        // EIP-7045
-        ForkName::Deneb | ForkName::Electra => one_epoch_prior
+    let earliest_permissible_slot = if current_fork < ForkName::Deneb {
+        one_epoch_prior
+    // EIP-7045
+    } else {
+        one_epoch_prior
             .epoch(E::slots_per_epoch())
-            .start_slot(E::slots_per_epoch()),
+            .start_slot(E::slots_per_epoch())
     };
 
     if attestation_slot < earliest_permissible_slot {
@@ -1271,6 +1291,35 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     ];
 
     Ok(verify_signature_sets(signature_sets.iter()))
+}
+
+/// Verify that the `attestation` committee index is properly set for the attestation's fork.
+/// This function will only apply verification post-Electra.
+pub fn verify_committee_index<E: EthSpec>(
+    attestation: AttestationRef<E>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    if spec.fork_name_at_slot::<E>(attestation.data().slot) >= ForkName::Electra {
+        // Check to ensure that the attestation is for a single committee.
+        let num_committee_bits = get_committee_indices::<E>(
+            attestation
+                .committee_bits()
+                .map_err(|e| Error::BeaconChainError(e.into()))?,
+        );
+        if num_committee_bits.len() != 1 {
+            return Err(Error::NotExactlyOneCommitteeBitSet(
+                num_committee_bits.len(),
+            ));
+        }
+
+        // Ensure the attestation index is set to zero post Electra.
+        if attestation.data().index != 0 {
+            return Err(Error::CommitteeIndexNonZero(
+                attestation.data().index as usize,
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Assists in readability.

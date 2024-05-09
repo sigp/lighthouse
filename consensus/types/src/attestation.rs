@@ -22,6 +22,7 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),
     SubnetCountIsZero(ArithError),
+    IncorrectStateVariant,
 }
 
 #[superstruct(
@@ -43,7 +44,9 @@ pub enum Error {
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
     ),
-    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent"))
+    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(
     Debug,
