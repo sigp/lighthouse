@@ -7,6 +7,7 @@ use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
 use slog::{debug, error, o, Logger};
 use slot_clock::SlotClock;
+use ssz_types::VariableList;
 use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
@@ -22,7 +23,10 @@ mod error;
 mod overflow_lru_cache;
 mod state_lru_cache;
 
-use crate::data_column_verification::{verify_kzg_for_data_column_list, GossipVerifiedDataColumn};
+use crate::data_column_verification::{
+    verify_kzg_for_data_column_list, CustodyDataColumn, GossipVerifiedDataColumn,
+    KzgVerifiedCustodyDataColumn,
+};
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::data_column_sidecar::{DataColumnIdentifier, DataColumnSidecarList};
 use types::non_zero_usize::new_non_zero_usize;
@@ -45,7 +49,6 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<OverflowLRUCache<T>>,
     slot_clock: T::SlotClock,
     kzg: Option<Arc<Kzg>>,
-    log: Logger,
     spec: ChainSpec,
 }
 
@@ -98,7 +101,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         Ok(Self {
             availability_cache: Arc::new(overflow_cache),
             slot_clock,
-            log: log.clone(),
             kzg,
             spec,
         })
@@ -130,6 +132,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .filter_map(|blob| blob.as_ref().map(|blob| blob.blob_index()))
                         .collect::<Vec<_>>()
                 })
+            })
+    }
+
+    /// Return the set of imported custody column indexes for `block_root`. Returns None if there is
+    /// no block component for `block_root`.
+    pub fn imported_custody_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
+        self.availability_cache
+            .peek_pending_components(block_root, |components| {
+                components.map(|components| components.get_cached_data_columns_indices())
             })
     }
 
@@ -173,6 +184,27 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_blobs(block_root, verified_blobs)
     }
 
+    /// Put a list of custody columns received via RPC into the availability cache. This performs KZG
+    /// verification on the blobs in the list.
+    pub fn put_rpc_custody_columns(
+        &self,
+        block_root: Hash256,
+        custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let Some(kzg) = self.kzg.as_ref() else {
+            return Err(AvailabilityCheckError::KzgNotInitialized);
+        };
+
+        // TODO(das): report which column is invalid for proper peer scoring
+        let verified_custody_columns = custody_columns
+            .into_iter()
+            .map(|c| KzgVerifiedCustodyDataColumn::new(c, kzg).map_err(AvailabilityCheckError::Kzg))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.availability_cache
+            .put_kzg_verified_data_columns(block_root, verified_custody_columns)
+    }
+
     /// Check if we've cached other blobs for this block. If it completes a set and we also
     /// have a block cached, return the `Availability` variant triggering block import.
     /// Otherwise cache the blob sidecar.
@@ -195,10 +227,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_data_column: GossipVerifiedDataColumn<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache.put_kzg_verified_data_columns(
-            gossip_data_column.block_root(),
-            vec![gossip_data_column.into_inner()],
-        )
+        let block_root = gossip_data_column.block_root();
+
+        // TODO(das): ensure that our custody requirements include this column
+        let custody_column =
+            KzgVerifiedCustodyDataColumn::from_asserted_custody(gossip_data_column.into_inner());
+
+        self.availability_cache
+            .put_kzg_verified_data_columns(block_root, vec![custody_column])
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -246,14 +282,28 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     .kzg
                     .as_ref()
                     .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                verify_kzg_for_data_column_list(data_column_list.iter(), kzg)
-                    .map_err(AvailabilityCheckError::Kzg)?;
+                verify_kzg_for_data_column_list(
+                    data_column_list
+                        .iter()
+                        .map(|custody_column| custody_column.as_data_column()),
+                    kzg,
+                )
+                .map_err(AvailabilityCheckError::Kzg)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
                     blobs: None,
                     blobs_available_timestamp: None,
-                    data_columns,
+                    // TODO(das): update store type to prevent this conversion
+                    data_columns: Some(
+                        VariableList::new(
+                            data_column_list
+                                .into_iter()
+                                .map(|d| d.clone_arc())
+                                .collect(),
+                        )
+                        .expect("data column list is within bounds"),
+                    ),
                 }))
             } else {
                 Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
@@ -302,8 +352,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .iter()
             .filter(|block| self.data_columns_required_for_block(block.as_block()))
             // this clone is cheap as it's cloning an Arc
-            .filter_map(|block| block.data_columns().cloned())
+            .filter_map(|block| block.custody_columns().cloned())
             .flatten()
+            .map(CustodyDataColumn::into_inner)
             .collect::<Vec<_>>()
             .into();
 
@@ -338,7 +389,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block,
                         blobs: None,
                         blobs_available_timestamp: None,
-                        data_columns,
+                        // TODO(das): update store type to prevent this conversion
+                        data_columns: data_columns.map(|data_columns| {
+                            VariableList::new(
+                                data_columns.into_iter().map(|d| d.into_inner()).collect(),
+                            )
+                            .expect("data column list is within bounds")
+                        }),
                     })
                 } else {
                     MaybeAvailableBlock::AvailabilityPending { block_root, block }
@@ -360,20 +417,26 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 
     /// Determines the blob requirements for a block. If the block is pre-deneb, no blobs are required.
-    /// If the block's epoch is from prior to the data availability boundary, no blobs are required.
-    fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        block.num_expected_blobs() > 0
-            && self.da_check_required_for_epoch(block.epoch())
-            && !self.is_peer_das_enabled_for_epoch(block.epoch())
+    /// If the epoch is from prior to the data availability boundary, no blobs are required.
+    pub fn blobs_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.da_check_required_for_epoch(epoch) && !self.is_peer_das_enabled_for_epoch(epoch)
     }
 
-    /// Determines the data column requirements for a block.
-    /// - If the block is pre-peerdas, no data columns are required.
-    /// - If the block's epoch is from prior to the data availability boundary, no data columns are required.
+    /// Determines the data column requirements for an epoch.
+    /// - If the epoch is pre-peerdas, no data columns are required.
+    /// - If the epoch is from prior to the data availability boundary, no data columns are required.
+    pub fn data_columns_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.da_check_required_for_epoch(epoch) && self.is_peer_das_enabled_for_epoch(epoch)
+    }
+
+    /// See `Self::blobs_required_for_epoch`
+    fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
+        block.num_expected_blobs() > 0 && self.blobs_required_for_epoch(block.epoch())
+    }
+
+    /// See `Self::data_columns_required_for_epoch`
     fn data_columns_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
-        block.num_expected_blobs() > 0
-            && self.da_check_required_for_epoch(block.epoch())
-            && self.is_peer_das_enabled_for_epoch(block.epoch())
+        block.num_expected_blobs() > 0 && self.data_columns_required_for_epoch(block.epoch())
     }
 
     /// Returns true if the given epoch is greater than or equal to the `PEER_DAS_EPOCH`.
@@ -386,36 +449,20 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        self.spec.deneb_fork_epoch.and_then(|fork_epoch| {
-            self.slot_clock
-                .now()
-                .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
-                .map(|current_epoch| {
-                    std::cmp::max(
-                        fork_epoch,
-                        current_epoch
-                            .saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
-                    )
-                })
-        })
+        let fork_epoch = self.spec.deneb_fork_epoch?;
+        let current_slot = self.slot_clock.now()?;
+        Some(std::cmp::max(
+            fork_epoch,
+            current_slot
+                .epoch(T::EthSpec::slots_per_epoch())
+                .saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
+        ))
     }
 
     /// Returns true if the given epoch lies within the da boundary and false otherwise.
     pub fn da_check_required_for_epoch(&self, block_epoch: Epoch) -> bool {
         self.data_availability_boundary()
             .map_or(false, |da_epoch| block_epoch >= da_epoch)
-    }
-
-    pub fn da_check_required_for_current_epoch(&self) -> bool {
-        let Some(current_slot) = self.slot_clock.now_or_genesis() else {
-            error!(
-                self.log,
-                "Failed to read slot clock when checking for missing blob ids"
-            );
-            return false;
-        };
-
-        self.da_check_required_for_epoch(current_slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
     /// Returns `true` if the current epoch is greater than or equal to the `Deneb` epoch.

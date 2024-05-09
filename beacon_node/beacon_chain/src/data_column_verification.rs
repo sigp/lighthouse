@@ -133,15 +133,15 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
     }
 
     pub fn slot(&self) -> Slot {
-        self.data_column.data_column.slot()
+        self.data_column.data.slot()
     }
 
     pub fn index(&self) -> ColumnIndex {
-        self.data_column.data_column.index
+        self.data_column.data.index
     }
 
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
-        self.data_column.data_column.signed_block_header.clone()
+        self.data_column.data.signed_block_header.clone()
     }
 
     pub fn into_inner(self) -> KzgVerifiedDataColumn<T::EthSpec> {
@@ -154,7 +154,7 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
 #[derivative(PartialEq, Eq)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgVerifiedDataColumn<E: EthSpec> {
-    data_column: Arc<DataColumnSidecar<E>>,
+    data: Arc<DataColumnSidecar<E>>,
 }
 
 impl<E: EthSpec> KzgVerifiedDataColumn<E> {
@@ -162,18 +162,91 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         verify_kzg_for_data_column(data_column, kzg)
     }
     pub fn to_data_column(self) -> Arc<DataColumnSidecar<E>> {
-        self.data_column
+        self.data
     }
     pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
-        &self.data_column
+        &self.data
     }
     /// This is cheap as we're calling clone on an Arc
     pub fn clone_data_column(&self) -> Arc<DataColumnSidecar<E>> {
-        self.data_column.clone()
+        self.data.clone()
     }
 
     pub fn data_column_index(&self) -> u64 {
-        self.data_column.index
+        self.data.index
+    }
+}
+
+pub type CustodyDataColumnList<E> =
+    VariableList<CustodyDataColumn<E>, <E as EthSpec>::DataColumnCount>;
+
+/// Data column that we must custody
+#[derive(Debug, Derivative, Clone, Encode, Decode)]
+#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[ssz(struct_behaviour = "transparent")]
+pub struct CustodyDataColumn<E: EthSpec> {
+    data: Arc<DataColumnSidecar<E>>,
+}
+
+impl<E: EthSpec> CustodyDataColumn<E> {
+    /// Mark a column as custody column. Caller must ensure that our current custody requirements
+    /// include this column
+    pub fn from_asserted_custody(data: Arc<DataColumnSidecar<E>>) -> Self {
+        Self { data }
+    }
+
+    pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
+        self.data
+    }
+    pub fn as_data_column(&self) -> &Arc<DataColumnSidecar<E>> {
+        &self.data
+    }
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
+        self.data.clone()
+    }
+    pub fn index(&self) -> u64 {
+        self.data.index
+    }
+}
+
+/// Data column that we must custody and has completed kzg verification
+#[derive(Debug, Derivative, Clone, Encode, Decode)]
+#[derivative(PartialEq, Eq)]
+#[ssz(struct_behaviour = "transparent")]
+pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
+    data: Arc<DataColumnSidecar<E>>,
+}
+
+impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
+    /// Mark a column as custody column. Caller must ensure that our current custody requirements
+    /// include this column
+    pub fn from_asserted_custody(kzg_verified: KzgVerifiedDataColumn<E>) -> Self {
+        Self {
+            data: kzg_verified.to_data_column(),
+        }
+    }
+
+    /// Verify a column already marked as custody column
+    pub fn new(data_column: CustodyDataColumn<E>, _kzg: &Kzg) -> Result<Self, KzgError> {
+        // TODO(das): verify kzg proof
+        Ok(Self {
+            data: data_column.data,
+        })
+    }
+
+    pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
+        self.data
+    }
+    pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
+        &self.data
+    }
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
+        self.data.clone()
+    }
+    pub fn index(&self) -> u64 {
+        self.data.index
     }
 }
 
@@ -186,7 +259,7 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 ) -> Result<KzgVerifiedDataColumn<E>, KzgError> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
     validate_data_column(kzg, iter::once(&data_column))?;
-    Ok(KzgVerifiedDataColumn { data_column })
+    Ok(KzgVerifiedDataColumn { data: data_column })
 }
 
 /// Complete kzg verification for a list of `DataColumnSidecar`s.
