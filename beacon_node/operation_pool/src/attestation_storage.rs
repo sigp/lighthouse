@@ -1,6 +1,6 @@
 use crate::AttestationStats;
 use itertools::Itertools;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use types::{
     attestation::{AttestationBase, AttestationElectra},
     superstruct, AggregateSignature, Attestation, AttestationData, BeaconState, BitList, BitVector,
@@ -42,6 +42,7 @@ pub struct SplitAttestation<E: EthSpec> {
     pub indexed: CompactIndexedAttestation<E>,
 }
 
+// TODO(electra): rename this type
 #[derive(Debug, Clone)]
 pub struct AttestationRef<'a, E: EthSpec> {
     pub checkpoint: &'a CheckpointKey,
@@ -159,15 +160,15 @@ impl CheckpointKey {
 }
 
 impl<E: EthSpec> CompactIndexedAttestation<E> {
-    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
+    pub fn should_aggregate(&self, other: &Self) -> bool {
         match (self, other) {
             (CompactIndexedAttestation::Base(this), CompactIndexedAttestation::Base(other)) => {
-                this.signers_disjoint_from(other)
+                this.should_aggregate(other)
             }
             (
                 CompactIndexedAttestation::Electra(this),
                 CompactIndexedAttestation::Electra(other),
-            ) => this.signers_disjoint_from(other),
+            ) => this.should_aggregate(other),
             // TODO(electra) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
             _ => false,
         }
@@ -189,7 +190,7 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
 }
 
 impl<E: EthSpec> CompactIndexedAttestationBase<E> {
-    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
+    pub fn should_aggregate(&self, other: &Self) -> bool {
         self.aggregation_bits
             .intersection(&other.aggregation_bits)
             .is_zero()
@@ -208,14 +209,15 @@ impl<E: EthSpec> CompactIndexedAttestationBase<E> {
 }
 
 impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
-    // TODO(electra) update to match spec requirements
-    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
-        self.aggregation_bits
-            .intersection(&other.aggregation_bits)
-            .is_zero()
+    pub fn should_aggregate(&self, other: &Self) -> bool {
+        // For Electra, only aggregate attestations in the same committee.
+        self.committee_bits == other.committee_bits
+            && self
+                .aggregation_bits
+                .intersection(&other.aggregation_bits)
+                .is_zero()
     }
 
-    // TODO(electra) update to match spec requirements
     pub fn aggregate(&mut self, other: &Self) {
         self.attesting_indices = self
             .attesting_indices
@@ -225,6 +227,18 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
             .collect();
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
+    }
+
+    pub fn committee_index(&self) -> u64 {
+        *self.get_committee_indices().first().unwrap_or(&0u64)
+    }
+
+    pub fn get_committee_indices(&self) -> Vec<u64> {
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
     }
 }
 
@@ -239,31 +253,60 @@ impl<E: EthSpec> AttestationMap<E> {
         let attestation_map = self.checkpoint_map.entry(checkpoint).or_default();
         let attestations = attestation_map.attestations.entry(data).or_default();
 
-        // TODO(electra):
         // Greedily aggregate the attestation with all existing attestations.
         // NOTE: this is sub-optimal and in future we will remove this in favour of max-clique
         // aggregation.
         let mut aggregated = false;
 
-        match attestation {
-            Attestation::Base(_) => {
-                for existing_attestation in attestations.iter_mut() {
-                    if existing_attestation.signers_disjoint_from(&indexed) {
-                        existing_attestation.aggregate(&indexed);
-                        aggregated = true;
-                    } else if *existing_attestation == indexed {
-                        aggregated = true;
-                    }
-                }
+        for existing_attestation in attestations.iter_mut() {
+            if existing_attestation.should_aggregate(&indexed) {
+                existing_attestation.aggregate(&indexed);
+                aggregated = true;
+            } else if *existing_attestation == indexed {
+                aggregated = true;
             }
-            // TODO(electra) in order to be devnet ready, we can skip
-            // aggregating here for now. this will result in "poorly"
-            // constructed blocks, but that should be fine for devnet
-            Attestation::Electra(_) => (),
-        };
+        }
 
         if !aggregated {
             attestations.push(indexed);
+        }
+    }
+
+    pub fn aggregate_across_committees(&mut self, checkpoint_key: CheckpointKey) {
+        let Some(attestation_map) = self.checkpoint_map.get_mut(&checkpoint_key) else {
+            return;
+        };
+        for (compact_attestation_data, compact_indexed_attestations) in
+            attestation_map.attestations.iter_mut()
+        {
+            let unaggregated_attestations = std::mem::take(compact_indexed_attestations);
+            let mut aggregated_attestations = vec![];
+
+            // Aggregate the best attestations for each committee and leave the rest.
+            let mut best_attestations_by_committee = BTreeMap::new();
+
+            for committee_attestation in unaggregated_attestations {
+                // TODO(electra)
+                // compare to best attestations by committee
+                // could probably use `.entry` here
+                if let Some(existing_attestation) =
+                    best_attestations_by_committee.get_mut(committee_attestation.committee_index())
+                {
+                    // compare and swap, put the discarded one straight into
+                    // `aggregated_attestations` in case we have room to pack it without
+                    // cross-committee aggregation
+                } else {
+                    best_attestations_by_committee.insert(
+                        committee_attestation.committee_index(),
+                        committee_attestation,
+                    );
+                }
+            }
+
+            // TODO(electra): aggregate all the best attestations by committee
+            // (use btreemap sort order to get order by committee index)
+
+            *compact_indexed_attestations = aggregated_attestations;
         }
     }
 

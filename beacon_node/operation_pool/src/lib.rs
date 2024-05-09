@@ -40,7 +40,7 @@ use std::ptr;
 use types::{
     sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, AbstractExecPayload,
     Attestation, AttestationData, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    Epoch, EthSpec, ProposerSlashing, SignedBeaconBlock, SignedBlsToExecutionChange,
+    Epoch, EthSpec, ForkName, ProposerSlashing, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
 };
 
@@ -256,6 +256,7 @@ impl<E: EthSpec> OperationPool<E> {
         curr_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, E>) -> bool + Send,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<E>>, OpPoolError> {
+        let fork_name = state.fork_name_unchecked();
         if !matches!(state, BeaconState::Base(_)) {
             // Epoch cache must be initialized to fetch base reward values in the max cover `score`
             // function. Currently max cover ignores items on errors. If epoch cache is not
@@ -267,7 +268,6 @@ impl<E: EthSpec> OperationPool<E> {
 
         // Attestations for the current fork, which may be from the current or previous epoch.
         let (prev_epoch_key, curr_epoch_key) = CheckpointKey::keys_for_state(state);
-        let all_attestations = self.attestations.read();
         let total_active_balance = state
             .get_total_active_balance()
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
@@ -283,6 +283,14 @@ impl<E: EthSpec> OperationPool<E> {
         // can optimise them individually in parallel.
         let mut num_prev_valid = 0_i64;
         let mut num_curr_valid = 0_i64;
+
+        // TODO(electra): Work out how to do this more elegantly. This is a bit of a hack.
+        let mut all_attestations = self.attestations.write();
+
+        all_attestations.aggregate_across_committees(prev_epoch_key);
+        all_attestations.aggregate_across_committees(curr_epoch_key);
+
+        let all_attestations = parking_lot::RwLockWriteGuard::downgrade(all_attestations);
 
         let prev_epoch_att = self
             .get_valid_attestations_for_epoch(
@@ -307,6 +315,11 @@ impl<E: EthSpec> OperationPool<E> {
             )
             .inspect(|_| num_curr_valid += 1);
 
+        let curr_epoch_limit = if fork_name < ForkName::Electra {
+            E::MaxAttestations::to_usize()
+        } else {
+            E::MaxAttestationsElectra::to_usize()
+        };
         let prev_epoch_limit = if let BeaconState::Base(base_state) = state {
             std::cmp::min(
                 E::MaxPendingAttestations::to_usize()
@@ -314,7 +327,7 @@ impl<E: EthSpec> OperationPool<E> {
                 E::MaxAttestations::to_usize(),
             )
         } else {
-            E::MaxAttestations::to_usize()
+            curr_epoch_limit
         };
 
         let (prev_cover, curr_cover) = rayon::join(
@@ -329,11 +342,7 @@ impl<E: EthSpec> OperationPool<E> {
             },
             move || {
                 let _timer = metrics::start_timer(&metrics::ATTESTATION_CURR_EPOCH_PACKING_TIME);
-                maximum_cover(
-                    curr_epoch_att,
-                    E::MaxAttestations::to_usize(),
-                    "curr_epoch_attestations",
-                )
+                maximum_cover(curr_epoch_att, curr_epoch_limit, "curr_epoch_attestations")
             },
         );
 
@@ -343,7 +352,7 @@ impl<E: EthSpec> OperationPool<E> {
         Ok(max_cover::merge_solutions(
             curr_cover,
             prev_cover,
-            E::MaxAttestations::to_usize(),
+            curr_epoch_limit,
         ))
     }
 
