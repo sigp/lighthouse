@@ -113,11 +113,15 @@ pub mod attesting_indices_electra {
             .map(|committee| (committee.index, committee))
             .collect();
 
+        let committee_count_per_slot = committees.len() as u64;
+        let mut participant_count = 0;
         for index in committee_indices {
             if let Some(&beacon_committee) = committees_map.get(&index) {
-                if aggregation_bits.len() != beacon_committee.committee.len() {
-                    return Err(BeaconStateError::InvalidBitfield);
+                // This check is new to the spec's `process_attestation` in Electra.
+                if index >= committee_count_per_slot {
+                    return Err(BeaconStateError::InvalidCommitteeIndex(index));
                 }
+                participant_count.safe_add_assign(beacon_committee.committee.len() as u64)?;
                 let committee_attesters = beacon_committee
                     .committee
                     .iter()
@@ -136,10 +140,13 @@ pub mod attesting_indices_electra {
 
                 committee_offset.safe_add(beacon_committee.committee.len())?;
             } else {
-                return Err(Error::NoCommitteeFound);
+                return Err(Error::NoCommitteeFound(index));
             }
+        }
 
-            // TODO(electra) what should we do when theres no committee found for a given index?
+        // This check is new to the spec's `process_attestation` in Electra.
+        if participant_count as usize != aggregation_bits.len() {
+            return Err(BeaconStateError::InvalidBitfield);
         }
 
         let mut indices = output.into_iter().collect_vec();
