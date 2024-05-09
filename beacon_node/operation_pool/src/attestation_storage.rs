@@ -187,6 +187,13 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
             _ => (),
         }
     }
+
+    pub fn committee_index(&self) -> u64 {
+        match self {
+            CompactIndexedAttestation::Base(att) => att.index,
+            CompactIndexedAttestation::Electra(att) => att.committee_index(),
+        }
+    }
 }
 
 impl<E: EthSpec> CompactIndexedAttestationBase<E> {
@@ -276,25 +283,37 @@ impl<E: EthSpec> AttestationMap<E> {
         let Some(attestation_map) = self.checkpoint_map.get_mut(&checkpoint_key) else {
             return;
         };
-        for (compact_attestation_data, compact_indexed_attestations) in
+        for (_, compact_indexed_attestations) in
             attestation_map.attestations.iter_mut()
         {
             let unaggregated_attestations = std::mem::take(compact_indexed_attestations);
-            let mut aggregated_attestations = vec![];
+            let mut aggregated_attestations: Vec<CompactIndexedAttestation<E>> = vec![];
 
             // Aggregate the best attestations for each committee and leave the rest.
-            let mut best_attestations_by_committee = BTreeMap::new();
+            let mut best_attestations_by_committee: BTreeMap<u64, CompactIndexedAttestation<E>> =
+                BTreeMap::new();
 
             for committee_attestation in unaggregated_attestations {
                 // TODO(electra)
                 // compare to best attestations by committee
                 // could probably use `.entry` here
                 if let Some(existing_attestation) =
-                    best_attestations_by_committee.get_mut(committee_attestation.committee_index())
+                    best_attestations_by_committee.get_mut(&committee_attestation.committee_index())
                 {
                     // compare and swap, put the discarded one straight into
                     // `aggregated_attestations` in case we have room to pack it without
                     // cross-committee aggregation
+                    if existing_attestation.should_aggregate(&committee_attestation) {
+                        existing_attestation.aggregate(&committee_attestation);
+
+                        best_attestations_by_committee.insert(
+                            committee_attestation.committee_index(),
+                            committee_attestation,
+                        );
+                    } else {
+                        aggregated_attestations.push(committee_attestation);
+                    }
+
                 } else {
                     best_attestations_by_committee.insert(
                         committee_attestation.committee_index(),
@@ -303,11 +322,63 @@ impl<E: EthSpec> AttestationMap<E> {
                 }
             }
 
+
             // TODO(electra): aggregate all the best attestations by committee
             // (use btreemap sort order to get order by committee index)
+            aggregated_attestations.extend(Self::compute_on_chain_aggregate(
+                best_attestations_by_committee,
+            ));
 
             *compact_indexed_attestations = aggregated_attestations;
         }
+    }
+
+    // TODO(electra) unwraps in this function should be cleaned up
+    // also in general this could be a bit more elegant
+    pub fn compute_on_chain_aggregate(
+        mut attestations_by_committee: BTreeMap<u64, CompactIndexedAttestation<E>>,
+    ) -> Vec<CompactIndexedAttestation<E>> {
+        let mut aggregated_attestations = vec![];
+        if let Some((_, on_chain_aggregate)) = attestations_by_committee.pop_first() {
+            match on_chain_aggregate {
+                CompactIndexedAttestation::Base(a) => {
+                    aggregated_attestations.push(CompactIndexedAttestation::Base(a));
+                    aggregated_attestations.extend(
+                        attestations_by_committee
+                            .values()
+                            .map(|a| {
+                                CompactIndexedAttestation::Base(CompactIndexedAttestationBase {
+                                    attesting_indices: a.attesting_indices().clone(),
+                                    aggregation_bits: a.aggregation_bits_base().unwrap().clone(),
+                                    signature: a.signature().clone(),
+                                    index: *a.index(),
+                                })
+                            })
+                            .collect::<Vec<CompactIndexedAttestation<E>>>(),
+                    );
+                }
+                CompactIndexedAttestation::Electra(mut a) => {
+                    for (_, attestation) in attestations_by_committee.iter_mut() {
+                        let new_committee_bits = a
+                            .committee_bits
+                            .union(attestation.committee_bits().unwrap());
+                        a.aggregate(attestation.as_electra().unwrap());
+
+                        a = CompactIndexedAttestationElectra {
+                            attesting_indices: a.attesting_indices.clone(),
+                            aggregation_bits: a.aggregation_bits.clone(),
+                            signature: a.signature.clone(),
+                            index: a.index,
+                            committee_bits: new_committee_bits,
+                        };
+                    }
+
+                    aggregated_attestations.push(CompactIndexedAttestation::Electra(a));
+                }
+            }
+        }
+
+        aggregated_attestations
     }
 
     /// Iterate all attestations matching the given `checkpoint_key`.
