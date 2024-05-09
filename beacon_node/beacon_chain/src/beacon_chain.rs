@@ -3055,7 +3055,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Beacon block imported";
                     "block_root" => ?block_root,
                     "block_slot" => block_slot,
-                    "source" => block_source.to_string(),
+                    "source" => %block_source,
                 );
 
                 // Increment the Prometheus counter for block processing successes.
