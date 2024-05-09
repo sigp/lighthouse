@@ -902,7 +902,7 @@ impl TestRig {
                 None
             }
         })
-        .unwrap_or_else(|e| panic!("Expected sample verify work: {e}"))
+        .unwrap_or_else(|e| panic!("Expected RPC custody column work: {e}"))
     }
 
     fn expect_rpc_sample_verify_work_event(&mut self) {

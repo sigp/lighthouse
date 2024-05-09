@@ -567,7 +567,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let custody_indexes_imported = self
             .chain
             .data_availability_checker
-            .imported_custody_column_indices(&block_root)
+            .imported_custody_column_indexes(&block_root)
             .unwrap_or_default();
 
         // TODO(das): figure out how to pass block.slot if we end up doing rotation
