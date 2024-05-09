@@ -144,6 +144,11 @@ pub trait EthSpec:
     /// Must be set to `BytesPerFieldElement * FieldElementsPerBlob`.
     type BytesPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
+    /// The total length of a data column in bytes.
+    ///
+    /// Must be set to `BytesPerFieldElement * FieldElementsPerCell`.
+    type BytesPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
     /*
      * New in Electra
      */
@@ -410,6 +415,7 @@ impl EthSpec for MainnetEthSpec {
     type FieldElementsPerBlob = U4096;
     type FieldElementsPerCell = U64;
     type BytesPerBlob = U131072;
+    type BytesPerCell = U2048;
     type KzgCommitmentInclusionProofDepth = U17;
     type MinCustodyRequirement = U1;
     type DataColumnSubnetCount = U32;
@@ -457,6 +463,7 @@ impl EthSpec for MinimalEthSpec {
     type FieldElementsPerBlob = U4096;
     type FieldElementsPerCell = U64;
     type BytesPerBlob = U131072;
+    type BytesPerCell = U2048;
     type MaxBlobCommitmentsPerBlock = U16;
     type KzgCommitmentInclusionProofDepth = U9;
     type PendingPartialWithdrawalsLimit = U64;
@@ -547,6 +554,7 @@ impl EthSpec for GnosisEthSpec {
     type FieldElementsPerCell = U64;
     type BytesPerFieldElement = U32;
     type BytesPerBlob = U131072;
+    type BytesPerCell = U2048;
     type KzgCommitmentInclusionProofDepth = U17;
     type PendingBalanceDepositsLimit = U134217728;
     type PendingPartialWithdrawalsLimit = U134217728;

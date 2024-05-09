@@ -1028,7 +1028,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = rpc_blob_queue.pop() {
                             self.spawn_worker(item, idle_tx);
-                        // TODO(das): decide proper priorization for sampling columns
+                        // TODO(das): decide proper prioritization for sampling columns
                         } else if let Some(item) = rpc_custody_column_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = rpc_verify_data_column_queue.pop() {

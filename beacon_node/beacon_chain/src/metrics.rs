@@ -1145,6 +1145,10 @@ lazy_static! {
         try_create_histogram("kzg_verification_single_seconds", "Runtime of single kzg verification");
     pub static ref KZG_VERIFICATION_BATCH_TIMES: Result<Histogram> =
         try_create_histogram("kzg_verification_batch_seconds", "Runtime of batched kzg verification");
+    pub static ref KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES: Result<Histogram> =
+        try_create_histogram("kzg_verification_data_column_single_seconds", "Runtime of single data column kzg verification");
+    pub static ref KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES: Result<Histogram> =
+        try_create_histogram("kzg_verification_data_column_batch_seconds", "Runtime of batched data column kzg verification");
 
     pub static ref BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
             "beacon_block_production_blobs_verification_seconds",

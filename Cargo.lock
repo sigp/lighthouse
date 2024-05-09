@@ -1132,7 +1132,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "1.0.0"
-source = "git+https://github.com/ethereum/c-kzg-4844?branch=das#1124ee930d4d62e3009f7d87edc93cffe7a3e83e"
+source = "git+https://github.com/ethereum/c-kzg-4844?branch=das#e08f22ef65a5ba4ea808e0d3a9e845fbd6faea2f"
 dependencies = [
  "blst",
  "cc",

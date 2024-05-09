@@ -27,7 +27,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 pub type ColumnIndex = u64;
-pub type Cell<E> = FixedVector<u8, <E as EthSpec>::FieldElementsPerCell>;
+pub type Cell<E> = FixedVector<u8, <E as EthSpec>::BytesPerCell>;
 pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Container of the data that identifies an individual data column.

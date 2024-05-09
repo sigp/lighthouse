@@ -73,6 +73,14 @@ impl<E: EthSpec> RpcBlock<E> {
             RpcBlockInner::BlockAndCustodyColumns(_, _) => None,
         }
     }
+
+    pub fn custody_columns(&self) -> Option<&CustodyDataColumnList<E>> {
+        match &self.block {
+            RpcBlockInner::Block(_) => None,
+            RpcBlockInner::BlockAndBlobs(_, _) => None,
+            RpcBlockInner::BlockAndCustodyColumns(_, data_columns) => Some(data_columns),
+        }
+    }
 }
 
 /// Note: This variant is intentionally private because we want to safely construct the
