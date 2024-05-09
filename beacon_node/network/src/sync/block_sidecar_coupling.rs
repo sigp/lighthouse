@@ -6,7 +6,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
 };
-use types::{BlobSidecar, ColumnIndex, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BlobSidecar, ColumnIndex, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock};
 
 #[derive(Debug)]
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
@@ -14,7 +14,7 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     blocks: VecDeque<Arc<SignedBeaconBlock<E>>>,
     /// Sidecars we have received awaiting for their corresponding block.
     blobs: VecDeque<Arc<BlobSidecar<E>>>,
-    custody_columns: VecDeque<CustodyDataColumn<E>>,
+    data_columns: VecDeque<Arc<DataColumnSidecar<E>>>,
     /// Whether the individual RPC request for blocks is finished or not.
     is_blocks_stream_terminated: bool,
     /// Whether the individual RPC request for sidecars is finished or not.
@@ -30,7 +30,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         Self {
             blocks: <_>::default(),
             blobs: <_>::default(),
-            custody_columns: <_>::default(),
+            data_columns: <_>::default(),
             is_blocks_stream_terminated: false,
             is_sidecars_stream_terminated: false,
             custody_columns_streams_terminated: 0,
@@ -59,9 +59,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
-    pub fn add_custody_column(&mut self, column_opt: Option<CustodyDataColumn<E>>) {
+    pub fn add_data_column(&mut self, column_opt: Option<Arc<DataColumnSidecar<E>>>) {
         match column_opt {
-            Some(column) => self.custody_columns.push_back(column),
+            Some(column) => self.data_columns.push_back(column),
             // TODO(das): this mechanism is dangerous, if somehow there are two requests for the
             // same column index it can terminate early. This struct should track that all requests
             // for all custody columns terminate.
@@ -126,18 +126,18 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     ) -> Result<Vec<RpcBlock<E>>, String> {
         let RangeBlockComponentsRequest {
             blocks,
-            custody_columns,
+            data_columns,
             ..
         } = self;
 
         // Group data columns by block_root and index
-        let mut custody_columns_by_block =
-            HashMap::<Hash256, HashMap<ColumnIndex, CustodyDataColumn<E>>>::new();
+        let mut data_columns_by_block =
+            HashMap::<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>::new();
 
-        for column in custody_columns {
-            let block_root = column.as_data_column().block_root();
-            let index = column.index();
-            if custody_columns_by_block
+        for column in data_columns {
+            let block_root = column.block_root();
+            let index = column.index;
+            if data_columns_by_block
                 .entry(block_root)
                 .or_default()
                 .insert(index, column)
@@ -156,8 +156,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         for block in blocks {
             let block_root = get_block_root(&block);
             rpc_blocks.push(if block.num_expected_blobs() > 0 {
-                let Some(mut custody_columns_by_index) =
-                    custody_columns_by_block.remove(&block_root)
+                let Some(mut data_columns_by_index) = data_columns_by_block.remove(&block_root)
                 else {
                     // This PR ignores the fix from https://github.com/sigp/lighthouse/pull/5675
                     // which allows blobs to not match blocks.
@@ -169,15 +168,18 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 let mut custody_columns = vec![];
                 for index in &expects_custody_columns {
-                    let Some(custody_column) = custody_columns_by_index.remove(index) else {
+                    let Some(data_column) = data_columns_by_index.remove(index) else {
                         return Err(format!("No column for block {block_root:?} index {index}"));
                     };
-                    custody_columns.push(custody_column);
+                    // Safe to convert to `CustodyDataColumn`: we have asserted that the index of
+                    // this column is in the set of `expects_custody_columns` and with the expected
+                    // block root, so for the expected epoch of this batch.
+                    custody_columns.push(CustodyDataColumn::from_asserted_custody(data_column));
                 }
 
                 // Assert that there are no columns left
-                if !custody_columns_by_index.is_empty() {
-                    let remaining_indices = custody_columns_by_index.keys().collect::<Vec<_>>();
+                if !data_columns_by_index.is_empty() {
+                    let remaining_indices = data_columns_by_index.keys().collect::<Vec<_>>();
                     return Err(format!(
                         "Not all columns consumed for block {block_root:?}: {remaining_indices:?}"
                     ));
@@ -191,8 +193,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
 
         // Assert that there are no columns left for other blocks
-        if !custody_columns_by_block.is_empty() {
-            let remaining_roots = custody_columns_by_block.keys().collect::<Vec<_>>();
+        if !data_columns_by_block.is_empty() {
+            let remaining_roots = data_columns_by_block.keys().collect::<Vec<_>>();
             return Err(format!("Not all columns consumed: {remaining_roots:?}"));
         }
 
@@ -218,11 +220,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 #[cfg(test)]
 mod tests {
     use super::RangeBlockComponentsRequest;
-    use beacon_chain::{
-        data_column_verification::CustodyDataColumn,
-        test_utils::{
-            generate_rand_block_and_blobs, generate_rand_block_and_data_columns, NumBlobs,
-        },
+    use beacon_chain::test_utils::{
+        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, NumBlobs,
     };
     use rand::SeedableRng;
     use types::{test_utils::XorShiftRng, ForkName, MinimalEthSpec as E};
@@ -300,16 +299,14 @@ mod tests {
         for block in &blocks {
             for column in &block.1 {
                 if expects_custody_columns.contains(&column.index) {
-                    info.add_custody_column(Some(CustodyDataColumn::from_asserted_custody(
-                        column.clone().into(),
-                    )));
+                    info.add_data_column(Some(column.clone().into()));
                 }
             }
         }
 
         // Terminate the requests
         for (i, _column_index) in expects_custody_columns.iter().enumerate() {
-            info.add_custody_column(None);
+            info.add_data_column(None);
 
             if i < expects_custody_columns.len() - 1 {
                 assert!(

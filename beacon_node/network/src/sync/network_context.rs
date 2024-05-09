@@ -150,7 +150,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 pub enum BlockOrBlob<E: EthSpec> {
     Block(Option<Arc<SignedBeaconBlock<E>>>),
     Blob(Option<Arc<BlobSidecar<E>>>),
-    CustodyColumns(Option<CustodyDataColumn<E>>),
+    CustodyColumns(Option<Arc<DataColumnSidecar<E>>>),
 }
 
 impl<E: EthSpec> From<Option<Arc<SignedBeaconBlock<E>>>> for BlockOrBlob<E> {
@@ -275,7 +275,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: Request::BlocksByRange(request.clone()),
-            request_id: RequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+            request_id: RequestId::Sync(SyncRequestId::RangeBlockComponents(id)),
         })?;
 
         let expected_blobs = if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
@@ -295,7 +295,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     start_slot: *request.start_slot(),
                     count: *request.count(),
                 }),
-                request_id: RequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                request_id: RequestId::Sync(SyncRequestId::RangeBlockComponents(id)),
             })?;
             true
         } else {
@@ -335,7 +335,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         count: *request.count(),
                         columns: vec![*column_index],
                     }),
-                    request_id: RequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                    request_id: RequestId::Sync(SyncRequestId::RangeBlockComponents(id)),
                 })?;
             }
 
@@ -382,7 +382,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 match block_or_blob {
                     BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
                     BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
-                    BlockOrBlob::CustodyColumns(column) => info.add_custody_column(column),
+                    BlockOrBlob::CustodyColumns(column) => info.add_data_column(column),
                 }
                 if info.is_finished() {
                     // If the request is finished, dequeue everything
@@ -638,7 +638,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "id" => ?id
         );
 
-        let requester = CustodyRequester::Lookup(id);
+        let requester = CustodyRequester(id);
         let mut request = ActiveCustodyRequest::new(
             block_root,
             requester,

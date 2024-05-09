@@ -36,7 +36,7 @@
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
 use super::network_context::{
-    custody::CustodyRequester, BlockOrBlob, CustodyId, RangeRequestId, RpcEvent, SyncNetworkContext,
+    BlockOrBlob, CustodyId, RangeRequestId, RpcEvent, SyncNetworkContext,
 };
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -94,9 +94,7 @@ pub enum RequestId {
     /// Request searching for a set of data columns given a hash and list of column indices.
     DataColumnsByRoot(DataColumnsByRootRequestId),
     /// Range request that is composed by both a block range request and a blob range request.
-    RangeBlockAndBlobs { id: Id },
-    /// Range request that is composed by both a block range request and a blob range request.
-    RangeBlockAndDataColumns { id: Id },
+    RangeBlockComponents(Id),
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -397,30 +395,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::DataColumnsByRoot(id) => {
                 self.on_single_data_column_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            RequestId::RangeBlockAndBlobs { id } => {
-                if let Some(sender_id) = self.network.range_request_failed(id) {
-                    match sender_id {
-                        RangeRequestId::RangeSync { chain_id, batch_id } => {
-                            self.range_sync.inject_error(
-                                &mut self.network,
-                                peer_id,
-                                batch_id,
-                                chain_id,
-                                id,
-                            );
-                            self.update_sync_state();
-                        }
-                        RangeRequestId::BackfillSync { batch_id } => match self
-                            .backfill_sync
-                            .inject_error(&mut self.network, batch_id, &peer_id, id)
-                        {
-                            Ok(_) => {}
-                            Err(_) => self.update_sync_state(),
-                        },
-                    }
-                }
-            }
-            RequestId::RangeBlockAndDataColumns { id } => {
+            RequestId::RangeBlockComponents(id) => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
                     match sender_id {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
@@ -898,7 +873,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     None => RpcEvent::StreamTermination,
                 },
             ),
-            RequestId::RangeBlockAndBlobs { id } => {
+            RequestId::RangeBlockComponents(id) => {
                 self.range_block_and_blobs_response(id, peer_id, block.into())
             }
             other => {
@@ -941,7 +916,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     None => RpcEvent::StreamTermination,
                 },
             ),
-            RequestId::RangeBlockAndBlobs { id } => {
+            RequestId::RangeBlockComponents(id) => {
                 self.range_block_and_blobs_response(id, peer_id, blob.into())
             }
             other => {
@@ -971,11 +946,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     },
                 );
             }
-            RequestId::RangeBlockAndBlobs { id } => {
-                todo!("TODO(das): handle sampling for range sync based on {id}");
-            }
-            RequestId::RangeBlockAndDataColumns { id } => {
-                todo!("TODO(das): handle sampling for range sync based on {id}");
+            RequestId::RangeBlockComponents(id) => {
+                self.range_block_and_blobs_response(
+                    id,
+                    peer_id,
+                    BlockOrBlob::CustodyColumns(data_column),
+                );
             }
         }
     }
@@ -1023,22 +999,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     {
                         // TODO(das): get proper timestamp
                         let seen_timestamp = timestamp_now();
-                        match requester {
-                            CustodyRequester::Lookup(id) => self
-                                .block_lookups
-                                .on_download_response::<CustodyRequestState<T::EthSpec>>(
-                                    id.lookup_id,
-                                    custody_columns.map(|(columns, peer_group)| {
-                                        (columns, peer_group, seen_timestamp)
-                                    }),
-                                    &mut self.network,
-                                ),
-                            CustodyRequester::RangeSync(_) => {
-                                // TODO(das): this line should be unreachable, no mechanism to make
-                                // custody requests for sync yet
-                                todo!("custody fetching for sync not implemented");
-                            }
-                        }
+                        self.block_lookups
+                            .on_download_response::<CustodyRequestState<T::EthSpec>>(
+                                requester.0.lookup_id,
+                                custody_columns.map(|(columns, peer_group)| {
+                                    (columns, peer_group, seen_timestamp)
+                                }),
+                                &mut self.network,
+                            );
                     }
                 }
             }
@@ -1149,7 +1117,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "sender_id" => ?resp.sender_id,
                         "error" => e.clone()
                     );
-                    let id = RequestId::RangeBlockAndBlobs { id };
+                    let id = RequestId::RangeBlockComponents(id);
                     self.network.report_peer(
                         peer_id,
                         PeerAction::MidToleranceError,

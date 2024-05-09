@@ -554,7 +554,7 @@ mod tests {
         ) -> (ChainId, BatchId, Id) {
             if blob_req_opt.is_some() {
                 match block_req {
-                    RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
+                    RequestId::Sync(crate::sync::manager::RequestId::RangeBlockComponents(id)) => {
                         let _ = self
                             .cx
                             .range_block_and_blob_response(id, BlockOrBlob::Block(None));
@@ -570,7 +570,7 @@ mod tests {
                 }
             } else {
                 match block_req {
-                    RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
+                    RequestId::Sync(crate::sync::manager::RequestId::RangeBlockComponents(id)) => {
                         let response = self
                             .cx
                             .range_block_and_blob_response(id, BlockOrBlob::Block(None))
