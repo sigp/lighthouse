@@ -1612,11 +1612,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.
     ///
     /// The attestation will be obtained from `self.naive_aggregation_pool`.
-    pub fn get_aggregated_attestation(
+    pub fn get_aggregated_attestation_base(
         &self,
         data: &AttestationData,
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
-        if let Some(attestation) = self.naive_aggregation_pool.read().get(data) {
+        let attestation_key = crate::naive_aggregation_pool::AttestationKey::new_base(data.clone());
+        if let Some(attestation) = self.naive_aggregation_pool.read().get(&attestation_key) {
+            self.filter_optimistic_attestation(attestation)
+                .map(Option::Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    // TODO(electra): call this function from the new beacon API method
+    pub fn get_aggregated_attestation_electra(
+        &self,
+        data: &AttestationData,
+        committee_index: CommitteeIndex,
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        let attestation_key = crate::naive_aggregation_pool::AttestationKey::new_electra(
+            data.clone(),
+            committee_index,
+        );
+        if let Some(attestation) = self.naive_aggregation_pool.read().get(&attestation_key) {
             self.filter_optimistic_attestation(attestation)
                 .map(Option::Some)
         } else {
