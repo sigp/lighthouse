@@ -1,4 +1,6 @@
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::{
+    block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn,
+};
 use ssz_types::VariableList;
 use std::{collections::VecDeque, sync::Arc};
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
@@ -11,10 +13,12 @@ pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
     accumulated_blocks: VecDeque<Arc<SignedBeaconBlock<E>>>,
     /// Sidecars we have received awaiting for their corresponding block.
     accumulated_sidecars: VecDeque<Arc<BlobSidecar<E>>>,
+    accumulated_custody_columns: VecDeque<CustodyDataColumn<E>>,
     /// Whether the individual RPC request for blocks is finished or not.
     is_blocks_stream_terminated: bool,
     /// Whether the individual RPC request for sidecars is finished or not.
     is_sidecars_stream_terminated: bool,
+    is_custody_columns_stream_terminated: bool,
     /// Used to determine if this accumulator should wait for a sidecars stream termination
     request_type: ByRangeRequestType,
 }
@@ -24,8 +28,10 @@ impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
         Self {
             accumulated_blocks: <_>::default(),
             accumulated_sidecars: <_>::default(),
+            accumulated_custody_columns: <_>::default(),
             is_blocks_stream_terminated: <_>::default(),
             is_sidecars_stream_terminated: <_>::default(),
+            is_custody_columns_stream_terminated: <_>::default(),
             request_type,
         }
     }
@@ -45,6 +51,13 @@ impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
         match sidecar_opt {
             Some(sidecar) => self.accumulated_sidecars.push_back(sidecar),
             None => self.is_sidecars_stream_terminated = true,
+        }
+    }
+
+    pub fn add_custody_column(&mut self, column_opt: Option<CustodyDataColumn<E>>) {
+        match column_opt {
+            Some(column) => self.accumulated_custody_columns.push_back(column),
+            None => self.is_custody_columns_stream_terminated = true,
         }
     }
 
@@ -96,11 +109,12 @@ impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
     }
 
     pub fn is_finished(&self) -> bool {
-        let blobs_requested = match self.request_type {
-            ByRangeRequestType::Blocks => false,
-            ByRangeRequestType::BlocksAndBlobs => true,
-        };
-        self.is_blocks_stream_terminated && (!blobs_requested || self.is_sidecars_stream_terminated)
+        let blobs_requested = matches!(self.request_type, ByRangeRequestType::BlocksAndBlobs);
+        let custody_columns_requested =
+            matches!(self.request_type, ByRangeRequestType::BlocksAndColumns);
+        self.is_blocks_stream_terminated
+            && (!blobs_requested || self.is_sidecars_stream_terminated)
+            && (!custody_columns_requested || self.is_custody_columns_stream_terminated)
     }
 }
 

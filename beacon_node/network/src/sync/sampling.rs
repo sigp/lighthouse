@@ -267,7 +267,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     };
 
                     debug!(self.log, "Sending data_column for verification"; "block" => ?self.block_root, "column_index" => column_index);
-                    if let Err(e) = beacon_processor.send_rpc_data_columns(
+                    if let Err(e) = beacon_processor.send_rpc_validate_data_columns(
                         self.block_root,
                         vec![data_column],
                         seen_timestamp,
@@ -288,7 +288,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 }
             }
             Err(err) => {
-                debug!(self.log, "Sample download error"; "block_root" => %self.block_root, "column_index" => column_index, "error" => %err);
+                debug!(self.log, "Sample download error"; "block_root" => %self.block_root, "column_index" => column_index, "error" => ?err);
                 metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::FAILURE]);
 
                 // Error downloading, maybe penalize peer and retry again.

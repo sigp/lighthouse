@@ -23,7 +23,9 @@ use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
 };
-use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use crate::data_column_verification::{
+    CustodyDataColumn, GossipDataColumnError, GossipVerifiedDataColumn,
+};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -3074,6 +3076,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.remove_notified(&block_root, r)
     }
 
+    /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
+    /// imported or errors.
+    pub async fn process_rpc_custody_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its blobs again.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+        }
+
+        // TODO(das): custody column SSE event
+        // TODO(das): Why is the slot necessary here?
+        let slot = Slot::new(0);
+
+        let r = self
+            .check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
+            .await;
+        self.remove_notified(&block_root, r)
+    }
+
     /// Remove any block components from the *processing cache* if we no longer require them. If the
     /// block was imported full or erred, we no longer require them.
     fn remove_notified(
@@ -3370,6 +3399,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let availability = self
             .data_availability_checker
             .put_rpc_blobs(block_root, blobs)?;
+
+        self.process_availability(slot, availability).await
+    }
+
+    /// Checks if the provided columns can make any cached blocks available, and imports immediately
+    /// if so, otherwise caches the columns in the data availability checker.
+    async fn check_rpc_custody_columns_availability_and_import(
+        self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
+        custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        // Need to scope this to ensure the lock is dropped before calling `process_availability`
+        // Even an explicit drop is not enough to convince the borrow checker.
+        {
+            let mut slashable_cache = self.observed_slashable.write();
+            for header in custody_columns
+                .iter()
+                .map(|c| c.as_data_column().signed_block_header.clone())
+                .unique()
+            {
+                if verify_header_signature::<T, BlockError<T::EthSpec>>(self, &header).is_ok() {
+                    slashable_cache
+                        .observe_slashable(
+                            header.message.slot,
+                            header.message.proposer_index,
+                            block_root,
+                        )
+                        .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                    if let Some(slasher) = self.slasher.as_ref() {
+                        slasher.accept_block_header(header);
+                    }
+                }
+            }
+        }
+        let availability = self
+            .data_availability_checker
+            .put_rpc_custody_columns(block_root, custody_columns)?;
 
         self.process_availability(slot, availability).await
     }

@@ -5,6 +5,7 @@ use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, PeerId};
 use crate::sync::manager::{BlockProcessType, Id, SLOT_IMPORT_TOLERANCE};
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::BeaconChainTypes;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
@@ -13,10 +14,13 @@ use types::SignedBeaconBlock;
 use super::single_block_lookup::DownloadResult;
 use super::SingleLookupId;
 
+use super::single_block_lookup::CustodyRequestState;
+
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {
     Block,
     Blob,
+    CustodyColumn,
 }
 
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
@@ -94,7 +98,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
             value,
             block_root,
             seen_timestamp,
-            peer_id: _,
+            ..
         } = download_result;
         cx.send_block_for_processing(
             block_root,
@@ -147,7 +151,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
             value,
             block_root,
             seen_timestamp,
-            peer_id: _,
+            ..
         } = download_result;
         cx.send_blobs_for_processing(
             block_root,
@@ -163,6 +167,55 @@ impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
     }
     fn request_state_mut(request: &mut SingleBlockLookup<T>) -> &mut Self {
         &mut request.blob_request_state
+    }
+    fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType> {
+        &self.state
+    }
+    fn get_state_mut(&mut self) -> &mut SingleLookupRequestState<Self::VerifiedResponseType> {
+        &mut self.state
+    }
+}
+
+impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
+    type VerifiedResponseType = Vec<CustodyDataColumn<T::EthSpec>>;
+
+    fn make_request(
+        &self,
+        id: Id,
+        // TODO(das): consider selecting peers that have custody but are in this set
+        _peer_id: PeerId,
+        downloaded_block_expected_blobs: Option<usize>,
+        cx: &mut SyncNetworkContext<T>,
+    ) -> Result<bool, LookupRequestError> {
+        cx.custody_lookup_request(id, self.block_root, downloaded_block_expected_blobs)
+            .map_err(LookupRequestError::SendFailed)
+    }
+
+    fn send_for_processing(
+        id: Id,
+        download_result: DownloadResult<Self::VerifiedResponseType>,
+        cx: &SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        let DownloadResult {
+            value,
+            block_root,
+            seen_timestamp,
+            ..
+        } = download_result;
+        cx.send_custody_columns_for_processing(
+            block_root,
+            value,
+            seen_timestamp,
+            BlockProcessType::SingleCustodyColumn(id),
+        )
+        .map_err(LookupRequestError::SendFailed)
+    }
+
+    fn response_type() -> ResponseType {
+        ResponseType::CustodyColumn
+    }
+    fn request_state_mut(request: &mut SingleBlockLookup<T>) -> &mut Self {
+        &mut request.custody_request_state
     }
     fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType> {
         &self.state
