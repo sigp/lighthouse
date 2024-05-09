@@ -92,6 +92,7 @@ impl<E: EthSpec> Decode for Attestation<E> {
     }
 }
 
+// TODO(electra): think about how to handle fork variants here
 impl<E: EthSpec> TestRandom for Attestation<E> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         let aggregation_bits: BitList<E::MaxValidatorsPerCommittee> = BitList::random_for_test(rng);
