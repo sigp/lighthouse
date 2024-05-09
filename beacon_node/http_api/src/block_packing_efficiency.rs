@@ -132,9 +132,24 @@ impl<E: EthSpec> PackingEfficiencyHandler<E> {
                         }
                     }
                 }
-                // TODO(electra) implement electra variant
-                AttestationRef::Electra(_) => {
-                    todo!()
+                AttestationRef::Electra(attn) => {
+                    for (position, voted) in attn.aggregation_bits.iter().enumerate() {
+                        if voted {
+                            let unique_attestation = UniqueAttestation {
+                                slot: attn.data.slot,
+                                committee_index: attn.data.index,
+                                committee_position: position,
+                            };
+                            let inclusion_distance: u64 = block
+                                .slot()
+                                .as_u64()
+                                .checked_sub(attn.data.slot.as_u64())
+                                .ok_or(PackingEfficiencyError::InvalidAttestationError)?;
+
+                            self.available_attestations.remove(&unique_attestation);
+                            attestations_in_block.insert(unique_attestation, inclusion_distance);
+                        }
+                    }
                 }
             }
         }

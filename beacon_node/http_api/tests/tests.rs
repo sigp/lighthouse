@@ -3191,30 +3191,52 @@ impl ApiTester {
     }
 
     pub async fn test_get_validator_aggregate_attestation(self) -> Self {
-        let attestation = self
+        if self
             .chain
-            .head_beacon_block()
-            .message()
-            .body()
-            .attestations()
-            .next()
-            .unwrap()
-            .clone_as_attestation();
+            .spec
+            .fork_name_at_slot::<E>(self.chain.slot().unwrap())
+            >= ForkName::Electra
+        {
+            for attestation in self.chain.naive_aggregation_pool.read().iter() {
+                let result = self
+                    .client
+                    .get_validator_aggregate_attestation_v2(
+                        attestation.data().slot,
+                        attestation.data().tree_hash_root(),
+                        attestation.committee_index(),
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .data;
+                let expected = attestation;
 
-        let result = self
-            .client
-            .get_validator_aggregate_attestation(
-                attestation.data().slot,
-                attestation.data().tree_hash_root(),
-            )
-            .await
-            .unwrap()
-            .unwrap()
-            .data;
+                assert_eq!(&result, expected);
+            }
+        } else {
+            let attestation = self
+                .chain
+                .head_beacon_block()
+                .message()
+                .body()
+                .attestations()
+                .next()
+                .unwrap()
+                .clone_as_attestation();
+            let result = self
+                .client
+                .get_validator_aggregate_attestation_v1(
+                    attestation.data().slot,
+                    attestation.data().tree_hash_root(),
+                )
+                .await
+                .unwrap()
+                .unwrap()
+                .data;
+            let expected = attestation;
 
-        let expected = attestation;
-
-        assert_eq!(result, expected);
+            assert_eq!(result, expected);
+        }
 
         self
     }
@@ -3285,6 +3307,7 @@ impl ApiTester {
             .unwrap()
             .data;
 
+        // TODO(electra) make fork-agnostic
         let mut attestation = Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
             data: attestation_data,
@@ -3303,7 +3326,7 @@ impl ApiTester {
 
         SignedAggregateAndProof::from_aggregate(
             i as u64,
-            attestation,
+            attestation.to_ref(),
             Some(proof),
             &kp.sk,
             &fork,

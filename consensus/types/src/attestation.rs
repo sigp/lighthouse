@@ -22,6 +22,7 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),
     SubnetCountIsZero(ArithError),
+    IncorrectStateVariant,
 }
 
 #[superstruct(
@@ -43,7 +44,9 @@ pub enum Error {
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
     ),
-    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent"))
+    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(
     Debug,
@@ -65,7 +68,7 @@ pub struct Attestation<E: EthSpec> {
     #[superstruct(only(Base), partial_getter(rename = "aggregation_bits_base"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
-    pub aggregation_bits: BitList<E::MaxValidatorsPerCommitteePerSlot>,
+    pub aggregation_bits: BitList<E::MaxValidatorsPerSlot>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
     #[superstruct(only(Electra))]
@@ -236,6 +239,13 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
             Self::Electra(att) => att.aggregation_bits.num_set_bits(),
         }
     }
+
+    pub fn committee_index(&self) -> u64 {
+        match self {
+            AttestationRef::Base(att) => att.data.index,
+            AttestationRef::Electra(att) => att.committee_index(),
+        }
+    }
 }
 
 impl<E: EthSpec> AttestationElectra<E> {
@@ -330,7 +340,6 @@ impl<E: EthSpec> AttestationBase<E> {
     pub fn aggregate(&mut self, other: &Self) {
         debug_assert_eq!(self.data, other.data);
         debug_assert!(self.signers_disjoint_from(other));
-
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
     }
@@ -381,6 +390,18 @@ impl<E: EthSpec> AttestationBase<E> {
             Ok(())
         }
     }
+
+    pub fn extend_aggregation_bits(
+        &self,
+    ) -> Result<BitList<E::MaxValidatorsPerSlot>, ssz_types::Error> {
+        let mut extended_aggregation_bits: BitList<E::MaxValidatorsPerSlot> =
+            BitList::with_capacity(self.aggregation_bits.len())?;
+
+        for (i, bit) in self.aggregation_bits.iter().enumerate() {
+            extended_aggregation_bits.set(i, bit)?;
+        }
+        Ok(extended_aggregation_bits)
+    }
 }
 
 impl<E: EthSpec> SlotData for Attestation<E> {
@@ -419,6 +440,9 @@ mod tests {
         assert_eq!(signature, 288 + 16);
 
         let attestation_expected = aggregation_bits + attestation_data + signature;
+        // TODO(electra) since we've removed attestation aggregation for electra variant
+        // i've updated the attestation value expected from 488 544
+        // assert_eq!(attestation_expected, 488);
         assert_eq!(attestation_expected, 488);
         assert_eq!(
             size_of::<Attestation<MainnetEthSpec>>(),

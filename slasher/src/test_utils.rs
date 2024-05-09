@@ -1,11 +1,37 @@
 use std::collections::HashSet;
 use types::{
-    indexed_attestation::IndexedAttestationBase, AggregateSignature, AttestationData,
-    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BeaconBlockHeader, Checkpoint,
-    Epoch, Hash256, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
+    indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra},
+    AggregateSignature, AttestationData, AttesterSlashing, AttesterSlashingBase,
+    AttesterSlashingElectra, BeaconBlockHeader, Checkpoint, Epoch, Hash256, IndexedAttestation,
+    MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
+
+pub fn indexed_att_electra(
+    attesting_indices: impl AsRef<[u64]>,
+    source_epoch: u64,
+    target_epoch: u64,
+    target_root: u64,
+) -> IndexedAttestation<E> {
+    IndexedAttestation::Electra(IndexedAttestationElectra {
+        attesting_indices: attesting_indices.as_ref().to_vec().into(),
+        data: AttestationData {
+            slot: Slot::new(0),
+            index: 0,
+            beacon_block_root: Hash256::zero(),
+            source: Checkpoint {
+                epoch: Epoch::new(source_epoch),
+                root: Hash256::from_low_u64_be(0),
+            },
+            target: Checkpoint {
+                epoch: Epoch::new(target_epoch),
+                root: Hash256::from_low_u64_be(target_root),
+            },
+        },
+        signature: AggregateSignature::empty(),
+    })
+}
 
 pub fn indexed_att(
     attesting_indices: impl AsRef<[u64]>,

@@ -724,6 +724,9 @@ pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+    pub deposit_receipts: Option<VariableList<JsonDepositRequest, E::MaxDepositReceiptsPerPayload>>,
+    pub withdrawal_requests:
+        Option<VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
 }
 
 impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
@@ -733,6 +736,22 @@ impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<
             withdrawals: value.withdrawals.map(|json_withdrawals| {
                 Withdrawals::<E>::from(
                     json_withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+            deposit_receipts: value.deposit_receipts.map(|json_receipts| {
+                DepositReceipts::<E>::from(
+                    json_receipts
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+            withdrawal_requests: value.withdrawal_requests.map(|json_withdrawal_requests| {
+                WithdrawalRequests::<E>::from(
+                    json_withdrawal_requests
                         .into_iter()
                         .map(Into::into)
                         .collect::<Vec<_>>(),

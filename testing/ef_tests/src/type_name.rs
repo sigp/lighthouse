@@ -37,11 +37,14 @@ macro_rules! type_name_generic {
 
 type_name!(MinimalEthSpec, "minimal");
 type_name!(MainnetEthSpec, "mainnet");
-
 type_name_generic!(AggregateAndProof);
+type_name_generic!(AggregateAndProofBase, "AggregateAndProof");
+type_name_generic!(AggregateAndProofElectra, "AggregateAndProof");
 type_name_generic!(Attestation);
 type_name!(AttestationData);
 type_name_generic!(AttesterSlashing);
+type_name_generic!(AttesterSlashingBase, "AttesterSlashing");
+type_name_generic!(AttesterSlashingElectra, "AttesterSlashing");
 type_name_generic!(BeaconBlock);
 type_name_generic!(BeaconBlockBody);
 type_name_generic!(BeaconBlockBodyBase, "BeaconBlockBody");
@@ -108,6 +111,8 @@ type_name_generic!(LightClientUpdateDeneb, "LightClientUpdate");
 type_name_generic!(PendingAttestation);
 type_name!(ProposerSlashing);
 type_name_generic!(SignedAggregateAndProof);
+type_name_generic!(SignedAggregateAndProofBase, "SignedAggregateAndProof");
+type_name_generic!(SignedAggregateAndProofElectra, "SignedAggregateAndProof");
 type_name_generic!(SignedBeaconBlock);
 type_name!(SignedBeaconBlockHeader);
 type_name_generic!(SignedContributionAndProof);

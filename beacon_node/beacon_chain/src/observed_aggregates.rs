@@ -17,11 +17,8 @@ pub type ObservedSyncContributions<E> = ObservedAggregates<
     E,
     BitVector<<E as types::EthSpec>::SyncSubcommitteeSize>,
 >;
-pub type ObservedAggregateAttestations<E> = ObservedAggregates<
-    Attestation<E>,
-    E,
-    BitList<<E as types::EthSpec>::MaxValidatorsPerCommittee>,
->;
+pub type ObservedAggregateAttestations<E> =
+    ObservedAggregates<Attestation<E>, E, BitList<<E as types::EthSpec>::MaxValidatorsPerSlot>>;
 
 /// A trait use to associate capacity constants with the type being stored in `ObservedAggregates`.
 pub trait Consts {
@@ -103,29 +100,39 @@ pub trait SubsetItem {
 }
 
 impl<'a, E: EthSpec> SubsetItem for AttestationRef<'a, E> {
-    type Item = BitList<E::MaxValidatorsPerCommittee>;
+    type Item = BitList<E::MaxValidatorsPerSlot>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         match self {
-            Self::Base(att) => att.aggregation_bits.is_subset(other),
-            // TODO(electra) implement electra variant
-            Self::Electra(_) => todo!(),
+            Self::Base(att) => {
+                if let Ok(extended_aggregation_bits) = att.extend_aggregation_bits() {
+                    return extended_aggregation_bits.is_subset(other);
+                }
+                false
+            }
+            Self::Electra(att) => att.aggregation_bits.is_subset(other),
         }
     }
 
     fn is_superset(&self, other: &Self::Item) -> bool {
         match self {
-            Self::Base(att) => other.is_subset(&att.aggregation_bits),
-            // TODO(electra) implement electra variant
-            Self::Electra(_) => todo!(),
+            Self::Base(att) => {
+                if let Ok(extended_aggregation_bits) = att.extend_aggregation_bits() {
+                    return other.is_subset(&extended_aggregation_bits);
+                }
+                false
+            }
+            Self::Electra(att) => other.is_subset(&att.aggregation_bits),
         }
     }
 
     /// Returns the sync contribution aggregation bits.
     fn get_item(&self) -> Self::Item {
         match self {
-            Self::Base(att) => att.aggregation_bits.clone(),
-            // TODO(electra) implement electra variant
-            Self::Electra(_) => todo!(),
+            Self::Base(att) => {
+                // TODO(electra) fix unwrap
+                att.extend_aggregation_bits().unwrap()
+            }
+            Self::Electra(att) => att.aggregation_bits.clone(),
         }
     }
 

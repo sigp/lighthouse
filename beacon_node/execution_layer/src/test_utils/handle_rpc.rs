@@ -111,6 +111,9 @@ pub async fn handle_rpc<E: EthSpec>(
                             .map(|jep| JsonExecutionPayload::V1(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                // From v3 onwards, we use the newPayload version only for the corresponding
+                // ExecutionPayload version. So we return an error instead of falling back to
+                // older versions of newPayload
                 ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadV3<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::V3(jep))
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
@@ -337,6 +340,9 @@ pub async fn handle_rpc<E: EthSpec>(
                     }
                     _ => unreachable!(),
                 }),
+                // From v3 onwards, we use the getPayload version only for the corresponding
+                // ExecutionPayload version. So we return an error if the ExecutionPayload version
+                // we get does not correspond to the getPayload version.
                 ENGINE_GET_PAYLOAD_V3 => Ok(match JsonExecutionPayload::from(response) {
                     JsonExecutionPayload::V3(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV3 {
@@ -580,6 +586,14 @@ pub async fn handle_rpc<E: EthSpec>(
                                 .withdrawals()
                                 .ok()
                                 .map(|withdrawals| VariableList::from(withdrawals.clone())),
+                            deposit_receipts: block.deposit_receipts().ok().map(
+                                |deposit_receipts| VariableList::from(deposit_receipts.clone()),
+                            ),
+                            withdrawal_requests: block.withdrawal_requests().ok().map(
+                                |withdrawal_requests| {
+                                    VariableList::from(withdrawal_requests.clone())
+                                },
+                            ),
                         }));
                     }
                     None => response.push(None),
