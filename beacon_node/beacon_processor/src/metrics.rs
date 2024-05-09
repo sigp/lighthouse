@@ -86,13 +86,10 @@ lazy_static::lazy_static! {
         "beacon_processor_rpc_blob_queue_total",
         "Count of blobs from the rpc waiting to be verified."
     );
+    // Rpc custody data columns.
     pub static ref BEACON_PROCESSOR_RPC_CUSTODY_COLUMN_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_rpc_custody_column_queue_total",
         "Count of custody columns from the rpc waiting to be imported."
-    // Rpc data columns.
-    pub static ref BEACON_PROCESSOR_RPC_DATA_COLUMNS_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_rpc_data_columns_total",
-        "Count of data columns from the rpc waiting to be verified."
     );
     // Rpc verify data columns
     pub static ref BEACON_PROCESSOR_RPC_VERIFY_DATA_COLUMN_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
