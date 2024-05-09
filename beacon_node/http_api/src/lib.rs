@@ -256,6 +256,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
                 .or_else(|| starts_with("v1/validator/duties/sync"))
                 .or_else(|| starts_with("v1/validator/attestation_data"))
                 .or_else(|| starts_with("v1/validator/aggregate_attestation"))
+                .or_else(|| starts_with("v2/validator/aggregate_attestation"))
                 .or_else(|| starts_with("v1/validator/aggregate_and_proofs"))
                 .or_else(|| starts_with("v1/validator/sync_committee_contribution"))
                 .or_else(|| starts_with("v1/validator/contribution_and_proofs"))
@@ -3175,7 +3176,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET validator/aggregate_attestation?attestation_data_root,slot
-    let get_validator_aggregate_attestation = eth_v1
+    let get_validator_aggregate_attestation = any_version
         .and(warp::path("validator"))
         .and(warp::path("aggregate_attestation"))
         .and(warp::path::end())
@@ -3184,11 +3185,24 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
-            |query: api_types::ValidatorAggregateAttestationQuery,
+            |endpoint_version: EndpointVersion,
+             query: api_types::ValidatorAggregateAttestationQuery,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    if endpoint_version == V2 {
+                        if query.committee_index.is_none() {
+                            return Err(warp_utils::reject::custom_bad_request(
+                                "missing committee index".to_string(),
+                            ));
+                        }
+                    } else if endpoint_version == V1 {
+                        // Do nothing
+                    } else {
+                        return Err(unsupported_version_rejection(endpoint_version));
+                    }
+                    //TODO(electra) pass the index into the next method.
                     not_synced_filter?;
                     chain
                         .get_aggregated_attestation_by_slot_and_root(

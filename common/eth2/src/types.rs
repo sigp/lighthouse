@@ -765,6 +765,8 @@ pub struct ValidatorAttestationDataQuery {
 pub struct ValidatorAggregateAttestationQuery {
     pub attestation_data_root: Hash256,
     pub slot: Slot,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committee_index: Option<CommitteeIndex>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]

@@ -2179,8 +2179,8 @@ impl BeaconNodeHttpClient {
         self.get_with_timeout(path, self.timeouts.attestation).await
     }
 
-    /// `GET validator/aggregate_attestation?slot,attestation_data_root`
-    pub async fn get_validator_aggregate_attestation<E: EthSpec>(
+    /// `GET v1/validator/aggregate_attestation?slot,attestation_data_root`
+    pub async fn get_validator_aggregate_attestation_v1<E: EthSpec>(
         &self,
         slot: Slot,
         attestation_data_root: Hash256,
@@ -2198,6 +2198,32 @@ impl BeaconNodeHttpClient {
                 "attestation_data_root",
                 &format!("{:?}", attestation_data_root),
             );
+
+        self.get_opt_with_timeout(path, self.timeouts.attestation)
+            .await
+    }
+
+    /// `GET v2/validator/aggregate_attestation?slot,attestation_data_root,committee_index`
+    pub async fn get_validator_aggregate_attestation_v2<E: EthSpec>(
+        &self,
+        slot: Slot,
+        attestation_data_root: Hash256,
+        committee_index: CommitteeIndex,
+    ) -> Result<Option<GenericResponse<Attestation<E>>>, Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("aggregate_attestation");
+
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string())
+            .append_pair(
+                "attestation_data_root",
+                &format!("{:?}", attestation_data_root),
+            )
+            .append_pair("committee_index", &committee_index.to_string());
 
         self.get_opt_with_timeout(path, self.timeouts.attestation)
             .await
