@@ -1228,10 +1228,7 @@ async fn attesting_to_optimistic_head() {
     let get_aggregated_by_slot_and_root = || {
         rig.harness
             .chain
-            .get_aggregated_attestation_by_slot_and_root(
-                attestation.data().slot,
-                &attestation.data().tree_hash_root(),
-            )
+            .get_aggregated_attestation_base(attestation.data())
     };
 
     /*
