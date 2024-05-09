@@ -1616,7 +1616,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         data: &AttestationData,
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
-        let attestation_key = crate::naive_aggregation_pool::AttestationKey::new_base(data.clone());
+        let attestation_key = crate::naive_aggregation_pool::AttestationKey::new_base(data);
         if let Some(attestation) = self.naive_aggregation_pool.read().get(&attestation_key) {
             self.filter_optimistic_attestation(attestation)
                 .map(Option::Some)
@@ -1631,10 +1631,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         data: &AttestationData,
         committee_index: CommitteeIndex,
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
-        let attestation_key = crate::naive_aggregation_pool::AttestationKey::new_electra(
-            data.clone(),
-            committee_index,
-        );
+        let attestation_key =
+            crate::naive_aggregation_pool::AttestationKey::new_electra(data, committee_index);
         if let Some(attestation) = self.naive_aggregation_pool.read().get(&attestation_key) {
             self.filter_optimistic_attestation(attestation)
                 .map(Option::Some)
@@ -1647,16 +1645,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `attestation.data.tree_hash_root()`.
     ///
     /// The attestation will be obtained from `self.naive_aggregation_pool`.
-    pub fn get_aggregated_attestation_by_slot_and_root(
+    ///
+    /// NOTE: This function will *only* work with pre-electra attestations and it only
+    ///       exists to support the pre-electra validator API method.
+    pub fn get_pre_electra_aggregated_attestation_by_slot_and_root(
         &self,
         slot: Slot,
         attestation_data_root: &Hash256,
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
-        if let Some(attestation) = self
-            .naive_aggregation_pool
-            .read()
-            .get_by_slot_and_root(slot, attestation_data_root)
-        {
+        let attestation_key =
+            crate::naive_aggregation_pool::AttestationKey::new_base_from_slot_and_root(
+                slot,
+                *attestation_data_root,
+            );
+
+        if let Some(attestation) = self.naive_aggregation_pool.read().get(&attestation_key) {
             self.filter_optimistic_attestation(attestation)
                 .map(Option::Some)
         } else {

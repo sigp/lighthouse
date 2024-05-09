@@ -17,7 +17,7 @@ type SyncDataRoot = Hash256;
 /// Post-Electra, we need a new key for Attestations that includes the committee index
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttestationKey {
-    data: AttestationData,
+    data_root: Hash256,
     committee_index: Option<u64>,
     slot: Slot,
 }
@@ -41,14 +41,13 @@ impl TreeHash for AttestationKey {
     }
 
     fn tree_hash_root(&self) -> Hash256 {
-        let data_hash = self.data.tree_hash_root();
         match self.committee_index {
-            None => data_hash, // Return just the data hash if no committee index is present
+            None => self.data_root, // Return just the data root if no committee index is present
             Some(index) => {
                 // Combine the hash of the data with the hash of the index
                 let mut hasher = MerkleHasher::with_leaves(2);
                 hasher
-                    .write(data_hash.as_bytes())
+                    .write(self.data_root.as_bytes())
                     .expect("should write data hash");
                 hasher
                     .write(&index.to_le_bytes())
@@ -64,7 +63,7 @@ impl AttestationKey {
         let slot = attestation.data().slot;
         match attestation {
             AttestationRef::Base(att) => Ok(Self {
-                data: att.data.clone(),
+                data_root: att.data.tree_hash_root(),
                 committee_index: None,
                 slot,
             }),
@@ -79,7 +78,7 @@ impl AttestationKey {
                     .ok_or(Error::NoCommitteeBitSet)?;
 
                 Ok(Self {
-                    data: att.data.clone(),
+                    data_root: att.data.tree_hash_root(),
                     committee_index: Some(committee_index as u64),
                     slot,
                 })
@@ -87,20 +86,28 @@ impl AttestationKey {
         }
     }
 
-    pub fn new_base(data: AttestationData) -> Self {
+    pub fn new_base(data: &AttestationData) -> Self {
         let slot = data.slot;
         Self {
-            data,
+            data_root: data.tree_hash_root(),
             committee_index: None,
             slot,
         }
     }
 
-    pub fn new_electra(data: AttestationData, committee_index: u64) -> Self {
+    pub fn new_electra(data: &AttestationData, committee_index: u64) -> Self {
         let slot = data.slot;
         Self {
-            data,
+            data_root: data.tree_hash_root(),
             committee_index: Some(committee_index),
+            slot,
+        }
+    }
+
+    pub fn new_base_from_slot_and_root(slot: Slot, data_root: Hash256) -> Self {
+        Self {
+            data_root,
+            committee_index: None,
             slot,
         }
     }
@@ -193,9 +200,6 @@ where
 
     /// Get a reference to the inner `HashMap`.
     fn get_map(&self) -> &HashMap<Self::Key, Self::Value>;
-
-    /// Get a `Value` from `Self` based on `Key`, which is a hash of `Data`.
-    fn get_by_root(&self, root: &Self::Key) -> Option<&Self::Value>;
 
     /// The number of items store in `Self`.
     fn len(&self) -> usize;
@@ -297,11 +301,6 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
 
     fn get_map(&self) -> &HashMap<Self::Key, Self::Value> {
         &self.map
-    }
-
-    /// Returns an aggregated `Attestation` with the given `root`, if any.
-    fn get_by_root(&self, root: &Self::Key) -> Option<&Self::Value> {
-        self.map.get(root)
     }
 
     fn len(&self) -> usize {
@@ -408,11 +407,6 @@ impl<E: EthSpec> AggregateMap for SyncContributionAggregateMap<E> {
 
     fn get_map(&self) -> &HashMap<SyncDataRoot, SyncCommitteeContribution<E>> {
         &self.map
-    }
-
-    /// Returns an aggregated `SyncCommitteeContribution` with the given `root`, if any.
-    fn get_by_root(&self, root: &SyncDataRoot) -> Option<&SyncCommitteeContribution<E>> {
-        self.map.get(root)
     }
 
     fn len(&self) -> usize {
@@ -547,13 +541,6 @@ where
         self.maps
             .get(&data.get_slot())
             .and_then(|map| map.get(data))
-    }
-
-    /// Returns an aggregated `T::Value` with the given `slot` and `root`, if any.
-    pub fn get_by_slot_and_root(&self, slot: Slot, root: &T::Key) -> Option<T::Value> {
-        self.maps
-            .get(&slot)
-            .and_then(|map| map.get_by_root(root).cloned())
     }
 
     /// Iterate all items in all slots of `self`.
