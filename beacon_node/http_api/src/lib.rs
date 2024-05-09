@@ -3205,7 +3205,7 @@ pub fn serve<T: BeaconChainTypes>(
                     //TODO(electra) pass the index into the next method.
                     not_synced_filter?;
                     chain
-                        .get_aggregated_attestation_by_slot_and_root(
+                        .get_pre_electra_aggregated_attestation_by_slot_and_root(
                             query.slot,
                             &query.attestation_data_root,
                         )
