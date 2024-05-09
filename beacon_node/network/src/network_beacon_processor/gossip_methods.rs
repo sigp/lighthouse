@@ -1277,8 +1277,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             if self
                 .chain
                 .spec
-                .peer_das_epoch
-                .map_or(false, |peer_das_epoch| block.epoch() >= peer_das_epoch)
+                .eip7594_fork_epoch
+                .map_or(false, |eip7594_fork_epoch| {
+                    block.epoch() >= eip7594_fork_epoch
+                })
             {
                 self.send_sync_message(SyncMessage::SampleBlock(block_root, block.slot()));
             }

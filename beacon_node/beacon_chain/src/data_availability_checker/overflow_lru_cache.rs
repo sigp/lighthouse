@@ -792,8 +792,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         let peer_das_enabled = self
             .spec
-            .peer_das_epoch
-            .map_or(false, |peer_das_epoch| epoch >= peer_das_epoch);
+            .eip7594_fork_epoch
+            .map_or(false, |eip7594_fork_epoch| epoch >= eip7594_fork_epoch);
         if peer_das_enabled {
             Ok(BlockImportRequirement::CustodyColumns(
                 self.custody_column_count,

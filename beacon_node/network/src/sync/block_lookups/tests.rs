@@ -102,7 +102,7 @@ impl TestRig {
 
         if let Some(config) = config {
             if config.peer_das_enabled {
-                spec.peer_das_epoch = Some(Epoch::new(0));
+                spec.eip7594_fork_epoch = Some(Epoch::new(0));
             }
         }
 
