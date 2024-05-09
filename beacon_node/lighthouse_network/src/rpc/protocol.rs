@@ -382,6 +382,7 @@ impl SupportedProtocol {
                 ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
                 // TODO(das): add to PeerDAS fork
                 ProtocolId::new(SupportedProtocol::DataColumnsByRootV1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
         supported
@@ -704,7 +705,7 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             InboundRequest::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
-            InboundRequest::DataColumnsByRange(req) => req.data_column_ids.len() as u64,
+            InboundRequest::DataColumnsByRange(req) => req.max_requested::<E>(),
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,

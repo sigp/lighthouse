@@ -47,7 +47,7 @@ use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
     BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
 };
-use crate::sync::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
+use crate::sync::block_sidecar_coupling::RangeBlockComponentsRequest;
 use crate::sync::network_context::PeerGroup;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -1135,7 +1135,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.network.insert_range_blocks_and_blobs_request(
                         id,
                         resp.sender_id,
-                        BlocksAndBlobsRequestInfo::new(resp.request_type),
+                        RangeBlockComponentsRequest::new(
+                            resp.expects_blobs,
+                            resp.expects_custody_columns,
+                        ),
                     );
                     // inform range that the request needs to be treated as failed
                     // With time we will want to downgrade this log
