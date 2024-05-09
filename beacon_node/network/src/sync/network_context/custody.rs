@@ -44,6 +44,8 @@ pub enum Error {
     NoPeers(ColumnIndex),
 }
 
+type CustodyRequestResult<E> = Result<Option<(Vec<CustodyDataColumn<E>>, PeerGroup)>, Error>;
+
 impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn new(
         block_root: Hash256,
@@ -80,7 +82,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         column_index: ColumnIndex,
         resp: RpcProcessingResult<DataColumnSidecarList<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Result<Option<(Vec<CustodyDataColumn<T::EthSpec>>, PeerGroup)>, Error> {
+    ) -> CustodyRequestResult<T::EthSpec> {
         // TODO(das): Should downscore peers for verify errors here
 
         let Some(request) = self.column_requests.get_mut(&column_index) else {
@@ -127,7 +129,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn continue_requests(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Result<Option<(Vec<CustodyDataColumn<T::EthSpec>>, PeerGroup)>, Error> {
+    ) -> CustodyRequestResult<T::EthSpec> {
         // First check if sampling is completed, by computing `required_successes`
         let mut successes = 0;
 

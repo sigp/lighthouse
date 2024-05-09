@@ -550,7 +550,7 @@ impl TestRig {
         let peer_id = PeerId::random();
         let slot = block.slot();
         let block_root = block.canonical_root();
-        self.single_lookup_block_response(id, peer_id, Some(block.into()));
+        self.single_lookup_block_response(id, peer_id, Some(block));
         self.single_lookup_block_response(id, peer_id, None);
         // Expect processing and resolve with import
         self.expect_block_process(ResponseType::Block);
@@ -1633,10 +1633,10 @@ fn custody_lookup_happy_path() {
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
     // Should not request blobs
     let id = r.expect_block_lookup_request(block.canonical_root());
+    r.complete_valid_block_request(id, block.into(), true);
     // TODO(das): do not hardcode 4
     let custody_ids = r.expect_only_data_columns_by_root_requests(block_root, 4);
-    r.complete_valid_custody_request(custody_ids, data_columns, true);
-    r.complete_valid_block_request(id, block.into(), false);
+    r.complete_valid_custody_request(custody_ids, data_columns, false);
     r.expect_no_active_lookups();
 }
 
