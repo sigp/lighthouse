@@ -14,6 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
+use types::ForkName;
 use types::{
     attestation::AttestationBase, AggregateSignature, Attestation, AttestationData, BitList,
     ChainSpec, CommitteeIndex, EthSpec, Slot,
@@ -290,17 +291,21 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             // Then download, sign and publish a `SignedAggregateAndProof` for each
             // validator that is elected to aggregate for this `slot` and
             // `committee_index`.
-            self.produce_and_publish_aggregates(&attestation_data, &validator_duties)
-                .await
-                .map_err(move |e| {
-                    crit!(
-                        log,
-                        "Error during attestation routine";
-                        "error" => format!("{:?}", e),
-                        "committee_index" => committee_index,
-                        "slot" => slot.as_u64(),
-                    )
-                })?;
+            self.produce_and_publish_aggregates(
+                &attestation_data,
+                committee_index,
+                &validator_duties,
+            )
+            .await
+            .map_err(move |e| {
+                crit!(
+                    log,
+                    "Error during attestation routine";
+                    "error" => format!("{:?}", e),
+                    "committee_index" => committee_index,
+                    "slot" => slot.as_u64(),
+                )
+            })?;
         }
 
         Ok(())
@@ -493,6 +498,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     async fn produce_and_publish_aggregates(
         &self,
         attestation_data: &AttestationData,
+        committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
     ) -> Result<(), String> {
         let log = self.context.log();
@@ -505,6 +511,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             return Ok(());
         }
 
+        let fork_name = self
+            .context
+            .eth2_config
+            .spec
+            .fork_name_at_slot::<E>(attestation_data.slot);
+
         let aggregated_attestation = &self
             .beacon_nodes
             .first_success(
@@ -515,12 +527,24 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         &metrics::ATTESTATION_SERVICE_TIMES,
                         &[metrics::AGGREGATES_HTTP_GET],
                     );
-                    beacon_node
-                        .get_validator_aggregate_attestation(
-                            attestation_data.slot,
-                            attestation_data.tree_hash_root(),
-                        )
-                        .await
+                    let aggregate_attestation_result = if fork_name >= ForkName::Electra {
+                        beacon_node
+                            .get_validator_aggregate_attestation_v2(
+                                attestation_data.slot,
+                                attestation_data.tree_hash_root(),
+                                committee_index,
+                            )
+                            .await
+                    } else {
+                        beacon_node
+                            .get_validator_aggregate_attestation_v1(
+                                attestation_data.slot,
+                                attestation_data.tree_hash_root(),
+                            )
+                            .await
+                    };
+
+                    aggregate_attestation_result
                         .map_err(|e| {
                             format!("Failed to produce an aggregate attestation: {:?}", e)
                         })?
