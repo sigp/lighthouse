@@ -15,7 +15,7 @@ use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
 const END_EPOCH: u64 = 16;
-const GENESIS_DELAY: u64 = 32;
+const GENESIS_DELAY: u64 = 60;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 1;
