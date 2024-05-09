@@ -20,7 +20,7 @@ pub fn initiate_validator_exit<E: EthSpec>(
 
     // Compute exit queue epoch
     let exit_queue_epoch = if state.fork_name_unchecked() >= ForkName::Electra {
-        let effective_balance = state.get_validator(index)?.effective_balance;
+        let effective_balance = state.get_effective_balance(index)?;
         state.compute_exit_epoch_and_update_churn(effective_balance, spec)?
     } else {
         let delayed_epoch = state.compute_activation_exit_epoch(state.current_epoch(), spec)?;

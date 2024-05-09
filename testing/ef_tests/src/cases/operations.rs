@@ -290,7 +290,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair
+        fork_name >= ForkName::Bellatrix
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -331,7 +331,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair
+        fork_name >= ForkName::Bellatrix
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -383,9 +383,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base
-            && fork_name != ForkName::Altair
-            && fork_name != ForkName::Bellatrix
+        fork_name >= ForkName::Capella
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -417,9 +415,7 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base
-            && fork_name != ForkName::Altair
-            && fork_name != ForkName::Bellatrix
+        fork_name >= ForkName::Capella
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
