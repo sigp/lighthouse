@@ -3191,7 +3191,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
                     chain
-                        .get_pre_electra_aggregated_attestation_by_slot_and_root(
+                        .get_aggregated_attestation_by_slot_and_root(
                             query.slot,
                             &query.attestation_data_root,
                         )

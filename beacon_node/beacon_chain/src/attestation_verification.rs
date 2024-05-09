@@ -1309,11 +1309,10 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
                 attesting_indices_electra::get_indexed_attestation(&committees, att)
                     .map(|attestation| (attestation, committees_per_slot))
                     .map_err(|e| {
-                        let index = att.committee_index();
-                        if e == BlockOperationError::BeaconStateError(NoCommitteeFound(index)) {
+                        if e == BlockOperationError::BeaconStateError(NoCommitteeFound) {
                             Error::NoCommitteeForSlotAndIndex {
                                 slot: att.data.slot,
-                                index,
+                                index: att.committee_index(),
                             }
                         } else {
                             Error::Invalid(e)

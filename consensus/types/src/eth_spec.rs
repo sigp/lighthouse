@@ -408,8 +408,6 @@ impl EthSpec for MainnetEthSpec {
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
-    type MaxCommitteesPerSlot = U4;
-    type MaxValidatorsPerSlot = U8192;
     type SlotsPerEpoch = U8;
     type EpochsPerEth1VotingPeriod = U4;
     type SlotsPerHistoricalRoot = U64;
@@ -434,6 +432,8 @@ impl EthSpec for MinimalEthSpec {
         SubnetBitfieldLength,
         SyncCommitteeSubnetCount,
         MaxValidatorsPerCommittee,
+        MaxCommitteesPerSlot,
+        MaxValidatorsPerSlot,
         GenesisEpoch,
         HistoricalRootsLimit,
         ValidatorRegistryLimit,
