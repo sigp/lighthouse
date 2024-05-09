@@ -219,6 +219,7 @@ mod ssz_static {
     use types::historical_summary::HistoricalSummary;
     use types::{AttesterSlashingBase, AttesterSlashingElectra, LightClientBootstrapAltair, *};
 
+    ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
     ssz_static_test!(attestation, Attestation<_>);
     ssz_static_test!(attestation_data, AttestationData);
     ssz_static_test!(beacon_block, SszStaticWithSpecHandler, BeaconBlock<_>);
@@ -248,7 +249,7 @@ mod ssz_static {
     ssz_static_test!(voluntary_exit, VoluntaryExit);
 
     #[test]
-    fn attester_slashing() {
+    fn signed_aggregate_and_proof() {
         SszStaticHandler::<AttesterSlashingBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra()
             .run();
         SszStaticHandler::<AttesterSlashingBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra()
@@ -257,36 +258,6 @@ mod ssz_static {
             .run();
         SszStaticHandler::<AttesterSlashingElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
             .run();
-    }
-
-    #[test]
-    fn signed_aggregate_and_proof() {
-        SszStaticHandler::<SignedAggregateAndProofBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra(
-        )
-        .run();
-        SszStaticHandler::<SignedAggregateAndProofBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra(
-        )
-        .run();
-        SszStaticHandler::<SignedAggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
-        )
-        .run();
-        SszStaticHandler::<SignedAggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
-        )
-        .run();
-    }
-
-    #[test]
-    fn aggregate_and_proof() {
-        SszStaticHandler::<AggregateAndProofBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra()
-            .run();
-        SszStaticHandler::<AggregateAndProofBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra()
-            .run();
-        SszStaticHandler::<AggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
-        )
-        .run();
-        SszStaticHandler::<AggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
-        )
-        .run();
     }
 
     // BeaconBlockBody has no internal indicator of which fork it is for, so we test it separately.
@@ -310,6 +281,22 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
+    }
+
+    #[test]
+    fn signed_aggregate_and_proof() {
+        SszStaticHandler::<SignedAggregateAndProofBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra(
+        )
+        .run();
+        SszStaticHandler::<SignedAggregateAndProofBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra(
+        )
+        .run();
+        SszStaticHandler::<SignedAggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
+        )
+        .run();
+        SszStaticHandler::<SignedAggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
+        )
+        .run();
     }
 
     // Altair and later

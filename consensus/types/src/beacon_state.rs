@@ -159,8 +159,7 @@ pub enum Error {
     IndexNotSupported(usize),
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
-    NoCommitteeFound(CommitteeIndex),
-    InvalidCommitteeIndex(CommitteeIndex),
+    NoCommitteeFound,
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
