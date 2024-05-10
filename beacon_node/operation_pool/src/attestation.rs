@@ -144,6 +144,13 @@ impl<'a, E: EthSpec> MaxCover for AttMaxCover<'a, E> {
     /// because including two attestations on chain to satisfy different participation bits is
     /// impossible without the validator double voting. I.e. it is only suboptimal in the presence
     /// of slashable voting, which is rare.
+    ///
+    /// Post-Electra this optimisation is still OK. The `self.att.data.index` will always be 0 for
+    /// all Electra attestations, so when a new attestation is added to the solution, we will
+    /// remove its validators from all attestations at the same slot. It may happen that the
+    /// included attestation and the attestation being updated have no validators in common, in
+    /// which case the `retain` will be a no-op. We could consider optimising this in future by only
+    /// executing the `retain` when the `committee_bits` of the two attestations intersect.
     fn update_covering_set(
         &mut self,
         best_att: &AttestationRef<'a, E>,
