@@ -549,16 +549,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
                 RPCResponseErrorCode::RateLimited => match protocol {
-                    Protocol::Ping => PeerAction::MidToleranceError,
-                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
-                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
-                    Protocol::BlobsByRange => PeerAction::MidToleranceError,
-                    Protocol::LightClientBootstrap => PeerAction::LowToleranceError,
-                    Protocol::BlobsByRoot => PeerAction::MidToleranceError,
-                    Protocol::Goodbye => PeerAction::LowToleranceError,
-                    Protocol::MetaData => PeerAction::LowToleranceError,
-                    Protocol::Status => PeerAction::LowToleranceError,
-                },
+                    Protocol::Ping | Protocol::BlocksByRange | Protocol::BlocksByRoot | Protocol::BlobsByRange | Protocol::BlobsByRoot => PeerAction::MidToleranceError,
+                    Protocol::LightClientBootstrap | Protocol::Goodbye | Protocol::MetaData | Protocol::Status => PeerAction::LowToleranceError,
+                }
+                ,
                 RPCResponseErrorCode::BlobsNotFoundForBlock => PeerAction::LowToleranceError,
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
@@ -568,16 +562,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // communicating.
 
                 match protocol {
-                    Protocol::Ping => PeerAction::Fatal,
-                    Protocol::BlocksByRange => return,
-                    Protocol::BlocksByRoot => return,
-                    Protocol::BlobsByRange => return,
-                    Protocol::BlobsByRoot => return,
-                    Protocol::Goodbye => return,
-                    Protocol::LightClientBootstrap => return,
-                    Protocol::MetaData => PeerAction::Fatal,
-                    Protocol::Status => PeerAction::Fatal,
+                    Protocol::Ping | Protocol::MetaData | Protocol::Status => PeerAction::Fatal,
+                    Protocol::BlocksByRange | Protocol::BlocksByRoot | Protocol::BlobsByRange | Protocol::BlobsByRoot | Protocol::Goodbye | Protocol::LightClientBootstrap => return,
                 }
+                
             }
             RPCError::StreamTimeout => match direction {
                 ConnectionDirection::Incoming => {
@@ -587,14 +575,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 }
                 ConnectionDirection::Outgoing => match protocol {
                     Protocol::Ping => PeerAction::LowToleranceError,
-                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
-                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
-                    Protocol::BlobsByRange => PeerAction::MidToleranceError,
-                    Protocol::BlobsByRoot => PeerAction::MidToleranceError,
-                    Protocol::LightClientBootstrap => return,
-                    Protocol::Goodbye => return,
-                    Protocol::MetaData => return,
-                    Protocol::Status => return,
+                    Protocol::BlocksByRange | Protocol::BlocksByRoot | Protocol::BlobsByRange | Protocol::BlobsByRoot => PeerAction::MidToleranceError,
+                    Protocol::LightClientBootstrap | Protocol::Goodbye | Protocol::MetaData | Protocol::Status => return,
                 },
             },
             RPCError::NegotiationTimeout => PeerAction::LowToleranceError,

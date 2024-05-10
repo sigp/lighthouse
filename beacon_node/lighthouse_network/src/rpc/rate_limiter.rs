@@ -81,23 +81,23 @@ pub struct RPCRateLimiter {
     prune_interval: Interval,
     /// Creation time of the rate limiter.
     init_time: Instant,
-    /// Goodbye rate limiter.
+   
     goodbye_rl: Limiter<PeerId>,
-    /// Ping rate limiter.
+    
     ping_rl: Limiter<PeerId>,
-    /// MetaData rate limiter.
+    
     metadata_rl: Limiter<PeerId>,
-    /// Status rate limiter.
+    
     status_rl: Limiter<PeerId>,
-    /// BlocksByRange rate limiter.
+    
     bbrange_rl: Limiter<PeerId>,
-    /// BlocksByRoot rate limiter.
+    
     bbroots_rl: Limiter<PeerId>,
-    /// BlobsByRange rate limiter.
+    
     blbrange_rl: Limiter<PeerId>,
-    /// BlobsByRoot rate limiter.
+    
     blbroot_rl: Limiter<PeerId>,
-    /// LightClientBootstrap rate limiter.
+   
     lcbootstrap_rl: Limiter<PeerId>,
 }
 

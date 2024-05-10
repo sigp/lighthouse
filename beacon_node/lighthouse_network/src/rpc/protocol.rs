@@ -147,28 +147,27 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, AsRefStr, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum Protocol {
-    /// The Status protocol name.
     Status,
-    /// The Goodbye protocol name.
+
     Goodbye,
-    /// The `BlocksByRange` protocol name.
+    
     #[strum(serialize = "beacon_blocks_by_range")]
     BlocksByRange,
-    /// The `BlocksByRoot` protocol name.
+    
     #[strum(serialize = "beacon_blocks_by_root")]
     BlocksByRoot,
-    /// The `BlobsByRange` protocol name.
+    
     #[strum(serialize = "blob_sidecars_by_range")]
     BlobsByRange,
-    /// The `BlobsByRoot` protocol name.
+    
     #[strum(serialize = "blob_sidecars_by_root")]
     BlobsByRoot,
-    /// The `Ping` protocol name.
+    
     Ping,
-    /// The `MetaData` protocol name.
+    
     #[strum(serialize = "metadata")]
     MetaData,
-    /// The `LightClientBootstrap` protocol name.
+    
     #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
 }
