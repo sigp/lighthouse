@@ -1625,14 +1625,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    // TODO(electra): call this function from the new beacon API method
     pub fn get_aggregated_attestation_electra(
         &self,
-        data: &AttestationData,
+        slot: Slot,
+        attestation_data_root: &Hash256,
         committee_index: CommitteeIndex,
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
-        let attestation_key =
-            crate::naive_aggregation_pool::AttestationKey::new_electra(data, committee_index);
+        let attestation_key = crate::naive_aggregation_pool::AttestationKey::new_electra(
+            slot,
+            *attestation_data_root,
+            committee_index,
+        );
         if let Some(attestation) = self.naive_aggregation_pool.read().get(&attestation_key) {
             self.filter_optimistic_attestation(attestation)
                 .map(Option::Some)
