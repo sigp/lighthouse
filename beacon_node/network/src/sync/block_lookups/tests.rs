@@ -5,7 +5,6 @@ use crate::sync::manager::{
     DataColumnsByRootRequestId, DataColumnsByRootRequester, RequestId as SyncRequestId,
     SingleLookupReqId, SyncManager,
 };
-use crate::sync::network_context::custody::CustodyRequester;
 use crate::sync::sampling::{SamplingConfig, SamplingRequester};
 use crate::sync::{SamplingId, SyncMessage};
 use crate::NetworkMessage;
@@ -102,7 +101,7 @@ impl TestRig {
 
         if let Some(config) = config {
             if config.peer_das_enabled {
-                spec.peer_das_epoch = Some(Epoch::new(0));
+                spec.eip7594_fork_epoch = Some(Epoch::new(0));
             }
         }
 
@@ -612,11 +611,7 @@ impl TestRig {
         let lookup_id = if let DataColumnsByRootRequester::Custody(id) =
             sampling_ids.first().unwrap().0.requester
         {
-            if let CustodyRequester::Lookup(id) = id.id {
-                id.lookup_id
-            } else {
-                panic!("not a lookup requester");
-            }
+            id.id.0.lookup_id
         } else {
             panic!("not a custody requester")
         };

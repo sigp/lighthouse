@@ -300,17 +300,17 @@ impl BlobsByRangeRequest {
 pub struct DataColumnsByRangeRequest {
     /// The starting slot to request data columns.
     pub start_slot: u64,
-
     /// The number of slots from the start slot.
     pub count: u64,
-
-    /// The list of beacon block roots and column indices being requested.
-    pub data_column_ids: Vec<DataColumnIdentifier>,
+    /// The list column indices being requested.
+    pub columns: Vec<ColumnIndex>,
 }
 
 impl DataColumnsByRangeRequest {
-    pub fn max_data_columns_requested<E: EthSpec>(&self) -> u64 {
-        self.count.saturating_mul(E::max_blobs_per_block() as u64)
+    pub fn max_requested<E: EthSpec>(&self) -> u64 {
+        self.count
+            .saturating_mul(E::max_blobs_per_block() as u64)
+            .saturating_mul(self.columns.len() as u64)
     }
 }
 

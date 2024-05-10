@@ -227,8 +227,8 @@ impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
             },
             OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
+            OutboundRequest::DataColumnsByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
-            OutboundRequest::DataColumnsByRange(req) => req.data_column_ids.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };
@@ -521,6 +521,9 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             })))
         }
+        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
+            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
         SupportedProtocol::DataColumnsByRootV1 => Ok(Some(InboundRequest::DataColumnsByRoot(
             DataColumnsByRootRequest {
                 data_column_ids: RuntimeVariableList::from_ssz_bytes(
@@ -528,9 +531,6 @@ fn handle_rpc_request<E: EthSpec>(
                     spec.max_request_data_column_sidecars as usize,
                 )?,
             },
-        ))),
-        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
-            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
@@ -624,14 +624,14 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
-        SupportedProtocol::DataColumnsByRootV1 => match fork_name {
+        SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
             // TODO(das): update fork name
-            Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRange(Arc::new(
                 DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
             )))),
             Some(_) => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                "Invalid fork name for data columns by root".to_string(),
+                "Invalid fork name for data columns by range".to_string(),
             )),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
@@ -641,14 +641,14 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
-        SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
+        SupportedProtocol::DataColumnsByRootV1 => match fork_name {
             // TODO(das): update fork name
-            Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRange(Arc::new(
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
                 DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
             )))),
             Some(_) => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                "Invalid fork name for data columns by range".to_string(),
+                "Invalid fork name for data columns by root".to_string(),
             )),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
@@ -1066,11 +1066,11 @@ mod tests {
             OutboundRequest::BlobsByRoot(bbroot) => {
                 assert_eq!(decoded, InboundRequest::BlobsByRoot(bbroot))
             }
+            OutboundRequest::DataColumnsByRange(value) => {
+                assert_eq!(decoded, InboundRequest::DataColumnsByRange(value))
+            }
             OutboundRequest::DataColumnsByRoot(dcbroot) => {
                 assert_eq!(decoded, InboundRequest::DataColumnsByRoot(dcbroot))
-            }
-            OutboundRequest::DataColumnsByRange(dcbrange) => {
-                assert_eq!(decoded, InboundRequest::DataColumnsByRange(dcbrange))
             }
             OutboundRequest::Ping(ping) => {
                 assert_eq!(decoded, InboundRequest::Ping(ping))

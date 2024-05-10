@@ -420,14 +420,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Determines the blob requirements for a block. If the block is pre-deneb, no blobs are required.
     /// If the epoch is from prior to the data availability boundary, no blobs are required.
     pub fn blobs_required_for_epoch(&self, epoch: Epoch) -> bool {
-        self.da_check_required_for_epoch(epoch) && !self.is_peer_das_enabled_for_epoch(epoch)
+        self.da_check_required_for_epoch(epoch) && !self.spec.is_peer_das_enabled_for_epoch(epoch)
     }
 
     /// Determines the data column requirements for an epoch.
     /// - If the epoch is pre-peerdas, no data columns are required.
     /// - If the epoch is from prior to the data availability boundary, no data columns are required.
     pub fn data_columns_required_for_epoch(&self, epoch: Epoch) -> bool {
-        self.da_check_required_for_epoch(epoch) && self.is_peer_das_enabled_for_epoch(epoch)
+        self.da_check_required_for_epoch(epoch) && self.spec.is_peer_das_enabled_for_epoch(epoch)
     }
 
     /// See `Self::blobs_required_for_epoch`
@@ -438,13 +438,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// See `Self::data_columns_required_for_epoch`
     fn data_columns_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
         block.num_expected_blobs() > 0 && self.data_columns_required_for_epoch(block.epoch())
-    }
-
-    /// Returns true if the given epoch is greater than or equal to the `PEER_DAS_EPOCH`.
-    fn is_peer_das_enabled_for_epoch(&self, block_epoch: Epoch) -> bool {
-        self.spec
-            .peer_das_epoch
-            .map_or(false, |peer_das_epoch| block_epoch >= peer_das_epoch)
     }
 
     /// The epoch at which we require a data availability check in block processing.

@@ -154,6 +154,33 @@ impl<E: EthSpec> RpcBlock<E> {
         })
     }
 
+    pub fn new_with_custody_columns(
+        block_root: Option<Hash256>,
+        block: Arc<SignedBeaconBlock<E>>,
+        custody_columns: Vec<CustodyDataColumn<E>>,
+    ) -> Result<Self, AvailabilityCheckError> {
+        let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
+
+        if block.num_expected_blobs() > 0 && custody_columns.is_empty() {
+            // The number of required custody columns is out of scope here.
+            return Err(AvailabilityCheckError::MissingCustodyColumns);
+        }
+        // Treat empty blob lists as if they are missing.
+        let inner = if custody_columns.is_empty() {
+            RpcBlockInner::BlockAndCustodyColumns(
+                block,
+                VariableList::new(custody_columns)
+                    .expect("TODO(das): custody vec should never exceed len"),
+            )
+        } else {
+            RpcBlockInner::Block(block)
+        };
+        Ok(Self {
+            block_root,
+            block: inner,
+        })
+    }
+
     pub fn new_from_fixed(
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,

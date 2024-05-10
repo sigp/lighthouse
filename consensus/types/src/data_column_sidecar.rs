@@ -1,10 +1,10 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::test_utils::TestRandom;
-use crate::BeaconStateError;
 use crate::{
-    BeaconBlockHeader, BlobSidecarList, EthSpec, Hash256, KzgProofs, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    BeaconBlockHeader, EthSpec, Hash256, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader,
+    Slot,
 };
+use crate::{BeaconStateError, BlobsList};
 use bls::Signature;
 use derivative::Derivative;
 #[cfg_attr(test, double)]
@@ -83,7 +83,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
     }
 
     pub fn build_sidecars(
-        blobs: &BlobSidecarList<E>,
+        blobs: &BlobsList<E>,
         block: &SignedBeaconBlock<E>,
         kzg: &Kzg,
     ) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
@@ -106,7 +106,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
 
         // NOTE: assumes blob sidecars are ordered by index
         for blob in blobs {
-            let blob = KzgBlob::from_bytes(&blob.blob).map_err(KzgError::from)?;
+            let blob = KzgBlob::from_bytes(blob).map_err(KzgError::from)?;
             let (blob_cells, blob_cell_proofs) = kzg.compute_cells_and_proofs(&blob)?;
 
             // we iterate over each column, and we construct the column from "top to bottom",
@@ -279,11 +279,11 @@ mod test {
     use crate::beacon_block_body::KzgCommitments;
     use crate::eth_spec::EthSpec;
     use crate::{
-        BeaconBlock, BeaconBlockDeneb, Blob, BlobSidecar, BlobSidecarList, ChainSpec,
-        DataColumnSidecar, MainnetEthSpec, SignedBeaconBlock,
+        BeaconBlock, BeaconBlockDeneb, Blob, ChainSpec, DataColumnSidecar, MainnetEthSpec,
+        SignedBeaconBlock,
     };
     use bls::Signature;
-    use kzg::{KzgCommitment, KzgProof};
+    use kzg::KzgCommitment;
     use std::sync::Arc;
 
     #[test]
@@ -291,8 +291,7 @@ mod test {
         type E = MainnetEthSpec;
         let num_of_blobs = 0;
         let spec = E::default_spec();
-        let (signed_block, blob_sidecars) =
-            create_test_block_and_blob_sidecars::<E>(num_of_blobs, &spec);
+        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, &spec);
 
         let mock_kzg = Arc::new(Kzg::default());
         let column_sidecars =
@@ -306,8 +305,7 @@ mod test {
         type E = MainnetEthSpec;
         let num_of_blobs = 6;
         let spec = E::default_spec();
-        let (signed_block, blob_sidecars) =
-            create_test_block_and_blob_sidecars::<E>(num_of_blobs, &spec);
+        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, &spec);
 
         let mut mock_kzg = Kzg::default();
         mock_kzg
@@ -345,10 +343,10 @@ mod test {
         }
     }
 
-    fn create_test_block_and_blob_sidecars<E: EthSpec>(
+    fn create_test_block_and_blobs<E: EthSpec>(
         num_of_blobs: usize,
         spec: &ChainSpec,
-    ) -> (SignedBeaconBlock<E>, BlobSidecarList<E>) {
+    ) -> (SignedBeaconBlock<E>, BlobsList<E>) {
         let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec));
         let mut body = block.body_mut();
         let blob_kzg_commitments = body.blob_kzg_commitments_mut().unwrap();
@@ -358,20 +356,11 @@ mod test {
 
         let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
 
-        let sidecars = (0..num_of_blobs)
-            .map(|index| {
-                BlobSidecar::new(
-                    index,
-                    Blob::<E>::default(),
-                    &signed_block,
-                    KzgProof::empty(),
-                )
-                .map(Arc::new)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap()
+        let blobs = (0..num_of_blobs)
+            .map(|_| Blob::<E>::default())
+            .collect::<Vec<_>>()
             .into();
 
-        (signed_block, sidecars)
+        (signed_block, blobs)
     }
 }

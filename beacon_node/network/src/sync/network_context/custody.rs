@@ -1,4 +1,4 @@
-use crate::sync::manager::{Id, SingleLookupReqId};
+use crate::sync::manager::SingleLookupReqId;
 
 use self::request::ActiveColumnSampleRequest;
 use beacon_chain::data_column_verification::CustodyDataColumn;
@@ -17,11 +17,10 @@ pub struct CustodyId {
     pub column_index: ColumnIndex,
 }
 
+/// Downstream components that perform custody by root requests.
+/// Currently, it's only single block lookups, so not using an enum
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum CustodyRequester {
-    Lookup(SingleLookupReqId),
-    RangeSync(Id),
-}
+pub struct CustodyRequester(pub SingleLookupReqId);
 
 type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
@@ -109,6 +108,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 } else {
                     // Peer does not have the requested data.
                     // TODO(das) what to do?
+                    // TODO(das): If the peer is in the lookup peer set it claims to have imported
+                    // the block AND its custody columns. So in this case we can downscore
                     debug!(self.log, "Sampling peer claims to not have the data"; "block_root" => %self.block_root, "column_index" => column_index);
                     // TODO(das) tolerate this failure if you are not sure the block has data
                     request.on_download_success()?;

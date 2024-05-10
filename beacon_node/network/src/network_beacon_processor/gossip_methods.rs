@@ -1158,6 +1158,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 return None;
             }
+            Err(e @ BlockError::BlobNotRequired(_)) => {
+                // TODO(das): penalty not implemented yet as other clients may still send us blobs
+                // during early stage of implementation.
+                debug!(self.log, "Received blobs for slot after PeerDAS epoch from peer";
+                    "error" => %e,
+                    "peer_id" => %peer_id,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);
@@ -1277,8 +1287,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             if self
                 .chain
                 .spec
-                .peer_das_epoch
-                .map_or(false, |peer_das_epoch| block.epoch() >= peer_das_epoch)
+                .eip7594_fork_epoch
+                .map_or(false, |eip7594_fork_epoch| {
+                    block.epoch() >= eip7594_fork_epoch
+                })
             {
                 self.send_sync_message(SyncMessage::SampleBlock(block_root, block.slot()));
             }

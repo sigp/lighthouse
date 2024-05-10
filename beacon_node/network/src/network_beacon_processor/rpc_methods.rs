@@ -14,12 +14,13 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
+use std::collections::HashSet;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
-use types::{Epoch, EthSpec, ForkName, Hash256, Slot};
+use types::{ColumnIndex, Epoch, EthSpec, ForkName, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -936,11 +937,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `DataColumnsByRange` request from the peer.
     pub fn handle_data_columns_by_range_request(
-        self: Arc<Self>,
+        &self,
         peer_id: PeerId,
         request_id: PeerRequestId,
         req: DataColumnsByRangeRequest,
     ) {
+        self.terminate_response_stream(
+            peer_id,
+            request_id,
+            self.handle_data_columns_by_range_request_inner(peer_id, request_id, req),
+            Response::DataColumnsByRange,
+        );
+    }
+
+    /// Handle a `DataColumnsByRange` request from the peer.
+    pub fn handle_data_columns_by_range_request_inner(
+        &self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        req: DataColumnsByRangeRequest,
+    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
         debug!(self.log, "Received DataColumnsByRange Request";
             "peer_id" => %peer_id,
             "count" => req.count,
@@ -948,15 +964,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request data columns
-        if req.max_data_columns_requested::<T::EthSpec>()
-            > self.chain.spec.max_request_data_column_sidecars
-        {
-            return self.send_error_response(
-                peer_id,
+        if req.max_requested::<T::EthSpec>() > self.chain.spec.max_request_data_column_sidecars {
+            return Err((
                 RPCResponseErrorCode::InvalidRequest,
-                "Request exceeded `MAX_REQUEST_DATA_COLUMN_SIDECARS`".into(),
-                request_id,
-            );
+                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
+            ));
         }
 
         let request_start_slot = Slot::from(req.start_slot);
@@ -965,13 +977,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
             None => {
                 debug!(self.log, "Deneb fork is disabled");
-                self.send_error_response(
-                    peer_id,
+                return Err((
                     RPCResponseErrorCode::InvalidRequest,
-                    "Deneb fork is disabled".into(),
-                    request_id,
-                );
-                return;
+                    "Deneb fork is disabled",
+                ));
             }
         };
 
@@ -992,19 +1001,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
 
             return if data_availability_boundary_slot < oldest_data_column_slot {
-                self.send_error_response(
-                    peer_id,
+                Err((
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "data columns pruned within boundary".into(),
-                    request_id,
-                )
+                    "blobs pruned within boundary",
+                ))
             } else {
-                self.send_error_response(
-                    peer_id,
+                Err((
                     RPCResponseErrorCode::InvalidRequest,
-                    "Req outside availability period".into(),
-                    request_id,
-                )
+                    "Req outside availability period",
+                ))
             };
         }
 
@@ -1021,25 +1026,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "requested_slot" => slot,
                         "oldest_known_slot" => oldest_block_slot
                     );
-                    return self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        "Backfilling".into(),
-                        request_id,
-                    );
+                    return Err((RPCResponseErrorCode::ResourceUnavailable, "Backfilling"));
                 }
                 Err(e) => {
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ServerError,
-                        "Database error".into(),
-                        request_id,
-                    );
-                    return error!(self.log, "Unable to obtain root iter";
+                    error!(self.log, "Unable to obtain root iter";
                         "request" => ?req,
                         "peer" => %peer_id,
                         "error" => ?e
                     );
+                    return Err((RPCResponseErrorCode::ServerError, "Database error"));
                 }
             };
 
@@ -1071,11 +1066,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,
             Err(e) => {
-                return error!(self.log, "Error during iteration over blocks";
+                error!(self.log, "Error during iteration over blocks";
                     "request" => ?req,
                     "peer" => %peer_id,
                     "error" => ?e
-                )
+                );
+                return Err((RPCResponseErrorCode::ServerError, "Database error"));
             }
         };
 
@@ -1083,23 +1079,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_roots = block_roots.into_iter().flatten();
 
         let mut data_columns_sent = 0;
-        let mut send_response = true;
+        let requested_column_indices =
+            HashSet::<ColumnIndex>::from_iter(req.columns.iter().copied());
 
         for root in block_roots {
             match self.chain.get_data_columns(&root) {
                 Ok(data_column_sidecar_list) => {
                     for data_column_sidecar in data_column_sidecar_list.iter() {
-                        for &data_column_id in req.data_column_ids.iter() {
-                            if data_column_sidecar.id() == data_column_id {
-                                data_columns_sent += 1;
-                                self.send_network_message(NetworkMessage::SendResponse {
-                                    peer_id,
-                                    response: Response::DataColumnsByRange(Some(
-                                        data_column_sidecar.clone(),
-                                    )),
-                                    id: request_id,
-                                });
-                            }
+                        if requested_column_indices.contains(&data_column_sidecar.index) {
+                            data_columns_sent += 1;
+                            self.send_network_message(NetworkMessage::SendResponse {
+                                peer_id,
+                                response: Response::DataColumnsByRange(Some(
+                                    data_column_sidecar.clone(),
+                                )),
+                                id: request_id,
+                            });
                         }
                     }
                 }
@@ -1112,14 +1107,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "block_root" => ?root,
                         "error" => ?e
                     );
-                    self.send_error_response(
-                        peer_id,
+                    return Err((
                         RPCResponseErrorCode::ServerError,
-                        "No data columns and failed fetching corresponding block".into(),
-                        request_id,
-                    );
-                    send_response = false;
-                    break;
+                        "No data columns and failed fetching corresponding block",
+                    ));
                 }
             }
         }
@@ -1139,14 +1130,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "returned" => data_columns_sent
         );
 
-        if send_response {
-            // send the stream terminator
-            self.send_network_message(NetworkMessage::SendResponse {
-                peer_id,
-                response: Response::DataColumnsByRange(None),
-                id: request_id,
-            });
-        }
+        Ok(())
     }
 
     /// Helper function to ensure single item protocol always end with either a single chunk or an

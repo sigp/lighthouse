@@ -9,7 +9,7 @@ use self::requests::{
 pub use self::requests::{
     BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest,
 };
-use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
+use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::{
     BlockProcessType, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
     RequestId as SyncRequestId,
@@ -25,7 +25,7 @@ use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::BlobsByRangeRequest;
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
 use lighthouse_network::{
     Client, Eth2Enr, NetworkGlobals, PeerAction, PeerId, ReportSource, Request,
@@ -40,7 +40,7 @@ use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSubnetId, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock,
+    SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -49,7 +49,8 @@ mod requests;
 pub struct BlocksAndBlobsByRangeResponse<E: EthSpec> {
     pub sender_id: RangeRequestId,
     pub responses: Result<Vec<RpcBlock<E>>, String>,
-    pub request_type: ByRangeRequestType,
+    pub expects_blobs: bool,
+    pub expects_custody_columns: Option<Vec<ColumnIndex>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -129,8 +130,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     custody_by_root_requests: FnvHashMap<CustodyRequester, ActiveCustodyRequest<T>>,
 
     /// BlocksByRange requests paired with BlobsByRange
-    range_blocks_and_blobs_requests:
-        FnvHashMap<Id, (RangeRequestId, BlocksAndBlobsRequestInfo<T::EthSpec>)>,
+    range_block_components_requests:
+        FnvHashMap<Id, (RangeRequestId, RangeBlockComponentsRequest<T::EthSpec>)>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
@@ -149,7 +150,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 pub enum BlockOrBlob<E: EthSpec> {
     Block(Option<Arc<SignedBeaconBlock<E>>>),
     Blob(Option<Arc<BlobSidecar<E>>>),
-    CustodyColumns(Option<CustodyDataColumn<E>>),
+    CustodyColumns(Option<Arc<DataColumnSidecar<E>>>),
 }
 
 impl<E: EthSpec> From<Option<Arc<SignedBeaconBlock<E>>>> for BlockOrBlob<E> {
@@ -179,7 +180,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blobs_by_root_requests: <_>::default(),
             data_columns_by_root_requests: <_>::default(),
             custody_by_root_requests: <_>::default(),
-            range_blocks_and_blobs_requests: FnvHashMap::default(),
+            range_block_components_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
             log,
@@ -253,33 +254,37 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    /// A blocks by range request for the range sync algorithm.
-    pub fn blocks_by_range_request(
+    /// A blocks by range request sent by the range sync algorithm
+    pub fn block_components_by_range_request(
         &mut self,
         peer_id: PeerId,
         batch_type: ByRangeRequestType,
         request: BlocksByRangeRequest,
+        sender_id: RangeRequestId,
     ) -> Result<Id, &'static str> {
+        let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
         let id = self.next_id();
-        trace!(
+        debug!(
             self.log,
             "Sending BlocksByRange request";
             "method" => "BlocksByRange",
             "count" => request.count(),
+            "epoch" => epoch,
             "peer" => %peer_id,
         );
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: Request::BlocksByRange(request.clone()),
-            request_id: RequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+            request_id: RequestId::Sync(SyncRequestId::RangeBlockComponents(id)),
         })?;
 
-        if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
+        let expected_blobs = if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
             debug!(
                 self.log,
                 "Sending BlobsByRange requests";
                 "method" => "BlobsByRange",
                 "count" => request.count(),
+                "epoch" => epoch,
                 "peer" => %peer_id,
             );
 
@@ -290,30 +295,64 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     start_slot: *request.start_slot(),
                     count: *request.count(),
                 }),
-                request_id: RequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                request_id: RequestId::Sync(SyncRequestId::RangeBlockComponents(id)),
             })?;
-        }
+            true
+        } else {
+            false
+        };
 
-        Ok(id)
-    }
+        let expects_custody_columns = if matches!(batch_type, ByRangeRequestType::BlocksAndColumns)
+        {
+            let custody_indexes = self.network_globals().custody_columns(epoch)?;
 
-    /// A blocks by range request sent by the range sync algorithm
-    pub fn blocks_and_blobs_by_range_request(
-        &mut self,
-        peer_id: PeerId,
-        batch_type: ByRangeRequestType,
-        request: BlocksByRangeRequest,
-        sender_id: RangeRequestId,
-    ) -> Result<Id, &'static str> {
-        let id = self.blocks_by_range_request(peer_id, batch_type, request)?;
-        self.range_blocks_and_blobs_requests
-            .insert(id, (sender_id, BlocksAndBlobsRequestInfo::new(batch_type)));
+            for column_index in &custody_indexes {
+                let custody_peer_ids = self.get_custodial_peers(epoch, *column_index);
+                let Some(custody_peer) = custody_peer_ids.first().cloned() else {
+                    // TODO(das): this will be pretty bad UX. To improve we should:
+                    // - Attempt to fetch custody requests first, before requesting blocks
+                    // - Handle the no peers case gracefully, maybe add some timeout and give a few
+                    //   minutes / seconds to the peer manager to locate peers on this subnet before
+                    //   abandoing progress on the chain completely.
+                    return Err("no custody peer");
+                };
+
+                debug!(
+                    self.log,
+                    "Sending DataColumnsByRange requests";
+                    "method" => "DataColumnsByRange",
+                    "count" => request.count(),
+                    "epoch" => epoch,
+                    "index" => column_index,
+                    "peer" => %custody_peer,
+                );
+
+                // Create the blob request based on the blocks request.
+                self.send_network_msg(NetworkMessage::SendRequest {
+                    peer_id: custody_peer,
+                    request: Request::DataColumnsByRange(DataColumnsByRangeRequest {
+                        start_slot: *request.start_slot(),
+                        count: *request.count(),
+                        columns: vec![*column_index],
+                    }),
+                    request_id: RequestId::Sync(SyncRequestId::RangeBlockComponents(id)),
+                })?;
+            }
+
+            Some(custody_indexes)
+        } else {
+            None
+        };
+
+        let info = RangeBlockComponentsRequest::new(expected_blobs, expects_custody_columns);
+        self.range_block_components_requests
+            .insert(id, (sender_id, info));
         Ok(id)
     }
 
     pub fn range_request_failed(&mut self, request_id: Id) -> Option<RangeRequestId> {
         let sender_id = self
-            .range_blocks_and_blobs_requests
+            .range_block_components_requests
             .remove(&request_id)
             .map(|(sender_id, _info)| sender_id);
         if let Some(sender_id) = sender_id {
@@ -337,22 +376,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: Id,
         block_or_blob: BlockOrBlob<T::EthSpec>,
     ) -> Option<BlocksAndBlobsByRangeResponse<T::EthSpec>> {
-        match self.range_blocks_and_blobs_requests.entry(request_id) {
+        match self.range_block_components_requests.entry(request_id) {
             Entry::Occupied(mut entry) => {
                 let (_, info) = entry.get_mut();
                 match block_or_blob {
                     BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
                     BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
-                    BlockOrBlob::CustodyColumns(column) => info.add_custody_column(column),
+                    BlockOrBlob::CustodyColumns(column) => info.add_data_column(column),
                 }
                 if info.is_finished() {
                     // If the request is finished, dequeue everything
                     let (sender_id, info) = entry.remove();
-                    let request_type = info.get_request_type();
+                    let (expects_blobs, expects_custody_columns) = info.get_requirements();
                     Some(BlocksAndBlobsByRangeResponse {
                         sender_id,
-                        request_type,
                         responses: info.into_responses(),
+                        expects_blobs,
+                        expects_custody_columns,
                     })
                 } else {
                     None
@@ -598,7 +638,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "id" => ?id
         );
 
-        let requester = CustodyRequester::Lookup(id);
+        let requester = CustodyRequester(id);
         let mut request = ActiveCustodyRequest::new(
             block_root,
             requester,
@@ -727,13 +767,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "To deal with alignment with deneb boundaries, batches need to be of just one epoch"
         );
 
-        if let Some(data_availability_boundary) = self.chain.data_availability_boundary() {
-            if epoch >= data_availability_boundary {
-                // TODO(das): After peerdas fork, return `BlocksAndColumns`
-                ByRangeRequestType::BlocksAndBlobs
-            } else {
-                ByRangeRequestType::Blocks
-            }
+        if self
+            .chain
+            .data_availability_checker
+            .data_columns_required_for_epoch(epoch)
+        {
+            ByRangeRequestType::BlocksAndColumns
+        } else if self
+            .chain
+            .data_availability_checker
+            .blobs_required_for_epoch(epoch)
+        {
+            ByRangeRequestType::BlocksAndBlobs
         } else {
             ByRangeRequestType::Blocks
         }
@@ -743,9 +788,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: Id,
         sender_id: RangeRequestId,
-        info: BlocksAndBlobsRequestInfo<T::EthSpec>,
+        info: RangeBlockComponentsRequest<T::EthSpec>,
     ) {
-        self.range_blocks_and_blobs_requests
+        self.range_block_components_requests
             .insert(id, (sender_id, info));
     }
 
