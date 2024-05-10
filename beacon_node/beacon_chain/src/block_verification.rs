@@ -99,9 +99,10 @@ use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecarList, ChainSpec, DataColumnSidecar,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecar,
     DataColumnSubnetId, Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork,
-    PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    KzgProofs, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 use types::{BlobSidecar, ExecPayload};
 
@@ -308,6 +309,14 @@ pub enum BlockError<E: EthSpec> {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
+    /// A Blob with a slot after PeerDAS is received and is not required to be imported.
+    /// This can happen because we stay subscribed to the blob subnet after 2 epochs, as we could
+    /// still receive valid blobs from a Deneb epoch after PeerDAS is activated.
+    ///
+    /// ## Peer scoring
+    ///
+    /// This indicates the peer is sending an unexpected gossip blob and should be penalised.
+    BlobNotRequired(Slot),
 }
 
 impl<E: EthSpec> From<AvailabilityCheckError> for BlockError<E> {
@@ -717,36 +726,15 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         let (block, blobs) = self.deconstruct();
+        let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
 
-        let gossip_verified_blobs = blobs
-            .map(|(kzg_proofs, blobs)| {
-                let mut gossip_verified_blobs = vec![];
-                for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
-                    let _timer =
-                        metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
-                    let blob = BlobSidecar::new(i, blob, &block, *kzg_proof)
-                        .map_err(BlockContentsError::BlobSidecarError)?;
-                    drop(_timer);
-                    let gossip_verified_blob =
-                        GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
-                    gossip_verified_blobs.push(gossip_verified_blob);
-                }
-                let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
-                Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
-            })
-            .transpose()?;
-
-        let peer_das_enabled = chain
-            .spec
-            .eip7594_fork_epoch
-            .map_or(false, |eip7594_fork_epoch| {
-                block.epoch() >= eip7594_fork_epoch
-            });
-
-        let gossip_verified_data_columns = if peer_das_enabled {
-            build_gossip_verified_data_columns(chain, &block, gossip_verified_blobs.as_ref())?
+        let (gossip_verified_blobs, gossip_verified_data_columns) = if peer_das_enabled {
+            let gossip_verified_data_columns =
+                build_gossip_verified_data_columns(chain, &block, blobs.map(|(_, blobs)| blobs))?;
+            (None, gossip_verified_data_columns)
         } else {
-            None
+            let gossip_verified_blobs = build_gossip_verified_blobs(chain, &block, blobs)?;
+            (gossip_verified_blobs, None)
         };
 
         let gossip_verified_block = GossipVerifiedBlock::new(block, chain)?;
@@ -763,12 +751,37 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
     }
 }
 
+#[allow(clippy::type_complexity)]
+fn build_gossip_verified_blobs<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block: &Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+    blobs: Option<(KzgProofs<T::EthSpec>, BlobsList<T::EthSpec>)>,
+) -> Result<Option<GossipVerifiedBlobList<T>>, BlockContentsError<T::EthSpec>> {
+    blobs
+        .map(|(kzg_proofs, blobs)| {
+            let mut gossip_verified_blobs = vec![];
+            for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
+                let _timer =
+                    metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
+                let blob = BlobSidecar::new(i, blob, block, *kzg_proof)
+                    .map_err(BlockContentsError::BlobSidecarError)?;
+                drop(_timer);
+                let gossip_verified_blob =
+                    GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
+                gossip_verified_blobs.push(gossip_verified_blob);
+            }
+            let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
+            Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
+        })
+        .transpose()
+}
+
 fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
-    gossip_verified_blobs: Option<&GossipVerifiedBlobList<T>>,
+    blobs: Option<BlobsList<T::EthSpec>>,
 ) -> Result<Option<GossipVerifiedDataColumnList<T>>, BlockContentsError<T::EthSpec>> {
-    gossip_verified_blobs
+    blobs
         // Only attempt to build data columns if blobs is non empty to avoid skewing the metrics.
         .filter(|b| !b.is_empty())
         .map(|blobs| {
@@ -780,11 +793,8 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                     GossipDataColumnError::<T::EthSpec>::KzgNotInitialized,
                 ))?;
 
-            let blob_sidecar_list: Vec<_> = blobs.iter().map(|blob| blob.clone_blob()).collect();
-            let blob_sidecar_list = BlobSidecarList::new(blob_sidecar_list)
-                .map_err(DataColumnSidecarError::SszError)?;
             let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
-            let sidecars = DataColumnSidecar::build_sidecars(&blob_sidecar_list, block, kzg)?;
+            let sidecars = DataColumnSidecar::build_sidecars(&blobs, block, kzg)?;
             drop(timer);
             let mut gossip_verified_data_columns = vec![];
             for sidecar in sidecars {

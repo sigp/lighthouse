@@ -17,7 +17,9 @@ use ssz_types::VariableList;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
-use types::{BeaconStateError, BlobSidecar, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
+use types::{
+    BeaconStateError, BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
+};
 
 /// An error occurred while validating a gossip blob.
 #[derive(Debug)]
@@ -230,6 +232,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     }
     pub fn slot(&self) -> Slot {
         self.blob.blob.slot()
+    }
+    pub fn epoch(&self) -> Epoch {
+        self.slot().epoch(T::EthSpec::slots_per_epoch())
     }
     pub fn index(&self) -> u64 {
         self.blob.blob.index

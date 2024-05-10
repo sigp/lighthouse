@@ -39,7 +39,7 @@ use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
-use slog::{debug, trace, Logger};
+use slog::{trace, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
@@ -235,7 +235,7 @@ impl<E: EthSpec> PendingComponents<E> {
     ) -> bool {
         match block_import_requirement {
             BlockImportRequirement::AllBlobs => {
-                debug!(
+                trace!(
                     log,
                     "Checking block and blob importability";
                     "block_root" => %self.block_root,
@@ -250,7 +250,6 @@ impl<E: EthSpec> PendingComponents<E> {
             }
             BlockImportRequirement::CustodyColumns(num_expected_columns) => {
                 let num_received_data_columns = self.num_received_data_columns();
-
                 trace!(
                     log,
                     "Checking block and data column importability";
@@ -284,7 +283,11 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// WARNING: This function can potentially take a lot of time if the state needs to be
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    pub fn make_available<R>(self, recover: R) -> Result<Availability<E>, AvailabilityCheckError>
+    pub fn make_available<R>(
+        self,
+        spec: &ChainSpec,
+        recover: R,
+    ) -> Result<Availability<E>, AvailabilityCheckError>
     where
         R: FnOnce(
             DietAvailabilityPendingExecutedBlock<E>,
@@ -306,17 +309,23 @@ impl<E: EthSpec> PendingComponents<E> {
         let Some(diet_executed_block) = executed_block else {
             return Err(AvailabilityCheckError::Unexpected);
         };
-        let num_blobs_expected = diet_executed_block.num_blobs_expected();
-        let Some(verified_blobs) = verified_blobs
-            .into_iter()
-            .cloned()
-            .map(|b| b.map(|b| b.to_blob()))
-            .take(num_blobs_expected)
-            .collect::<Option<Vec<_>>>()
-        else {
-            return Err(AvailabilityCheckError::Unexpected);
-        };
-        let verified_blobs = VariableList::new(verified_blobs)?;
+
+        let is_before_peer_das = !spec.is_peer_das_enabled_for_epoch(diet_executed_block.epoch());
+        let blobs = is_before_peer_das
+            .then(|| {
+                let num_blobs_expected = diet_executed_block.num_blobs_expected();
+                let Some(verified_blobs) = verified_blobs
+                    .into_iter()
+                    .cloned()
+                    .map(|b| b.map(|b| b.to_blob()))
+                    .take(num_blobs_expected)
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return Err(AvailabilityCheckError::Unexpected);
+                };
+                Ok(VariableList::new(verified_blobs)?)
+            })
+            .transpose()?;
 
         let executed_block = recover(diet_executed_block)?;
 
@@ -329,7 +338,7 @@ impl<E: EthSpec> PendingComponents<E> {
         let available_block = AvailableBlock {
             block_root,
             block,
-            blobs: Some(verified_blobs),
+            blobs,
             blobs_available_timestamp,
             // TODO(das) Do we need a check here for number of expected custody columns?
             // TODO(das): Update store types to prevent this conversion
@@ -790,10 +799,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             .epoch()
             .ok_or(AvailabilityCheckError::UnableToDetermineImportRequirement)?;
 
-        let peer_das_enabled = self
-            .spec
-            .eip7594_fork_epoch
-            .map_or(false, |eip7594_fork_epoch| epoch >= eip7594_fork_epoch);
+        let peer_das_enabled = self.spec.is_peer_das_enabled_for_epoch(epoch);
         if peer_das_enabled {
             Ok(BlockImportRequirement::CustodyColumns(
                 self.custody_column_count,
@@ -824,7 +830,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         if pending_components.is_available(block_import_requirement, &self.log) {
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(|diet_block| {
+            pending_components.make_available(&self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
             })
         } else {
@@ -864,7 +870,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         if pending_components.is_available(block_import_requirement, &self.log) {
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(|diet_block| {
+            pending_components.make_available(&self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
             })
         } else {
@@ -904,7 +910,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         if pending_components.is_available(block_import_requirement, &self.log) {
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(|diet_block| {
+            pending_components.make_available(&self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
             })
         } else {
