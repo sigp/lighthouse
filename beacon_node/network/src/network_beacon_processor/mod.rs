@@ -504,7 +504,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
-    /// Create a new `Work` event for some data_columns from ReqResp
+    /// Create a new `Work` event for some sampling columns, and reports the verification result
+    /// back to sync.
     pub fn send_rpc_validate_data_columns(
         self: &Arc<Self>,
         block_root: Hash256,

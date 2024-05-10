@@ -196,9 +196,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         };
 
         // TODO(das): report which column is invalid for proper peer scoring
+        // TODO(das): batch KZG verification here
         let verified_custody_columns = custody_columns
             .into_iter()
-            .map(|c| KzgVerifiedCustodyDataColumn::new(c, kzg).map_err(AvailabilityCheckError::Kzg))
+            .map(|c| KzgVerifiedCustodyDataColumn::new(c, kzg))
             .collect::<Result<Vec<_>, _>>()?;
 
         self.availability_cache

@@ -81,7 +81,7 @@ impl<E: EthSpec> PendingComponents<E> {
         &self.verified_blobs
     }
 
-    /// Returns a mutable reference to the cached data column.
+    /// Returns an immutable reference to the cached data column.
     pub fn get_cached_data_column(
         &self,
         data_column_index: u64,
@@ -340,7 +340,6 @@ impl<E: EthSpec> PendingComponents<E> {
             block,
             blobs,
             blobs_available_timestamp,
-            // TODO(das) Do we need a check here for number of expected custody columns?
             // TODO(das): Update store types to prevent this conversion
             data_columns: Some(
                 VariableList::new(

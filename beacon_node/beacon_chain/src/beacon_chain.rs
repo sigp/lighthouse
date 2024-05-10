@@ -3081,7 +3081,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.remove_notified(&block_root, r)
     }
 
-    /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
+    /// Cache the columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
     pub async fn process_rpc_custody_columns(
         self: &Arc<Self>,
@@ -3089,7 +3089,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its blobs again.
+        // we don't need to process its columns again.
         if self
             .canonical_head
             .fork_choice_read_lock()
@@ -3099,9 +3099,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // TODO(das): custody column SSE event
-        // TODO(das): Why is the slot necessary here?
-        let slot = Slot::new(0);
-
+        let slot = custody_columns
+            .first()
+            .ok_or(BeaconChainError::EmptyRpcCustodyColumns)?
+            .as_data_column()
+            .signed_block_header
+            .message
+            .slot;
         let r = self
             .check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
             .await;
@@ -3493,6 +3497,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 blobs_available,
             );
         }
+
+        // TODO(das) record custody column available timestamp
 
         // import
         let chain = self.clone();

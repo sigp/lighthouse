@@ -83,8 +83,6 @@ pub enum BeaconChainError {
         max_task_runtime: Duration,
     },
     MissingFinalizedStateRoot(Slot),
-    /// Returned when an internal check fails, indicating corrupt data.
-    InvariantViolated(String),
     SszTypesError(SszTypesError),
     NoProposerForSlot(Slot),
     CanonicalHeadLockTimeout,
@@ -227,6 +225,7 @@ pub enum BeaconChainError {
     LightClientError(LightClientError),
     UnsupportedFork,
     MilhouseError(MilhouseError),
+    EmptyRpcCustodyColumns,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

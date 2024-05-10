@@ -228,8 +228,8 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     }
 
     /// Verify a column already marked as custody column
-    pub fn new(data_column: CustodyDataColumn<E>, _kzg: &Kzg) -> Result<Self, KzgError> {
-        // TODO(das): verify kzg proof
+    pub fn new(data_column: CustodyDataColumn<E>, kzg: &Kzg) -> Result<Self, KzgError> {
+        verify_kzg_for_data_column(data_column.clone_arc(), kzg)?;
         Ok(Self {
             data: data_column.data,
         })

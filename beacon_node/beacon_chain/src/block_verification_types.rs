@@ -96,10 +96,7 @@ enum RpcBlockInner<E: EthSpec> {
     BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarList<E>),
     /// This variant is used with parent lookups and by-range responses. It should have all
     /// requested data columns, all block roots matching for this block.
-    BlockAndCustodyColumns(
-        Arc<SignedBeaconBlock<E>>,
-        VariableList<CustodyDataColumn<E>, <E as EthSpec>::DataColumnCount>,
-    ),
+    BlockAndCustodyColumns(Arc<SignedBeaconBlock<E>>, CustodyDataColumnList<E>),
 }
 
 impl<E: EthSpec> RpcBlock<E> {
@@ -168,13 +165,9 @@ impl<E: EthSpec> RpcBlock<E> {
             // The number of required custody columns is out of scope here.
             return Err(AvailabilityCheckError::MissingCustodyColumns);
         }
-        // Treat empty blob lists as if they are missing.
-        let inner = if custody_columns.is_empty() {
-            RpcBlockInner::BlockAndCustodyColumns(
-                block,
-                VariableList::new(custody_columns)
-                    .expect("TODO(das): custody vec should never exceed len"),
-            )
+        // Treat empty data column lists as if they are missing.
+        let inner = if !custody_columns.is_empty() {
+            RpcBlockInner::BlockAndCustodyColumns(block, VariableList::new(custody_columns)?)
         } else {
             RpcBlockInner::Block(block)
         };
