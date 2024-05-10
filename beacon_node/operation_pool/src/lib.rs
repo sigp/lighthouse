@@ -287,8 +287,10 @@ impl<E: EthSpec> OperationPool<E> {
         // TODO(electra): Work out how to do this more elegantly. This is a bit of a hack.
         let mut all_attestations = self.attestations.write();
 
-        all_attestations.aggregate_across_committees(prev_epoch_key);
-        all_attestations.aggregate_across_committees(curr_epoch_key);
+        if fork_name >= ForkName::Electra {
+            all_attestations.aggregate_across_committees(prev_epoch_key);
+            all_attestations.aggregate_across_committees(curr_epoch_key);
+        }
 
         let all_attestations = parking_lot::RwLockWriteGuard::downgrade(all_attestations);
 
