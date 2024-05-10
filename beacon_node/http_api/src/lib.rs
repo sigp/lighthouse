@@ -3199,6 +3199,7 @@ pub fn serve<T: BeaconChainTypes>(
                             ));
                         };
                         chain.get_aggregated_attestation_electra(
+                            query.slot,
                             &query.attestation_data_root,
                             committee_index,
                         )
