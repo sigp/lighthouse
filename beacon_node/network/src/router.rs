@@ -521,7 +521,7 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                id @ SyncId::RangeBlockAndBlobs { .. } => id,
+                id @ SyncId::RangeBlockComponents { .. } => id,
                 other => {
                     crit!(self.log, "BlocksByRange response on incorrect request"; "request" => ?other);
                     return;

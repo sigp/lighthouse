@@ -36,8 +36,8 @@ pub enum OutboundRequest<E: EthSpec> {
     BlocksByRoot(BlocksByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
-    DataColumnsByRoot(DataColumnsByRootRequest),
     DataColumnsByRange(DataColumnsByRangeRequest),
+    DataColumnsByRoot(DataColumnsByRootRequest),
     Ping(Ping),
     MetaData(MetadataRequest<E>),
 }
@@ -111,7 +111,7 @@ impl<E: EthSpec> OutboundRequest<E> {
             OutboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             OutboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             OutboundRequest::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
-            OutboundRequest::DataColumnsByRange(req) => req.data_column_ids.len() as u64,
+            OutboundRequest::DataColumnsByRange(req) => req.max_requested::<E>(),
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
         }

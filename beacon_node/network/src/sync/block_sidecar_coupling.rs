@@ -1,78 +1,90 @@
 use beacon_chain::{
-    block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn,
+    block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn, get_block_root,
 };
 use ssz_types::VariableList;
-use std::{collections::VecDeque, sync::Arc};
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
-
-use super::range_sync::ByRangeRequestType;
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
+use types::{BlobSidecar, ColumnIndex, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock};
 
 #[derive(Debug)]
-pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
+pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
-    accumulated_blocks: VecDeque<Arc<SignedBeaconBlock<E>>>,
+    blocks: VecDeque<Arc<SignedBeaconBlock<E>>>,
     /// Sidecars we have received awaiting for their corresponding block.
-    accumulated_sidecars: VecDeque<Arc<BlobSidecar<E>>>,
-    accumulated_custody_columns: VecDeque<CustodyDataColumn<E>>,
+    blobs: VecDeque<Arc<BlobSidecar<E>>>,
+    data_columns: VecDeque<Arc<DataColumnSidecar<E>>>,
     /// Whether the individual RPC request for blocks is finished or not.
     is_blocks_stream_terminated: bool,
     /// Whether the individual RPC request for sidecars is finished or not.
     is_sidecars_stream_terminated: bool,
-    is_custody_columns_stream_terminated: bool,
+    custody_columns_streams_terminated: usize,
     /// Used to determine if this accumulator should wait for a sidecars stream termination
-    request_type: ByRangeRequestType,
+    expects_blobs: bool,
+    expects_custody_columns: Option<Vec<ColumnIndex>>,
 }
 
-impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
-    pub fn new(request_type: ByRangeRequestType) -> Self {
+impl<E: EthSpec> RangeBlockComponentsRequest<E> {
+    pub fn new(expects_blobs: bool, expects_custody_columns: Option<Vec<ColumnIndex>>) -> Self {
         Self {
-            accumulated_blocks: <_>::default(),
-            accumulated_sidecars: <_>::default(),
-            accumulated_custody_columns: <_>::default(),
-            is_blocks_stream_terminated: <_>::default(),
-            is_sidecars_stream_terminated: <_>::default(),
-            is_custody_columns_stream_terminated: <_>::default(),
-            request_type,
+            blocks: <_>::default(),
+            blobs: <_>::default(),
+            data_columns: <_>::default(),
+            is_blocks_stream_terminated: false,
+            is_sidecars_stream_terminated: false,
+            custody_columns_streams_terminated: 0,
+            expects_blobs,
+            expects_custody_columns,
         }
     }
 
-    pub fn get_request_type(&self) -> ByRangeRequestType {
-        self.request_type
+    // TODO: This function should be deprecated when simplying the retry mechanism of this range
+    // requests.
+    pub fn get_requirements(&self) -> (bool, Option<Vec<ColumnIndex>>) {
+        (self.expects_blobs, self.expects_custody_columns.clone())
     }
 
     pub fn add_block_response(&mut self, block_opt: Option<Arc<SignedBeaconBlock<E>>>) {
         match block_opt {
-            Some(block) => self.accumulated_blocks.push_back(block),
+            Some(block) => self.blocks.push_back(block),
             None => self.is_blocks_stream_terminated = true,
         }
     }
 
     pub fn add_sidecar_response(&mut self, sidecar_opt: Option<Arc<BlobSidecar<E>>>) {
         match sidecar_opt {
-            Some(sidecar) => self.accumulated_sidecars.push_back(sidecar),
+            Some(sidecar) => self.blobs.push_back(sidecar),
             None => self.is_sidecars_stream_terminated = true,
         }
     }
 
-    pub fn add_custody_column(&mut self, column_opt: Option<CustodyDataColumn<E>>) {
+    pub fn add_data_column(&mut self, column_opt: Option<Arc<DataColumnSidecar<E>>>) {
         match column_opt {
-            Some(column) => self.accumulated_custody_columns.push_back(column),
-            None => self.is_custody_columns_stream_terminated = true,
+            Some(column) => self.data_columns.push_back(column),
+            // TODO(das): this mechanism is dangerous, if somehow there are two requests for the
+            // same column index it can terminate early. This struct should track that all requests
+            // for all custody columns terminate.
+            None => self.custody_columns_streams_terminated += 1,
         }
     }
 
     pub fn into_responses(self) -> Result<Vec<RpcBlock<E>>, String> {
-        let BlocksAndBlobsRequestInfo {
-            accumulated_blocks,
-            accumulated_sidecars,
-            ..
-        } = self;
+        if let Some(expects_custody_columns) = self.expects_custody_columns.clone() {
+            self.into_responses_with_custody_columns(expects_custody_columns)
+        } else {
+            self.into_responses_with_blobs()
+        }
+    }
+
+    fn into_responses_with_blobs(self) -> Result<Vec<RpcBlock<E>>, String> {
+        let RangeBlockComponentsRequest { blocks, blobs, .. } = self;
 
         // There can't be more more blobs than blocks. i.e. sending any blob (empty
         // included) for a skipped slot is not permitted.
-        let mut responses = Vec::with_capacity(accumulated_blocks.len());
-        let mut blob_iter = accumulated_sidecars.into_iter().peekable();
-        for block in accumulated_blocks.into_iter() {
+        let mut responses = Vec::with_capacity(blocks.len());
+        let mut blob_iter = blobs.into_iter().peekable();
+        for block in blocks.into_iter() {
             let mut blob_list = Vec::with_capacity(E::max_blobs_per_block());
             while {
                 let pair_next_blob = blob_iter
@@ -108,27 +120,115 @@ impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
         Ok(responses)
     }
 
+    fn into_responses_with_custody_columns(
+        self,
+        expects_custody_columns: Vec<ColumnIndex>,
+    ) -> Result<Vec<RpcBlock<E>>, String> {
+        let RangeBlockComponentsRequest {
+            blocks,
+            data_columns,
+            ..
+        } = self;
+
+        // Group data columns by block_root and index
+        let mut data_columns_by_block =
+            HashMap::<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>::new();
+
+        for column in data_columns {
+            let block_root = column.block_root();
+            let index = column.index;
+            if data_columns_by_block
+                .entry(block_root)
+                .or_default()
+                .insert(index, column)
+                .is_some()
+            {
+                return Err(format!(
+                    "Repeated column block_root {block_root:?} index {index}"
+                ));
+            }
+        }
+
+        // Now iterate all blocks ensuring that the block roots of each block and data column match,
+        // plus we have columns for our custody requirements
+        let mut rpc_blocks = Vec::with_capacity(blocks.len());
+
+        for block in blocks {
+            let block_root = get_block_root(&block);
+            rpc_blocks.push(if block.num_expected_blobs() > 0 {
+                let Some(mut data_columns_by_index) = data_columns_by_block.remove(&block_root)
+                else {
+                    // This PR ignores the fix from https://github.com/sigp/lighthouse/pull/5675
+                    // which allows blobs to not match blocks.
+                    // TODO(das): on the initial version of PeerDAS the beacon chain does not check
+                    // rpc custody requirements and dropping this check can allow the block to have
+                    // an inconsistent DB.
+                    return Err(format!("No columns for block {block_root:?} with data"));
+                };
+
+                let mut custody_columns = vec![];
+                for index in &expects_custody_columns {
+                    let Some(data_column) = data_columns_by_index.remove(index) else {
+                        return Err(format!("No column for block {block_root:?} index {index}"));
+                    };
+                    // Safe to convert to `CustodyDataColumn`: we have asserted that the index of
+                    // this column is in the set of `expects_custody_columns` and with the expected
+                    // block root, so for the expected epoch of this batch.
+                    custody_columns.push(CustodyDataColumn::from_asserted_custody(data_column));
+                }
+
+                // Assert that there are no columns left
+                if !data_columns_by_index.is_empty() {
+                    let remaining_indices = data_columns_by_index.keys().collect::<Vec<_>>();
+                    return Err(format!(
+                        "Not all columns consumed for block {block_root:?}: {remaining_indices:?}"
+                    ));
+                }
+
+                RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns)
+                    .map_err(|e| format!("{e:?}"))?
+            } else {
+                RpcBlock::new_without_blobs(Some(block_root), block)
+            });
+        }
+
+        // Assert that there are no columns left for other blocks
+        if !data_columns_by_block.is_empty() {
+            let remaining_roots = data_columns_by_block.keys().collect::<Vec<_>>();
+            return Err(format!("Not all columns consumed: {remaining_roots:?}"));
+        }
+
+        Ok(rpc_blocks)
+    }
+
     pub fn is_finished(&self) -> bool {
-        let blobs_requested = matches!(self.request_type, ByRangeRequestType::BlocksAndBlobs);
-        let custody_columns_requested =
-            matches!(self.request_type, ByRangeRequestType::BlocksAndColumns);
-        self.is_blocks_stream_terminated
-            && (!blobs_requested || self.is_sidecars_stream_terminated)
-            && (!custody_columns_requested || self.is_custody_columns_stream_terminated)
+        if !self.is_blocks_stream_terminated {
+            return false;
+        }
+        if self.expects_blobs && !self.is_sidecars_stream_terminated {
+            return false;
+        }
+        if let Some(expects_custody_columns) = &self.expects_custody_columns {
+            if self.custody_columns_streams_terminated < expects_custody_columns.len() {
+                return false;
+            }
+        }
+        true
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::BlocksAndBlobsRequestInfo;
-    use crate::sync::range_sync::ByRangeRequestType;
-    use beacon_chain::test_utils::{generate_rand_block_and_blobs, NumBlobs};
+    use super::RangeBlockComponentsRequest;
+    use beacon_chain::test_utils::{
+        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, NumBlobs,
+    };
     use rand::SeedableRng;
     use types::{test_utils::XorShiftRng, ForkName, MinimalEthSpec as E};
 
     #[test]
     fn no_blobs_into_responses() {
-        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::Blocks);
+        let mut info = RangeBlockComponentsRequest::<E>::new(false, None);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng).0)
@@ -147,7 +247,7 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
-        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::BlocksAndBlobs);
+        let mut info = RangeBlockComponentsRequest::<E>::new(true, None);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
@@ -168,6 +268,60 @@ mod tests {
         // This makes sure we don't expect blobs here when they have expired. Checking this logic should
         // be hendled elsewhere.
         assert!(info.is_finished());
+        info.into_responses().unwrap();
+    }
+
+    #[test]
+    fn rpc_block_with_custody_columns() {
+        let expects_custody_columns = vec![1, 2, 3, 4];
+        let mut info =
+            RangeBlockComponentsRequest::<E>::new(false, Some(expects_custody_columns.clone()));
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let blocks = (0..4)
+            .map(|_| {
+                generate_rand_block_and_data_columns::<E>(
+                    ForkName::Deneb,
+                    NumBlobs::Number(1),
+                    &mut rng,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        // Send blocks and complete terminate response
+        for block in &blocks {
+            info.add_block_response(Some(block.0.clone().into()));
+        }
+        info.add_block_response(None);
+        // Assert response is not finished
+        assert!(!info.is_finished());
+
+        // Send data columns interleaved
+        for block in &blocks {
+            for column in &block.1 {
+                if expects_custody_columns.contains(&column.index) {
+                    info.add_data_column(Some(column.clone().into()));
+                }
+            }
+        }
+
+        // Terminate the requests
+        for (i, _column_index) in expects_custody_columns.iter().enumerate() {
+            info.add_data_column(None);
+
+            if i < expects_custody_columns.len() - 1 {
+                assert!(
+                    !info.is_finished(),
+                    "requested should not be finished at loop {i}"
+                );
+            } else {
+                assert!(
+                    info.is_finished(),
+                    "request should be finishied at loop {i}"
+                );
+            }
+        }
+
+        // All completed construct response
         info.into_responses().unwrap();
     }
 }

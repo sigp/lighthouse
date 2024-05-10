@@ -6,7 +6,9 @@ use types::{
     LightClientOptimisticUpdate, SignedBeaconBlock,
 };
 
-use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRootRequest};
+use crate::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
+};
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
@@ -15,8 +17,6 @@ use crate::rpc::{
     },
     OutboundRequest, SubstreamId,
 };
-
-use super::methods::DataColumnsByRangeRequest;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
@@ -84,8 +84,8 @@ impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
             Request::BlobsByRoot(r) => OutboundRequest::BlobsByRoot(r),
-            Request::DataColumnsByRoot(r) => OutboundRequest::DataColumnsByRoot(r),
             Request::DataColumnsByRange(r) => OutboundRequest::DataColumnsByRange(r),
+            Request::DataColumnsByRoot(r) => OutboundRequest::DataColumnsByRoot(r),
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }

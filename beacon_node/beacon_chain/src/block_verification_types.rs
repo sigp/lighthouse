@@ -164,11 +164,9 @@ impl<E: EthSpec> RpcBlock<E> {
     ) -> Result<Self, AvailabilityCheckError> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
 
-        if let Ok(block_commitments) = block.message().body().blob_kzg_commitments() {
+        if block.num_expected_blobs() > 0 && custody_columns.is_empty() {
             // The number of required custody columns is out of scope here.
-            if !block_commitments.is_empty() && custody_columns.is_empty() {
-                return Err(AvailabilityCheckError::MissingCustodyColumns);
-            }
+            return Err(AvailabilityCheckError::MissingCustodyColumns);
         }
         // Treat empty blob lists as if they are missing.
         let inner = if custody_columns.is_empty() {
