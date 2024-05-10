@@ -653,6 +653,10 @@ pub fn process_consolidations<E: EthSpec>(
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    if consolidations.is_empty() {
+        return Ok(());
+    }
+
     // If the pending consolidations queue is full, no consolidations are allowed in the block
     let pending_consolidations = state.pending_consolidations()?.len();
     let pending_consolidations_limit = E::pending_consolidations_limit();
