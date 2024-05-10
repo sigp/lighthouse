@@ -173,6 +173,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             }
         };
 
+    // TODO(das): We could potentially get rid of these conversions and pass `GossipVerified` types
+    // to `publish_block`, i.e. have `GossipVerified` types in `PubsubMessage`?
+    // This saves us from extra code and provides guarantee that published
+    // components are verified.
     // Clone here, so we can take advantage of the `Arc`. The block in `BlockContents` is not,
     // `Arc`'d but blobs are.
     let block = gossip_verified_block.block.block_cloned();
@@ -183,10 +187,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             .collect::<Vec<_>>();
         VariableList::from(blobs)
     });
-    // TODO(das): We could potentially get rid of these conversions and pass `GossipVerified` types
-    // to `publish_block`, i.e. have `GossipVerified` types in `PubsubMessage`?
-    // This saves us from extra code and provides guarantee that published
-    // components are verified.
     let data_cols_opt = gossip_verified_data_columns
         .as_ref()
         .map(|gossip_verified_data_columns| {

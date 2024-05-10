@@ -309,6 +309,14 @@ pub enum BlockError<E: EthSpec> {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
+    /// A Blob with a slot after PeerDAS is received and is not required to be imported.
+    /// This can happen because we stay subscribed to the blob subnet after 2 epochs, as we could
+    /// still receive valid blobs from a Deneb epoch after PeerDAS is activated.
+    ///
+    /// ## Peer scoring
+    ///
+    /// This indicates the peer is sending an unexpected gossip blob and should be penalised.
+    BlobNotRequired(Slot),
 }
 
 impl<E: EthSpec> From<AvailabilityCheckError> for BlockError<E> {
@@ -718,13 +726,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         let (block, blobs) = self.deconstruct();
-
-        let peer_das_enabled = chain
-            .spec
-            .eip7594_fork_epoch
-            .map_or(false, |eip7594_fork_epoch| {
-                block.epoch() >= eip7594_fork_epoch
-            });
+        let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
 
         let (gossip_verified_blobs, gossip_verified_data_columns) = if peer_das_enabled {
             let gossip_verified_data_columns =
@@ -749,6 +751,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn build_gossip_verified_blobs<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
@@ -760,7 +763,7 @@ fn build_gossip_verified_blobs<T: BeaconChainTypes>(
             for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
                 let _timer =
                     metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
-                let blob = BlobSidecar::new(i, blob, &block, *kzg_proof)
+                let blob = BlobSidecar::new(i, blob, block, *kzg_proof)
                     .map_err(BlockContentsError::BlobSidecarError)?;
                 drop(_timer);
                 let gossip_verified_blob =

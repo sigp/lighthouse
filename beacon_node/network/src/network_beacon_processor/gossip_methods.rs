@@ -1158,6 +1158,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 return None;
             }
+            Err(e @ BlockError::BlobNotRequired(_)) => {
+                // TODO(das): penalty not implemented yet as other clients may still send us blobs
+                // during early stage of implementation.
+                debug!(self.log, "Received blobs for slot after PeerDAS epoch from peer";
+                    "error" => %e,
+                    "peer_id" => %peer_id,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);

@@ -39,7 +39,7 @@ use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
-use slog::{debug, trace, Logger};
+use slog::{trace, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
@@ -235,7 +235,7 @@ impl<E: EthSpec> PendingComponents<E> {
     ) -> bool {
         match block_import_requirement {
             BlockImportRequirement::AllBlobs => {
-                debug!(
+                trace!(
                     log,
                     "Checking block and blob importability";
                     "block_root" => %self.block_root,
@@ -250,7 +250,6 @@ impl<E: EthSpec> PendingComponents<E> {
             }
             BlockImportRequirement::CustodyColumns(num_expected_columns) => {
                 let num_received_data_columns = self.num_received_data_columns();
-
                 trace!(
                     log,
                     "Checking block and data column importability";
@@ -790,10 +789,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             .epoch()
             .ok_or(AvailabilityCheckError::UnableToDetermineImportRequirement)?;
 
-        let peer_das_enabled = self
-            .spec
-            .eip7594_fork_epoch
-            .map_or(false, |eip7594_fork_epoch| epoch >= eip7594_fork_epoch);
+        let peer_das_enabled = self.spec.is_peer_das_enabled_for_epoch(epoch);
         if peer_das_enabled {
             Ok(BlockImportRequirement::CustodyColumns(
                 self.custody_column_count,
