@@ -165,13 +165,9 @@ impl<E: EthSpec> RpcBlock<E> {
             // The number of required custody columns is out of scope here.
             return Err(AvailabilityCheckError::MissingCustodyColumns);
         }
-        // Treat empty blob lists as if they are missing.
-        let inner = if custody_columns.is_empty() {
-            RpcBlockInner::BlockAndCustodyColumns(
-                block,
-                VariableList::new(custody_columns)
-                    .expect("TODO(das): custody vec should never exceed len"),
-            )
+        // Treat empty data column lists as if they are missing.
+        let inner = if !custody_columns.is_empty() {
+            RpcBlockInner::BlockAndCustodyColumns(block, VariableList::new(custody_columns)?)
         } else {
             RpcBlockInner::Block(block)
         };
