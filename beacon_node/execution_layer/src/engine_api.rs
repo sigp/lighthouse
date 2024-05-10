@@ -644,7 +644,7 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         "block {} is post-electra but payload body doesn't have withdrawals/deposit_receipts/withdrawal_requests \
                         Check that ELs are returning receipts and withdrawal_requests in getPayloadBody requests",
                         header.block_hash
-                    ))
+                    ));
                 };
                 Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
                     parent_hash: header.parent_hash,

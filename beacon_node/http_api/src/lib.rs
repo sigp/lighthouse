@@ -3191,36 +3191,39 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    if endpoint_version == V2 {
-                        if query.committee_index.is_none() {
+                    not_synced_filter?;
+                    let res = if endpoint_version == V2 {
+                        let Some(committee_index) = query.committee_index else {
                             return Err(warp_utils::reject::custom_bad_request(
                                 "missing committee index".to_string(),
                             ));
-                        }
+                        };
+                        chain.get_aggregated_attestation_electra(
+                            query.slot,
+                            &query.attestation_data_root,
+                            committee_index,
+                        )
                     } else if endpoint_version == V1 {
                         // Do nothing
-                    } else {
-                        return Err(unsupported_version_rejection(endpoint_version));
-                    }
-                    //TODO(electra) pass the index into the next method.
-                    not_synced_filter?;
-                    chain
-                        .get_pre_electra_aggregated_attestation_by_slot_and_root(
+                        chain.get_pre_electra_aggregated_attestation_by_slot_and_root(
                             query.slot,
                             &query.attestation_data_root,
                         )
-                        .map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!(
-                                "unable to fetch aggregate: {:?}",
-                                e
-                            ))
-                        })?
-                        .map(api_types::GenericResponse::from)
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(
-                                "no matching aggregate found".to_string(),
-                            )
-                        })
+                    } else {
+                        return Err(unsupported_version_rejection(endpoint_version));
+                    };
+                    res.map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "unable to fetch aggregate: {:?}",
+                            e
+                        ))
+                    })?
+                    .map(api_types::GenericResponse::from)
+                    .ok_or_else(|| {
+                        warp_utils::reject::custom_not_found(
+                            "no matching aggregate found".to_string(),
+                        )
+                    })
                 })
             },
         );

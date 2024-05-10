@@ -8,7 +8,8 @@ use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::slot_data::SlotData;
 use types::sync_committee_contribution::SyncContributionData;
 use types::{
-    Attestation, AttestationData, AttestationRef, EthSpec, Hash256, Slot, SyncCommitteeContribution,
+    Attestation, AttestationData, AttestationRef, CommitteeIndex, EthSpec, Hash256, Slot,
+    SyncCommitteeContribution,
 };
 
 type AttestationKeyRoot = Hash256;
@@ -18,7 +19,7 @@ type SyncDataRoot = Hash256;
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttestationKey {
     data_root: Hash256,
-    committee_index: Option<u64>,
+    committee_index: Option<CommitteeIndex>,
     slot: Slot,
 }
 
@@ -95,10 +96,9 @@ impl AttestationKey {
         }
     }
 
-    pub fn new_electra(data: &AttestationData, committee_index: u64) -> Self {
-        let slot = data.slot;
+    pub fn new_electra(slot: Slot, data_root: Hash256, committee_index: CommitteeIndex) -> Self {
         Self {
-            data_root: data.tree_hash_root(),
+            data_root,
             committee_index: Some(committee_index),
             slot,
         }
