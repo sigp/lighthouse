@@ -230,13 +230,10 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
 
     pub fn aggregate_with_disjoint_committees(&mut self, other: &Self) {
         // TODO(electra): remove asserts or use Result
-        assert!(
-            self.committee_bits
-                .intersection(&other.committee_bits)
-                .is_zero(),
-            self.committee_bits,
-            other.committee_bits
-        );
+        assert!(self
+            .committee_bits
+            .intersection(&other.committee_bits)
+            .is_zero(),);
         // The attestation being aggregated in must only have 1 committee bit set.
         assert_eq!(other.committee_bits.num_set_bits(), 1);
         // Check we are aggregating in increasing committee index order (so we can append
