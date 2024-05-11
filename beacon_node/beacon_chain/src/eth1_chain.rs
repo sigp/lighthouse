@@ -549,6 +549,7 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
         // [New in Electra:EIP6110]
         let deposit_index_limit =
             if let Ok(deposit_receipts_start_index) = state.deposit_receipts_start_index() {
+                dbg!("deposit_receipts_start_index", deposit_receipts_start_index);
                 std::cmp::min(deposit_count, deposit_receipts_start_index)
             } else {
                 deposit_count
@@ -560,6 +561,14 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
             Ordering::Less => {
                 let next = deposit_index;
                 let last = std::cmp::min(deposit_index_limit, next + E::MaxDeposits::to_u64());
+
+                dbg!(
+                    next,
+                    last,
+                    deposit_count,
+                    deposit_index_limit,
+                    E::MaxDeposits::to_u64()
+                );
 
                 self.core
                     .deposits()

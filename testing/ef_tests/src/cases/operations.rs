@@ -171,7 +171,9 @@ impl<E: EthSpec> Operation<E> for Deposit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposits(state, &[self.clone()], spec)
+        let res = process_deposits(state, &[self.clone()], spec);
+        dbg!(serde_json::to_string(state).unwrap());
+        res
     }
 }
 

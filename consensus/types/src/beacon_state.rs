@@ -2151,6 +2151,7 @@ impl<E: EthSpec> BeaconState<E> {
         if *balance > spec.min_activation_balance {
             let excess_balance = balance.safe_sub(spec.min_activation_balance)?;
             *balance = spec.min_activation_balance;
+            dbg!(validator_index, excess_balance);
             self.pending_balance_deposits_mut()?
                 .push(PendingBalanceDeposit {
                     index: validator_index as u64,
@@ -2200,6 +2201,7 @@ impl<E: EthSpec> BeaconState<E> {
         if validator.has_eth1_withdrawal_credential(spec) {
             validator.withdrawal_credentials.as_fixed_bytes_mut()[0] =
                 spec.compounding_withdrawal_prefix_byte;
+            dbg!(validator.withdrawal_credentials);
             self.queue_excess_active_balance(validator_index, spec)?;
         }
         Ok(())
