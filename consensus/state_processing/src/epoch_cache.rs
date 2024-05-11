@@ -86,9 +86,10 @@ impl PreEpochCache {
         let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
         let effective_balance_increment = spec.effective_balance_increment;
-        let max_effective_balance_eth = spec
-            .max_effective_balance
-            .safe_div(effective_balance_increment)?;
+        let max_effective_balance =
+            spec.max_effective_balance_for_fork(spec.fork_name_at_epoch(epoch));
+        let max_effective_balance_eth =
+            max_effective_balance.safe_div(effective_balance_increment)?;
 
         let mut base_rewards = Vec::with_capacity(max_effective_balance_eth.safe_add(1)? as usize);
 

@@ -98,7 +98,10 @@ pub async fn handle_rpc<E: EthSpec>(
                 .unwrap())
             }
         }
-        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 | ENGINE_NEW_PAYLOAD_V3 => {
+        ENGINE_NEW_PAYLOAD_V1
+        | ENGINE_NEW_PAYLOAD_V2
+        | ENGINE_NEW_PAYLOAD_V3
+        | ENGINE_NEW_PAYLOAD_V4 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::V1(
                     get_param::<JsonExecutionPayloadV1<E>>(params, 0)

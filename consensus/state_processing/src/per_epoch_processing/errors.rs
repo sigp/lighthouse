@@ -26,6 +26,8 @@ pub enum EpochProcessingError {
     MilhouseError(milhouse::Error),
     EpochCache(EpochCacheError),
     SinglePassMissingActivationQueue,
+    MissingEarliestExitEpoch,
+    MissingExitBalanceToConsume,
 }
 
 impl From<InclusionError> for EpochProcessingError {
