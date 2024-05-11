@@ -38,7 +38,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
             .map_err(BlockProcessingError::MerkleTreeError)?;
         state.eth1_data_mut().deposit_root = deposit_tree.root();
         let Deposit { proof, data } = deposit;
-        apply_deposit(&mut state, data, Some(proof), spec)?;
+        apply_deposit(&mut state, data, Some(proof), true, spec)?;
     }
 
     process_activations(&mut state, spec)?;
