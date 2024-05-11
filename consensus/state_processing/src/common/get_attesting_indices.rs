@@ -106,7 +106,7 @@ pub mod attesting_indices_electra {
 
         let committee_indices = get_committee_indices::<E>(committee_bits);
 
-        let committee_offset = 0;
+        let mut committee_offset = 0;
 
         let committees_map: HashMap<u64, &BeaconCommittee> = committees
             .iter()
@@ -138,7 +138,7 @@ pub mod attesting_indices_electra {
 
                 output.extend(committee_attesters);
 
-                committee_offset.safe_add(beacon_committee.committee.len())?;
+                committee_offset.safe_add_assign(beacon_committee.committee.len())?;
             } else {
                 return Err(Error::NoCommitteeFound(index));
             }
