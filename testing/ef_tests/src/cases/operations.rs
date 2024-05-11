@@ -21,9 +21,9 @@ use state_processing::{
 use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
-    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconState, BlindedPayload, Deposit,
-    ExecutionPayload, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, SyncAggregate,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
+    BlindedPayload, Deposit, ExecutionPayload, FullPayload, ProposerSlashing,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -299,6 +299,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
                 ForkName::Bellatrix => BeaconBlockBody::Bellatrix(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
                 _ => panic!(),
             })
         })
@@ -349,6 +350,10 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                 ForkName::Deneb => {
                     let inner = <BeaconBlockBodyDeneb<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
                     BeaconBlockBody::Deneb(inner.clone_as_blinded())
+                }
+                ForkName::Electra => {
+                    let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Electra(inner.clone_as_blinded())
                 }
                 _ => panic!(),
             })
