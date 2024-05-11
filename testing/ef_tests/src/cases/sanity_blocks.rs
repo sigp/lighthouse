@@ -60,9 +60,6 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        if _case_index != 74 || fork_name != ForkName::Electra {
-            return Ok(());
-        }
         self.metadata.bls_setting.unwrap_or_default().check()?;
 
         let mut bulk_state = self.pre.clone();
@@ -114,15 +111,13 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     spec,
                 )?;
 
-                // if block.state_root() == bulk_state.update_tree_hash_cache().unwrap()
-                //     && block.state_root() == indiv_state.update_tree_hash_cache().unwrap()
-                // {
-                //     Ok(())
-                // } else {
-                //     Err(BlockProcessingError::StateRootMismatch)
-                // }
-
-                Ok::<_, BlockProcessingError>(())
+                if block.state_root() == bulk_state.update_tree_hash_cache().unwrap()
+                    && block.state_root() == indiv_state.update_tree_hash_cache().unwrap()
+                {
+                    Ok(())
+                } else {
+                    Err(BlockProcessingError::StateRootMismatch)
+                }
             })
             .map(|_| (bulk_state, indiv_state));
 

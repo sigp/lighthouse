@@ -417,7 +417,7 @@ pub fn process_deposits<E: EthSpec>(
 
     // Update the state in series.
     for deposit in deposits {
-        apply_deposit(state, deposit.data.clone(), None, true, spec)?;
+        apply_deposit(state, deposit.data.clone(), None, spec)?;
     }
 
     Ok(())
@@ -428,7 +428,6 @@ pub fn apply_deposit<E: EthSpec>(
     state: &mut BeaconState<E>,
     deposit_data: DepositData,
     proof: Option<FixedVector<Hash256, U33>>,
-    increment_deposit_index: bool,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let deposit_index = state.eth1_deposit_index() as usize;
@@ -441,9 +440,7 @@ pub fn apply_deposit<E: EthSpec>(
             .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
-    if increment_deposit_index {
-        state.eth1_deposit_index_mut().safe_add_assign(1)?;
-    }
+    state.eth1_deposit_index_mut().safe_add_assign(1)?;
 
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
@@ -462,12 +459,6 @@ pub fn apply_deposit<E: EthSpec>(
                 .get(index as usize)
                 .ok_or(BeaconStateError::UnknownValidator(index as usize))?;
 
-            dbg!(is_compounding_withdrawal_credential(
-                deposit_data.withdrawal_credentials,
-                spec
-            ));
-            dbg!(validator.has_eth1_withdrawal_credential(spec));
-            dbg!(is_valid_deposit_signature(&deposit_data, spec).is_ok());
             if is_compounding_withdrawal_credential(deposit_data.withdrawal_credentials, spec)
                 && validator.has_eth1_withdrawal_credential(spec)
                 && is_valid_deposit_signature(&deposit_data, spec).is_ok()
@@ -500,8 +491,6 @@ pub fn apply_deposit<E: EthSpec>(
                 amount,
             )
         };
-        dbg!(effective_balance, state_balance);
-        dbg!(&deposit_data.pubkey, &deposit_data.withdrawal_credentials);
         // Create a new validator.
         let validator = Validator {
             pubkey: deposit_data.pubkey,
@@ -529,7 +518,6 @@ pub fn apply_deposit<E: EthSpec>(
 
         // [New in Electra:EIP7251]
         if let Ok(pending_balance_deposits) = state.pending_balance_deposits_mut() {
-            dbg!(new_validator_index, amount);
             pending_balance_deposits.push(PendingBalanceDeposit {
                 index: new_validator_index as u64,
                 amount,
@@ -653,7 +641,7 @@ pub fn process_deposit_receipts<E: EthSpec>(
             amount: receipt.amount,
             signature: receipt.signature.clone().into(),
         };
-        apply_deposit(state, deposit_data, None, false, spec)?
+        apply_deposit(state, deposit_data, None, spec)?
     }
 
     Ok(())
