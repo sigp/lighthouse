@@ -439,7 +439,7 @@ impl Eth1GenesisService {
                     None
                 };
 
-                apply_deposit(&mut state, data, proof, spec)
+                apply_deposit(&mut state, data, proof, true, spec)
                     .map_err(|e| format!("Error whilst processing deposit: {:?}", e))
             })?;
 
