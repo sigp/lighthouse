@@ -417,7 +417,7 @@ pub fn process_deposits<E: EthSpec>(
 
     // Update the state in series.
     for deposit in deposits {
-        apply_deposit(state, deposit.data.clone(), None, spec)?;
+        apply_deposit(state, deposit.data.clone(), None, true, spec)?;
     }
 
     Ok(())
@@ -428,6 +428,7 @@ pub fn apply_deposit<E: EthSpec>(
     state: &mut BeaconState<E>,
     deposit_data: DepositData,
     proof: Option<FixedVector<Hash256, U33>>,
+    increment_eth1_deposit_index: bool,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let deposit_index = state.eth1_deposit_index() as usize;
@@ -440,7 +441,9 @@ pub fn apply_deposit<E: EthSpec>(
             .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
-    state.eth1_deposit_index_mut().safe_add_assign(1)?;
+    if increment_eth1_deposit_index {
+        state.eth1_deposit_index_mut().safe_add_assign(1)?;
+    }
 
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
     // already exists in the beacon_state.
@@ -641,7 +644,7 @@ pub fn process_deposit_receipts<E: EthSpec>(
             amount: receipt.amount,
             signature: receipt.signature.clone().into(),
         };
-        apply_deposit(state, deposit_data, None, spec)?
+        apply_deposit(state, deposit_data, None, false, spec)?
     }
 
     Ok(())
