@@ -400,6 +400,14 @@ impl ChainSpec {
         }
     }
 
+    pub fn max_effective_balance_for_fork(&self, fork_name: ForkName) -> u64 {
+        if fork_name >= ForkName::Electra {
+            self.max_effective_balance_electra
+        } else {
+            self.max_effective_balance
+        }
+    }
+
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);

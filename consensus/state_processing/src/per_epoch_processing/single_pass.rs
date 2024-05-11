@@ -167,6 +167,9 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             None
         };
 
+    let mut earliest_exit_epoch = state.earliest_exit_epoch().ok();
+    let mut exit_balance_to_consume = state.exit_balance_to_consume().ok();
+
     // Split the state into several disjoint mutable borrows.
     let (
         validators,
@@ -286,6 +289,8 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                 exit_cache,
                 activation_queue_refs,
                 state_ctxt,
+                earliest_exit_epoch.as_mut(),
+                exit_balance_to_consume.as_mut(),
                 spec,
             )?;
         }
@@ -317,6 +322,17 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                 state_ctxt,
                 spec,
             )?;
+        }
+    }
+
+    if conf.registry_updates && fork_name >= ForkName::Electra {
+        if let Ok(earliest_exit_epoch_state) = state.earliest_exit_epoch_mut() {
+            *earliest_exit_epoch_state =
+                earliest_exit_epoch.ok_or(Error::MissingEarliestExitEpoch)?;
+        }
+        if let Ok(exit_balance_to_consume_state) = state.exit_balance_to_consume_mut() {
+            *exit_balance_to_consume_state =
+                exit_balance_to_consume.ok_or(Error::MissingExitBalanceToConsume)?;
         }
     }
 
@@ -527,12 +543,15 @@ impl RewardsAndPenaltiesContext {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_single_registry_update(
     validator: &mut Cow<Validator>,
     validator_info: &ValidatorInfo,
     exit_cache: &mut ExitCache,
     activation_queues: Option<(&BTreeSet<usize>, &mut ActivationQueue)>,
     state_ctxt: &StateContext,
+    earliest_exit_epoch: Option<&mut Epoch>,
+    exit_balance_to_consume: Option<&mut u64>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     if state_ctxt.fork_name < ForkName::Electra {
@@ -548,7 +567,14 @@ fn process_single_registry_update(
             spec,
         )
     } else {
-        process_single_registry_update_post_electra(validator, exit_cache, state_ctxt, spec)
+        process_single_registry_update_post_electra(
+            validator,
+            exit_cache,
+            state_ctxt,
+            earliest_exit_epoch.ok_or(Error::MissingEarliestExitEpoch)?,
+            exit_balance_to_consume.ok_or(Error::MissingExitBalanceToConsume)?,
+            spec,
+        )
     }
 }
 
@@ -569,7 +595,7 @@ fn process_single_registry_update_pre_electra(
 
     if validator.is_active_at(current_epoch) && validator.effective_balance <= spec.ejection_balance
     {
-        initiate_validator_exit(validator, exit_cache, state_ctxt, spec)?;
+        initiate_validator_exit(validator, exit_cache, state_ctxt, None, None, spec)?;
     }
 
     if activation_queue.contains(&validator_info.index) {
@@ -592,6 +618,8 @@ fn process_single_registry_update_post_electra(
     validator: &mut Cow<Validator>,
     exit_cache: &mut ExitCache,
     state_ctxt: &StateContext,
+    earliest_exit_epoch: &mut Epoch,
+    exit_balance_to_consume: &mut u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let current_epoch = state_ctxt.current_epoch;
@@ -602,8 +630,14 @@ fn process_single_registry_update_post_electra(
 
     if validator.is_active_at(current_epoch) && validator.effective_balance <= spec.ejection_balance
     {
-        // TODO(electra): make sure initiate_validator_exit is updated
-        initiate_validator_exit(validator, exit_cache, state_ctxt, spec)?;
+        initiate_validator_exit(
+            validator,
+            exit_cache,
+            state_ctxt,
+            Some(earliest_exit_epoch),
+            Some(exit_balance_to_consume),
+            spec,
+        )?;
     }
 
     if validator.is_eligible_for_activation_with_finalized_checkpoint(
@@ -621,6 +655,8 @@ fn initiate_validator_exit(
     validator: &mut Cow<Validator>,
     exit_cache: &mut ExitCache,
     state_ctxt: &StateContext,
+    earliest_exit_epoch: Option<&mut Epoch>,
+    exit_balance_to_consume: Option<&mut u64>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Return if the validator already initiated exit
@@ -628,16 +664,27 @@ fn initiate_validator_exit(
         return Ok(());
     }
 
-    // Compute exit queue epoch
-    let delayed_epoch = spec.compute_activation_exit_epoch(state_ctxt.current_epoch)?;
-    let mut exit_queue_epoch = exit_cache
-        .max_epoch()?
-        .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
-    let exit_queue_churn = exit_cache.get_churn_at(exit_queue_epoch)?;
+    let exit_queue_epoch = if state_ctxt.fork_name >= ForkName::Electra {
+        compute_exit_epoch_and_update_churn(
+            validator,
+            state_ctxt,
+            earliest_exit_epoch.ok_or(Error::MissingEarliestExitEpoch)?,
+            exit_balance_to_consume.ok_or(Error::MissingExitBalanceToConsume)?,
+            spec,
+        )?
+    } else {
+        // Compute exit queue epoch
+        let delayed_epoch = spec.compute_activation_exit_epoch(state_ctxt.current_epoch)?;
+        let mut exit_queue_epoch = exit_cache
+            .max_epoch()?
+            .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
+        let exit_queue_churn = exit_cache.get_churn_at(exit_queue_epoch)?;
 
-    if exit_queue_churn >= state_ctxt.churn_limit {
-        exit_queue_epoch.safe_add_assign(1)?;
-    }
+        if exit_queue_churn >= state_ctxt.churn_limit {
+            exit_queue_epoch.safe_add_assign(1)?;
+        }
+        exit_queue_epoch
+    };
 
     let validator = validator.make_mut()?;
     validator.exit_epoch = exit_queue_epoch;
@@ -646,6 +693,64 @@ fn initiate_validator_exit(
 
     exit_cache.record_validator_exit(exit_queue_epoch)?;
     Ok(())
+}
+
+fn compute_exit_epoch_and_update_churn(
+    validator: &mut Cow<Validator>,
+    state_ctxt: &StateContext,
+    earliest_exit_epoch_state: &mut Epoch,
+    exit_balance_to_consume_state: &mut u64,
+    spec: &ChainSpec,
+) -> Result<Epoch, Error> {
+    let exit_balance = validator.effective_balance;
+    let mut earliest_exit_epoch = std::cmp::max(
+        *earliest_exit_epoch_state,
+        spec.compute_activation_exit_epoch(state_ctxt.current_epoch)?,
+    );
+
+    let per_epoch_churn = get_activation_exit_churn_limit(state_ctxt, spec)?;
+    // New epoch for exits
+    let mut exit_balance_to_consume = if *earliest_exit_epoch_state < earliest_exit_epoch {
+        per_epoch_churn
+    } else {
+        *exit_balance_to_consume_state
+    };
+
+    // Exit doesn't fit in the current earliest epoch
+    if exit_balance > exit_balance_to_consume {
+        let balance_to_process = exit_balance.safe_sub(exit_balance_to_consume)?;
+        let additional_epochs = balance_to_process
+            .safe_sub(1)?
+            .safe_div(per_epoch_churn)?
+            .safe_add(1)?;
+        earliest_exit_epoch.safe_add_assign(additional_epochs)?;
+        exit_balance_to_consume.safe_add_assign(additional_epochs.safe_mul(per_epoch_churn)?)?;
+    }
+    // Consume the balance and update state variables
+    *exit_balance_to_consume_state = exit_balance_to_consume.safe_sub(exit_balance)?;
+    *earliest_exit_epoch_state = earliest_exit_epoch;
+
+    Ok(earliest_exit_epoch)
+}
+
+fn get_activation_exit_churn_limit(
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<u64, Error> {
+    Ok(std::cmp::min(
+        spec.max_per_epoch_activation_exit_churn_limit,
+        get_balance_churn_limit(state_ctxt, spec)?,
+    ))
+}
+
+fn get_balance_churn_limit(state_ctxt: &StateContext, spec: &ChainSpec) -> Result<u64, Error> {
+    let total_active_balance = state_ctxt.total_active_balance;
+    let churn = std::cmp::max(
+        spec.min_per_epoch_churn_limit_electra,
+        total_active_balance.safe_div(spec.churn_limit_quotient)?,
+    );
+
+    Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
 }
 
 impl SlashingsContext {
