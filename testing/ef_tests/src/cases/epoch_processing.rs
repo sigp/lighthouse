@@ -203,6 +203,7 @@ impl<E: EthSpec> EpochTransition<E> for PendingBalanceDeposits {
 
 impl<E: EthSpec> EpochTransition<E> for PendingConsolidations {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        initialize_epoch_cache(state, spec)?;
         process_epoch_single_pass(
             state,
             spec,
@@ -341,24 +342,44 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        match fork_name {
-            // No Altair tests for genesis fork.
-            ForkName::Base => {
-                T::name() != "sync_committee_updates"
-                    && T::name() != "inactivity_updates"
-                    && T::name() != "participation_flag_updates"
-                    && T::name() != "historical_summaries_update"
-            }
-            // No phase0 tests for Altair and later.
-            ForkName::Altair | ForkName::Bellatrix => {
-                T::name() != "participation_record_updates"
-                    && T::name() != "historical_summaries_update"
-            }
-            ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
-                T::name() != "participation_record_updates"
-                    && T::name() != "historical_roots_update"
-            }
-        }
+        // Deprecated tests
+        let deprecated_in_altair = if fork_name > ForkName::Base {
+            T::name() != "participation_record_updates"
+                && T::name() != "historical_summaries_update"
+        } else {
+            false
+        };
+        let deprecated_in_bellatrix = if fork_name > ForkName::Altair {
+            T::name() != "historical_roots_update"
+        } else {
+            false
+        };
+        let deprecated_in_capella = if fork_name > ForkName::Bellatrix {
+            T::name() != "historical_summaries_update"
+        } else {
+            false
+        };
+
+        // Added tests
+        let added_in_altair = if fork_name < ForkName::Altair {
+            T::name() != "sync_committee_updates"
+                && T::name() != "inactivity_updates"
+                && T::name() != "participation_flag_updates"
+                && T::name() != "historical_summaries_update"
+        } else {
+            false
+        };
+        let added_in_electra = if fork_name < ForkName::Electra {
+            T::name() != "pending_consolidations" && T::name() != "pending_balance_deposits"
+        } else {
+            false
+        };
+
+        deprecated_in_altair
+            && deprecated_in_bellatrix
+            && deprecated_in_capella
+            && added_in_altair
+            && added_in_electra
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
