@@ -104,11 +104,12 @@ fn operations_deposit_receipts() {
     OperationsHandler::<MainnetEthSpec, DepositReceipt>::default().run();
 }
 
-#[test]
-fn operations_consolidations() {
-    OperationsHandler::<MinimalEthSpec, SignedConsolidation>::default().run();
-    OperationsHandler::<MainnetEthSpec, SignedConsolidation>::default().run();
-}
+//TODO(electra) enable once tests are added for these
+// #[test]
+// fn operations_consolidations() {
+//     OperationsHandler::<MinimalEthSpec, SignedConsolidation>::default().run();
+//     OperationsHandler::<MainnetEthSpec, SignedConsolidation>::default().run();
+// }
 
 #[test]
 fn operations_bls_to_execution_change() {
