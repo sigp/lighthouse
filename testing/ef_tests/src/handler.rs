@@ -833,7 +833,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Deneb
-        fork_name >= ForkName::Deneb
+        fork_name == ForkName::Deneb
     }
 }
 
