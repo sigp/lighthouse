@@ -665,6 +665,18 @@ fn epoch_processing_eth1_data_reset() {
 }
 
 #[test]
+fn epoch_processing_pending_balance_deposits() {
+    EpochProcessingHandler::<MinimalEthSpec, PendingBalanceDeposits>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, PendingBalanceDeposits>::default().run();
+}
+
+#[test]
+fn epoch_processing_pending_consolidations() {
+    EpochProcessingHandler::<MinimalEthSpec, PendingConsolidations>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, PendingConsolidations>::default().run();
+}
+
+#[test]
 fn epoch_processing_effective_balance_updates() {
     EpochProcessingHandler::<MinimalEthSpec, EffectiveBalanceUpdates>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, EffectiveBalanceUpdates>::default().run();

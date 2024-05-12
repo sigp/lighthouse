@@ -10,6 +10,9 @@ use state_processing::per_epoch_processing::capella::process_historical_summarie
 use state_processing::per_epoch_processing::effective_balance_updates::{
     process_effective_balance_updates, process_effective_balance_updates_slow,
 };
+use state_processing::per_epoch_processing::single_pass::{
+    process_epoch_single_pass, SinglePassConfig,
+};
 use state_processing::per_epoch_processing::{
     altair, base,
     historical_roots_update::process_historical_roots_update,
@@ -53,6 +56,10 @@ pub struct Slashings;
 #[derive(Debug)]
 pub struct Eth1DataReset;
 #[derive(Debug)]
+pub struct PendingBalanceDeposits;
+#[derive(Debug)]
+pub struct PendingConsolidations;
+#[derive(Debug)]
 pub struct EffectiveBalanceUpdates;
 #[derive(Debug)]
 pub struct SlashingsReset;
@@ -79,6 +86,8 @@ type_name!(RewardsAndPenalties, "rewards_and_penalties");
 type_name!(RegistryUpdates, "registry_updates");
 type_name!(Slashings, "slashings");
 type_name!(Eth1DataReset, "eth1_data_reset");
+type_name!(PendingBalanceDeposits, "pending_balance_deposits");
+type_name!(PendingConsolidations, "pending_consolidations");
 type_name!(EffectiveBalanceUpdates, "effective_balance_updates");
 type_name!(SlashingsReset, "slashings_reset");
 type_name!(RandaoMixesReset, "randao_mixes_reset");
@@ -175,6 +184,34 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
 impl<E: EthSpec> EpochTransition<E> for Eth1DataReset {
     fn run(state: &mut BeaconState<E>, _spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         process_eth1_data_reset(state)
+    }
+}
+
+impl<E: EthSpec> EpochTransition<E> for PendingBalanceDeposits {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        process_epoch_single_pass(
+            state,
+            spec,
+            SinglePassConfig {
+                pending_balance_deposits: true,
+                ..SinglePassConfig::disable_all()
+            },
+        )
+        .map(|_| ())
+    }
+}
+
+impl<E: EthSpec> EpochTransition<E> for PendingConsolidations {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        process_epoch_single_pass(
+            state,
+            spec,
+            SinglePassConfig {
+                pending_consolidations: true,
+                ..SinglePassConfig::disable_all()
+            },
+        )
+        .map(|_| ())
     }
 }
 
