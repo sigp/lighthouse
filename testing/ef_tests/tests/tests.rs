@@ -1,7 +1,7 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
-use types::{MainnetEthSpec, MinimalEthSpec, *};
+use types::{ExecutionLayerWithdrawalRequest, MainnetEthSpec, MinimalEthSpec, *};
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.
@@ -90,6 +90,24 @@ fn operations_execution_payload_blinded() {
 fn operations_withdrawals() {
     OperationsHandler::<MinimalEthSpec, WithdrawalsPayload<_>>::default().run();
     OperationsHandler::<MainnetEthSpec, WithdrawalsPayload<_>>::default().run();
+}
+
+#[test]
+fn operations_execution_layer_withdrawal_reqeusts() {
+    OperationsHandler::<MinimalEthSpec, ExecutionLayerWithdrawalRequest>::default().run();
+    OperationsHandler::<MainnetEthSpec, ExecutionLayerWithdrawalRequest>::default().run();
+}
+
+#[test]
+fn operations_deposit_receipts() {
+    OperationsHandler::<MinimalEthSpec, DepositReceipt>::default().run();
+    OperationsHandler::<MainnetEthSpec, DepositReceipt>::default().run();
+}
+
+#[test]
+fn operations_consolidations() {
+    OperationsHandler::<MinimalEthSpec, SignedConsolidation>::default().run();
+    OperationsHandler::<MainnetEthSpec, SignedConsolidation>::default().run();
 }
 
 #[test]

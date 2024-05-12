@@ -342,44 +342,33 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        // Deprecated tests
-        let deprecated_in_altair = if fork_name > ForkName::Base {
-            T::name() != "participation_record_updates"
-                && T::name() != "historical_summaries_update"
-        } else {
-            false
-        };
-        let deprecated_in_bellatrix = if fork_name > ForkName::Altair {
-            T::name() != "historical_roots_update"
-        } else {
-            false
-        };
-        let deprecated_in_capella = if fork_name > ForkName::Bellatrix {
-            T::name() != "historical_summaries_update"
-        } else {
-            false
-        };
+        if fork_name > ForkName::Base && (T::name() == "participation_record_updates") {
+            return false;
+        }
 
-        // Added tests
-        let added_in_altair = if fork_name < ForkName::Altair {
-            T::name() != "sync_committee_updates"
-                && T::name() != "inactivity_updates"
-                && T::name() != "participation_flag_updates"
-                && T::name() != "historical_summaries_update"
-        } else {
-            false
-        };
-        let added_in_electra = if fork_name < ForkName::Electra {
-            T::name() != "pending_consolidations" && T::name() != "pending_balance_deposits"
-        } else {
-            false
-        };
+        if fork_name > ForkName::Bellatrix && T::name() == "historical_roots_update" {
+            return false;
+        }
 
-        deprecated_in_altair
-            && deprecated_in_bellatrix
-            && deprecated_in_capella
-            && added_in_altair
-            && added_in_electra
+        if fork_name < ForkName::Capella && T::name() == "historical_summaries_update" {
+            return false;
+        }
+
+        if fork_name < ForkName::Altair
+            && (T::name() == "sync_committee_updates"
+                || T::name() == "inactivity_updates"
+                || T::name() == "participation_flag_updates"
+                || T::name() == "historical_summaries_update")
+        {
+            return false;
+        }
+
+        if fork_name < ForkName::Electra
+            && (T::name() == "pending_consolidations" || T::name() == "pending_balance_deposits")
+        {
+            return false;
+        }
+        true
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
