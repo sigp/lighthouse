@@ -89,6 +89,11 @@ pub struct ExecutionPayload<E: EthSpec> {
     #[superstruct(only(Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
+    #[superstruct(only(Electra))]
+    pub deposit_receipts: VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>,
+    #[superstruct(only(Electra))]
+    pub withdrawal_requests:
+        VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
 }
 
 impl<'a, E: EthSpec> ExecutionPayloadRef<'a, E> {

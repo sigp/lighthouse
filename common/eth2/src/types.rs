@@ -1080,6 +1080,8 @@ pub enum EventKind<E: EthSpec> {
     #[cfg(feature = "lighthouse")]
     BlockReward(BlockReward),
     PayloadAttributes(VersionedSsePayloadAttributes),
+    ProposerSlashing(Box<ProposerSlashing>),
+    AttesterSlashing(Box<AttesterSlashing<E>>),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1099,6 +1101,8 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::LightClientOptimisticUpdate(_) => "light_client_optimistic_update",
             #[cfg(feature = "lighthouse")]
             EventKind::BlockReward(_) => "block_reward",
+            EventKind::ProposerSlashing(_) => "proposer_slashing",
+            EventKind::AttesterSlashing(_) => "attester_slashing",
         }
     }
 
@@ -1179,6 +1183,16 @@ impl<E: EthSpec> EventKind<E> {
             "block_reward" => Ok(EventKind::BlockReward(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block Reward: {:?}", e)),
             )?)),
+            "attester_slashing" => Ok(EventKind::AttesterSlashing(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Attester Slashing: {:?}", e))
+                })?,
+            )),
+            "proposer_slashing" => Ok(EventKind::ProposerSlashing(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Proposer Slashing: {:?}", e))
+                })?,
+            )),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1210,6 +1224,8 @@ pub enum EventTopic {
     LightClientOptimisticUpdate,
     #[cfg(feature = "lighthouse")]
     BlockReward,
+    AttesterSlashing,
+    ProposerSlashing,
 }
 
 impl FromStr for EventTopic {
@@ -1231,6 +1247,8 @@ impl FromStr for EventTopic {
             "light_client_optimistic_update" => Ok(EventTopic::LightClientOptimisticUpdate),
             #[cfg(feature = "lighthouse")]
             "block_reward" => Ok(EventTopic::BlockReward),
+            "attester_slashing" => Ok(EventTopic::AttesterSlashing),
+            "proposer_slashing" => Ok(EventTopic::ProposerSlashing),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1253,6 +1271,8 @@ impl fmt::Display for EventTopic {
             EventTopic::LightClientOptimisticUpdate => write!(f, "light_client_optimistic_update"),
             #[cfg(feature = "lighthouse")]
             EventTopic::BlockReward => write!(f, "block_reward"),
+            EventTopic::AttesterSlashing => write!(f, "attester_slashing"),
+            EventTopic::ProposerSlashing => write!(f, "proposer_slashing"),
         }
     }
 }

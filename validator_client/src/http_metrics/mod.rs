@@ -17,8 +17,8 @@ use warp::{http::Response, Filter};
 
 #[derive(Debug)]
 pub enum Error {
-    Warp(warp::Error),
-    Other(String),
+    Warp(#[allow(dead_code)] warp::Error),
+    Other(#[allow(dead_code)] String),
 }
 
 impl From<warp::Error> for Error {

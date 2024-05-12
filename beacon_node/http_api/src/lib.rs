@@ -4358,6 +4358,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::BlockReward => {
                                     event_handler.subscribe_block_reward()
                                 }
+                                api_types::EventTopic::AttesterSlashing => {
+                                    event_handler.subscribe_attester_slashing()
+                                }
+                                api_types::EventTopic::ProposerSlashing => {
+                                    event_handler.subscribe_proposer_slashing()
+                                }
                             };
 
                             receivers.push(
