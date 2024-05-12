@@ -681,10 +681,9 @@ where
     let source_index = consolidation.message.source_index as usize;
     let target_index = consolidation.message.target_index as usize;
 
-    let domain = spec.get_domain(
-        consolidation.message.epoch,
+    let domain = spec.compute_domain(
         Domain::Consolidation,
-        &state.fork(),
+        spec.genesis_fork_version,
         state.genesis_validators_root(),
     );
 
