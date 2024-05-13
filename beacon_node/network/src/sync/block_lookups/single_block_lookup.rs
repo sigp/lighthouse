@@ -39,6 +39,9 @@ pub enum LookupRequestError {
     BadState(String),
     /// Lookup failed for some other reason and should be dropped
     Failed,
+    /// Received MissingComponents when all components have been processed. This should never
+    /// happen, and indicates some internal bug
+    MissingComponentsAfterAllProcessed,
     /// Attempted to retrieve a not known lookup id
     UnknownLookup,
 }
@@ -276,10 +279,8 @@ pub enum State<T: Clone> {
     AwaitingProcess(DownloadResult<T>),
     /// Request is processing, sent by lookup sync
     Processing(DownloadResult<T>),
-    /// Request is processed:
-    /// - `Processed(Some)` if lookup sync downloaded and sent to process this request
-    /// - `Processed(None)` if another source (i.e. gossip) sent this component for processing
-    Processed(Option<PeerId>),
+    /// Request is processed
+    Processed,
 }
 
 /// Object representing the state of a single block or blob lookup request.
@@ -441,8 +442,8 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
     pub fn on_processing_success(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
-            State::Processing(result) => {
-                self.state = State::Processed(Some(result.peer_id));
+            State::Processing(_) => {
+                self.state = State::Processed;
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -451,27 +452,11 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
-    pub fn on_post_process_validation_failure(
-        &mut self,
-    ) -> Result<Option<PeerId>, LookupRequestError> {
-        match &self.state {
-            State::Processed(peer_id) => {
-                let peer_id = *peer_id;
-                self.failed_processing = self.failed_processing.saturating_add(1);
-                self.state = State::AwaitingDownload;
-                Ok(peer_id)
-            }
-            other => Err(LookupRequestError::BadState(format!(
-                "Bad state on_post_process_validation_failure expected Processed got {other}"
-            ))),
-        }
-    }
-
     /// Mark a request as complete without any download or processing
     pub fn on_completed_request(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
             State::AwaitingDownload => {
-                self.state = State::Processed(None);
+                self.state = State::Processed;
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(

@@ -382,24 +382,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_root: Hash256,
         downloaded_block_expected_blobs: Option<usize>,
     ) -> Result<LookupRequestResult, &'static str> {
-        let expected_blobs = downloaded_block_expected_blobs
-            .or_else(|| {
-                self.chain
-                    .data_availability_checker
-                    .num_expected_blobs(&block_root)
-            })
-            .unwrap_or_else(|| {
-                // If we don't about the block being requested, attempt to fetch all blobs
-                if self
-                    .chain
-                    .data_availability_checker
-                    .da_check_required_for_current_epoch()
-                {
-                    T::EthSpec::max_blobs_per_block()
-                } else {
-                    0
-                }
-            });
+        let Some(expected_blobs) = downloaded_block_expected_blobs.or_else(|| {
+            self.chain
+                .data_availability_checker
+                .num_expected_blobs(&block_root)
+        }) else {
+            // Wait to download the block before downloading blobs. Then we can be sure that the
+            // block has data, so there's no need to do "blind" requests for all possible blobs and
+            // latter handle the case where if the peer sent no blobs, penalize.
+            // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
+            // - if `num_expected_blobs` returns Some = block is processed.
+            return Ok(LookupRequestResult::Pending);
+        };
 
         let imported_blob_indexes = self
             .chain
@@ -603,15 +597,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     Err(e.into())
                 }
             },
-            RpcEvent::StreamTermination => {
-                // Stream terminator
-                match request.remove().terminate() {
-                    Some(blobs) => to_fixed_blob_sidecar_list(blobs)
-                        .map(|blobs| (blobs, timestamp_now()))
-                        .map_err(Into::into),
-                    None => return None,
-                }
-            }
+            RpcEvent::StreamTermination => match request.remove().terminate() {
+                Ok(_) => return None,
+                Err(e) => Err(e.into()),
+            },
             RpcEvent::RPCError(e) => {
                 request.remove();
                 Err(e.into())
