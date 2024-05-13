@@ -751,3 +751,12 @@ fn get_custody_columns() {
     GetCustodyColumnsHandler::<MainnetEthSpec>::default().run_for_feature(FeatureName::Eip7594);
     GetCustodyColumnsHandler::<MinimalEthSpec>::default().run_for_feature(FeatureName::Eip7594);
 }
+
+#[test]
+#[cfg(feature = "fake_crypto")]
+fn kzg_inclusion_merkle_proof_validity_eip7594() {
+    KzgInclusionMerkleProofValidityHandler::<MainnetEthSpec>::default()
+        .run_for_feature(FeatureName::Eip7594);
+    KzgInclusionMerkleProofValidityHandler::<MinimalEthSpec>::default()
+        .run_for_feature(FeatureName::Eip7594);
+}
