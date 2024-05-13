@@ -8,7 +8,6 @@ use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Duration;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::{HashMapDelay, HashSetDelay};
@@ -16,7 +15,10 @@ use futures::prelude::*;
 use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDiscovery};
 use slog::{debug, error, info, o, trace, warn};
 use slot_clock::SlotClock;
-use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
+use types::{
+    Attestation, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId, Unsigned,
+    ValidatorSubscription,
+};
 
 use crate::metrics;
 
@@ -29,25 +31,24 @@ pub(crate) const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
 /// Currently a whole slot ahead.
 const ADVANCE_SUBSCRIBE_SLOT_FRACTION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub(crate) enum SubscriptionKind {
-    /// Long lived subscriptions.
-    ///
-    /// These have a longer duration and are advertised in our ENR.
-    LongLived,
-    /// Short lived subscriptions.
-    ///
-    /// Subscribing to these subnets has a short duration and we don't advertise it in our ENR.
-    ShortLived,
-}
-
 /// A particular subnet at a given slot.
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 pub struct ExactSubnet {
     /// The `SubnetId` associated with this subnet.
-    pub subnet_id: SubnetId,
-    /// The `Slot` associated with this subnet.
+    pub subnet_id: Subnet,
+    /// For Attestations, this slot represents the start time at which we need to subscribe to the
+    /// slot. For SyncCommittee subnet id's this represents the end slot at which we no longer need
+    /// to subscribe to the subnet.
+    // NOTE: There was different logic between the two subscriptions and having a different
+    // interpretation of this variable seemed like the best way to group the logic, even though it
+    // may be counter-intuitive (apologies to future readers).
     pub slot: Slot,
+}
+
+/// The enum used to group all kinds of validator subscriptions
+pub enum Subscription {
+    Attestation(ValidatorSubscription),
+    SyncCommittee(SyncCommitteeSubscription),
 }
 
 pub struct AttestationService<T: BeaconChainTypes> {
@@ -61,17 +62,18 @@ pub struct AttestationService<T: BeaconChainTypes> {
     ///
     /// Once they expire, we unsubscribe from these.
     /// We subscribe to subnets when we are an aggregator for an exact subnet.
-    short_lived_subscriptions: HashMapDelay<SubnetId, Slot>,
+    // NOTE: When setup the defalut timeout is set for sync committee subscriptions.
+    subscriptions: HashMapDelay<Subnet, Slot>,
 
-    /// Subnets we are currently subscribed to as long lived subscriptions.
-    ///
-    /// We advertise these in our ENR. When these expire, the subnet is removed from our ENR.
-    /// These are required of all beacon nodes. The exact number is determined by the chain
-    /// specification.
-    long_lived_subscriptions: HashSet<SubnetId>,
+    /// A list of permanent subnets that this node is subscribed to.
+    // TODO: Shift this to a dynamic bitfield
+    permanent_attestation_subscriptions: HashSet<SubnetId>,
 
-    /// Short lived subscriptions that need to be executed in the future.
-    scheduled_short_lived_subscriptions: HashSetDelay<ExactSubnet>,
+    /// A collection of timeouts for when to unsubscirbe from a sync committee subnet.
+    // sync_unsubscriptions: HashSetDelay<SyncSubnetId>,
+
+    /// Subscriptions that need to be executed in the future.
+    scheduled_subscriptions: HashSetDelay<ExactSubnet>,
 
     /// A collection timeouts to track the existence of aggregate validator subscriptions at an
     /// `ExactSubnet`.
@@ -85,12 +87,6 @@ pub struct AttestationService<T: BeaconChainTypes> {
 
     /// We are always subscribed to all subnets.
     subscribe_all_subnets: bool,
-
-    /// Our Discv5 node_id.
-    node_id: NodeId,
-
-    /// Future used to manage subscribing and unsubscribing from long lived subnets.
-    next_long_lived_subscription_event: Pin<Box<tokio::time::Sleep>>,
 
     /// Whether this node is a block proposer-only node.
     proposer_only: bool,
@@ -115,39 +111,50 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         if config.subscribe_all_subnets {
             slog::info!(log, "Subscribing to all subnets");
-        } else {
-            slog::info!(log, "Deterministic long lived subnets enabled"; "subnets_per_node" => beacon_chain.spec.subnets_per_node, "subscription_duration_in_epochs" => beacon_chain.spec.epochs_per_subnet_subscription);
         }
+
+        // Build the list of known permanent subscriptions, so that we know not to subscribe or
+        // discover them.
+        let mut permanent_attestation_subscriptions = HashSet::default();
+        if config.subscribe_all_subnets {
+            // We are subscribed to all subnets, set all the bits to true.
+            for index in 0..<T::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
+                permanent_attestation_subscriptions.insert(SubnetId::from(index));
+            }
+        } else {
+            // Not subscribed to all subnets, so just calculate the required subnets from the
+            for subnet_id in SubnetId::compute_attestation_subnets::<T::EthSpec>(
+                node_id.raw().into(),
+                &beacon_chain.spec,
+            ) {
+                permanent_attestation_subscriptions.insert(subnet_id);
+            }
+        }
+
+        // Set up the sync committee subscriptions
+        let spec = &beacon_chain.spec;
+        let epoch_duration_secs =
+            beacon_chain.slot_clock.slot_duration().as_secs() * T::EthSpec::slots_per_epoch();
+        let default_sync_committee_duration = Duration::from_secs(
+            epoch_duration_secs.saturating_mul(spec.epochs_per_sync_committee_period.as_u64()),
+        );
 
         let track_validators = !config.import_all_attestations;
         let aggregate_validators_on_subnet =
             track_validators.then(|| HashSetDelay::new(slot_duration));
-        let mut service = AttestationService {
+        AttestationService {
             events: VecDeque::with_capacity(10),
             beacon_chain,
-            short_lived_subscriptions: HashMapDelay::new(slot_duration),
-            long_lived_subscriptions: HashSet::default(),
-            scheduled_short_lived_subscriptions: HashSetDelay::default(),
+            subscriptions: HashMapDelay::new(default_sync_committee_duration),
+            permanent_attestation_subscriptions,
+            scheduled_subscriptions: HashSetDelay::default(),
             aggregate_validators_on_subnet,
             waker: None,
             discovery_disabled: config.disable_discovery,
             subscribe_all_subnets: config.subscribe_all_subnets,
-            node_id,
-            next_long_lived_subscription_event: {
-                // Set a dummy sleep. Calculating the current subnet subscriptions will update this
-                // value with a smarter timing
-                Box::pin(tokio::time::sleep(Duration::from_secs(1)))
-            },
             proposer_only: config.proposer_only,
             log,
-        };
-
-        // If we are not subscribed to all subnets, handle the deterministic set of subnets
-        if !config.subscribe_all_subnets {
-            service.recompute_long_lived_subnets();
         }
-
-        service
     }
 
     /// Return count of all currently subscribed subnets (long-lived **and** short-lived).
@@ -156,36 +163,32 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         if self.subscribe_all_subnets {
             self.beacon_chain.spec.attestation_subnet_count as usize
         } else {
-            let count = self
-                .short_lived_subscriptions
-                .keys()
-                .chain(self.long_lived_subscriptions.iter())
-                .collect::<HashSet<_>>()
-                .len();
+            let count = self.subscriptions.keys().collect::<HashSet<_>>().len();
             count
+        }
+    }
+
+    /// Return count of all currently subscribed sync committee subnets.
+    #[cfg(test)]
+    pub fn sync_committee_subscription_count(&self) -> usize {
+        use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+        if self.subscribe_all_subnets {
+            SYNC_COMMITTEE_SUBNET_COUNT as usize
+        } else {
+            self.subscriptions.len()
         }
     }
 
     /// Returns whether we are subscribed to a subnet for testing purposes.
     #[cfg(test)]
-    pub(crate) fn is_subscribed(
-        &self,
-        subnet_id: &SubnetId,
-        subscription_kind: SubscriptionKind,
-    ) -> bool {
-        match subscription_kind {
-            SubscriptionKind::LongLived => self.long_lived_subscriptions.contains(subnet_id),
-            SubscriptionKind::ShortLived => self.short_lived_subscriptions.contains_key(subnet_id),
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn long_lived_subscriptions(&self) -> &HashSet<SubnetId> {
-        &self.long_lived_subscriptions
+    pub(crate) fn is_subscribed(&self, subnet_id: &SubnetId) -> bool {
+        self.subscriptions
+            .contains_key(&Subnet::Attestation(subnet_id))
     }
 
     /// Processes a list of validator subscriptions.
     ///
+    /// This is fundamentally called form the HTTP API when a validator requests duties from us
     /// This will:
     /// - Register new validators as being known.
     /// - Search for peers for required subnets.
@@ -196,7 +199,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// safely dropped.
     pub fn validator_subscriptions(
         &mut self,
-        subscriptions: impl Iterator<Item = ValidatorSubscription>,
+        subscriptions: impl Iterator<Item = Subscription>,
     ) -> Result<(), String> {
         // If the node is in a proposer-only state, we ignore all subnet subscriptions.
         if self.proposer_only {
@@ -204,64 +207,107 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         }
 
         // Maps each subnet_id subscription to it's highest slot
-        let mut subnets_to_discover: HashMap<SubnetId, Slot> = HashMap::new();
+        let mut subnets_to_discover: HashMap<Subnet, Slot> = HashMap::new();
 
         // Registers the validator with the attestation service.
-        for subscription in subscriptions {
-            metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_REQUESTS);
+        for general_subscription in subscriptions {
+            match general_subscription {
+                Subscription::Attestation(subscription) => {
+                    metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_REQUESTS);
 
-            trace!(self.log,
-                "Validator subscription";
-                "subscription" => ?subscription,
-            );
+                    // Compute the subnet that is associated with this subscription
+                    let subnet_id = match SubnetId::compute_subnet::<T::EthSpec>(
+                        subscription.slot,
+                        subscription.attestation_committee_index,
+                        subscription.committee_count_at_slot,
+                        &self.beacon_chain.spec,
+                    ) {
+                        Ok(subnet_id) => Subnet::Attestation(subnet_id),
+                        Err(e) => {
+                            warn!(self.log,
+                                "Failed to compute subnet id for validator subscription";
+                                "error" => ?e,
+                            );
+                            continue;
+                        }
+                    };
 
-            // Compute the subnet that is associated with this subscription
-            let subnet_id = match SubnetId::compute_subnet::<T::EthSpec>(
-                subscription.slot,
-                subscription.attestation_committee_index,
-                subscription.committee_count_at_slot,
-                &self.beacon_chain.spec,
-            ) {
-                Ok(subnet_id) => subnet_id,
-                Err(e) => {
-                    warn!(self.log,
-                        "Failed to compute subnet id for validator subscription";
-                        "error" => ?e,
-                    );
-                    continue;
+                    // Ensure each subnet_id inserted into the map has the highest slot as it's value.
+                    // Higher slot corresponds to higher min_ttl in the `SubnetDiscovery` entry.
+                    if let Some(slot) = subnets_to_discover.get(&subnet_id) {
+                        if subscription.slot > *slot {
+                            subnets_to_discover.insert(subnet_id, subscription.slot);
+                        }
+                    } else if !self.discovery_disabled {
+                        subnets_to_discover.insert(subnet_id, subscription.slot);
+                    }
+
+                    let exact_subnet = ExactSubnet {
+                        subnet_id,
+                        slot: subscription.slot,
+                    };
+
+                    // Determine if the validator is an aggregator. If so, we subscribe to the subnet and
+                    // if successful add the validator to a mapping of known aggregators for that exact
+                    // subnet.
+
+                    if subscription.is_aggregator {
+                        metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS);
+                        if let Err(e) = self.subscribe_to_subnet(exact_subnet) {
+                            warn!(self.log,
+                                "Subscription to subnet error";
+                                "error" => e,
+                            );
+                        }
+                    }
                 }
-            };
-            // Ensure each subnet_id inserted into the map has the highest slot as it's value.
-            // Higher slot corresponds to higher min_ttl in the `SubnetDiscovery` entry.
-            if let Some(slot) = subnets_to_discover.get(&subnet_id) {
-                if subscription.slot > *slot {
-                    subnets_to_discover.insert(subnet_id, subscription.slot);
-                }
-            } else if !self.discovery_disabled {
-                subnets_to_discover.insert(subnet_id, subscription.slot);
-            }
+                Subscription::SyncCommittee(subscription) => {
+                    metrics::inc_counter(&metrics::SYNC_COMMITTEE_SUBSCRIPTION_REQUESTS);
+                    // NOTE: We assume all subscriptions have been verified before reaching this service
 
-            let exact_subnet = ExactSubnet {
-                subnet_id,
-                slot: subscription.slot,
-            };
-
-            // Determine if the validator is an aggregator. If so, we subscribe to the subnet and
-            // if successful add the validator to a mapping of known aggregators for that exact
-            // subnet.
-
-            if subscription.is_aggregator {
-                metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS);
-                if let Err(e) = self.subscribe_to_short_lived_subnet(exact_subnet) {
-                    warn!(self.log,
-                        "Subscription to subnet error";
-                        "error" => e,
-                    );
-                } else {
+                    // Registers the validator with the subnet service.
                     trace!(self.log,
-                        "Subscribed to subnet for aggregator duties";
-                        "exact_subnet" => ?exact_subnet,
+                        "Sync committee subscription";
+                        "subscription" => ?subscription,
                     );
+
+                    let subnet_ids =
+                        match SyncSubnetId::compute_subnets_for_sync_committee::<T::EthSpec>(
+                            &subscription.sync_committee_indices,
+                        ) {
+                            Ok(subnet_ids) => subnet_ids,
+                            Err(e) => {
+                                warn!(self.log,
+                                    "Failed to compute subnet id for sync committee subscription";
+                                    "error" => ?e,
+                                    "validator_index" => subscription.validator_index
+                                );
+                                continue;
+                            }
+                        };
+
+                    for subnet_id in subnet_ids {
+                        let exact_subnet = ExactSubnet {
+                            subnet_id: Subnet::SyncCommittee(subnet_id),
+                            slot: subscription
+                                .until_epoch
+                                .start_slot(T::EthSpec::slots_per_epoch()),
+                        };
+                        subnets_to_discover.push(exact_subnet.clone());
+                        if let Err(e) = self.subscribe_to_sync_subnet(exact_subnet.subnet_id) {
+                            warn!(self.log,
+                                "Subscription to sync subnet error";
+                                "error" => e,
+                                "validator_index" => subscription.validator_index,
+                            );
+                        } else {
+                            trace!(self.log,
+                                "Subscribed to subnet for sync committee duties";
+                                "exact_subnet" => ?exact_subnet,
+                                "validator_index" => subscription.validator_index
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -269,108 +315,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // If the discovery mechanism isn't disabled, attempt to set up a peer discovery for the
         // required subnets.
         if !self.discovery_disabled {
-            if let Err(e) = self.discover_peers_request(
-                subnets_to_discover
-                    .into_iter()
-                    .map(|(subnet_id, slot)| ExactSubnet { subnet_id, slot }),
-            ) {
+            if let Err(e) = self.discover_peers_request(subnets_to_discover.into_iter()) {
                 warn!(self.log, "Discovery lookup request error"; "error" => e);
             };
         }
-
         Ok(())
-    }
-
-    fn recompute_long_lived_subnets(&mut self) {
-        // Ensure the next computation is scheduled even if assigning subnets fails.
-        let next_subscription_event = self
-            .recompute_long_lived_subnets_inner()
-            .unwrap_or_else(|_| self.beacon_chain.slot_clock.slot_duration());
-
-        debug!(self.log, "Recomputing deterministic long lived subnets");
-        self.next_long_lived_subscription_event =
-            Box::pin(tokio::time::sleep(next_subscription_event));
-
-        if let Some(waker) = self.waker.as_ref() {
-            waker.wake_by_ref();
-        }
-    }
-
-    /// Gets the long lived subnets the node should be subscribed to during the current epoch and
-    /// the remaining duration for which they remain valid.
-    fn recompute_long_lived_subnets_inner(&mut self) -> Result<Duration, ()> {
-        let current_epoch = self.beacon_chain.epoch().map_err(|e| {
-            if !self
-                .beacon_chain
-                .slot_clock
-                .is_prior_to_genesis()
-                .unwrap_or(false)
-            {
-                error!(self.log, "Failed to get the current epoch from clock"; "err" => ?e)
-            }
-        })?;
-
-        let (subnets, next_subscription_epoch) = SubnetId::compute_subnets_for_epoch::<T::EthSpec>(
-            self.node_id.raw().into(),
-            current_epoch,
-            &self.beacon_chain.spec,
-        )
-        .map_err(|e| error!(self.log, "Could not compute subnets for current epoch"; "err" => e))?;
-
-        let next_subscription_slot =
-            next_subscription_epoch.start_slot(T::EthSpec::slots_per_epoch());
-        let next_subscription_event = self
-            .beacon_chain
-            .slot_clock
-            .duration_to_slot(next_subscription_slot)
-            .ok_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to compute duration to next to long lived subscription event"
-                )
-            })?;
-
-        self.update_long_lived_subnets(subnets.collect());
-
-        Ok(next_subscription_event)
-    }
-
-    /// Updates the long lived subnets.
-    ///
-    /// New subnets are registered as subscribed, removed subnets as unsubscribed and the Enr
-    /// updated accordingly.
-    fn update_long_lived_subnets(&mut self, mut subnets: HashSet<SubnetId>) {
-        info!(self.log, "Subscribing to long-lived subnets"; "subnets" => ?subnets.iter().collect::<Vec<_>>());
-        for subnet in &subnets {
-            // Add the events for those subnets that are new as long lived subscriptions.
-            if !self.long_lived_subscriptions.contains(subnet) {
-                // Check if this subnet is new and send the subscription event if needed.
-                if !self.short_lived_subscriptions.contains_key(subnet) {
-                    debug!(self.log, "Subscribing to subnet";
-                        "subnet" => ?subnet,
-                        "subscription_kind" => ?SubscriptionKind::LongLived,
-                    );
-                    self.queue_event(SubnetServiceMessage::Subscribe(Subnet::Attestation(
-                        *subnet,
-                    )));
-                }
-                self.queue_event(SubnetServiceMessage::EnrAdd(Subnet::Attestation(*subnet)));
-                if !self.discovery_disabled {
-                    self.queue_event(SubnetServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
-                        subnet: Subnet::Attestation(*subnet),
-                        min_ttl: None,
-                    }]))
-                }
-            }
-        }
-
-        // Update the long_lived_subnets set and check for subnets that are being removed
-        std::mem::swap(&mut self.long_lived_subscriptions, &mut subnets);
-        for subnet in subnets {
-            if !self.long_lived_subscriptions.contains(&subnet) {
-                self.handle_removed_subnet(subnet, SubscriptionKind::LongLived);
-            }
-        }
     }
 
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
@@ -409,9 +358,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// request.
     ///
     /// If there is sufficient time, queues a peer discovery request for all the required subnets.
+    /// `subnets_to_discover` takes a (subnet_id, Option<Slot>), where if the slot is not set, we
+    /// send a discovery request immediately.
+    // NOTE: Sending early subscriptions results in early searching for peers on subnets.
     fn discover_peers_request(
         &mut self,
-        exact_subnets: impl Iterator<Item = ExactSubnet>,
+        subnets_to_discover: impl Iterator<Item = (Subnet, Slot)>,
     ) -> Result<(), &'static str> {
         let current_slot = self
             .beacon_chain
@@ -419,11 +371,14 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .now()
             .ok_or("Could not get the current slot")?;
 
-        let discovery_subnets: Vec<SubnetDiscovery> = exact_subnets
-            .filter_map(|exact_subnet| {
+        let discovery_subnets: Vec<SubnetDiscovery> = subnets_to_discover
+            .filter_map(|(subnet, relevant_slot)| {
+                // We generate discovery requests for all subnets (even one's we are permenantly
+                // subscribed to) in order to ensure our peer counts are satisfactory to perform the
+                // necessary duties.
+
                 // Check if there is enough time to perform a discovery lookup.
-                if exact_subnet.slot
-                    >= current_slot.saturating_add(MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD)
+                if relevant_slot >= current_slot.saturating_add(MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD)
                 {
                     // Send out an event to start looking for peers.
                     // Require the peer for an additional slot to ensure we keep the peer for the
@@ -431,18 +386,15 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     let min_ttl = self
                         .beacon_chain
                         .slot_clock
-                        .duration_to_slot(exact_subnet.slot + 1)
+                        .duration_to_slot(relevant_slot + 1)
                         .map(|duration| std::time::Instant::now() + duration);
-                    Some(SubnetDiscovery {
-                        subnet: Subnet::Attestation(exact_subnet.subnet_id),
-                        min_ttl,
-                    })
+                    Some(SubnetDiscovery { subnet, min_ttl })
                 } else {
                     // We may want to check the global PeerInfo to see estimated timeouts for each
                     // peer before they can be removed.
                     warn!(self.log,
                         "Not enough time for a discovery search";
-                        "subnet_id" => ?exact_subnet
+                        "subnet_id" => ?subnet,
                     );
                     None
                 }
@@ -456,10 +408,19 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
     // Subscribes to the subnet if it should be done immediately, or schedules it if required.
-    fn subscribe_to_short_lived_subnet(
+    fn subscribe_to_subnet(
         &mut self,
         ExactSubnet { subnet_id, slot }: ExactSubnet,
     ) -> Result<(), &'static str> {
+        // If the subnet is one of our permanent subnets, we do not need to subscribe.
+        if self.subscribe_all_subnets
+            || self
+                .permanent_attestation_subscriptions
+                .contains(&subnet_id)
+        {
+            return Ok(());
+        }
+
         let slot_duration = self.beacon_chain.slot_clock.slot_duration();
 
         // Calculate how long before we need to subscribe to the subnet.
@@ -485,14 +446,76 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // immediately.
         if time_to_subscription_start.is_zero() {
             // This is a current or past slot, we subscribe immediately.
-            self.subscribe_to_short_lived_subnet_immediately(subnet_id, slot + 1)?;
+            self.subscribe_to_subnet_immediately(subnet_id, slot + 1)?;
         } else {
             // This is a future slot, schedule subscribing.
             trace!(self.log, "Scheduling subnet subscription"; "subnet" => ?subnet_id, "time_to_subscription_start" => ?time_to_subscription_start);
-            self.scheduled_short_lived_subscriptions
+            self.scheduled_subscriptions
                 .insert_at(ExactSubnet { subnet_id, slot }, time_to_subscription_start);
         }
 
+        Ok(())
+    }
+
+    /// Adds a subscription event and an associated unsubscription event if required.
+    fn subscribe_to_sync_subnet(&mut self, exact_subnet: ExactSubnet) -> Result<(), &'static str> {
+        // Return if we have subscribed to all subnets
+        if self.subscribe_all_subnets {
+            return Ok(());
+        }
+
+        // Return if we already have a subscription for the subnet and its closer or
+        if let Some(until_slot) = self.subscriptions.get(exact_subnet.subnet_id) {
+            if until_slot >= *exact_subnet.slot {
+                return Ok(());
+            }
+        }
+
+        // Initialise timing variables
+        let current_slot = self
+            .beacon_chain
+            .slot_clock
+            .now()
+            .ok_or("Could not get the current slot")?;
+
+        // Calculate the duration to the unsubscription event.
+        let expected_end_subscription_duration = if current_slot >= exact_subnet.slot {
+            warn!(
+                self.log,
+                "Sync committee subscription is past expiration";
+                "current_slot" => current_slot,
+                "exact_subnet" => ?exact_subnet,
+            );
+            return Ok(());
+        } else {
+            let slot_duration = self.beacon_chain.slot_clock.slot_duration();
+
+            // the duration until we no longer need this subscription. We assume a single slot is
+            // sufficient.
+            self.beacon_chain
+                .slot_clock
+                .duration_to_slot(exact_subnet.slot)
+                .ok_or("Unable to determine duration to unsubscription slot")?
+                + slot_duration
+        };
+
+        if !self
+            .subscriptions
+            .insert_at(exact_subnet.subnet_id, expected_end_subscription_duration)
+        {
+            // We are not currently subscribed and have no waiting subscription, create one
+            debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "until_epoch" => ?exact_subnet.slot);
+            self.events
+                .push_back(SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(
+                    exact_subnet.subnet_id,
+                )));
+
+            // add the subnet to the ENR bitfield
+            self.events
+                .push_back(SubnetServiceMessage::EnrAdd(Subnet::SyncCommittee(
+                    exact_subnet.subnet_id,
+                )));
+        }
         Ok(())
     }
 
@@ -505,7 +528,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// out the appropriate events.
     ///
     /// On determinist long lived subnets, this is only used for short lived subscriptions.
-    fn subscribe_to_short_lived_subnet_immediately(
+    fn subscribe_to_subnet_immediately(
         &mut self,
         subnet_id: SubnetId,
         end_slot: Slot,
@@ -526,18 +549,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             return Err("Time when subscription would end has already passed.");
         }
 
-        let subscription_kind = SubscriptionKind::ShortLived;
-
         // We need to check and add a subscription for the right kind, regardless of the presence
         // of the subnet as a subscription of the other kind. This is mainly since long lived
         // subscriptions can be removed at any time when a validator goes offline.
 
-        let (subscriptions, already_subscribed_as_other_kind) = (
-            &mut self.short_lived_subscriptions,
-            self.long_lived_subscriptions.contains(&subnet_id),
-        );
-
-        match subscriptions.get(&subnet_id) {
+        match self.subscriptions.get(&subnet_id) {
             Some(current_end_slot) => {
                 // We are already subscribed. Check if we need to extend the subscription.
                 if &end_slot > current_end_slot {
@@ -545,27 +561,25 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                         "subnet" => ?subnet_id,
                         "prev_end_slot" => current_end_slot,
                         "new_end_slot" => end_slot,
-                        "subscription_kind" => ?subscription_kind,
                     );
-                    subscriptions.insert_at(subnet_id, end_slot, time_to_subscription_end);
+                    self.subscriptions
+                        .insert_at(subnet_id, end_slot, time_to_subscription_end);
                 }
             }
             None => {
                 // This is a new subscription. Add with the corresponding timeout and send the
                 // notification.
-                subscriptions.insert_at(subnet_id, end_slot, time_to_subscription_end);
+                self.subscriptions
+                    .insert_at(subnet_id, end_slot, time_to_subscription_end);
 
                 // Inform of the subscription.
-                if !already_subscribed_as_other_kind {
-                    debug!(self.log, "Subscribing to subnet";
-                        "subnet" => ?subnet_id,
-                        "end_slot" => end_slot,
-                        "subscription_kind" => ?subscription_kind,
-                    );
-                    self.queue_event(SubnetServiceMessage::Subscribe(Subnet::Attestation(
-                        subnet_id,
-                    )));
-                }
+                debug!(self.log, "Subscribing to subnet";
+                    "subnet" => ?subnet_id,
+                    "end_slot" => end_slot,
+                );
+                self.queue_event(SubnetServiceMessage::Subscribe(Subnet::Attestation(
+                    subnet_id,
+                )));
             }
         }
 
@@ -575,23 +589,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     // Unsubscribes from a subnet that was removed if it does not continue to exist as a
     // subscription of the other kind. For long lived subscriptions, it also removes the
     // advertisement from our ENR.
-    fn handle_removed_subnet(&mut self, subnet_id: SubnetId, subscription_kind: SubscriptionKind) {
-        let exists_in_other_subscriptions = match subscription_kind {
-            SubscriptionKind::LongLived => self.short_lived_subscriptions.contains_key(&subnet_id),
-            SubscriptionKind::ShortLived => self.long_lived_subscriptions.contains(&subnet_id),
-        };
-
-        if !exists_in_other_subscriptions {
+    fn handle_removed_subnet(&mut self, subnet_id: SubnetId) {
+        if !self.subscriptions.contains_key(&subnet_id) {
             // Subscription no longer exists as short lived or long lived.
-            debug!(self.log, "Unsubscribing from subnet"; "subnet" => ?subnet_id, "subscription_kind" => ?subscription_kind);
+            debug!(self.log, "Unsubscribing from subnet"; "subnet" => ?subnet_id);
             self.queue_event(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
-                subnet_id,
-            )));
-        }
-
-        if subscription_kind == SubscriptionKind::LongLived {
-            // Remove from our ENR even if we remain subscribed in other way.
-            self.queue_event(SubnetServiceMessage::EnrRemove(Subnet::Attestation(
                 subnet_id,
             )));
         }
@@ -616,28 +618,11 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
             return Poll::Ready(Some(event));
         }
 
-        // If we aren't subscribed to all subnets, handle the deterministic long-lived subnets
-        if !self.subscribe_all_subnets {
-            match self.next_long_lived_subscription_event.as_mut().poll(cx) {
-                Poll::Ready(_) => {
-                    self.recompute_long_lived_subnets();
-                    // We re-wake the task as there could be other subscriptions to process
-                    self.waker
-                        .as_ref()
-                        .expect("Waker has been set")
-                        .wake_by_ref();
-                }
-                Poll::Pending => {}
-            }
-        }
-
         // Process scheduled subscriptions that might be ready, since those can extend a soon to
         // expire subscription.
-        match self.scheduled_short_lived_subscriptions.poll_next_unpin(cx) {
+        match self.scheduled_subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(ExactSubnet { subnet_id, slot }))) => {
-                if let Err(e) =
-                    self.subscribe_to_short_lived_subnet_immediately(subnet_id, slot + 1)
-                {
+                if let Err(e) = self.subscribe_to_subnet_immediately(subnet_id, slot + 1) {
                     debug!(self.log, "Failed to subscribe to short lived subnet"; "subnet" => ?subnet_id, "err" => e);
                 }
                 self.waker
@@ -651,10 +636,10 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
             Poll::Ready(None) | Poll::Pending => {}
         }
 
-        // Finally process any expired subscriptions.
-        match self.short_lived_subscriptions.poll_next_unpin(cx) {
+        // Process any expired subscriptions.
+        match self.subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok((subnet_id, _end_slot)))) => {
-                self.handle_removed_subnet(subnet_id, SubscriptionKind::ShortLived);
+                self.handle_removed_subnet(subnet_id);
                 // We re-wake the task as there could be other subscriptions to process
                 self.waker
                     .as_ref()
