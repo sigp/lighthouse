@@ -4,13 +4,13 @@
 use self::requests::{ActiveBlobsByRootRequest, ActiveBlocksByRootRequest};
 pub use self::requests::{BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest};
 use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
-use super::manager::{BlockProcessType, Id, RequestId as SyncRequestId};
+use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::SingleLookupId;
-use crate::sync::manager::SingleLookupReqId;
+use crate::sync::manager::{BlockProcessType, SingleLookupReqId};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
@@ -79,6 +79,19 @@ impl From<LookupVerifyError> for LookupFailure {
     fn from(e: LookupVerifyError) -> Self {
         LookupFailure::LookupVerifyError(e)
     }
+}
+
+pub enum LookupRequestResult {
+    /// A request is sent. Sync MUST receive an event from the network in the future for either:
+    /// completed response or failed request
+    RequestSent,
+    /// No request is sent, and no further action is necessary to consider this request completed
+    NoRequestNeeded,
+    /// No request is sent, but the request is not completed. Sync MUST receive some future event
+    /// that makes progress on the request. For example: request is processing from a different
+    /// source (i.e. block received from gossip) and sync MUST receive an event with that processing
+    /// result.
+    Pending,
 }
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
@@ -305,14 +318,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_id: SingleLookupId,
         peer_id: PeerId,
         block_root: Hash256,
-    ) -> Result<bool, &'static str> {
+    ) -> Result<LookupRequestResult, &'static str> {
+        // da_checker includes block that are execution verified, but are missing components
+        if self
+            .chain
+            .data_availability_checker
+            .has_execution_valid_block(&block_root)
+        {
+            return Ok(LookupRequestResult::NoRequestNeeded);
+        }
+
+        // reqresp_pre_import_cache includes blocks that may not be yet execution verified
         if self
             .chain
             .reqresp_pre_import_cache
             .read()
             .contains_key(&block_root)
         {
-            return Ok(false);
+            // A block is on the `reqresp_pre_import_cache` but NOT in the
+            // `data_availability_checker` only if it is actively processing. We can expect a future
+            // event with the result of processing
+            return Ok(LookupRequestResult::Pending);
         }
 
         let id = SingleLookupReqId {
@@ -340,7 +366,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blocks_by_root_requests
             .insert(id, ActiveBlocksByRootRequest::new(request));
 
-        Ok(true)
+        Ok(LookupRequestResult::RequestSent)
     }
 
     /// Request necessary blobs for `block_root`. Requests only the necessary blobs by checking:
@@ -355,7 +381,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         block_root: Hash256,
         downloaded_block_expected_blobs: Option<usize>,
-    ) -> Result<bool, &'static str> {
+    ) -> Result<LookupRequestResult, &'static str> {
         let expected_blobs = downloaded_block_expected_blobs
             .or_else(|| {
                 self.chain
@@ -387,7 +413,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         if indices.is_empty() {
             // No blobs required, do not issue any request
-            return Ok(false);
+            return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
         let id = SingleLookupReqId {
@@ -419,7 +445,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blobs_by_root_requests
             .insert(id, ActiveBlobsByRootRequest::new(request));
 
-        Ok(true)
+        Ok(LookupRequestResult::RequestSent)
     }
 
     pub fn is_execution_engine_online(&self) -> bool {
@@ -595,19 +621,19 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     pub fn send_block_for_processing(
         &self,
+        id: Id,
         block_root: Hash256,
         block: RpcBlock<T::EthSpec>,
         duration: Duration,
-        process_type: BlockProcessType,
     ) -> Result<(), &'static str> {
         match self.beacon_processor_if_enabled() {
             Some(beacon_processor) => {
-                debug!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
+                debug!(self.log, "Sending block for processing"; "block" => ?block_root, "id" => id);
                 if let Err(e) = beacon_processor.send_rpc_beacon_block(
                     block_root,
                     block,
                     duration,
-                    process_type,
+                    BlockProcessType::SingleBlock { id },
                 ) {
                     error!(
                         self.log,
@@ -628,17 +654,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     pub fn send_blobs_for_processing(
         &self,
+        id: Id,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
         duration: Duration,
-        process_type: BlockProcessType,
     ) -> Result<(), &'static str> {
         match self.beacon_processor_if_enabled() {
             Some(beacon_processor) => {
-                debug!(self.log, "Sending blobs for processing"; "block" => ?block_root, "process_type" => ?process_type);
-                if let Err(e) =
-                    beacon_processor.send_rpc_blobs(block_root, blobs, duration, process_type)
-                {
+                debug!(self.log, "Sending blobs for processing"; "block" => ?block_root, "id" => id);
+                if let Err(e) = beacon_processor.send_rpc_blobs(
+                    block_root,
+                    blobs,
+                    duration,
+                    BlockProcessType::SingleBlob { id },
+                ) {
                     error!(
                         self.log,
                         "Failed to send sync blobs to processor";

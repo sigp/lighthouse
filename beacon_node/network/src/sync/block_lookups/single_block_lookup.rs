@@ -2,7 +2,7 @@ use super::common::ResponseType;
 use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
-use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
 use itertools::Itertools;
 use rand::seq::IteratorRandom;
@@ -179,11 +179,13 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 .use_rand_available_peer()
                 .ok_or(LookupRequestError::NoPeers)?;
 
-            // make_request returns true only if a request needs to be made
-            if request.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
-                request.get_state_mut().on_download_start()?;
-            } else {
-                request.get_state_mut().on_completed_request()?;
+            match request.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
+                LookupRequestResult::RequestSent => request.get_state_mut().on_download_start()?,
+                LookupRequestResult::NoRequestNeeded => {
+                    request.get_state_mut().on_completed_request()?
+                }
+                // Sync will receive a future event to make progress on the request, do nothing now
+                LookupRequestResult::Pending => return Ok(()),
             }
 
         // Otherwise, attempt to progress awaiting processing
@@ -262,12 +264,16 @@ pub struct DownloadResult<T: Clone> {
     pub peer_id: PeerId,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum State<T: Clone> {
     AwaitingDownload,
     Downloading,
     AwaitingProcess(DownloadResult<T>),
+    /// Request is processing, sent by lookup sync
     Processing(DownloadResult<T>),
+    /// Request is processed:
+    /// - `Processed(Some)` if lookup sync downloaded and sent to process this request
+    /// - `Processed(None)` if another source (i.e. gossip) sent this component for processing
     Processed(Option<PeerId>),
 }
 
@@ -428,12 +434,11 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
-    pub fn on_processing_success(&mut self) -> Result<PeerId, LookupRequestError> {
+    pub fn on_processing_success(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
             State::Processing(result) => {
-                let peer_id = result.peer_id;
-                self.state = State::Processed(Some(peer_id));
-                Ok(peer_id)
+                self.state = State::Processed(Some(result.peer_id));
+                Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
                 "Bad state on_processing_success expected Processing got {other}"
@@ -514,12 +519,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
 impl<T: Clone> std::fmt::Display for State<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            State::AwaitingDownload => write!(f, "AwaitingDownload"),
-            State::Downloading { .. } => write!(f, "Downloading"),
-            State::AwaitingProcess { .. } => write!(f, "AwaitingProcessing"),
-            State::Processing { .. } => write!(f, "Processing"),
-            State::Processed { .. } => write!(f, "Processed"),
-        }
+        write!(f, "{}", Into::<&'static str>::into(self))
     }
 }

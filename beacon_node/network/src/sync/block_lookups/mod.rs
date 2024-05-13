@@ -408,7 +408,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.on_processing_result_inner::<BlobRequestState<T::EthSpec>>(id, result, cx)
             }
         };
-        self.on_lookup_result(process_type.id(), lookup_result, "processing_result", cx);
+        let id = match process_type {
+            BlockProcessType::SingleBlock { id } | BlockProcessType::SingleBlob { id } => id,
+        };
+        self.on_lookup_result(id, lookup_result, "processing_result", cx);
     }
 
     pub fn on_processing_result_inner<R: RequestState<T>>(
@@ -521,6 +524,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                     other => {
                         debug!(self.log, "Invalid lookup component"; "block_root" => ?block_root, "component" => ?R::response_type(), "error" => ?other);
+
                         let peer_id = request_state.on_processing_failure()?;
                         cx.report_peer(
                             peer_id,
@@ -559,6 +563,30 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 Ok(LookupResult::Completed)
             }
         }
+    }
+
+    pub fn on_external_processing_result(
+        &mut self,
+        block_root: Hash256,
+        imported: bool,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        let Some((id, lookup)) = self
+            .single_block_lookups
+            .iter_mut()
+            .find(|(_, lookup)| lookup.is_for_block(block_root))
+        else {
+            // Ok to ignore gossip process events
+            return;
+        };
+
+        let lookup_result = if imported {
+            Ok(LookupResult::Completed)
+        } else {
+            lookup.continue_requests(cx)
+        };
+        let id = *id;
+        self.on_lookup_result(id, lookup_result, "external_processing_result", cx);
     }
 
     /// Makes progress on the immediate children of `block_root`

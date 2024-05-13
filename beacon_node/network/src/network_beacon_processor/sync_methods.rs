@@ -170,17 +170,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             if reprocess_tx.try_send(reprocess_msg).is_err() {
                 error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %hash)
             };
-            if matches!(process_type, BlockProcessType::SingleBlock { .. }) {
-                self.chain.block_times_cache.write().set_time_observed(
-                    hash,
-                    slot,
-                    seen_timestamp,
-                    None,
-                    None,
-                );
+            self.chain.block_times_cache.write().set_time_observed(
+                hash,
+                slot,
+                seen_timestamp,
+                None,
+                None,
+            );
 
-                self.chain.recompute_head_at_current_slot().await;
-            }
+            self.chain.recompute_head_at_current_slot().await;
         }
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
