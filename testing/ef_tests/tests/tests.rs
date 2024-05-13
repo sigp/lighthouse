@@ -745,3 +745,9 @@ fn rewards() {
         RewardsHandler::<MainnetEthSpec>::new(handler).run();
     }
 }
+
+#[test]
+fn get_custody_columns() {
+    GetCustodyColumnsHandler::<MainnetEthSpec>::default().run_for_feature(FeatureName::Eip7594);
+    GetCustodyColumnsHandler::<MinimalEthSpec>::default().run_for_feature(FeatureName::Eip7594);
+}

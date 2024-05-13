@@ -1,6 +1,6 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
-use crate::type_name;
 use crate::type_name::TypeName;
+use crate::{type_name, FeatureName};
 use derivative::Derivative;
 use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
@@ -77,6 +77,51 @@ pub trait Handler {
         let name = format!(
             "{}/{}/{}",
             fork_name_str,
+            Self::runner_name(),
+            self.handler_name()
+        );
+        crate::results::assert_tests_pass(&name, &handler_path, &results);
+    }
+
+    fn run_for_feature(&self, feature_name: FeatureName) {
+        let feature_name_str = feature_name.to_string();
+
+        let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("consensus-spec-tests")
+            .join("tests")
+            .join(Self::config_name())
+            .join(&feature_name_str)
+            .join(Self::runner_name())
+            .join(self.handler_name());
+
+        // fork name not used for features
+        let dummy_fork_name = ForkName::Deneb;
+
+        // Iterate through test suites
+        let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
+            entry
+                .ok()
+                .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap())
+        };
+
+        let test_cases = fs::read_dir(&handler_path)
+            .unwrap_or_else(|e| panic!("handler dir {} exists: {:?}", handler_path.display(), e))
+            .filter_map(as_directory)
+            .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
+            .filter_map(as_directory)
+            .map(|test_case_dir| {
+                let path = test_case_dir.path();
+                let case =
+                    Self::Case::load_from_dir(&path, dummy_fork_name).expect("test should load");
+                (path, case)
+            })
+            .collect();
+
+        let results = Cases { test_cases }.test_results(dummy_fork_name, Self::use_rayon());
+
+        let name = format!(
+            "{}/{}/{}",
+            feature_name_str,
             Self::runner_name(),
             self.handler_name()
         );
@@ -768,6 +813,26 @@ impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
 
     fn handler_name(&self) -> String {
         "verify_kzg_proof".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct GetCustodyColumnsHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
+    type Case = cases::GetCustodyColumns<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "networking"
+    }
+
+    fn handler_name(&self) -> String {
+        "get_custody_columns".into()
     }
 }
 

@@ -1,6 +1,6 @@
 use super::*;
 use rayon::prelude::*;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::path::{Path, PathBuf};
 use types::ForkName;
 
@@ -18,6 +18,7 @@ mod fork;
 mod fork_choice;
 mod genesis_initialization;
 mod genesis_validity;
+mod get_custody_columns;
 mod kzg_blob_to_kzg_commitment;
 mod kzg_compute_blob_kzg_proof;
 mod kzg_compute_kzg_proof;
@@ -48,6 +49,7 @@ pub use epoch_processing::*;
 pub use fork::ForkTest;
 pub use genesis_initialization::*;
 pub use genesis_validity::*;
+pub use get_custody_columns::*;
 pub use kzg_blob_to_kzg_commitment::*;
 pub use kzg_compute_blob_kzg_proof::*;
 pub use kzg_compute_kzg_proof::*;
@@ -63,6 +65,16 @@ pub use shuffling::*;
 pub use ssz_generic::*;
 pub use ssz_static::*;
 pub use transition::TransitionTest;
+
+pub enum FeatureName {
+    Eip7594,
+}
+
+impl Display for FeatureName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("eip7594")
+    }
+}
 
 pub trait LoadCase: Sized {
     /// Load the test case from a test case directory.

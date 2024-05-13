@@ -2,6 +2,7 @@
 use crate::data_column_sidecar::ColumnIndex;
 use crate::EthSpec;
 use ethereum_types::U256;
+use itertools::Itertools;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -60,15 +61,15 @@ impl DataColumnSubnetId {
         node_id: U256,
         custody_subnet_count: u64,
     ) -> impl Iterator<Item = DataColumnSubnetId> {
-        // NOTE: we could perform check on `custody_subnet_count` here to ensure that it is a valid
+        // TODO(das): we could perform check on `custody_subnet_count` here to ensure that it is a valid
         // value, but here we assume it is valid.
 
         let mut subnets = SmallVec::<[u64; 32]>::new();
-        let mut offset = 0;
+        let mut current_id = node_id;
         while (subnets.len() as u64) < custody_subnet_count {
-            let offset_node_id = node_id + U256::from(offset);
-            let offset_node_id = offset_node_id.low_u64().to_le_bytes();
-            let hash: [u8; 32] = ethereum_hashing::hash_fixed(&offset_node_id);
+            let mut node_id_bytes = [0u8; 32];
+            current_id.to_little_endian(&mut node_id_bytes);
+            let hash = ethereum_hashing::hash_fixed(&node_id_bytes);
             let hash_prefix = [
                 hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
             ];
@@ -79,7 +80,10 @@ impl DataColumnSubnetId {
                 subnets.push(subnet);
             }
 
-            offset += 1
+            if current_id == U256::MAX {
+                current_id = U256::zero()
+            }
+            current_id += U256::one()
         }
         subnets.into_iter().map(DataColumnSubnetId::new)
     }
@@ -90,6 +94,7 @@ impl DataColumnSubnetId {
     ) -> impl Iterator<Item = ColumnIndex> {
         Self::compute_custody_subnets::<E>(node_id, custody_subnet_count)
             .flat_map(|subnet| subnet.columns::<E>())
+            .sorted()
     }
 }
 
