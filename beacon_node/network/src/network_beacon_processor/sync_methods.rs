@@ -112,7 +112,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let Some(handle) = duplicate_cache.check_and_insert(block_root) else {
             debug!(
                 self.log,
-                "Rpc block is being processed";
+                "Gossip block is being processed";
                 "action" => "sending rpc block to reprocessing queue",
                 "block_root" => %block_root,
                 "process_type" => ?process_type,
