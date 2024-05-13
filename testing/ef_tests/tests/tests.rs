@@ -99,17 +99,18 @@ fn operations_execution_layer_withdrawal_reqeusts() {
 }
 
 #[test]
+#[cfg(not(feature = "fake_crypto"))]
 fn operations_deposit_receipts() {
     OperationsHandler::<MinimalEthSpec, DepositReceipt>::default().run();
     OperationsHandler::<MainnetEthSpec, DepositReceipt>::default().run();
 }
 
-//TODO(electra) enable once tests are added for these
-// #[test]
-// fn operations_consolidations() {
-//     OperationsHandler::<MinimalEthSpec, SignedConsolidation>::default().run();
-//     OperationsHandler::<MainnetEthSpec, SignedConsolidation>::default().run();
-// }
+#[test]
+fn operations_consolidations() {
+    OperationsHandler::<MinimalEthSpec, SignedConsolidation>::default().run();
+    //TODO(electra): re-enable mainnet once they make tests for this
+    //OperationsHandler::<MainnetEthSpec, SignedConsolidation>::default().run();
+}
 
 #[test]
 fn operations_bls_to_execution_change() {
