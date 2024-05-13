@@ -1261,17 +1261,17 @@ fn test_parent_lookup_disconnection_no_peers_left() {
 }
 
 #[test]
-fn test_parent_lookup_disconnection_peer_left() {
+fn test_lookup_disconnection_peer_left() {
     let mut rig = TestRig::test_setup();
     let peer_ids = (0..2).map(|_| rig.new_connected_peer()).collect::<Vec<_>>();
-    let trigger_block = rig.rand_block();
+    let block_root = Hash256::random();
     // lookup should have two peers associated with the same block
     for peer_id in peer_ids.iter() {
-        rig.trigger_unknown_parent_block(*peer_id, trigger_block.clone().into());
+        rig.trigger_unknown_block_from_attestation(block_root, *peer_id);
     }
     // Disconnect the first peer only, which is the one handling the request
     rig.peer_disconnected(*peer_ids.first().unwrap());
-    rig.assert_parent_lookups_count(1);
+    rig.assert_single_lookups_count(1);
 }
 
 #[test]
