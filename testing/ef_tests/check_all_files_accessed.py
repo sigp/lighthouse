@@ -41,6 +41,7 @@ excluded_paths = [
     ".*\.DS_Store.*",
     # More Mac weirdness.
     "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml",
+    "tests/mainnet/eip7594/networking/get_custody_columns/pyspec_tests/get_custody_columns__short_node_id/._meta.yaml",
     # bls tests are moved to bls12-381-tests directory
     "tests/general/phase0/bls",
     # some bls tests are not included now
