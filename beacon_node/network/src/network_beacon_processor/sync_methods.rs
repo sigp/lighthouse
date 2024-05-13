@@ -140,6 +140,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         let slot = block.slot();
+        let block_has_data = block.as_block().num_expected_blobs() > 0;
         let parent_root = block.message().parent_root();
         let commitments_formatted = block.as_block().commitments_formatted();
 
@@ -184,6 +185,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
         }
+
+        // RPC block imported or execution validated. If the block was already imported by gossip we
+        // receive Err(BlockError::AlreadyKnown).
+        if result.is_ok() &&
+            // Block has at least one blob, so it produced columns
+            block_has_data &&
+            // Block slot is within the DA boundary (should always be the case) and PeerDAS is activated
+            self.chain.should_sample_slot(slot)
+        {
+            self.send_sync_message(SyncMessage::SampleBlock(block_root, slot));
+        }
+
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
@@ -491,10 +504,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         {
             ChainSegmentResult::Successful { imported_blocks } => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
-                if imported_blocks > 0 {
+                if !imported_blocks.is_empty() {
                     self.chain.recompute_head_at_current_slot().await;
+
+                    for (block_root, block_slot) in &imported_blocks {
+                        if self.chain.should_sample_slot(*block_slot) {
+                            self.send_sync_message(SyncMessage::SampleBlock(
+                                *block_root,
+                                *block_slot,
+                            ));
+                        }
+                    }
                 }
-                (imported_blocks, Ok(()))
+                (imported_blocks.len(), Ok(()))
             }
             ChainSegmentResult::Failed {
                 imported_blocks,
@@ -502,10 +524,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             } => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
                 let r = self.handle_failed_chain_segment(error);
-                if imported_blocks > 0 {
+                if !imported_blocks.is_empty() {
                     self.chain.recompute_head_at_current_slot().await;
                 }
-                (imported_blocks, r)
+                (imported_blocks.len(), r)
             }
         }
     }
