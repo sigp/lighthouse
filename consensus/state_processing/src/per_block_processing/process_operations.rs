@@ -476,7 +476,10 @@ pub fn apply_deposit<E: EthSpec>(
         // The signature should be checked for new validators. Return early for a bad
         // signature.
         if is_valid_deposit_signature(&deposit_data, spec).is_err() {
+            dbg!("invalid sig");
             return Ok(());
+        } else {
+            dbg!("valid sig");
         }
 
         let new_validator_index = state.validators().len();
