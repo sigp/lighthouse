@@ -7,6 +7,9 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec, ForkName};
 
+const EIP7594_FORK: ForkName = ForkName::Deneb;
+const EIP7594_TESTS: [&str; 2] = ["ssz_static", "single_merkle_proof"];
+
 pub trait Handler {
     type Case: Case + LoadCase;
 
@@ -32,7 +35,11 @@ pub trait Handler {
     fn run(&self) {
         for fork_name in ForkName::list_all() {
             if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
-                self.run_for_fork(fork_name)
+                self.run_for_fork(fork_name);
+
+                if fork_name == EIP7594_FORK && EIP7594_TESTS.contains(&Self::runner_name()) {
+                    self.run_for_feature(FeatureName::Eip7594);
+                }
             }
         }
     }
@@ -94,8 +101,8 @@ pub trait Handler {
             .join(Self::runner_name())
             .join(self.handler_name());
 
-        // fork name not used for features
-        let dummy_fork_name = ForkName::Deneb;
+        // Feature is currently built on top of Deneb without type changes.
+        let fork_name = ForkName::Deneb;
 
         // Iterate through test suites
         let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
@@ -111,13 +118,12 @@ pub trait Handler {
             .filter_map(as_directory)
             .map(|test_case_dir| {
                 let path = test_case_dir.path();
-                let case =
-                    Self::Case::load_from_dir(&path, dummy_fork_name).expect("test should load");
+                let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
                 (path, case)
             })
             .collect();
 
-        let results = Cases { test_cases }.test_results(dummy_fork_name, Self::use_rayon());
+        let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
 
         let name = format!(
             "{}/{}/{}",
