@@ -319,7 +319,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_root: Hash256,
     ) -> Result<LookupRequestResult, &'static str> {
         // da_checker includes block that are execution verified, but are missing components
-        if self.chain.data_availability_checker.has_block(&block_root) {
+        if self
+            .chain
+            .data_availability_checker
+            .has_execution_valid_block(&block_root)
+        {
             return Ok(LookupRequestResult::NoRequestNeeded);
         }
 

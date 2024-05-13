@@ -11,11 +11,16 @@ use std::sync::Arc;
 use super::*;
 
 use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::blob_verification::GossipVerifiedBlob;
+use beacon_chain::block_verification_types::{BlockImportData, RpcBlock};
 use beacon_chain::builder::Witness;
+use beacon_chain::data_availability_checker::Availability;
 use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_chain::test_utils::{
     build_log, generate_rand_block_and_blobs, BeaconChainHarness, EphemeralHarnessType, NumBlobs,
+};
+use beacon_chain::{
+    AvailabilityPendingExecutedBlock, PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
@@ -25,10 +30,12 @@ use slog::info;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
+use types::test_utils::TestRandom;
 use types::{
     test_utils::{SeedableRng, XorShiftRng},
     BlobSidecar, ForkName, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
+use types::{BeaconState, BeaconStateBase};
 
 type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
@@ -68,6 +75,8 @@ struct TestRig {
     sync_manager: SyncManager<T>,
     /// To manipulate sync state and peer connection status
     network_globals: Arc<NetworkGlobals<E>>,
+    /// Beacon chain harness
+    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     /// `rng` for generating test blocks and blobs.
     rng: XorShiftRng,
     fork_name: ForkName,
@@ -129,6 +138,7 @@ impl TestRig {
                 sync_recv,
                 log.clone(),
             ),
+            harness,
             fork_name,
             log,
         }
@@ -425,6 +435,63 @@ impl TestRig {
         });
     }
 
+    fn complete_single_lookup_blob_download(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        blobs: Vec<BlobSidecar<E>>,
+    ) {
+        for blob in blobs {
+            self.single_lookup_blob_response(id, peer_id, Some(blob.into()));
+        }
+        self.single_lookup_blob_response(id, peer_id, None);
+    }
+
+    fn complete_single_lookup_blob_lookup_valid(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        blobs: Vec<BlobSidecar<E>>,
+        import: bool,
+    ) {
+        let block_root = blobs.first().unwrap().block_root();
+        let block_slot = blobs.first().unwrap().slot();
+        self.complete_single_lookup_blob_download(id, peer_id, blobs);
+        self.expect_block_process(ResponseType::Blob);
+        self.single_blob_component_processed(
+            id.lookup_id,
+            if import {
+                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root))
+            } else {
+                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
+                    block_slot, block_root,
+                ))
+            },
+        );
+    }
+
+    fn complete_single_lookup_block_valid(&mut self, block: SignedBeaconBlock<E>, import: bool) {
+        let block_root = block.canonical_root();
+        let block_slot = block.slot();
+        let id = self.expect_block_lookup_request(block_root);
+        self.expect_empty_network();
+        let peer_id = self.new_connected_peer();
+        self.single_lookup_block_response(id, peer_id, Some(block.into()));
+        self.single_lookup_block_response(id, peer_id, None);
+        self.expect_block_process(ResponseType::Block);
+        let id = self.find_single_lookup_for(block_root);
+        self.single_block_component_processed(
+            id,
+            if import {
+                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root))
+            } else {
+                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
+                    block_slot, block_root,
+                ))
+            },
+        )
+    }
+
     fn parent_lookup_failed(&mut self, id: SingleLookupReqId, peer_id: PeerId, error: RPCError) {
         self.send_sync_message(SyncMessage::RpcError {
             peer_id,
@@ -715,6 +782,91 @@ impl TestRig {
                 .collect::<Vec<_>>()
         ));
         blocks
+    }
+
+    fn insert_block_to_da_checker(&mut self, block: Arc<SignedBeaconBlock<E>>) {
+        let state = BeaconState::Base(BeaconStateBase::random_for_test(&mut self.rng));
+        let parent_block = self.rand_block();
+        let import_data = BlockImportData::<E>::__new_for_test(
+            block.canonical_root(),
+            state,
+            parent_block.into(),
+        );
+        let payload_verification_outcome = PayloadVerificationOutcome {
+            payload_verification_status: PayloadVerificationStatus::Verified,
+            is_valid_merge_transition_block: false,
+        };
+        let executed_block =
+            AvailabilityPendingExecutedBlock::new(block, import_data, payload_verification_outcome);
+        match self
+            .harness
+            .chain
+            .data_availability_checker
+            .put_pending_executed_block(executed_block)
+            .unwrap()
+        {
+            Availability::Available(_) => panic!("block removed from da_checker, available"),
+            Availability::MissingComponents(block_root) => {
+                self.log(&format!("inserted block to da_checker {block_root:?}"))
+            }
+        };
+    }
+
+    fn insert_blob_to_da_checker(&mut self, blob: BlobSidecar<E>) {
+        match self
+            .harness
+            .chain
+            .data_availability_checker
+            .put_gossip_blob(GossipVerifiedBlob::__assumed_valid(blob.into()))
+            .unwrap()
+        {
+            Availability::Available(_) => panic!("blob removed from da_checker, available"),
+            Availability::MissingComponents(block_root) => {
+                self.log(&format!("inserted blob to da_checker {block_root:?}"))
+            }
+        };
+    }
+
+    fn insert_block_to_processing_cache(&mut self, block: Arc<SignedBeaconBlock<E>>) {
+        self.harness
+            .chain
+            .reqresp_pre_import_cache
+            .write()
+            .insert(block.canonical_root(), block);
+    }
+
+    fn simulate_block_gossip_processing_becomes_invalid(&mut self, block_root: Hash256) {
+        self.harness
+            .chain
+            .reqresp_pre_import_cache
+            .write()
+            .remove(&block_root);
+
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type: BlockProcessType::SingleBlock,
+            source: BlockProcessSource::Gossip(block_root),
+            result: BlockProcessingResult::Err(BlockError::InvalidSignature),
+        });
+    }
+
+    fn simulate_block_gossip_processing_becomes_valid_missing_components(
+        &mut self,
+        block_root: Hash256,
+    ) {
+        self.harness
+            .chain
+            .reqresp_pre_import_cache
+            .write()
+            .remove(&block_root);
+
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type: BlockProcessType::SingleBlock,
+            source: BlockProcessSource::Gossip(block_root),
+            result: BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
+                Slot::new(0),
+                block_root,
+            )),
+        });
     }
 }
 
@@ -1254,6 +1406,85 @@ fn test_same_chain_race_condition() {
         rig.single_block_component_processed_imported(block.canonical_root());
     }
     rig.expect_no_active_lookups();
+}
+
+#[test]
+fn block_in_da_checker_skips_download() {
+    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+        return;
+    };
+    let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
+    let block_root = block.canonical_root();
+    let peer_id = r.new_connected_peer();
+    r.insert_block_to_da_checker(block.into());
+    r.trigger_unknown_block_from_attestation(block_root, peer_id);
+    // Should not trigger block request
+    let id = r.expect_blob_lookup_request(block_root);
+    r.expect_empty_network();
+    // Resolve blob and expect lookup completed
+    r.complete_single_lookup_blob_lookup_valid(id, peer_id, blobs, true);
+    r.expect_no_active_lookups();
+}
+
+#[test]
+fn block_in_processing_cache_becomes_invalid() {
+    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+        return;
+    };
+    let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
+    let block_root = block.canonical_root();
+    let peer_id = r.new_connected_peer();
+    r.insert_block_to_processing_cache(block.clone().into());
+    r.trigger_unknown_block_from_attestation(block_root, peer_id);
+    // Should not trigger block request
+    let id = r.expect_blob_lookup_request(block_root);
+    r.expect_empty_network();
+    // Simulate invalid block, removing it from processing cache
+    r.simulate_block_gossip_processing_becomes_invalid(block_root);
+    // Should download and process the block
+    r.complete_single_lookup_block_valid(block, false);
+    // Resolve blob and expect lookup completed
+    r.complete_single_lookup_blob_lookup_valid(id, peer_id, blobs, true);
+    r.expect_no_active_lookups();
+}
+
+#[test]
+fn block_in_processing_cache_becomes_valid_imported() {
+    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+        return;
+    };
+    let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
+    let block_root = block.canonical_root();
+    let peer_id = r.new_connected_peer();
+    r.insert_block_to_processing_cache(block.into());
+    r.trigger_unknown_block_from_attestation(block_root, peer_id);
+    // Should not trigger block request
+    let id = r.expect_blob_lookup_request(block_root);
+    r.expect_empty_network();
+    // Resolve the block from processing step
+    r.simulate_block_gossip_processing_becomes_valid_missing_components(block_root);
+    // Resolve blob and expect lookup completed
+    r.complete_single_lookup_blob_lookup_valid(id, peer_id, blobs, true);
+    r.expect_no_active_lookups();
+}
+
+#[test]
+fn blobs_in_da_checker_skip_download() {
+    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+        return;
+    };
+    let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
+    let block_root = block.canonical_root();
+    let peer_id = r.new_connected_peer();
+    for blob in blobs {
+        r.insert_blob_to_da_checker(blob);
+    }
+    r.trigger_unknown_block_from_attestation(block_root, peer_id);
+    // Should download and process the block
+    r.complete_single_lookup_block_valid(block, true);
+    // Should not trigger blob request
+    r.expect_empty_network();
+    r.expect_no_active_lookups();
 }
 
 mod deneb_only {
