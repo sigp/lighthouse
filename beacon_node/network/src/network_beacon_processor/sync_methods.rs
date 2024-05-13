@@ -115,6 +115,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 "Rpc block is being processed";
                 "action" => "sending rpc block to reprocessing queue",
                 "block_root" => %block_root,
+                "process_type" => ?process_type,
             );
 
             // Send message to work reprocess queue to retry the block
@@ -147,6 +148,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "proposer" => block.message().proposer_index(),
             "slot" => block.slot(),
             "commitments" => commitments_formatted,
+            "process_type" => ?process_type,
         );
 
         let result = self
