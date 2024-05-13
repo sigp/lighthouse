@@ -150,4 +150,10 @@ impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
             })
         }
     }
+
+    /// Mark request as resolved (= has returned something downstream) while marking this status as
+    /// true for future calls.
+    pub fn resolve(&mut self) -> bool {
+        std::mem::replace(&mut self.resolved, true)
+    }
 }

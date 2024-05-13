@@ -2097,7 +2097,8 @@ mod deneb_only {
             .invalidate_blobs_too_many()
             .blobs_response()
             .expect_penalty("TooManyResponses")
-            .expect_blobs_request()
+            // Network context returns "download success" because the request has enough blobs + it
+            // downscores the peer for returning too many.
             .expect_no_block_request();
     }
 

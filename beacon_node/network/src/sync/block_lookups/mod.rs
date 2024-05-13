@@ -7,7 +7,6 @@ use crate::metrics;
 use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
 use crate::sync::manager::Id;
-use crate::sync::network_context::LookupFailure;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_availability_checker::AvailabilityCheckErrorCategory;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
@@ -325,12 +324,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         response: RpcProcessingResult<R::VerifiedResponseType>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
-        // Downscore peer even if lookup is not known
-        // Only downscore lookup verify errors. RPC errors are downscored in the network handler.
-        if let Err(LookupFailure::LookupVerifyError(e)) = &response {
-            // Note: the error is displayed in full debug form on the match below
-            cx.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
-        }
+        // Note: no need to downscore peers here, already downscored on network context
 
         let response_type = R::response_type();
         let Some(lookup) = self.single_block_lookups.get_mut(&id) else {

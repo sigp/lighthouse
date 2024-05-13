@@ -12,7 +12,6 @@ use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::SingleLookupId;
 use crate::sync::manager::{BlockProcessType, SingleLookupReqId};
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
@@ -549,13 +548,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn on_single_block_response(
         &mut self,
         request_id: SingleLookupReqId,
+        peer_id: PeerId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Option<RpcProcessingResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
         let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
             return None;
         };
 
-        Some(match block {
+        let resp = match block {
             RpcEvent::Response(block, seen_timestamp) => {
                 match request.get_mut().add_response(block) {
                     Ok(block) => Ok((block, seen_timestamp)),
@@ -574,38 +574,61 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 request.remove();
                 Err(e.into())
             }
-        })
+        };
+
+        if let Err(LookupFailure::LookupVerifyError(e)) = &resp {
+            self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
+        }
+        Some(resp)
     }
 
     pub fn on_single_blob_response(
         &mut self,
         request_id: SingleLookupReqId,
+        peer_id: PeerId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) -> Option<RpcProcessingResult<FixedBlobSidecarList<T::EthSpec>>> {
         let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
             return None;
         };
 
-        Some(match blob {
-            RpcEvent::Response(blob, _) => match request.get_mut().add_response(blob) {
-                Ok(Some(blobs)) => to_fixed_blob_sidecar_list(blobs)
-                    .map(|blobs| (blobs, timestamp_now()))
-                    .map_err(Into::into),
-                Ok(None) => return None,
-                Err(e) => {
-                    request.remove();
-                    Err(e.into())
+        let resp = match blob {
+            RpcEvent::Response(blob, seen_timestamp) => {
+                let request = request.get_mut();
+                match request.add_response(blob) {
+                    Ok(Some(blobs)) => to_fixed_blob_sidecar_list(blobs)
+                        .map(|blobs| (blobs, seen_timestamp))
+                        .map_err(|e| (e.into(), request.resolve())),
+                    Ok(None) => return None,
+                    Err(e) => Err((e.into(), request.resolve())),
                 }
-            },
+            }
             RpcEvent::StreamTermination => match request.remove().terminate() {
                 Ok(_) => return None,
-                Err(e) => Err(e.into()),
+                // (err, false = not resolved) because terminate returns Ok() if resolved
+                Err(e) => Err((e.into(), false)),
             },
-            RpcEvent::RPCError(e) => {
-                request.remove();
-                Err(e.into())
+            RpcEvent::RPCError(e) => Err((e.into(), request.remove().resolve())),
+        };
+
+        match resp {
+            Ok(resp) => Some(Ok(resp)),
+            // Track if this request has already returned some value downstream. Ensure that
+            // downstream code only receives a single Result per request. If the serving peer does
+            // multiple penalizable actions per request, downscore and return None. This allows to
+            // catch if a peer is returning more blobs than requested or if the excess blobs are
+            // invalid.
+            Err((e, resolved)) => {
+                if let LookupFailure::LookupVerifyError(e) = &e {
+                    self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
+                }
+                if resolved {
+                    None
+                } else {
+                    Some(Err(e))
+                }
             }
-        })
+        }
     }
 
     pub fn send_block_for_processing(
