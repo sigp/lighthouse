@@ -2485,6 +2485,55 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         Ok(())
     }
+
+    /// Prune states from the hot database which are prior to the split.
+    ///
+    /// This routine is important for cleaning up advanced states which are stored in the database
+    /// with a temporary flag.
+    pub fn prune_old_hot_states(&self) -> Result<(), Error> {
+        let split = self.get_split_info();
+        debug!(
+            self.log,
+            "Database state pruning started";
+            "split_slot" => split.slot,
+        );
+        let mut state_delete_batch = vec![];
+        for res in self
+            .hot_db
+            .iter_column::<Hash256>(DBColumn::BeaconStateSummary)
+        {
+            let (state_root, summary_bytes) = res?;
+            let summary = HotStateSummary::from_ssz_bytes(&summary_bytes)?;
+
+            if summary.slot <= split.slot {
+                let old = summary.slot < split.slot;
+                let non_canonical = summary.slot == split.slot && state_root != split.state_root;
+                if old || non_canonical {
+                    let reason = if old {
+                        "old dangling state"
+                    } else {
+                        "non-canonical"
+                    };
+                    debug!(
+                        self.log,
+                        "Deleting state";
+                        "state_root" => ?state_root,
+                        "slot" => summary.slot,
+                        "reason" => reason,
+                    );
+                    state_delete_batch.push(StoreOp::DeleteState(state_root, Some(summary.slot)));
+                }
+            }
+        }
+        let num_deleted_states = state_delete_batch.len();
+        self.do_atomically_with_block_and_blobs_cache(state_delete_batch)?;
+        debug!(
+            self.log,
+            "Database state pruning complete";
+            "num_deleted_states" => num_deleted_states,
+        );
+        Ok(())
+    }
 }
 
 /// Advance the split point of the store, moving new finalized states to the freezer.
