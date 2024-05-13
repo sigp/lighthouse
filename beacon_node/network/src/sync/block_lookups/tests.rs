@@ -356,12 +356,26 @@ impl TestRig {
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(&peer_id);
+            .__add_connected_peer_testing_only(&peer_id, false);
         peer_id
     }
 
-    fn new_connected_peers(&mut self, count: usize) -> Vec<PeerId> {
-        (0..count).map(|_| self.new_connected_peer()).collect()
+    fn new_connected_supernode_peer(&mut self) -> PeerId {
+        let peer_id = PeerId::random();
+        self.network_globals
+            .peers
+            .write()
+            .__add_connected_peer_testing_only(&peer_id, true);
+        peer_id
+    }
+
+    fn new_connected_peers_for_peerdas(&mut self) {
+        // Enough sampling peers with few columns
+        for _ in 0..100 {
+            self.new_connected_peer();
+        }
+        // One supernode peer to ensure all columns have at least one peer
+        self.new_connected_supernode_peer();
     }
 
     fn parent_chain_processed_success(
@@ -1584,7 +1598,7 @@ fn sampling_happy_path() {
     let Some(mut r) = TestRig::test_setup_after_peerdas() else {
         return;
     };
-    r.new_connected_peers(100); // Add enough sampling peers
+    r.new_connected_peers_for_peerdas();
     let (block, data_columns) = r.rand_block_and_data_columns();
     let block_root = block.canonical_root();
     r.trigger_sample_block(block_root, block.slot());
@@ -1601,7 +1615,7 @@ fn sampling_with_retries() {
     let Some(mut r) = TestRig::test_setup_after_peerdas() else {
         return;
     };
-    r.new_connected_peers(100); // Add enough sampling peers
+    r.new_connected_peers_for_peerdas();
     let (block, data_columns) = r.rand_block_and_data_columns();
     let block_root = block.canonical_root();
     r.trigger_sample_block(block_root, block.slot());
@@ -1621,7 +1635,7 @@ fn custody_lookup_happy_path() {
     let Some(mut r) = TestRig::test_setup_after_peerdas() else {
         return;
     };
-    r.new_connected_peers(100); // Add enough sampling peers
+    r.new_connected_peers_for_peerdas();
     let (block, data_columns) = r.rand_block_and_data_columns();
     let block_root = block.canonical_root();
     let peer_id = r.new_connected_peer();
