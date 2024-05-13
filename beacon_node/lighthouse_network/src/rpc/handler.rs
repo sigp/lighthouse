@@ -139,6 +139,9 @@ where
 
     /// Timeout that will me used for inbound and outbound responses.
     resp_timeout: Duration,
+
+    /// Timeout that will be used for outbound response. If the first byte does not arrive within this, substreams will be terminated.
+    ttfb_timeout: Duration,
 }
 
 enum HandlerState {
@@ -222,6 +225,7 @@ where
         fork_context: Arc<ForkContext>,
         log: &slog::Logger,
         resp_timeout: Duration,
+        ttfb_timeout: Duration,
     ) -> Self {
         RPCHandler {
             listen_protocol,
@@ -241,6 +245,7 @@ where
             waker: None,
             log: log.clone(),
             resp_timeout,
+            ttfb_timeout,
         }
     }
 
@@ -665,6 +670,25 @@ where
                     request,
                 } => match substream.poll_next_unpin(cx) {
                     Poll::Ready(Some(Ok(response))) => {
+                        if matches!(response, RPCCodedResponse::FirstByte) {
+                            // Reset the timeout from ttfb_timeout to resp_timeout.
+                            self.outbound_substreams_delay
+                                .reset(&entry.get().delay_key, self.resp_timeout);
+
+                            // Since the second and subsequent bytes might have already been received, we wake the task to process them.
+                            if let Some(waker) = &self.waker {
+                                waker.wake_by_ref();
+                            }
+
+                            // No processing is required for the first byte.
+                            entry.get_mut().state =
+                                OutboundSubstreamState::RequestPendingResponse {
+                                    substream,
+                                    request,
+                                };
+                            continue;
+                        }
+
                         if request.expect_exactly_one_response() || response.close_after() {
                             // either this is a single response request or this response closes the
                             // stream
@@ -710,6 +734,9 @@ where
                                     proto,
                                     error: RPCError::ErrorResponse(*code, r.to_string()),
                                 })
+                            }
+                            RPCCodedResponse::FirstByte => {
+                                unreachable!("No processing is required for the first byte.")
                             }
                         };
 
@@ -958,7 +985,7 @@ where
             // new outbound request. Store the stream and tag the output.
             let delay_key = self
                 .outbound_substreams_delay
-                .insert(self.current_outbound_substream_id, self.resp_timeout);
+                .insert(self.current_outbound_substream_id, self.ttfb_timeout);
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(substream),
                 request,

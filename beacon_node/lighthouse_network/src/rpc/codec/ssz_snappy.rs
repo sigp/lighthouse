@@ -92,6 +92,9 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
             RPCCodedResponse::StreamTermination(_) => {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
+            RPCCodedResponse::FirstByte => {
+                unreachable!("Code error - attempting to encode first byte")
+            }
         };
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
