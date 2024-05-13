@@ -134,7 +134,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 Some(block_component),
                 Some(parent_root),
-                &[peer_id],
+                // On a `UnknownParentBlock` or `UnknownParentBlob` event the peer is not required
+                // to have the rest of the block components (refer to decoupled blob gossip). Create
+                // the lookup with zero peers to house the block components.
+                &[],
                 cx,
             );
         }

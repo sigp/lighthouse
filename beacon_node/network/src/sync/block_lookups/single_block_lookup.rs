@@ -174,10 +174,15 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 return Err(LookupRequestError::TooManyAttempts { cannot_process });
             }
 
-            let peer_id = request
-                .get_state_mut()
-                .use_rand_available_peer()
-                .ok_or(LookupRequestError::NoPeers)?;
+            let Some(peer_id) = request.get_state_mut().use_rand_available_peer() else {
+                if awaiting_parent {
+                    // Allow lookups awaiting for a parent to have zero peers. If when the parent
+                    // resolve they still have zero peers the lookup will fail gracefully.
+                    return Ok(());
+                } else {
+                    return Err(LookupRequestError::NoPeers);
+                }
+            };
 
             match request.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
                 LookupRequestResult::RequestSent => request.get_state_mut().on_download_start()?,
