@@ -126,6 +126,7 @@ type_name_generic!(SignedAggregateAndProofBase, "SignedAggregateAndProof");
 type_name_generic!(SignedAggregateAndProofElectra, "SignedAggregateAndProof");
 type_name_generic!(SignedBeaconBlock);
 type_name!(SignedBeaconBlockHeader);
+type_name!(SignedConsolidation);
 type_name_generic!(SignedContributionAndProof);
 type_name!(SignedVoluntaryExit);
 type_name!(SigningData);

@@ -628,6 +628,12 @@ mod ssz_static {
         SszStaticHandler::<PendingPartialWithdrawal, MinimalEthSpec>::electra_and_later().run();
         SszStaticHandler::<PendingPartialWithdrawal, MainnetEthSpec>::electra_and_later().run();
     }
+
+    #[test]
+    fn signed_consolidation() {
+        SszStaticHandler::<SignedConsolidation, MinimalEthSpec>::electra_and_later().run();
+        SszStaticHandler::<SignedConsolidation, MainnetEthSpec>::electra_and_later().run();
+    }
 }
 
 #[test]
