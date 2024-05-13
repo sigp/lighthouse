@@ -18,6 +18,7 @@ use types::{
     attestation::AttestationBase, AggregateSignature, Attestation, AttestationData, BitList,
     ChainSpec, CommitteeIndex, EthSpec, Slot,
 };
+use types::{AttestationElectra, BitVector, ForkName};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
@@ -378,11 +379,32 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 return None;
             }
 
-            let mut attestation = Attestation::Base(AttestationBase {
-                aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
-                data: attestation_data.clone(),
-                signature: AggregateSignature::infinity(),
-            });
+            let fork_name = self
+                .context
+                .eth2_config
+                .spec
+                .fork_name_at_slot::<E>(attestation_data.slot);
+
+            let mut attestation = if fork_name >= ForkName::Electra {
+                let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
+                committee_bits
+                    .set(duty.committee_index as usize, true)
+                    .unwrap();
+                Attestation::Electra(AttestationElectra {
+                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
+                        .unwrap(),
+                    data: attestation_data.clone(),
+                    committee_bits,
+                    signature: AggregateSignature::infinity(),
+                })
+            } else {
+                Attestation::Base(AttestationBase {
+                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
+                        .unwrap(),
+                    data: attestation_data.clone(),
+                    signature: AggregateSignature::infinity(),
+                })
+            };
 
             match self
                 .validator_store
