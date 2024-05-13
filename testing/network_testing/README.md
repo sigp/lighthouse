@@ -50,11 +50,11 @@ $ cargo build --release --bin lighthouse --features network/disable-backfill
 
 Once built, it can run via checkpoint sync on any network, making sure we point to our mock-el
 
-Prater testnet:
+Holesky testnet:
 
 ```
-$ lighthouse --network prater bn --execution-jwt /tmp/mockel.jwt --checkpoint-sync-url
-https://prater.checkpoint.sigp.io --execution-endpoint http://localhost:8551
+$ lighthouse --network holesky bn --execution-jwt /tmp/mockel.jwt --checkpoint-sync-url
+https://holesky.checkpoint.sigp.io --execution-endpoint http://localhost:8551
 ```
 
 Mainnet:

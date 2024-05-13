@@ -76,8 +76,8 @@ OPTIONS:
             The maximum size (in MB) each log file can grow to before rotating. If set to 0, background file logging is
             disabled. [default: 200]
         --network <network>
-            Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
-            chiado, sepolia, holesky]
+            Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, gnosis, chiado, sepolia,
+            holesky]
         --prefer-builder-proposals <prefer-builder-proposals>
             If this flag is set, Lighthouse will always prefer blocks constructed by builders, regardless of payload
             value. [possible values: true, false]
@@ -115,5 +115,4 @@ OPTIONS:
             if there is no existing database.
         --validators <STRING>
             The validators to be moved. Either a list of 0x-prefixed validator pubkeys or the keyword "all".
-```
-<style> .content main {max-width:88%;} </style>
+```<style> .content main {max-width:88%;} </style>

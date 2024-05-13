@@ -5,6 +5,7 @@
 #
 # `python generate.py`
 #
+# FIXME(sproul): re-run this on Python < 3.11
 import os
 import sys
 import shutil

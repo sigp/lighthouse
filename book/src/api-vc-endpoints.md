@@ -18,7 +18,7 @@ HTTP Path | Description |
 [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators.
 [`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs
 
-The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api-vc-auth-header.md). 
+The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api-vc-auth-header.md).
 
 In addition to the above endpoints Lighthouse also supports all of the [standard keymanager APIs](https://ethereum.github.io/keymanager-APIs/).
 
@@ -219,7 +219,7 @@ Example Response Body
 ```json
 {
   "data": {
-    "CONFIG_NAME": "prater",
+    "CONFIG_NAME": "holesky",
     "PRESET_BASE": "mainnet",
     "TERMINAL_TOTAL_DIFFICULTY": "10790000",
     "TERMINAL_BLOCK_HASH": "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -347,7 +347,7 @@ Example Response Body
 
 ```json
 {
-    "token_path": "/home/karlm/.lighthouse/prater/validators/api-token.txt"
+    "token_path": "/home/karlm/.lighthouse/holesky/validators/api-token.txt"
 }
 ```
 
@@ -510,7 +510,7 @@ Validators are generated from the mnemonic according to
 ]
 ```
 
-Command: 
+Command:
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X POST http://localhost:5062/lighthouse/validators \

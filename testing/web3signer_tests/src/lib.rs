@@ -901,13 +901,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prater_base_types() {
-        test_base_types("prater", 4246).await
+    async fn holesky_base_types() {
+        test_base_types("holesky", 4246).await
     }
 
     #[tokio::test]
-    async fn prater_altair_types() {
-        test_altair_types("prater", 4247).await
+    async fn holesky_altair_types() {
+        test_altair_types("holesky", 4247).await
     }
 
     #[tokio::test]

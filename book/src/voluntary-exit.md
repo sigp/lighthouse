@@ -35,7 +35,7 @@ Below is an example for initiating a voluntary exit on the Holesky testnet.
 ```
 $ lighthouse --network holesky account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
 
-Running account manager for Prater network
+Running account manager for Holesky network
 validator-dir path: ~/.lighthouse/holesky/validators
 
 Enter the keystore password for validator in 0xabcd
@@ -72,32 +72,32 @@ After the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>
 There are two types of withdrawal credentials, `0x00` and `0x01`. To check which type your validator has, go to [Staking launchpad](https://launchpad.ethereum.org/en/withdrawals), enter your validator index and click `verify on mainnet`:
 
  - `withdrawals enabled` means your validator is of type `0x01`, and you will automatically receive the full withdrawal to the withdrawal address that you set.
-- `withdrawals not enabled` means your validator is of type `0x00`, and will need to update your withdrawal credentials from `0x00` type to `0x01` type (also known as BLS-to-execution-change, or BTEC) to receive the staked funds. The common way to do this is using `Staking deposit CLI` or `ethdo`, with the instructions available [here](https://launchpad.ethereum.org/en/withdrawals#update-your-keys). 
+- `withdrawals not enabled` means your validator is of type `0x00`, and will need to update your withdrawal credentials from `0x00` type to `0x01` type (also known as BLS-to-execution-change, or BTEC) to receive the staked funds. The common way to do this is using `Staking deposit CLI` or `ethdo`, with the instructions available [here](https://launchpad.ethereum.org/en/withdrawals#update-your-keys).
 
 
 ### 2. What if my validator is of type `0x00` and I do not update my withdrawal credentials after I initiated a voluntary exit?
 
    Your staked fund will continue to be locked on the beacon chain. You can update your withdrawal credentials **anytime**, and there is no deadline for that. The catch is that as long as you do not update your withdrawal credentials, your staked funds in the beacon chain will continue to be locked in the beacon chain. Only after you update the withdrawal credentials, will the staked funds be withdrawn to the withdrawal address.
 
-### 3. How many times can I update my withdrawal credentials? 
-    
+### 3. How many times can I update my withdrawal credentials?
+
    If your withdrawal credentials is of type `0x00`, you can only update it once to type `0x01`. It is therefore very important to ensure that the withdrawal address you set is an address under your control, preferably an address controlled by a hardware wallet.
 
    If your withdrawal credentials is of type `0x01`, it means you have set your withdrawal address previously, and you will not be able to change the withdrawal address.
 
 ### 3. When will my BTEC request (update withdrawal credentials to type `0x01`) be processed ?
-  
+
    Your BTEC request will be included very quickly as soon as a new block is proposed. This should be the case most (if not all) of the time, given that the peak BTEC request time has now past (right after the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>th</sup> April 2023 and lasted for ~ 2 days) .
 
-### 4. When will I get my staked fund after voluntary exit if my validator is of type `0x01`? 
-   
+### 4. When will I get my staked fund after voluntary exit if my validator is of type `0x01`?
+
    There are 3 waiting periods until you get the staked funds in your withdrawal address:
 
    - An exit queue: a varying time that takes at a minimum 5 epochs (32 minutes) if there is no queue; or if there are many validators exiting at the same time, it has to go through the exit queue. The exit queue can be from hours to weeks, depending on the number of validators in the exit queue. During this time your validator has to stay online to perform its duties to avoid penalties.
-   
+
    - A fixed waiting period of 256 epochs (27.3 hours) for the validator's status to become withdrawable.
 
-   - A varying time of "validator sweep" that can take up to *n* days with *n* listed in the table below.    The "validator sweep" is the process of skimming through all eligible validators by index number for withdrawals (those with type `0x01` and balance above 32ETH). Once the "validator sweep" reaches your validator's index, your staked fund will be fully withdrawn to the withdrawal address set. 
+   - A varying time of "validator sweep" that can take up to *n* days with *n* listed in the table below.    The "validator sweep" is the process of skimming through all eligible validators by index number for withdrawals (those with type `0x01` and balance above 32ETH). Once the "validator sweep" reaches your validator's index, your staked fund will be fully withdrawn to the withdrawal address set.
 
 <div align="center">
 

@@ -32,7 +32,7 @@ When starting the validator client it will output a log message containing the p
 to the file containing the api token.
 
 ```
-Sep 28 19:17:52.615 INFO HTTP API started                        api_token_file: "$HOME/prater/validators/api-token.txt", listen_address: 127.0.0.1:5062
+Sep 28 19:17:52.615 INFO HTTP API started                        api_token_file: "$HOME/holesky/validators/api-token.txt", listen_address: 127.0.0.1:5062
 ```
 
 The _path_ to the API token may also be fetched from the HTTP API itself (this endpoint is the only
@@ -46,7 +46,7 @@ Response:
 
 ```json
 {
-    "token_path": "/home/karlm/.lighthouse/prater/validators/api-token.txt"
+    "token_path": "/home/karlm/.lighthouse/holesky/validators/api-token.txt"
 }
 ```
 
