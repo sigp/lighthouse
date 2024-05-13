@@ -20,8 +20,8 @@ lazy_static! {
 }
 
 pub fn parse_cells_and_proofs(
-    cells: &Vec<String>,
-    proofs: &Vec<String>,
+    cells: &[String],
+    proofs: &[String],
 ) -> Result<(Vec<Cell>, Vec<KzgProof>), Error> {
     let cells = cells
         .iter()
