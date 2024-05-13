@@ -137,7 +137,7 @@ where
     /// Logger for handling RPC streams
     log: slog::Logger,
 
-    /// Timeout that will me used for inbound and outbound responses.
+    /// Timeout that will be used for inbound and outbound responses.
     resp_timeout: Duration,
 
     /// Timeout that will be used for outbound response. If the first byte does not arrive within this, substreams will be terminated.
