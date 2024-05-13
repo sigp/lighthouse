@@ -21,9 +21,11 @@ mod genesis_validity;
 mod get_custody_columns;
 mod kzg_blob_to_kzg_commitment;
 mod kzg_compute_blob_kzg_proof;
+mod kzg_compute_cells_and_kzg_proofs;
 mod kzg_compute_kzg_proof;
 mod kzg_verify_blob_kzg_proof;
 mod kzg_verify_blob_kzg_proof_batch;
+mod kzg_verify_cell_kzg_proof_batch;
 mod kzg_verify_kzg_proof;
 mod merkle_proof_validity;
 mod operations;
@@ -52,9 +54,11 @@ pub use genesis_validity::*;
 pub use get_custody_columns::*;
 pub use kzg_blob_to_kzg_commitment::*;
 pub use kzg_compute_blob_kzg_proof::*;
+pub use kzg_compute_cells_and_kzg_proofs::*;
 pub use kzg_compute_kzg_proof::*;
 pub use kzg_verify_blob_kzg_proof::*;
 pub use kzg_verify_blob_kzg_proof_batch::*;
+pub use kzg_verify_cell_kzg_proof_batch::*;
 pub use kzg_verify_kzg_proof::*;
 pub use merkle_proof_validity::*;
 pub use operations::*;
@@ -66,6 +70,7 @@ pub use ssz_generic::*;
 pub use ssz_static::*;
 pub use transition::TransitionTest;
 
+#[derive(Debug, PartialEq)]
 pub enum FeatureName {
     Eip7594,
 }
@@ -93,6 +98,13 @@ pub trait Case: Debug + Sync {
     ///
     /// Returns `true` by default.
     fn is_enabled_for_fork(_fork_name: ForkName) -> bool {
+        true
+    }
+
+    /// Whether or not this test exists for the given `feature_name`.
+    ///
+    /// Returns `true` by default.
+    fn is_enabled_for_feature(_feature_name: FeatureName) -> bool {
         true
     }
 

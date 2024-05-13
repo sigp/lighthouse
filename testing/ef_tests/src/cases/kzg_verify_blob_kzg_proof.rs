@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::validate_blob;
 use eth2_network_config::TRUSTED_SETUP_BYTES;
-use kzg::{Error as KzgError, Kzg, KzgCommitment, KzgProof, TrustedSetup};
+use kzg::{Cell, Error as KzgError, Kzg, KzgCommitment, KzgProof, TrustedSetup};
 use serde::Deserialize;
 use std::marker::PhantomData;
 use types::Blob;
@@ -12,6 +12,33 @@ pub fn get_kzg() -> Result<Kzg, Error> {
         .map_err(|e| Error::InternalError(format!("Failed to initialize kzg: {:?}", e)))?;
     Kzg::new_from_trusted_setup(trusted_setup)
         .map_err(|e| Error::InternalError(format!("Failed to initialize kzg: {:?}", e)))
+}
+
+// TODO(das) `EthSpec` can be removed once KZG lib exposes the `BytesPerCell` constant.
+pub fn parse_cells_and_proofs<E: EthSpec>(
+    cells: &Vec<String>,
+    proofs: &Vec<String>,
+) -> Result<(Vec<Cell>, Vec<KzgProof>), Error> {
+    let cells = cells
+        .iter()
+        .map(|s| parse_cell::<E>(s.as_str()))
+        .collect::<Result<Vec<_>, Error>>()?;
+
+    let proofs = proofs
+        .iter()
+        .map(|s| parse_proof(s.as_str()))
+        .collect::<Result<Vec<_>, Error>>()?;
+
+    Ok((cells, proofs))
+}
+
+pub fn parse_cell<E: EthSpec>(cell: &str) -> Result<Cell, Error> {
+    hex::decode(strip_0x(cell)?)
+        .map_err(|e| Error::FailedToParseTest(format!("Failed to parse cell: {:?}", e)))
+        .and_then(|bytes| {
+            Cell::from_bytes(bytes.as_ref())
+                .map_err(|e| Error::FailedToParseTest(format!("Failed to parse proof: {:?}", e)))
+        })
 }
 
 pub fn parse_proof(proof: &str) -> Result<KzgProof, Error> {
@@ -78,6 +105,10 @@ impl<E: EthSpec> LoadCase for KZGVerifyBlobKZGProof<E> {
 impl<E: EthSpec> Case for KZGVerifyBlobKZGProof<E> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         fork_name == ForkName::Deneb
+    }
+
+    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
+        feature_name != FeatureName::Eip7594
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {

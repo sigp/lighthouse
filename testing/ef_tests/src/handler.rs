@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use types::{BeaconState, EthSpec, ForkName};
 
 const EIP7594_FORK: ForkName = ForkName::Deneb;
-const EIP7594_TESTS: [&str; 2] = ["ssz_static", "single_merkle_proof"];
+const EIP7594_TESTS: [&str; 4] = ["ssz_static", "merkle_proof", "networking", "kzg"];
 
 pub trait Handler {
     type Case: Case + LoadCase;
@@ -32,13 +32,20 @@ pub trait Handler {
         Self::Case::is_enabled_for_fork(fork_name)
     }
 
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        Self::Case::is_enabled_for_feature(feature_name)
+    }
+
     fn run(&self) {
         for fork_name in ForkName::list_all() {
             if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name);
 
-                if fork_name == EIP7594_FORK && EIP7594_TESTS.contains(&Self::runner_name()) {
-                    self.run_for_feature(FeatureName::Eip7594);
+                if fork_name == EIP7594_FORK
+                    && EIP7594_TESTS.contains(&Self::runner_name())
+                    && self.is_enabled_for_feature(FeatureName::Eip7594)
+                {
+                    self.run_for_feature(EIP7594_FORK, FeatureName::Eip7594);
                 }
             }
         }
@@ -90,7 +97,7 @@ pub trait Handler {
         crate::results::assert_tests_pass(&name, &handler_path, &results);
     }
 
-    fn run_for_feature(&self, feature_name: FeatureName) {
+    fn run_for_feature(&self, fork_name: ForkName, feature_name: FeatureName) {
         let feature_name_str = feature_name.to_string();
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -100,9 +107,6 @@ pub trait Handler {
             .join(&feature_name_str)
             .join(Self::runner_name())
             .join(self.handler_name());
-
-        // Feature is currently built on top of Deneb without type changes.
-        let fork_name = ForkName::Deneb;
 
         // Iterate through test suites
         let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
@@ -839,6 +843,46 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
 
     fn handler_name(&self) -> String {
         "get_custody_columns".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGComputeCellsAndKZGProofHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
+    type Case = cases::KZGComputeCellsAndKZGProofs<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_cells_and_kzg_proofs".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGVerifyCellKZGProofBatchHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
+    type Case = cases::KZGVerifyCellKZGProofBatch<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "verify_cell_kzg_proof_batch".into()
     }
 }
 

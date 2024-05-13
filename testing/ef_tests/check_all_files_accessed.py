@@ -31,6 +31,10 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
+    # Unused kzg methods
+    "tests/.*/.*/kzg/compute_cells",
+    "tests/.*/.*/kzg/recover_all_cells",
+    "tests/.*/.*/kzg/verify_cell_kzg_batch",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\.DS_Store.*",
     # More Mac weirdness.

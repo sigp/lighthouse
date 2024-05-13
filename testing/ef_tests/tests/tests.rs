@@ -727,6 +727,18 @@ fn kzg_verify_kzg_proof() {
 }
 
 #[test]
+fn kzg_compute_cells_and_proofs() {
+    KZGComputeCellsAndKZGProofHandler::<MainnetEthSpec>::default()
+        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+}
+
+#[test]
+fn kzg_verify_cell_proof_batch() {
+    KZGVerifyCellKZGProofBatchHandler::<MainnetEthSpec>::default()
+        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+}
+
+#[test]
 fn merkle_proof_validity() {
     MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
 }
@@ -748,6 +760,8 @@ fn rewards() {
 
 #[test]
 fn get_custody_columns() {
-    GetCustodyColumnsHandler::<MainnetEthSpec>::default().run_for_feature(FeatureName::Eip7594);
-    GetCustodyColumnsHandler::<MinimalEthSpec>::default().run_for_feature(FeatureName::Eip7594);
+    GetCustodyColumnsHandler::<MainnetEthSpec>::default()
+        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+    GetCustodyColumnsHandler::<MinimalEthSpec>::default()
+        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
 }
