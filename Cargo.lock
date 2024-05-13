@@ -2158,6 +2158,7 @@ dependencies = [
  "fs2",
  "hex",
  "kzg",
+ "lazy_static",
  "logging",
  "rayon",
  "serde",

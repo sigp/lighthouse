@@ -57,12 +57,10 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProofBatch<E> {
             Ok((commitments, blobs, proofs))
         };
 
-        let kzg = get_kzg()?;
-
         let result =
             parse_input(&self.input).and_then(
                 |(commitments, blobs, proofs)| match validate_blobs::<E>(
-                    &kzg,
+                    &KZG,
                     &commitments,
                     blobs.iter().collect(),
                     &proofs,

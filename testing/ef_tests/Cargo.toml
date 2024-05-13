@@ -40,3 +40,4 @@ store = { workspace = true }
 fork_choice = { workspace = true }
 execution_layer = { workspace = true }
 logging = { workspace = true }
+lazy_static = { workspace = true }

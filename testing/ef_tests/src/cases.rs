@@ -77,7 +77,9 @@ pub enum FeatureName {
 
 impl Display for FeatureName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("eip7594")
+        match self {
+            FeatureName::Eip7594 => f.write_str("eip7594"),
+        }
     }
 }
 

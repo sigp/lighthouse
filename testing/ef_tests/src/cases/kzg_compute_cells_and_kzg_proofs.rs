@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
-use kzg::KzgProof;
 use kzg::{Blob as KzgBlob, Cell};
+use kzg::{KzgProof, CELLS_PER_EXT_BLOB};
 use serde::Deserialize;
 use std::marker::PhantomData;
 
@@ -32,19 +32,17 @@ impl<E: EthSpec> Case for KZGComputeCellsAndKZGProofs<E> {
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        // TODO(das): lazy init Kzg as a static ref
-        let kzg = get_kzg()?;
         let cells_and_proofs = parse_blob::<E>(&self.input.blob).and_then(|blob| {
             let blob = KzgBlob::from_bytes(&blob).map_err(|e| {
                 Error::InternalError(format!("Failed to convert blob to kzg blob: {e:?}"))
             })?;
-            kzg.compute_cells_and_proofs(&blob).map_err(|e| {
+            KZG.compute_cells_and_proofs(&blob).map_err(|e| {
                 Error::InternalError(format!("Failed to compute cells and kzg proofs: {e:?}"))
             })
         });
 
         let expected = self.output.as_ref().and_then(|(cells, proofs)| {
-            parse_cells_and_proofs::<E>(cells, proofs)
+            parse_cells_and_proofs(cells, proofs)
                 .map(|(cells, proofs)| {
                     (
                         cells
@@ -64,6 +62,12 @@ impl<E: EthSpec> Case for KZGComputeCellsAndKZGProofs<E> {
                 .ok()
         });
 
-        compare_result::<(Box<[Cell; 128]>, Box<[KzgProof; 128]>), _>(&cells_and_proofs, &expected)
+        compare_result::<
+            (
+                Box<[Cell; CELLS_PER_EXT_BLOB]>,
+                Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
+            ),
+            _,
+        >(&cells_and_proofs, &expected)
     }
 }

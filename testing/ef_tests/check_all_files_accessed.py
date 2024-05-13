@@ -20,6 +20,8 @@ tests_dir_filename = sys.argv[2]
 # following regular expressions, we will assume they are to be ignored (i.e., we are purposefully
 # *not* running the spec tests).
 excluded_paths = [
+    # TODO(das): remove once electra tests are on unstable
+    "tests/.*/electra/",
     # Eth1Block and PowBlock
     #
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
@@ -34,7 +36,7 @@ excluded_paths = [
     # Unused kzg methods
     "tests/.*/.*/kzg/compute_cells",
     "tests/.*/.*/kzg/recover_all_cells",
-    "tests/.*/.*/kzg/verify_cell_kzg_batch",
+    "tests/.*/.*/kzg/verify_cell_kzg_proof",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\.DS_Store.*",
     # More Mac weirdness.

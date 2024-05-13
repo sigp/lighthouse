@@ -214,10 +214,11 @@ macro_rules! ssz_static_test_no_run {
 
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
-    use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
-    use types::blob_sidecar::BlobIdentifier;
+    use ef_tests::{
+        FeatureName, Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler,
+    };
     use types::historical_summary::HistoricalSummary;
-    use types::{LightClientBootstrapAltair, *};
+    use types::*;
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
     ssz_static_test!(attestation, Attestation<_>);
@@ -515,6 +516,22 @@ mod ssz_static {
     fn historical_summary() {
         SszStaticHandler::<HistoricalSummary, MinimalEthSpec>::capella_and_later().run();
         SszStaticHandler::<HistoricalSummary, MainnetEthSpec>::capella_and_later().run();
+    }
+
+    #[test]
+    fn data_column_sidecar() {
+        SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
+            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+        SszStaticHandler::<DataColumnSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
+            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+    }
+
+    #[test]
+    fn data_column_identifier() {
+        SszStaticHandler::<DataColumnIdentifier, MinimalEthSpec>::deneb_only()
+            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+        SszStaticHandler::<DataColumnIdentifier, MainnetEthSpec>::deneb_only()
+            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
     }
 }
 

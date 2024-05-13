@@ -36,7 +36,7 @@ impl<E: EthSpec> Case for KZGVerifyCellKZGProofBatch<E> {
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let parse_input = |input: &KZGVerifyCellKZGProofBatchInput| -> Result<_, Error> {
-            let (cells, proofs) = parse_cells_and_proofs::<E>(&input.cells, &input.proofs)?;
+            let (cells, proofs) = parse_cells_and_proofs(&input.cells, &input.proofs)?;
             let row_commitments = input
                 .row_commitments
                 .iter()
@@ -52,13 +52,11 @@ impl<E: EthSpec> Case for KZGVerifyCellKZGProofBatch<E> {
             Ok((cells, proofs, coordinates, row_commitments))
         };
 
-        let kzg = get_kzg()?;
-
         let result =
             parse_input(&self.input).and_then(|(cells, proofs, coordinates, commitments)| {
                 let proofs: Vec<Bytes48> = proofs.iter().map(|&proof| proof.into()).collect();
                 let commitments: Vec<Bytes48> = commitments.iter().map(|&c| c.into()).collect();
-                match kzg.verify_cell_proof_batch(
+                match KZG.verify_cell_proof_batch(
                     cells.as_slice(),
                     &proofs,
                     &coordinates,
