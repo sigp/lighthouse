@@ -2,10 +2,7 @@ use crate::{
     metrics,
     network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor},
     service::NetworkMessage,
-    sync::{
-        manager::{BlockProcessSource, BlockProcessType},
-        SyncMessage,
-    },
+    sync::SyncMessage,
 };
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
@@ -1266,10 +1263,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
         }
 
-        self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            process_type: BlockProcessType::SingleBlock,
-            source: BlockProcessSource::Gossip(block_root),
-            result: result.into(),
+        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+            block_root,
+            imported: matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))),
         });
     }
 

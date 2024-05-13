@@ -10,7 +10,7 @@ use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::SingleLookupId;
-use crate::sync::manager::{BlockProcessSource, SingleLookupReqId};
+use crate::sync::manager::{BlockProcessType, SingleLookupReqId};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
@@ -87,10 +87,11 @@ pub enum LookupRequestResult {
     RequestSent,
     /// No request is sent, and no further action is necessary to consider this request completed
     NoRequestNeeded,
-    /// No request is sent, but the request is not completed. Request is processing from a different
+    /// No request is sent, but the request is not completed. Sync MUST receive some future event
+    /// that makes progress on the request. For example: request is processing from a different
     /// source (i.e. block received from gossip) and sync MUST receive an event with that processing
     /// result.
-    AwaitingOtherSource,
+    Pending,
 }
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
@@ -334,7 +335,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .read()
             .contains_key(&block_root)
         {
-            return Ok(LookupRequestResult::AwaitingOtherSource);
+            // A block is on the `reqresp_pre_import_cache` but NOT in the
+            // `data_availability_checker` only if it is actively processing. We can expect a future
+            // event with the result of processing
+            return Ok(LookupRequestResult::Pending);
         }
 
         let id = SingleLookupReqId {
@@ -629,7 +633,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     block_root,
                     block,
                     duration,
-                    BlockProcessSource::Rpc(id),
+                    BlockProcessType::SingleBlock { id },
                 ) {
                     error!(
                         self.log,
@@ -662,7 +666,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     block_root,
                     blobs,
                     duration,
-                    BlockProcessSource::Rpc(id),
+                    BlockProcessType::SingleBlob { id },
                 ) {
                     error!(
                         self.log,

@@ -142,22 +142,18 @@ pub enum SyncMessage<E: EthSpec> {
     /// Block processed
     BlockComponentProcessed {
         process_type: BlockProcessType,
-        source: BlockProcessSource,
         result: BlockProcessingResult<E>,
     },
+
+    /// A block from gossip has completed processing,
+    GossipBlockProcessResult { block_root: Hash256, imported: bool },
 }
 
 /// The type of processing specified for a received block.
 #[derive(Debug, Clone)]
 pub enum BlockProcessType {
-    SingleBlock,
-    SingleBlob,
-}
-
-#[derive(Debug, Clone)]
-pub enum BlockProcessSource {
-    Rpc(Id),
-    Gossip(Hash256),
+    SingleBlock { id: Id },
+    SingleBlob { id: Id },
 }
 
 #[derive(Debug)]
@@ -632,12 +628,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => self.inject_error(peer_id, request_id, error),
             SyncMessage::BlockComponentProcessed {
                 process_type,
-                source,
                 result,
-            } => self.block_lookups.on_processing_result(
-                process_type,
-                source,
-                result,
+            } => self
+                .block_lookups
+                .on_processing_result(process_type, result, &mut self.network),
+            SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported,
+            } => self.block_lookups.on_external_processing_result(
+                block_root,
+                imported,
                 &mut self.network,
             ),
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {

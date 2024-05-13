@@ -1,7 +1,5 @@
-use crate::{
-    service::NetworkMessage,
-    sync::{manager::BlockProcessSource, SyncMessage},
-};
+use crate::sync::manager::BlockProcessType;
+use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
@@ -407,13 +405,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         block: RpcBlock<T::EthSpec>,
         seen_timestamp: Duration,
-        source: BlockProcessSource,
+        process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
         let process_fn = self.clone().generate_rpc_beacon_block_process_fn(
             block_root,
             block,
             seen_timestamp,
-            source,
+            process_type,
         );
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -428,15 +426,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
         seen_timestamp: Duration,
-        source: BlockProcessSource,
+        process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
         let blob_count = blobs.iter().filter(|b| b.is_some()).count();
         if blob_count == 0 {
             return Ok(());
         }
-        let process_fn =
-            self.clone()
-                .generate_rpc_blobs_process_fn(block_root, blobs, seen_timestamp, source);
+        let process_fn = self.clone().generate_rpc_blobs_process_fn(
+            block_root,
+            blobs,
+            seen_timestamp,
+            process_type,
+        );
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcBlobs { process_fn },
