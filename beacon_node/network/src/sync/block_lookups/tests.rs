@@ -1056,8 +1056,8 @@ fn test_parent_lookup_happy_path() {
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
     rig.parent_lookup_block_response(id, peer_id, Some(parent.into()));
-    // TODO: uncomment
-    // rig.expect_blob_parent_request(parent_root);
+    // No request of blobs because the block has not data
+    rig.expect_empty_network();
     rig.expect_block_process(ResponseType::Block);
     rig.expect_empty_network();
 

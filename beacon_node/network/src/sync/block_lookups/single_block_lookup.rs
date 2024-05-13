@@ -154,7 +154,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     }
 
     /// Potentially makes progress on this request if it's in a progress-able state
-    pub fn continue_request<R: RequestState<T>>(
+    fn continue_request<R: RequestState<T>>(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
