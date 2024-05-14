@@ -902,7 +902,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
             self.block_lookups
                 .on_download_response::<BlockRequestState<T::EthSpec>>(
-                    id.lookup_id,
+                    id,
                     resp.map(|(value, seen_timestamp)| {
                         (value, PeerGroup::from_single(peer_id), seen_timestamp)
                     }),
@@ -976,7 +976,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
             self.block_lookups
                 .on_download_response::<BlobRequestState<T::EthSpec>>(
-                    id.lookup_id,
+                    id,
                     resp.map(|(value, seen_timestamp)| {
                         (value, PeerGroup::from_single(peer_id), seen_timestamp)
                     }),
@@ -1012,7 +1012,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         let seen_timestamp = timestamp_now();
                         self.block_lookups
                             .on_download_response::<CustodyRequestState<T::EthSpec>>(
-                                requester.0.lookup_id,
+                                requester.0,
                                 custody_columns.map(|(columns, peer_group)| {
                                     (columns, peer_group, seen_timestamp)
                                 }),

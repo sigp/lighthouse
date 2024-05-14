@@ -4,9 +4,9 @@
 pub use self::custody::CustodyId;
 use self::custody::{ActiveCustodyRequest, CustodyRequester, Error as CustodyRequestError};
 use self::requests::ActiveDataColumnsByRootRequest;
+pub use self::requests::BlocksByRootSingleRequest;
 pub use self::requests::DataColumnsByRootSingleBlockRequest;
 use self::requests::{ActiveBlobsByRootRequest, ActiveBlocksByRootRequest};
-pub use self::requests::{BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest};
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::{
     BlockProcessType, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
@@ -18,6 +18,7 @@ use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::SingleLookupId;
 use crate::sync::manager::SingleLookupReqId;
+use crate::sync::network_context::requests::BlobsByRootSingleBlockRequest;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::validator_monitor::timestamp_now;
@@ -107,10 +108,13 @@ impl PeerGroup {
     }
 }
 
+/// Sequential ID that uniquely identifies ReqResp outgoing requests
+pub type ReqId = u32;
+
 pub enum LookupRequestResult {
     /// A request is sent. Sync MUST receive an event from the network in the future for either:
     /// completed response or failed request
-    RequestSent,
+    RequestSent(ReqId),
     /// No request is sent, and no further action is necessary to consider this request completed
     NoRequestNeeded,
     /// No request is sent, but the request is not completed. Sync MUST receive some future event
@@ -445,10 +449,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::Pending);
         }
 
-        let id = SingleLookupReqId {
-            lookup_id,
-            req_id: self.next_id(),
-        };
+        let req_id = self.next_id();
+        let id = SingleLookupReqId { lookup_id, req_id };
 
         debug!(
             self.log,
@@ -470,7 +472,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blocks_by_root_requests
             .insert(id, ActiveBlocksByRootRequest::new(request));
 
-        Ok(LookupRequestResult::RequestSent)
+        Ok(LookupRequestResult::RequestSent(req_id))
     }
 
     /// Request necessary blobs for `block_root`. Requests only the necessary blobs by checking:
@@ -528,10 +530,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
-        let id = SingleLookupReqId {
-            lookup_id,
-            req_id: self.next_id(),
-        };
+        let req_id = self.next_id();
+        let id = SingleLookupReqId { lookup_id, req_id };
 
         debug!(
             self.log,
@@ -557,7 +557,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blobs_by_root_requests
             .insert(id, ActiveBlobsByRootRequest::new(request));
 
-        Ok(LookupRequestResult::RequestSent)
+        Ok(LookupRequestResult::RequestSent(req_id))
     }
 
     pub fn data_column_lookup_request(
@@ -649,10 +649,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
-        let id = SingleLookupReqId {
-            lookup_id,
-            req_id: self.next_id(),
-        };
+        let req_id = self.next_id();
+        let id = SingleLookupReqId { lookup_id, req_id };
 
         debug!(
             self.log,
@@ -678,7 +676,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 // created cannot return data immediately, it must send some request to the network
                 // first. And there must exist some request, `custody_indexes_to_fetch` is not empty.
                 self.custody_by_root_requests.insert(requester, request);
-                Ok(LookupRequestResult::RequestSent)
+                Ok(LookupRequestResult::RequestSent(req_id))
             }
             // TODO(das): handle this error properly
             Err(_) => Err("custody_send_error"),
