@@ -157,7 +157,7 @@ impl From<ArithError> for Error {
 mod test {
     use crate::data_column_subnet_id::DataColumnSubnetId;
     use crate::EthSpec;
-    use crate::{MainnetEthSpec};
+    use crate::MainnetEthSpec;
 
     type E = MainnetEthSpec;
 
