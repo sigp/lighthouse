@@ -4,11 +4,13 @@ use crate::engine_api::auth::JwtKey;
 use crate::engine_api::{
     auth::Auth, http::JSONRPC_VERSION, ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status,
 };
+use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
 use environment::null_logger;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use kzg::Kzg;
+use lazy_static::lazy_static;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -49,7 +51,17 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_payload_v1: true,
     get_payload_v2: true,
     get_payload_v3: true,
+    get_client_version_v1: true,
 };
+
+lazy_static! {
+    pub static ref DEFAULT_CLIENT_VERSION: JsonClientVersionV1 = JsonClientVersionV1 {
+        code: "MC".to_string(), // "mock client"
+        name: "Mock Execution Client".to_string(),
+        version: "0.1.0".to_string(),
+        commit: "0xabcdef01".to_string(),
+    };
+}
 
 mod execution_block_generator;
 mod handle_rpc;
@@ -58,6 +70,7 @@ mod mock_builder;
 mod mock_execution_layer;
 
 /// Configuration for the MockExecutionLayer.
+#[derive(Clone)]
 pub struct MockExecutionConfig {
     pub server_config: Config,
     pub jwt_key: JwtKey,
@@ -109,7 +122,7 @@ impl<E: EthSpec> MockServer<E> {
     pub fn new_with_config(
         handle: &runtime::Handle,
         config: MockExecutionConfig,
-        kzg: Option<Kzg>,
+        kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let MockExecutionConfig {
             jwt_key,
@@ -193,7 +206,7 @@ impl<E: EthSpec> MockServer<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
-        kzg: Option<Kzg>,
+        kzg: Option<Arc<Kzg>>,
     ) -> Self {
         Self::new_with_config(
             handle,

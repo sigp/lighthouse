@@ -433,7 +433,7 @@ fn main() {
                     .takes_value(true)
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
-                    .possible_values(&["merge", "bellatrix", "capella", "deneb", "electra"])
+                    .possible_values(&["bellatrix", "capella", "deneb", "electra"])
             )
         )
         .subcommand(

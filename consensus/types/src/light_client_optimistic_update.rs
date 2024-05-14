@@ -70,13 +70,15 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             .fork_name(chain_spec)
             .map_err(|_| Error::InconsistentFork)?
         {
-            ForkName::Altair | ForkName::Merge => Self::Altair(LightClientOptimisticUpdateAltair {
-                attested_header: LightClientHeaderAltair::block_to_light_client_header(
-                    attested_block,
-                )?,
-                sync_aggregate,
-                signature_slot,
-            }),
+            ForkName::Altair | ForkName::Bellatrix => {
+                Self::Altair(LightClientOptimisticUpdateAltair {
+                    attested_header: LightClientHeaderAltair::block_to_light_client_header(
+                        attested_block,
+                    )?,
+                    sync_aggregate,
+                    signature_slot,
+                })
+            }
             ForkName::Capella => Self::Capella(LightClientOptimisticUpdateCapella {
                 attested_header: LightClientHeaderCapella::block_to_light_client_header(
                     attested_block,
@@ -131,7 +133,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
 
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let optimistic_update = match fork_name {
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 Self::Altair(LightClientOptimisticUpdateAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => {
@@ -156,7 +158,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
         match fork_name {
             ForkName::Base => 0,
             ForkName::Altair
-            | ForkName::Merge
+            | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb
             | ForkName::Electra => {

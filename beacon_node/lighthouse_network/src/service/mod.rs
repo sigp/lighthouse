@@ -140,7 +140,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     ) -> error::Result<(Self, Arc<NetworkGlobals<E>>)> {
         let log = log.new(o!("service"=> "libp2p"));
 
-        let mut config = ctx.config.clone();
+        let config = ctx.config.clone();
         trace!(log, "Libp2p Service starting");
         // initialise the node's ID
         let local_keypair = utils::load_private_key(&config, &log);
@@ -180,7 +180,19 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let score_settings = PeerScoreSettings::new(ctx.chain_spec, &config.gs_config);
+        let gossipsub_config_params = GossipsubConfigParams {
+            message_domain_valid_snappy: ctx.chain_spec.message_domain_valid_snappy,
+            gossip_max_size: ctx.chain_spec.gossip_max_size as usize,
+        };
+        let gs_config = gossipsub_config(
+            config.network_load,
+            ctx.fork_context.clone(),
+            gossipsub_config_params,
+            ctx.chain_spec.seconds_per_slot,
+            E::slots_per_epoch(),
+        );
+
+        let score_settings = PeerScoreSettings::new(ctx.chain_spec, gs_config.mesh_n());
 
         let gossip_cache = {
             let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
@@ -248,18 +260,6 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                 max_subscriptions_per_request: max_topics * 2,
             };
 
-            let gossipsub_config_params = GossipsubConfigParams {
-                message_domain_valid_snappy: ctx.chain_spec.message_domain_valid_snappy,
-                gossip_max_size: ctx.chain_spec.gossip_max_size as usize,
-            };
-            config.gs_config = gossipsub_config(
-                config.network_load,
-                ctx.fork_context.clone(),
-                gossipsub_config_params,
-                ctx.chain_spec.seconds_per_slot,
-                E::slots_per_epoch(),
-            );
-
             // If metrics are enabled for libp2p build the configuration
             let gossipsub_metrics = ctx.libp2p_registry.as_mut().map(|registry| {
                 (
@@ -268,10 +268,10 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                 )
             });
 
-            let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
+            let snappy_transform = SnappyTransform::new(gs_config.max_transmit_size());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
                 MessageAuthenticity::Anonymous,
-                config.gs_config.clone(),
+                gs_config.clone(),
                 gossipsub_metrics,
                 filter,
                 snappy_transform,
@@ -972,6 +972,12 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             .goodbye_peer(peer_id, reason, source);
     }
 
+    /// Hard (ungraceful) disconnect for testing purposes only
+    /// Use goodbye_peer for disconnections, do not use this function.
+    pub fn __hard_disconnect_testing_only(&mut self, peer_id: PeerId) {
+        let _ = self.swarm.disconnect_peer_id(peer_id);
+    }
+
     /// Returns an iterator over all enr entries in the DHT.
     pub fn enr_entries(&self) -> Vec<Enr> {
         self.discovery().table_entries_enr()
@@ -1373,12 +1379,18 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
         let peer_id = event.peer_id;
 
         if !self.peer_manager().is_connected(&peer_id) {
-            debug!(
-                self.log,
-                "Ignoring rpc message of disconnecting peer";
-                event
-            );
-            return None;
+            // Sync expects a RPCError::Disconnected to drop associated lookups with this peer.
+            // Silencing this event breaks the API contract with RPC where every request ends with
+            // - A stream termination event, or
+            // - An RPCError event
+            if !matches!(event.event, HandlerEvent::Err(HandlerErr::Outbound { .. })) {
+                debug!(
+                    self.log,
+                    "Ignoring rpc message of disconnecting peer";
+                    event
+                );
+                return None;
+            }
         }
 
         let handler_id = event.conn_id;
@@ -1681,12 +1693,16 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             libp2p::upnp::Event::NewExternalAddr(addr) => {
                 info!(self.log, "UPnP route established"; "addr" => %addr);
                 let mut iter = addr.iter();
-                // Skip Ip address.
-                iter.next();
+                let is_ip6 = {
+                    let addr = iter.next();
+                    matches!(addr, Some(MProtocol::Ip6(_)))
+                };
                 match iter.next() {
                     Some(multiaddr::Protocol::Udp(udp_port)) => match iter.next() {
                         Some(multiaddr::Protocol::QuicV1) => {
-                            if let Err(e) = self.discovery_mut().update_enr_quic_port(udp_port) {
+                            if let Err(e) =
+                                self.discovery_mut().update_enr_quic_port(udp_port, is_ip6)
+                            {
                                 warn!(self.log, "Failed to update ENR"; "error" => e);
                             }
                         }
@@ -1695,7 +1711,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                         }
                     },
                     Some(multiaddr::Protocol::Tcp(tcp_port)) => {
-                        if let Err(e) = self.discovery_mut().update_enr_tcp_port(tcp_port) {
+                        if let Err(e) = self.discovery_mut().update_enr_tcp_port(tcp_port, is_ip6) {
                             warn!(self.log, "Failed to update ENR"; "error" => e);
                         }
                     }

@@ -13,6 +13,9 @@ pub fn process_historical_summaries_update<E: EthSpec>(
         .safe_rem((E::slots_per_historical_root() as u64).safe_div(E::slots_per_epoch())?)?
         == 0
     {
+        // We need to flush any pending mutations before hashing.
+        state.block_roots_mut().apply_updates()?;
+        state.state_roots_mut().apply_updates()?;
         let summary = HistoricalSummary::new(state);
         return state
             .historical_summaries_mut()?

@@ -392,9 +392,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("http-spec-fork")
                 .requires("enable_http")
                 .value_name("FORK")
-                .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
-                       not be necessary to set this flag.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
+                .hidden(true)
         )
         .arg(
             Arg::with_name("http-enable-tls")
@@ -425,9 +425,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("http-allow-sync-stalled")
                 .long("http-allow-sync-stalled")
                 .requires("enable_http")
-                .help("Forces the HTTP to indicate that the node is synced when sync is actually \
-                    stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
-                    MAINNET.")
+                .help("This flag is deprecated and has no effect.")
+                .hidden(true)
         )
         .arg(
             Arg::with_name("http-sse-capacity-multiplier")
@@ -625,7 +624,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("state-cache-size")
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
-                .help("Specifies the size of the snapshot cache [default: 3]")
+                .help("Specifies the size of the state cache [default: 128]")
                 .takes_value(true)
         )
         /*

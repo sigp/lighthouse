@@ -1,5 +1,6 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::network_context::RangeRequestId;
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
 };
@@ -173,30 +174,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Removes a peer from the chain.
     /// If the peer has active batches, those are considered failed and re-requested.
-    pub fn remove_peer(
-        &mut self,
-        peer_id: &PeerId,
-        network: &mut SyncNetworkContext<T>,
-    ) -> ProcessingResult {
-        if let Some(batch_ids) = self.peers.remove(peer_id) {
-            // fail the batches
-            for id in batch_ids {
-                if let Some(batch) = self.batches.get_mut(&id) {
-                    if let BatchOperationOutcome::Failed { blacklist } =
-                        batch.download_failed(true)?
-                    {
-                        return Err(RemoveChain::ChainFailed {
-                            blacklist,
-                            failing_batch: id,
-                        });
-                    }
-                    self.retry_batch_download(network, id)?;
-                } else {
-                    debug!(self.log, "Batch not found while removing peer";
-                        "peer" => %peer_id, "batch" => id)
-                }
-            }
-        }
+    pub fn remove_peer(&mut self, peer_id: &PeerId) -> ProcessingResult {
+        self.peers.remove(peer_id);
 
         if self.peers.is_empty() {
             Err(RemoveChain::EmptyPeerPool)
@@ -905,7 +884,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, batch_type) = batch.to_blocks_by_range_request();
-            match network.blocks_by_range_request(peer, batch_type, request, self.id, batch_id) {
+            match network.blocks_and_blobs_by_range_request(
+                peer,
+                batch_type,
+                request,
+                RangeRequestId::RangeSync {
+                    chain_id: self.id,
+                    batch_id,
+                },
+            ) {
                 Ok(request_id) => {
                     // inform the batch about the new request
                     batch.start_downloading_from_peer(peer, request_id)?;

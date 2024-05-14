@@ -35,7 +35,7 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
     match state {
         BeaconState::Base(_)
         | BeaconState::Altair(_)
-        | BeaconState::Merge(_)
+        | BeaconState::Bellatrix(_)
         | BeaconState::Capella(_) => {
             verify!(
                 state.slot() <= data.slot.safe_add(E::slots_per_epoch())?,
