@@ -76,9 +76,17 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         self.signed_block_header.message.tree_hash_root()
     }
 
+    pub fn block_parent_root(&self) -> Hash256 {
+        self.signed_block_header.message.parent_root
+    }
+
+    pub fn block_proposer_index(&self) -> u64 {
+        self.signed_block_header.message.proposer_index
+    }
+
     /// Verifies the kzg commitment inclusion merkle proof.
     pub fn verify_inclusion_proof(&self) -> Result<bool, MerkleTreeError> {
-        // TODO(das): implement
+        // FIXME(das): implement
         Ok(true)
     }
 

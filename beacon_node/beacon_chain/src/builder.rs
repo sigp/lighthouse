@@ -936,6 +936,7 @@ where
             observed_sync_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
+            observed_column_sidecars: <_>::default(),
             observed_blob_sidecars: <_>::default(),
             observed_slashable: <_>::default(),
             observed_voluntary_exits: <_>::default(),
