@@ -823,7 +823,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        if let Some(resp) = self.network.on_single_block_response(id, block) {
+        if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
             self.block_lookups
                 .on_download_response::<BlockRequestState<T::EthSpec>>(
                     id,
@@ -865,7 +865,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
-        if let Some(resp) = self.network.on_single_blob_response(id, blob) {
+        if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
             self.block_lookups
                 .on_download_response::<BlobRequestState<T::EthSpec>>(
                     id,
