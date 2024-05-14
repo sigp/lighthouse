@@ -6,7 +6,7 @@ use super::network_context::{RpcProcessingResult, SyncNetworkContext};
 use crate::metrics;
 use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
-use crate::sync::manager::Id;
+use crate::sync::manager::{Id, SingleLookupReqId};
 use crate::sync::network_context::LookupFailure;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_availability_checker::AvailabilityCheckErrorCategory;
@@ -308,19 +308,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Process a block or blob response received from a single lookup request.
     pub fn on_download_response<R: RequestState<T>>(
         &mut self,
-        id: SingleLookupId,
+        id: SingleLookupReqId,
         peer_id: PeerId,
         response: RpcProcessingResult<R::VerifiedResponseType>,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let result = self.on_download_response_inner::<R>(id, peer_id, response, cx);
-        self.on_lookup_result(id, result, "download_response", cx);
+        self.on_lookup_result(id.lookup_id, result, "download_response", cx);
     }
 
     /// Process a block or blob response received from a single lookup request.
     pub fn on_download_response_inner<R: RequestState<T>>(
         &mut self,
-        id: SingleLookupId,
+        id: SingleLookupReqId,
         peer_id: PeerId,
         response: RpcProcessingResult<R::VerifiedResponseType>,
         cx: &mut SyncNetworkContext<T>,
@@ -333,10 +333,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         let response_type = R::response_type();
-        let Some(lookup) = self.single_block_lookups.get_mut(&id) else {
+        let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {
             // We don't have the ability to cancel in-flight RPC requests. So this can happen
             // if we started this RPC request, and later saw the block/blobs via gossip.
-            debug!(self.log, "Block returned for single block lookup not present"; "id" => id);
+            debug!(self.log, "Block returned for single block lookup not present"; "id" => ?id);
             return Err(LookupRequestError::UnknownLookup);
         };
 
@@ -348,7 +348,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 debug!(self.log,
                     "Received lookup download success";
                     "block_root" => ?block_root,
-                    "id" => id,
+                    "id" => ?id,
                     "peer_id" => %peer_id,
                     "response_type" => ?response_type,
                 );
@@ -356,25 +356,28 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // Register the download peer here. Once we have received some data over the wire we
                 // attribute it to this peer for scoring latter regardless of how the request was
                 // done.
-                request_state.on_download_success(DownloadResult {
-                    value: response,
-                    block_root,
-                    seen_timestamp,
-                    peer_id,
-                })?;
+                request_state.on_download_success(
+                    id.req_id,
+                    DownloadResult {
+                        value: response,
+                        block_root,
+                        seen_timestamp,
+                        peer_id,
+                    },
+                )?;
                 // continue_request will send for  processing as the request state is AwaitingProcessing
             }
             Err(e) => {
                 debug!(self.log,
                     "Received lookup download failure";
                     "block_root" => ?block_root,
-                    "id" => id,
+                    "id" => ?id,
                     "peer_id" => %peer_id,
                     "response_type" => ?response_type,
                     "error" => %e,
                 );
 
-                request_state.on_download_failure()?;
+                request_state.on_download_failure(id.req_id)?;
                 // continue_request will retry a download as the request state is AwaitingDownload
             }
         }
