@@ -35,7 +35,6 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
-use crate::kzg_utils::reconstruct_data_columns;
 use crate::metrics;
 use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
@@ -841,37 +840,27 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             if self.should_reconstruct(&block_import_requirement, &pending_components) {
                 let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
 
-                // Will only return an error if:
-                // - < 50% of columns
-                // - There are duplicates
-                let all_data_columns = reconstruct_data_columns(
-                    kzg,
-                    &pending_components
-                        .verified_data_columns
-                        .iter()
-                        .map(|d| d.clone_arc())
-                        .collect::<Vec<_>>(),
-                )?;
-
-                pending_components.verified_data_columns = all_data_columns
-                    .iter()
-                    .map(|d| {
-                        KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                            KzgVerifiedDataColumn::pinky_promise_trust_me_its_verified(d.clone()),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .into();
-
                 let existing_column_indices = pending_components
                     .verified_data_columns
                     .iter()
                     .map(|d| d.index())
                     .collect::<HashSet<_>>();
+
+                // Will only return an error if:
+                // - < 50% of columns
+                // - There are duplicates
+                let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
+                    kzg,
+                    &pending_components.verified_data_columns,
+                )?;
+
                 let data_columns_to_publish = all_data_columns
-                    .into_iter()
-                    .filter(|d| !existing_column_indices.contains(&d.index))
+                    .iter()
+                    .filter(|d| !existing_column_indices.contains(&d.index()))
+                    .map(|d| d.clone_arc())
                     .collect::<Vec<_>>();
+
+                pending_components.verified_data_columns = all_data_columns.into();
 
                 metrics::stop_timer(timer);
                 metrics::inc_counter_by(

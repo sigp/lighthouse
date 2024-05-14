@@ -1,5 +1,5 @@
 use crate::block_verification::{process_block_slash_info, BlockSlashInfo};
-use crate::kzg_utils::validate_data_column;
+use crate::kzg_utils::{reconstruct_data_columns, validate_data_column};
 use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use kzg::{Error as KzgError, Kzg};
@@ -161,9 +161,6 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn new(data_column: Arc<DataColumnSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_data_column(data_column, kzg)
     }
-    pub fn pinky_promise_trust_me_its_verified(data: Arc<DataColumnSidecar<E>>) -> Self {
-        Self { data }
-    }
     pub fn to_data_column(self) -> Arc<DataColumnSidecar<E>> {
         self.data
     }
@@ -236,6 +233,31 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         Ok(Self {
             data: data_column.data,
         })
+    }
+
+    pub fn reconstruct_columns(
+        kzg: &Kzg,
+        partial_set_of_columns: &[Self],
+    ) -> Result<Vec<Self>, KzgError> {
+        // Will only return an error if:
+        // - < 50% of columns
+        // - There are duplicates
+        let all_data_columns = reconstruct_data_columns(
+            kzg,
+            &partial_set_of_columns
+                .iter()
+                .map(|d| d.clone_arc())
+                .collect::<Vec<_>>(),
+        )?;
+
+        Ok(all_data_columns
+            .into_iter()
+            .map(|d| {
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn {
+                    data: d,
+                })
+            })
+            .collect::<Vec<_>>())
     }
 
     pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
