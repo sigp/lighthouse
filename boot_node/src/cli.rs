@@ -129,5 +129,3 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
 }
-
-
