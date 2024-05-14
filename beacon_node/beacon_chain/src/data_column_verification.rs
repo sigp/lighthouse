@@ -161,6 +161,9 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn new(data_column: Arc<DataColumnSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_data_column(data_column, kzg)
     }
+    pub fn pinky_promise_trust_me_its_verified(data: Arc<DataColumnSidecar<E>>) -> Self {
+        Self { data }
+    }
     pub fn to_data_column(self) -> Arc<DataColumnSidecar<E>> {
         self.data
     }

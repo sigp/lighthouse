@@ -92,7 +92,7 @@ bytes = "1"
 # TODO(das): switch to c-kzg crate before merging back to unstable (and disable default-features) if possible
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
-c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", branch = "das" }
+c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", rev = "26d3b4156f7aec477d7e43e6a2334cade6679405" }
 clap = "2"
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.3"
