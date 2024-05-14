@@ -31,6 +31,7 @@ mod tests;
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
+const LOOKUP_MAX_DURATION_SECS: u64 = 60;
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
@@ -674,5 +675,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
             self.single_block_lookups.len() as i64,
         );
+    }
+
+    pub fn log_stuck_lookups(&self) {
+        for lookup in self.single_block_lookups.values() {
+            if lookup.elapsed_since_created() > Duration::from_secs(LOOKUP_MAX_DURATION_SECS) {
+                debug!(self.log, "Lookup maybe stuck";
+                    "id" => lookup.id,
+                    "block_root" => ?lookup.block_root(),
+                    "summary" => ?lookup,
+                );
+            }
+        }
     }
 }

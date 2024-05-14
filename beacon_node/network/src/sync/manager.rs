@@ -547,6 +547,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             futures::stream::iter(ee_responsiveness_watch.await).flatten()
         };
 
+        let mut interval = tokio::time::interval(Duration::from_secs(10));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -555,6 +557,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 },
                 Some(engine_state) = check_ee_stream.next(), if check_ee => {
                     self.handle_new_execution_engine_state(engine_state);
+                }
+                _ = interval.tick() => {
+                    self.block_lookups.log_stuck_lookups();
                 }
             }
         }

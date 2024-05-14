@@ -9,7 +9,7 @@ use rand::seq::IteratorRandom;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::FixedBlobSidecarList;
@@ -43,12 +43,14 @@ pub enum LookupRequestError {
     UnknownLookup,
 }
 
+#[derive(Debug)]
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     pub block_request_state: BlockRequestState<T::EthSpec>,
     pub blob_request_state: BlobRequestState<T::EthSpec>,
     block_root: Hash256,
     awaiting_parent: Option<Hash256>,
+    created: Instant,
 }
 
 impl<T: BeaconChainTypes> SingleBlockLookup<T> {
@@ -64,6 +66,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             blob_request_state: BlobRequestState::new(requested_block_root, peers),
             block_root: requested_block_root,
             awaiting_parent,
+            created: Instant::now(),
         }
     }
 
@@ -86,6 +89,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// processing.
     pub fn resolve_awaiting_parent(&mut self) {
         self.awaiting_parent = None;
+    }
+
+    pub fn elapsed_since_created(&self) -> Duration {
+        self.created.elapsed()
     }
 
     /// Maybe insert a verified response into this lookup. Returns true if imported
@@ -232,6 +239,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
+#[derive(Debug)]
 pub struct BlobRequestState<E: EthSpec> {
     pub block_root: Hash256,
     pub state: SingleLookupRequestState<FixedBlobSidecarList<E>>,
@@ -247,6 +255,7 @@ impl<E: EthSpec> BlobRequestState<E> {
 }
 
 /// The state of the block request component of a `SingleBlockLookup`.
+#[derive(Debug)]
 pub struct BlockRequestState<E: EthSpec> {
     pub requested_block_root: Hash256,
     pub state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
@@ -269,7 +278,7 @@ pub struct DownloadResult<T: Clone> {
     pub peer_id: PeerId,
 }
 
-#[derive(Debug, PartialEq, Eq, IntoStaticStr)]
+#[derive(PartialEq, Eq, IntoStaticStr)]
 pub enum State<T: Clone> {
     AwaitingDownload,
     Downloading,
@@ -522,8 +531,23 @@ impl<T: Clone> SingleLookupRequestState<T> {
     }
 }
 
+// Display is used in the BadState assertions above
 impl<T: Clone> std::fmt::Display for State<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", Into::<&'static str>::into(self))
+    }
+}
+
+// Debug is used in the log_stuck_lookups print to include some more info. Implements custom Debug
+// to not dump an entire block or blob to terminal which don't add valuable data.
+impl<T: Clone> std::fmt::Debug for State<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AwaitingDownload => write!(f, "AwaitingDownload"),
+            Self::Downloading => write!(f, "Downloading"),
+            Self::AwaitingProcess(d) => write!(f, "AwaitingProcess({:?})", d.peer_id),
+            Self::Processing(d) => write!(f, "Processing({:?})", d.peer_id),
+            Self::Processed(_) => write!(f, "Processed"),
+        }
     }
 }
