@@ -678,6 +678,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     pub fn log_stuck_lookups(&self) {
+        let mut stuck_count = 0;
         for lookup in self.single_block_lookups.values() {
             if lookup.elapsed_since_created() > Duration::from_secs(LOOKUP_MAX_DURATION_SECS) {
                 debug!(self.log, "Lookup maybe stuck";
@@ -687,7 +688,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     "block_root" => ?lookup.block_root(),
                     "summary" => ?lookup,
                 );
+                stuck_count += 1;
             }
         }
+        metrics::set_gauge(&metrics::SYNC_LOOKUPS_STUCK, stuck_count);
     }
 }

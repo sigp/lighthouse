@@ -547,7 +547,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             futures::stream::iter(ee_responsiveness_watch.await).flatten()
         };
 
-        let mut interval = tokio::time::interval(Duration::from_secs(10));
+        // LOOKUP_MAX_DURATION_SECS is 60 seconds. Logging every 30 seconds allows enough timely
+        // visbility while being sparse and not increasing the debug log volume in a noticeable way
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
 
         // process any inbound messages
         loop {
