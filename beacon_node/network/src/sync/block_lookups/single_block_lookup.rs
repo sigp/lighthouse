@@ -292,7 +292,7 @@ pub enum State<T: Clone> {
 }
 
 /// Object representing the state of a single block or blob lookup request.
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq)]
 pub struct SingleLookupRequestState<T: Clone> {
     /// State of this request.
     state: State<T>,
@@ -562,6 +562,19 @@ impl<T: BeaconChainTypes> std::fmt::Debug for SingleBlockLookup<T> {
             .field("created", &self.created)
             .field("block_request_state", &self.block_request_state)
             .field("blob_request_state", &self.blob_request_state)
+            // Log peers once for block and blob requests as are identical
+            .field("peers", &self.block_request_state.state.available_peers)
+            .finish()
+    }
+}
+
+impl<T: Clone> std::fmt::Debug for SingleLookupRequestState<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("State")
+            .field("state", &self.state)
+            .field("failed_downloading", &self.failed_downloading)
+            .field("failed_processing", &self.failed_processing)
+            // Do not log available peers here, do it once in SingleBlockLookup
             .finish()
     }
 }
