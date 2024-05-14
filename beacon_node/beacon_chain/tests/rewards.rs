@@ -134,11 +134,10 @@ async fn test_verify_attestation_rewards_base() {
     let two_thirds = (VALIDATOR_COUNT / 3) * 2;
     let two_thirds_validators: Vec<usize> = (0..two_thirds).collect();
 
-    let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
-
     let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
 
-    for _ in 0..(E::slots_per_epoch() * 2) {
+    // calculate proposal rewards for N
+    for _ in 0..E::slots_per_epoch() {
         let state = harness.get_current_state();
         let slot = state.slot() + Slot::new(1);
 
@@ -153,18 +152,24 @@ async fn test_verify_attestation_rewards_base() {
             )
             .unwrap();
 
-        if harness.get_current_slot().epoch(E::slots_per_epoch()) < 1 {
-            let total_proposer_reward = proposal_rewards_map
-                .get(&beacon_block_reward.proposer_index)
-                .unwrap_or(&0u64)
-                + beacon_block_reward.total;
-            proposal_rewards_map.insert(beacon_block_reward.proposer_index, total_proposer_reward);
-        }
+        let total_proposer_reward = proposal_rewards_map
+            .get(&beacon_block_reward.proposer_index)
+            .unwrap_or(&0u64)
+            + beacon_block_reward.total;
+        proposal_rewards_map.insert(beacon_block_reward.proposer_index, total_proposer_reward);
 
         harness
             .extend_slots_some_validators(1, two_thirds_validators.clone())
             .await;
     }
+
+    // get balances of N + 1
+    let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+
+    // extend to N + 2 where balance change occurs for N
+    harness
+        .extend_slots_some_validators(E::slots_per_epoch() as usize, two_thirds_validators.clone())
+        .await;
 
     // compute reward deltas for all validators in epoch N
     let StandardAttestationRewards {
