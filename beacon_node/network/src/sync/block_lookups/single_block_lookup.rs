@@ -4,6 +4,7 @@ use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
+use derivative::Derivative;
 use itertools::Itertools;
 use rand::seq::IteratorRandom;
 use std::collections::HashSet;
@@ -43,6 +44,8 @@ pub enum LookupRequestError {
     UnknownLookup,
 }
 
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     pub block_request_state: BlockRequestState<T::EthSpec>,
@@ -239,8 +242,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct BlobRequestState<E: EthSpec> {
+    #[derivative(Debug = "ignore")]
     pub block_root: Hash256,
     pub state: SingleLookupRequestState<FixedBlobSidecarList<E>>,
 }
@@ -255,8 +260,10 @@ impl<E: EthSpec> BlobRequestState<E> {
 }
 
 /// The state of the block request component of a `SingleBlockLookup`.
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct BlockRequestState<E: EthSpec> {
+    #[derivative(Debug = "ignore")]
     pub requested_block_root: Hash256,
     pub state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
 }
@@ -292,13 +299,16 @@ pub enum State<T: Clone> {
 }
 
 /// Object representing the state of a single block or blob lookup request.
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Derivative)]
+#[derivative(Debug)]
 pub struct SingleLookupRequestState<T: Clone> {
     /// State of this request.
     state: State<T>,
     /// Peers that should have this block or blob.
+    #[derivative(Debug(format_with = "fmt_peer_set"))]
     available_peers: HashSet<PeerId>,
     /// Peers from which we have requested this block.
+    #[derivative(Debug = "ignore")]
     used_peers: HashSet<PeerId>,
     /// How many times have we attempted to process this block or blob.
     failed_processing: u8,
@@ -552,29 +562,9 @@ impl<T: Clone> std::fmt::Debug for State<T> {
     }
 }
 
-// TODO: Manual implementation of Debug, otherwise T must be bounded by Debug
-impl<T: BeaconChainTypes> std::fmt::Debug for SingleBlockLookup<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SingleBlockLookup")
-            .field("id", &self.id)
-            .field("block_root", &self.block_root)
-            .field("awaiting_parent", &self.awaiting_parent)
-            .field("created", &self.created)
-            .field("block_request_state", &self.block_request_state.state)
-            .field("blob_request_state", &self.blob_request_state.state)
-            // Log peers once for block and blob requests as are identical
-            .field("peers", &self.block_request_state.state.available_peers)
-            .finish()
-    }
-}
-
-impl<T: Clone> std::fmt::Debug for SingleLookupRequestState<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("State")
-            .field("state", &self.state)
-            .field("failed_downloading", &self.failed_downloading)
-            .field("failed_processing", &self.failed_processing)
-            // Do not log available peers here, do it once in SingleBlockLookup
-            .finish()
-    }
+fn fmt_peer_set(
+    peer_set: &HashSet<PeerId>,
+    f: &mut std::fmt::Formatter,
+) -> Result<(), std::fmt::Error> {
+    write!(f, "{}", peer_set.len())
 }
