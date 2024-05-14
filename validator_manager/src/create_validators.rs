@@ -581,7 +581,7 @@ pub mod tests {
 
     type E = MainnetEthSpec;
 
-    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "2.3.0";
+    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "2.7.0";
 
     fn junk_execution_address() -> Option<Address> {
         Some(Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap())
