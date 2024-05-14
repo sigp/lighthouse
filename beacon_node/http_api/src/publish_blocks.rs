@@ -85,6 +85,11 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         ProvenancedBlock::Local(block, blobs, _) => (block, blobs, true),
         ProvenancedBlock::Builder(block, blobs, _) => (block, blobs, false),
     };
+    let provenance = if is_locally_built_block {
+        "local"
+    } else {
+        "builder"
+    };
     let block = unverified_block.inner_block();
     debug!(log, "Signed block received in HTTP API"; "slot" => block.slot());
 
@@ -100,6 +105,12 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         let publish_delay = publish_timestamp
             .checked_sub(seen_timestamp)
             .unwrap_or_else(|| Duration::from_secs(0));
+
+        metrics::observe_timer_vec(
+            &metrics::HTTP_API_BLOCK_GOSSIP_TIMES,
+            &[provenance],
+            publish_delay,
+        );
 
         info!(
             log,
@@ -310,7 +321,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 // None of the components provided in this HTTP request were new, so this was an
                 // entirely redundant duplicate request. Return a status code indicating this,
                 // which can be overridden based on config.
-                return Ok(warp::reply::with_status(
+                Ok(warp::reply::with_status(
                     warp::reply::json(&ErrorMessage {
                         code: duplicate_status_code.as_u16(),
                         message: "duplicate block".to_string(),
@@ -318,7 +329,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                     }),
                     duplicate_status_code,
                 )
-                .into_response());
+                .into_response())
             }
         }
         Err(BlockError::DuplicateImportStatusUnknown(root)) => {
@@ -395,7 +406,7 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
             // blocks built with builders we consider the broadcast time to be
             // when the blinded block is published to the builder.
             if is_locally_built_block {
-                late_block_logging(&chain, seen_timestamp, block.message(), root, "local", &log)
+                late_block_logging(chain, seen_timestamp, block.message(), root, "local", log)
             }
             Ok(warp::reply().into_response())
         }

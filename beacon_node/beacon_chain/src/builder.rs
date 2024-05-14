@@ -708,8 +708,8 @@ where
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
         let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
-
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
+
         let mut validator_monitor = ValidatorMonitor::new(
             validator_monitor_config,
             beacon_proposer_cache.clone(),
