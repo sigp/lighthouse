@@ -747,7 +747,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let action = match result {
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
-            | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
+            | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(..))
+            | BlockProcessingResult::Err(BlockError::DuplicateImportStatusUnknown(..)) => {
                 // Successfully imported
                 trace!(self.log, "Single block processing succeeded"; "block" => %block_root);
                 Action::Drop
@@ -951,7 +952,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.request_parent(parent_lookup, cx);
             }
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
-            | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(_))
+            | BlockProcessingResult::Err(BlockError::DuplicateImportStatusUnknown(_)) => {
                 let (chain_hash, blocks, hashes, block_request) =
                     parent_lookup.parts_for_processing();
 

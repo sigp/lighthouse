@@ -846,7 +846,7 @@ where
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
         // If we produce two blocks for the same slot, they hash up to the same value and
-        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
@@ -908,7 +908,7 @@ where
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
         // If we produce two blocks for the same slot, they hash up to the same value and
-        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 

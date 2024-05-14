@@ -782,7 +782,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
                     "Ignoring gossip blob already imported";
@@ -972,7 +972,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(
+                BlockError::DuplicateFullyImported(_)
+                | BlockError::DuplicateImportStatusUnknown(..),
+            ) => {
                 debug!(
                     self.log,
                     "Gossip block is already known";

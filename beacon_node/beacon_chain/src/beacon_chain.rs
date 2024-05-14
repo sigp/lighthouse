@@ -2634,7 +2634,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
                 // If the block is already known, simply ignore this block.
-                Err(BlockError::BlockIsAlreadyKnown(_)) => continue,
+                Err(
+                    BlockError::DuplicateFullyImported(_)
+                    | BlockError::DuplicateImportStatusUnknown(_),
+                ) => continue,
                 // If the block is the genesis block, simply ignore this block.
                 Err(BlockError::GenesisBlock) => continue,
                 // If the block is is for a finalized slot, simply ignore this block.
@@ -2778,7 +2781,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             }
                         }
                     }
-                    Err(BlockError::BlockIsAlreadyKnown(block_root)) => {
+                    Err(BlockError::DuplicateFullyImported(block_root)) => {
                         debug!(self.log,
                             "Ignoring already known blocks while processing chain segment";
                             "block_root" => ?block_root);
@@ -2869,7 +2872,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown(blob.block_root()));
+            return Err(BlockError::DuplicateFullyImported(blob.block_root()));
         }
 
         if let Some(event_handler) = self.event_handler.as_ref() {
@@ -2901,7 +2904,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+            return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         if let Some(event_handler) = self.event_handler.as_ref() {

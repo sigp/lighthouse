@@ -178,12 +178,18 @@ pub enum BlockError<E: EthSpec> {
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
     NotFinalizedDescendant { block_parent_root: Hash256 },
-    /// Block is already known, no need to re-import.
+    /// Block is already known and valid, no need to re-import.
     ///
     /// ## Peer scoring
     ///
     /// The block is valid and we have already imported a block with this hash.
-    BlockIsAlreadyKnown(Hash256),
+    DuplicateFullyImported(Hash256),
+    /// Block has already been seen on gossip but has not necessarily finished being imported.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block could be valid, or invalid. We don't know.
+    DuplicateImportStatusUnknown(Hash256),
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     ///
     /// ## Peer scoring
@@ -802,7 +808,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // already know this block.
         let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
         if fork_choice_read_lock.contains_block(&block_root) {
-            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+            return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         // Do not process a block that doesn't descend from the finalized root.
@@ -936,7 +942,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             SeenBlock::Slashable => {
                 return Err(BlockError::Slashable);
             }
-            SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown(block_root)),
+            SeenBlock::Duplicate => {
+                return Err(BlockError::DuplicateImportStatusUnknown(block_root))
+            }
             SeenBlock::UniqueNonSlashable => {}
         };
 
@@ -1760,7 +1768,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
         .fork_choice_read_lock()
         .contains_block(&block_root)
     {
-        return Err(BlockError::BlockIsAlreadyKnown(block_root));
+        return Err(BlockError::DuplicateFullyImported(block_root));
     }
 
     Ok(block_root)
