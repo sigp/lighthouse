@@ -94,4 +94,5 @@ SUBCOMMANDS:
     move      Uploads validators to a validator client using the HTTP API. The validators are defined in a JSON file
               which can be generated using the "create-validators" command. This command only supports validators
               signing via a keystore on the local file system (i.e., not Web3Signer validators).
-```<style> .content main {max-width:88%;} </style>
+```
+<style> .content main {max-width:88%;} </style>
