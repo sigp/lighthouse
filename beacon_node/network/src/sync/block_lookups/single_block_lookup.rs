@@ -43,7 +43,6 @@ pub enum LookupRequestError {
     UnknownLookup,
 }
 
-#[derive(Debug)]
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     pub block_request_state: BlockRequestState<T::EthSpec>,
@@ -549,5 +548,19 @@ impl<T: Clone> std::fmt::Debug for State<T> {
             Self::Processing(d) => write!(f, "Processing({:?})", d.peer_id),
             Self::Processed(_) => write!(f, "Processed"),
         }
+    }
+}
+
+// TODO: Manual implementation of Debug, otherwise T must be bounded by Debug
+impl<T: BeaconChainTypes> std::fmt::Debug for SingleBlockLookup<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SingleBlockLookup")
+            .field("id", &self.id)
+            .field("block_root", &self.block_root)
+            .field("awaiting_parent", &self.awaiting_parent)
+            .field("created", &self.created)
+            .field("block_request_state", &self.block_request_state)
+            .field("blob_request_state", &self.blob_request_state)
+            .finish()
     }
 }
