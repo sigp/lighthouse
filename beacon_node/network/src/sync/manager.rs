@@ -826,7 +826,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_single_block_response(id, block) {
             self.block_lookups
                 .on_download_response::<BlockRequestState<T::EthSpec>>(
-                    id.lookup_id,
+                    id,
                     peer_id,
                     resp,
                     &mut self.network,
@@ -868,7 +868,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_single_blob_response(id, blob) {
             self.block_lookups
                 .on_download_response::<BlobRequestState<T::EthSpec>>(
-                    id.lookup_id,
+                    id,
                     peer_id,
                     resp,
                     &mut self.network,
