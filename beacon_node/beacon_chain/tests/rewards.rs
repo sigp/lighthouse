@@ -198,17 +198,14 @@ async fn test_verify_attestation_rewards_base_inactivity_leak() {
     // target epoch is the epoch where the chain enters inactivity leak
     let target_epoch = &spec.min_epochs_to_inactivity_penalty + 1;
 
-    //advance until beginning of epoch N + 1  and get balances
+    // advance until epoch N and build proposal rewards map
     harness
         .extend_slots_some_validators(
-            (E::slots_per_epoch() * (target_epoch + 1)) as usize,
+            (E::slots_per_epoch() * (target_epoch)) as usize,
             half_validators.clone(),
         )
         .await;
 
-    let initial_balances = harness.get_current_state().balances().clone();
-
-    // advance until epoch N + 2 and build proposal rewards map
     let mut proposal_rewards_map: HashMap<u64, u64> = HashMap::new();
 
     for _ in 0..E::slots_per_epoch() {
@@ -238,6 +235,14 @@ async fn test_verify_attestation_rewards_base_inactivity_leak() {
             .await;
     }
 
+    // Get initial balances of N + 1
+    let initial_balances = harness.get_current_state().balances().clone();
+
+    // Extend another epoch to N + 2 where balance changes are applied
+    harness
+        .extend_slots_some_validators(E::slots_per_epoch() as usize, half_validators.clone())
+        .await;
+
     // compute reward deltas for all validators in epoch N
     let StandardAttestationRewards {
         ideal_rewards,
@@ -253,6 +258,7 @@ async fn test_verify_attestation_rewards_base_inactivity_leak() {
 
     // apply attestation rewards to initial balances
     let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
+    // apply proposal rewards calculated at N (target_epoch)
     let expected_balances = apply_beacon_block_rewards(&proposal_rewards_map, expected_balances);
 
     // verify expected balances against actual balances
