@@ -560,11 +560,11 @@ impl<T: Clone> std::fmt::Display for State<T> {
 impl<T: Clone> std::fmt::Debug for State<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AwaitingDownload => write!(f, "AwaitingDownload"),
+            Self::AwaitingDownload { .. } => write!(f, "AwaitingDownload"),
             Self::Downloading(req_id) => write!(f, "Downloading({:?})", req_id),
             Self::AwaitingProcess(d) => write!(f, "AwaitingProcess({:?})", d.peer_id),
             Self::Processing(d) => write!(f, "Processing({:?})", d.peer_id),
-            Self::Processed(_) => write!(f, "Processed"),
+            Self::Processed { .. } => write!(f, "Processed"),
         }
     }
 }
