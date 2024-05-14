@@ -137,3 +137,4 @@ Flags:
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
 ```
+<style> .content main {max-width:88%;} </style>
