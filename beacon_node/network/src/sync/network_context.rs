@@ -80,10 +80,13 @@ impl From<LookupVerifyError> for LookupFailure {
     }
 }
 
+/// Sequential ID that uniquely identifies ReqResp outgoing requests
+pub type ReqId = u32;
+
 pub enum LookupRequestResult {
     /// A request is sent. Sync MUST receive an event from the network in the future for either:
     /// completed response or failed request
-    RequestSent,
+    RequestSent(ReqId),
     /// No request is sent, and no further action is necessary to consider this request completed
     NoRequestNeeded,
     /// No request is sent, but the request is not completed. Sync MUST receive some future event
@@ -340,10 +343,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::Pending);
         }
 
-        let id = SingleLookupReqId {
-            lookup_id,
-            req_id: self.next_id(),
-        };
+        let req_id = self.next_id();
+        let id = SingleLookupReqId { lookup_id, req_id };
 
         debug!(
             self.log,
@@ -365,7 +366,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blocks_by_root_requests
             .insert(id, ActiveBlocksByRootRequest::new(request));
 
-        Ok(LookupRequestResult::RequestSent)
+        Ok(LookupRequestResult::RequestSent(req_id))
     }
 
     /// Request necessary blobs for `block_root`. Requests only the necessary blobs by checking:
@@ -409,10 +410,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
-        let id = SingleLookupReqId {
-            lookup_id,
-            req_id: self.next_id(),
-        };
+        let req_id = self.next_id();
+        let id = SingleLookupReqId { lookup_id, req_id };
 
         debug!(
             self.log,
@@ -438,7 +437,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blobs_by_root_requests
             .insert(id, ActiveBlobsByRootRequest::new(request));
 
-        Ok(LookupRequestResult::RequestSent)
+        Ok(LookupRequestResult::RequestSent(req_id))
     }
 
     pub fn is_execution_engine_online(&self) -> bool {
