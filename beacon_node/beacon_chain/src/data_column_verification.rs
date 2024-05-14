@@ -1,5 +1,5 @@
 use crate::block_verification::{process_block_slash_info, BlockSlashInfo};
-use crate::kzg_utils::{reconstruct_data_columns, validate_data_column};
+use crate::kzg_utils::validate_data_column;
 use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use kzg::{Error as KzgError, Kzg};
@@ -242,7 +242,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         // Will only return an error if:
         // - < 50% of columns
         // - There are duplicates
-        let all_data_columns = reconstruct_data_columns(
+        let all_data_columns = DataColumnSidecar::reconstruct(
             kzg,
             &partial_set_of_columns
                 .iter()
