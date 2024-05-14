@@ -838,10 +838,10 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
 pub struct JsonDepositRequest {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
     pub signature: Signature,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub index: u64,
 }
 
@@ -874,7 +874,7 @@ impl From<JsonDepositRequest> for DepositReceipt {
 pub struct JsonWithdrawalRequest {
     pub source_address: Address,
     pub validator_public_key: PublicKeyBytes,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
 }
 
