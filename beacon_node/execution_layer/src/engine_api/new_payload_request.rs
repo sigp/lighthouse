@@ -5,7 +5,7 @@ use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_h
 use superstruct::superstruct;
 use types::{
     BeaconBlockRef, BeaconStateError, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadRef, Hash256, VersionedHash,
+    ExecutionPayloadRef, FeatureName, ForkName, Hash256, VersionedHash,
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -13,7 +13,15 @@ use types::{
 };
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    feature(Bellatrix),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "has_feature"
+    ),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -39,9 +47,9 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub execution_payload: &'block ExecutionPayloadDeneb<E>,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     pub execution_payload: &'block ExecutionPayloadElectra<E>,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(feature(Deneb))]
     pub versioned_hashes: Vec<VersionedHash>,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(feature(Deneb))]
     pub parent_beacon_block_root: Hash256,
 }
 

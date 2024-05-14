@@ -20,7 +20,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecarList, EthSpec, ExecPayload, ExecutionBlockHash,
-    ForkName, FullPayload, FullPayloadBellatrix, Hash256, SignedBeaconBlock,
+    FeatureName, ForkName, FullPayload, FullPayloadBellatrix, Hash256, SignedBeaconBlock,
     SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
@@ -93,28 +93,22 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             "publish_delay_ms" => publish_delay.as_millis()
         );
 
-        match block.as_ref() {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Bellatrix(_)
-            | SignedBeaconBlock::Capella(_) => {
-                crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block))
-                    .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
-            }
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
-                let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block)];
-                if let Some(blob_sidecars) = blobs_opt {
-                    for (blob_index, blob) in blob_sidecars.into_iter().enumerate() {
-                        pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((
-                            blob_index as u64,
-                            blob,
-                        ))));
-                    }
+        if block.has_feature(FeatureName::Deneb) {
+            let mut pubsub_messages = vec![PubsubMessage::BeaconBlock(block)];
+            if let Some(blob_sidecars) = blobs_opt {
+                for (blob_index, blob) in blob_sidecars.into_iter().enumerate() {
+                    pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((
+                        blob_index as u64,
+                        blob,
+                    ))));
                 }
-                crate::publish_pubsub_messages(&sender, pubsub_messages)
-                    .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
-        };
+            crate::publish_pubsub_messages(&sender, pubsub_messages)
+                .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
+        } else {
+            crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block))
+                .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
+        }
         Ok(())
     };
 

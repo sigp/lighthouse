@@ -14,7 +14,14 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "has_feature"
+    ),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -66,9 +73,9 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
@@ -78,13 +85,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
@@ -110,36 +117,36 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
 
     // Capella
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     pub historical_summaries: Option<List<HistoricalSummary, E::HistoricalRootsLimit>>,
 
     // Electra
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub deposit_receipts_start_index: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub deposit_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub exit_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub earliest_exit_epoch: Epoch,
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub consolidation_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub earliest_consolidation_epoch: Epoch,
 
     // TODO(electra) should these be optional?
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 }
 

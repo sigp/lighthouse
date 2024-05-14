@@ -12,7 +12,14 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name_unchecked"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "has_feature"
+    ),
     variant_attributes(
         derive(
             Debug,
@@ -226,6 +233,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
             BeaconBlockRef::Deneb { .. } => ForkName::Deneb,
             BeaconBlockRef::Electra { .. } => ForkName::Electra,
         }
+    }
+
+    pub fn has_feature(self, feature: FeatureName) -> bool {
+        self.fork_name_unchecked().has_feature(feature)
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.

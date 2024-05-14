@@ -8029,13 +8029,14 @@ checksum = "81cdd64d312baedb58e21336b31bc043b77e01cc99033ce76ef539f78e965ebc"
 [[package]]
 name = "superstruct"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f4e1f478a7728f8855d7e620e9a152cf8932c6614f86564c886f9b8141f3201"
+source = "git+https://github.com/sigp/superstruct?branch=features#822403d4d415c181aa7f4765e118606c6772dc58"
 dependencies = [
  "darling",
  "itertools",
  "proc-macro2",
  "quote",
+ "serde",
+ "serde_json",
  "smallvec",
  "syn 1.0.109",
 ]

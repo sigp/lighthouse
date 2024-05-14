@@ -44,9 +44,11 @@ pub mod execution_block_hash;
 pub mod execution_layer_withdrawal_request;
 pub mod execution_payload;
 pub mod execution_payload_header;
+pub mod feature_name;
 pub mod fork;
 pub mod fork_data;
 pub mod fork_name;
+pub mod fork_order;
 pub mod fork_versioned_response;
 pub mod graffiti;
 pub mod historical_batch;
@@ -162,10 +164,12 @@ pub use crate::execution_payload_header::{
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
     ExecutionPayloadHeaderRefMut,
 };
+pub use crate::feature_name::FeatureName;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
 pub use crate::fork_name::{ForkName, InconsistentFork};
+pub use crate::fork_order::FORK_ORDER;
 pub use crate::fork_versioned_response::{ForkVersionDeserialize, ForkVersionedResponse};
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;

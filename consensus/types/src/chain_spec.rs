@@ -303,22 +303,13 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.electra_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
-            _ => match self.deneb_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-                _ => match self.capella_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                    _ => match self.bellatrix_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
-                        _ => match self.altair_fork_epoch {
-                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                            _ => ForkName::Base,
-                        },
-                    },
-                },
-            },
+        for (fork_name, _) in FORK_ORDER.iter().copied().rev() {
+            match self.fork_epoch(fork_name) {
+                Some(fork_epoch) if epoch >= fork_epoch => return fork_name,
+                _ => continue,
+            }
         }
+        ForkName::Base
     }
 
     /// Returns the fork version for a named fork.
@@ -346,9 +337,10 @@ impl ChainSpec {
     }
 
     pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name >= ForkName::Bellatrix {
+        // TODO(superstruct_features) Is this a better pattern?
+        if fork_name.has_feature(FeatureName::Bellatrix) {
             self.inactivity_penalty_quotient_bellatrix
-        } else if fork_name >= ForkName::Altair {
+        } else if fork_name.has_feature(FeatureName::Altair) {
             self.inactivity_penalty_quotient_altair
         } else {
             self.inactivity_penalty_quotient
@@ -361,9 +353,9 @@ impl ChainSpec {
         state: &BeaconState<E>,
     ) -> u64 {
         let fork_name = state.fork_name_unchecked();
-        if fork_name >= ForkName::Bellatrix {
+        if fork_name.has_feature(FeatureName::Bellatrix) {
             self.proportional_slashing_multiplier_bellatrix
-        } else if fork_name >= ForkName::Altair {
+        } else if fork_name.has_feature(FeatureName::Altair) {
             self.proportional_slashing_multiplier_altair
         } else {
             self.proportional_slashing_multiplier
@@ -376,11 +368,11 @@ impl ChainSpec {
         state: &BeaconState<E>,
     ) -> u64 {
         let fork_name = state.fork_name_unchecked();
-        if fork_name >= ForkName::Electra {
+        if fork_name.has_feature(FeatureName::Electra) {
             self.min_slashing_penalty_quotient_electra
-        } else if fork_name >= ForkName::Bellatrix {
+        } else if fork_name.has_feature(FeatureName::Bellatrix) {
             self.min_slashing_penalty_quotient_bellatrix
-        } else if fork_name >= ForkName::Altair {
+        } else if fork_name.has_feature(FeatureName::Altair) {
             self.min_slashing_penalty_quotient_altair
         } else {
             self.min_slashing_penalty_quotient
@@ -546,7 +538,7 @@ impl ChainSpec {
     }
 
     pub fn max_blocks_by_root_request(&self, fork_name: ForkName) -> usize {
-        if fork_name >= ForkName::Deneb {
+        if fork_name.has_feature(FeatureName::Deneb) {
             self.max_blocks_by_root_request_deneb
         } else {
             self.max_blocks_by_root_request
@@ -554,7 +546,7 @@ impl ChainSpec {
     }
 
     pub fn max_request_blocks(&self, fork_name: ForkName) -> usize {
-        if fork_name >= ForkName::Deneb {
+        if fork_name.has_feature(FeatureName::Deneb) {
             self.max_request_blocks_deneb as usize
         } else {
             self.max_request_blocks as usize

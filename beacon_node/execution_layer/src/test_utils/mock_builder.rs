@@ -20,9 +20,9 @@ use types::builder_bid::{
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionedResponse, Hash256, PublicKeyBytes,
-    Signature, SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot,
-    Uint256,
+    ExecutionPayloadHeaderRefMut, FeatureName, ForkName, ForkVersionedResponse, Hash256,
+    PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
+    SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{ExecutionBlockHash, SecretKey};
 use warp::{Filter, Rejection};
@@ -479,16 +479,17 @@ pub fn serve<E: EthSpec>(
                 let prev_randao = head_state
                     .get_randao_mix(head_state.current_epoch())
                     .map_err(|_| reject("couldn't get prev randao"))?;
-                let expected_withdrawals = match fork {
-                    ForkName::Base | ForkName::Altair | ForkName::Bellatrix => None,
-                    ForkName::Capella | ForkName::Deneb | ForkName::Electra => Some(
+                let expected_withdrawals = if fork.has_feature(FeatureName::Capella) {
+                    Some(
                         builder
                             .beacon_client
                             .get_expected_withdrawals(&StateId::Head)
                             .await
                             .unwrap()
                             .data,
-                    ),
+                    )
+                } else {
+                    None
                 };
 
                 let payload_attributes = match fork {

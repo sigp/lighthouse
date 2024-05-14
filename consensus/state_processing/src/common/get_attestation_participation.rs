@@ -7,7 +7,7 @@ use types::{
     },
     BeaconStateError as Error,
 };
-use types::{AttestationData, BeaconState, ChainSpec, EthSpec};
+use types::{AttestationData, BeaconState, ChainSpec, EthSpec, FeatureName};
 
 /// Get the participation flags for a valid attestation.
 ///
@@ -44,22 +44,14 @@ pub fn get_attestation_participation_flag_indices<E: EthSpec>(
     if is_matching_source && inclusion_delay <= E::slots_per_epoch().integer_sqrt() {
         participation_flag_indices.push(TIMELY_SOURCE_FLAG_INDEX);
     }
-    match state {
-        &BeaconState::Base(_)
-        | &BeaconState::Altair(_)
-        | &BeaconState::Bellatrix(_)
-        | &BeaconState::Capella(_) => {
-            if is_matching_target && inclusion_delay <= E::slots_per_epoch() {
-                participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
-            }
-        }
-        &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
-            if is_matching_target {
-                // [Modified in Deneb:EIP7045]
-                participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
-            }
-        }
+
+    if state.has_feature(FeatureName::Deneb) && is_matching_target {
+        // [Modified in Deneb:EIP7045]
+        participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
+    } else if is_matching_target && inclusion_delay <= E::slots_per_epoch() {
+        participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
     }
+
     if is_matching_head && inclusion_delay == spec.min_attestation_inclusion_delay {
         participation_flag_indices.push(TIMELY_HEAD_FLAG_INDEX);
     }

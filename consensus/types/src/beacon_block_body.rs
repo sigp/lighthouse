@@ -29,7 +29,14 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "has_feature"
+    ),
     variant_attributes(
         derive(
             Debug,
@@ -67,7 +74,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub attestations: VariableList<Attestation<E>, E::MaxAttestations>,
     pub deposits: VariableList<Deposit, E::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     pub sync_aggregate: SyncAggregate<E>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
@@ -87,12 +94,12 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     #[serde(flatten)]
     pub execution_payload: Payload::Electra,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(feature(Deneb))]
     pub blob_kzg_commitments: KzgCommitments<E>,
-    #[superstruct(only(Base, Altair))]
+    #[superstruct(feature(not(Bellatrix)))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[serde(skip)]
@@ -255,6 +262,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     pub fn has_blobs(self) -> bool {
         self.blob_kzg_commitments()
             .map_or(false, |blobs| !blobs.is_empty())
+    }
+
+    pub fn has_feature(self, feature: FeatureName) -> bool {
+        self.fork_name().has_feature(feature)
     }
 }
 

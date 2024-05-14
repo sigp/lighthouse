@@ -8,7 +8,15 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    feature(Bellatrix),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "has_feature"
+    ),
     variant_attributes(
         derive(
             Default,
@@ -77,14 +85,14 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     #[superstruct(getter(copy))]
     pub withdrawals_root: Hash256,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(feature(Deneb))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(feature(Deneb))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
     pub excess_blob_gas: u64,

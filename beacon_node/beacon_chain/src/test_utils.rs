@@ -877,15 +877,12 @@ where
             &self.spec,
         ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Bellatrix(_)
-            | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+        let block_contents: SignedBlockContentsTuple<E> =
+            if signed_block.has_feature(FeatureName::Deneb) {
                 (signed_block, block_response.blob_items)
-            }
-        };
+            } else {
+                (signed_block, None)
+            };
 
         (block_contents, block_response.state)
     }
@@ -941,15 +938,13 @@ where
             &self.spec,
         ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Bellatrix(_)
-            | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+        let block_contents: SignedBlockContentsTuple<E> =
+            if signed_block.has_feature(FeatureName::Deneb) {
                 (signed_block, block_response.blob_items)
-            }
-        };
+            } else {
+                (signed_block, None)
+            };
+
         (block_contents, pre_state)
     }
 

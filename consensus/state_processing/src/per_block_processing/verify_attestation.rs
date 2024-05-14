@@ -32,21 +32,17 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
             attestation: data.slot,
         }
     );
-    match state {
-        BeaconState::Base(_)
-        | BeaconState::Altair(_)
-        | BeaconState::Bellatrix(_)
-        | BeaconState::Capella(_) => {
-            verify!(
-                state.slot() <= data.slot.safe_add(E::slots_per_epoch())?,
-                Invalid::IncludedTooLate {
-                    state: state.slot(),
-                    attestation: data.slot,
-                }
-            );
-        }
+    if state.has_feature(FeatureName::Deneb) {
         // [Modified in Deneb:EIP7045]
-        BeaconState::Deneb(_) | BeaconState::Electra(_) => {}
+        {}
+    } else {
+        verify!(
+            state.slot() <= data.slot.safe_add(E::slots_per_epoch())?,
+            Invalid::IncludedTooLate {
+                state: state.slot(),
+                attestation: data.slot,
+            }
+        );
     }
 
     verify_attestation_for_state(state, attestation, ctxt, verify_signatures, spec)

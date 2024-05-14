@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
+    BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, FeatureName, Fork, Hash256,
     InconsistentFork, IndexedAttestation, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit,
@@ -387,22 +387,20 @@ where
     let exit = &signed_exit.message;
     let proposer_index = exit.validator_index as usize;
 
-    let domain = match state {
-        BeaconState::Base(_)
-        | BeaconState::Altair(_)
-        | BeaconState::Bellatrix(_)
-        | BeaconState::Capella(_) => spec.get_domain(
+    let domain = if state.has_feature(FeatureName::Deneb) {
+        // EIP-7044
+        spec.compute_domain(
+            Domain::VoluntaryExit,
+            spec.capella_fork_version,
+            state.genesis_validators_root(),
+        )
+    } else {
+        spec.get_domain(
             exit.epoch,
             Domain::VoluntaryExit,
             &state.fork(),
             state.genesis_validators_root(),
-        ),
-        // EIP-7044
-        BeaconState::Deneb(_) | BeaconState::Electra(_) => spec.compute_domain(
-            Domain::VoluntaryExit,
-            spec.capella_fork_version,
-            state.genesis_validators_root(),
-        ),
+        )
     };
 
     let message = exit.signing_root(domain);

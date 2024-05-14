@@ -2,7 +2,8 @@ use crate::beacon_block_body::KzgCommitments;
 use crate::{
     ChainSpec, EthSpec, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
-    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionDeserialize, SignedRoot, Uint256,
+    ExecutionPayloadHeaderRefMut, FeatureName, ForkName, ForkVersionDeserialize, SignedRoot,
+    Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -11,7 +12,15 @@ use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    feature(Bellatrix),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "has_feature"
+    ),
     variant_attributes(
         derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
         serde(bound = "E: EthSpec", deny_unknown_fields)
@@ -31,7 +40,7 @@ pub struct BuilderBid<E: EthSpec> {
     pub header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(only(Electra), partial_getter(rename = "header_electra"))]
     pub header: ExecutionPayloadHeaderElectra<E>,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(feature(Deneb))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,

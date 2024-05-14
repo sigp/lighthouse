@@ -19,7 +19,7 @@ use state_processing::per_epoch_processing::{
 };
 use state_processing::EpochProcessingError;
 use std::marker::PhantomData;
-use types::BeaconState;
+use types::{BeaconState, FeatureName};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {
@@ -91,47 +91,35 @@ type_name!(ParticipationFlagUpdates, "participation_flag_updates");
 
 impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        match state {
-            BeaconState::Base(_) => {
-                let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
-                validator_statuses.process_attestations(state)?;
-                let justification_and_finalization_state =
-                    base::process_justification_and_finalization(
-                        state,
-                        &validator_statuses.total_balances,
-                        spec,
-                    )?;
-                justification_and_finalization_state.apply_changes_to_state(state);
-                Ok(())
-            }
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => {
-                initialize_progressive_balances_cache(state, spec)?;
-                let justification_and_finalization_state =
-                    altair::process_justification_and_finalization(state)?;
-                justification_and_finalization_state.apply_changes_to_state(state);
-                Ok(())
-            }
+        if state.has_feature(FeatureName::Altair) {
+            initialize_progressive_balances_cache(state, spec)?;
+            let justification_and_finalization_state =
+                altair::process_justification_and_finalization(state)?;
+            justification_and_finalization_state.apply_changes_to_state(state);
+            Ok(())
+        } else {
+            let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
+            validator_statuses.process_attestations(state)?;
+            let justification_and_finalization_state =
+                base::process_justification_and_finalization(
+                    state,
+                    &validator_statuses.total_balances,
+                    spec,
+                )?;
+            justification_and_finalization_state.apply_changes_to_state(state);
+            Ok(())
         }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        match state {
-            BeaconState::Base(_) => {
-                let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
-                validator_statuses.process_attestations(state)?;
-                base::process_rewards_and_penalties(state, &validator_statuses, spec)
-            }
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => altair::process_rewards_and_penalties_slow(state, spec),
+        if state.has_feature(FeatureName::Altair) {
+            altair::process_rewards_and_penalties_slow(state, spec)
+        } else {
+            let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
+            validator_statuses.process_attestations(state)?;
+            base::process_rewards_and_penalties(state, &validator_statuses, spec)
         }
     }
 }
@@ -150,24 +138,18 @@ impl<E: EthSpec> EpochTransition<E> for RegistryUpdates {
 
 impl<E: EthSpec> EpochTransition<E> for Slashings {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        match state {
-            BeaconState::Base(_) => {
-                let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
-                validator_statuses.process_attestations(state)?;
-                process_slashings(
-                    state,
-                    validator_statuses.total_balances.current_epoch(),
-                    spec,
-                )?;
-            }
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => {
-                process_slashings_slow(state, spec)?;
-            }
-        };
+        if state.has_feature(FeatureName::Altair) {
+            process_slashings_slow(state, spec)?;
+        } else {
+            let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
+            validator_statuses.process_attestations(state)?;
+            process_slashings(
+                state,
+                validator_statuses.total_balances.current_epoch(),
+                spec,
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -202,22 +184,20 @@ impl<E: EthSpec> EpochTransition<E> for RandaoMixesReset {
 
 impl<E: EthSpec> EpochTransition<E> for HistoricalRootsUpdate {
     fn run(state: &mut BeaconState<E>, _spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        match state {
-            BeaconState::Base(_) | BeaconState::Altair(_) | BeaconState::Bellatrix(_) => {
-                process_historical_roots_update(state)
-            }
-            _ => Ok(()),
+        if state.has_feature(FeatureName::Capella) {
+            Ok(())
+        } else {
+            process_historical_roots_update(state)
         }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for HistoricalSummariesUpdate {
     fn run(state: &mut BeaconState<E>, _spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        match state {
-            BeaconState::Capella(_) | BeaconState::Deneb(_) | BeaconState::Electra(_) => {
-                process_historical_summaries_update(state)
-            }
-            _ => Ok(()),
+        if state.has_feature(FeatureName::Capella) {
+            process_historical_summaries_update(state)
+        } else {
+            Ok(())
         }
     }
 }
@@ -234,39 +214,30 @@ impl<E: EthSpec> EpochTransition<E> for ParticipationRecordUpdates {
 
 impl<E: EthSpec> EpochTransition<E> for SyncCommitteeUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        match state {
-            BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => altair::process_sync_committee_updates(state, spec),
+        if state.has_feature(FeatureName::Altair) {
+            altair::process_sync_committee_updates(state, spec)
+        } else {
+            Ok(())
         }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        match state {
-            BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => altair::process_inactivity_updates_slow(state, spec),
+        if state.has_feature(FeatureName::Altair) {
+            altair::process_inactivity_updates_slow(state, spec)
+        } else {
+            Ok(())
         }
     }
 }
 
 impl<E: EthSpec> EpochTransition<E> for ParticipationFlagUpdates {
     fn run(state: &mut BeaconState<E>, _: &ChainSpec) -> Result<(), EpochProcessingError> {
-        match state {
-            BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => altair::process_participation_flag_updates(state),
+        if state.has_feature(FeatureName::Altair) {
+            altair::process_participation_flag_updates(state)
+        } else {
+            Ok(())
         }
     }
 }
@@ -304,23 +275,18 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        match fork_name {
+        // No phase0 tests for Altair and later.
+        if fork_name.has_feature(FeatureName::Capella) {
+            T::name() != "participation_record_updates" && T::name() != "historical_roots_update"
+        } else if fork_name.has_feature(FeatureName::Altair) {
+            T::name() != "participation_record_updates"
+                && T::name() != "historical_summaries_update"
+        } else {
             // No Altair tests for genesis fork.
-            ForkName::Base => {
-                T::name() != "sync_committee_updates"
-                    && T::name() != "inactivity_updates"
-                    && T::name() != "participation_flag_updates"
-                    && T::name() != "historical_summaries_update"
-            }
-            // No phase0 tests for Altair and later.
-            ForkName::Altair | ForkName::Bellatrix => {
-                T::name() != "participation_record_updates"
-                    && T::name() != "historical_summaries_update"
-            }
-            ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
-                T::name() != "participation_record_updates"
-                    && T::name() != "historical_roots_update"
-            }
+            T::name() != "sync_committee_updates"
+                && T::name() != "inactivity_updates"
+                && T::name() != "participation_flag_updates"
+                && T::name() != "historical_summaries_update"
         }
     }
 

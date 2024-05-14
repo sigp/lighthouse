@@ -206,7 +206,14 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name_unchecked"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "has_feature"
+    ),
     variant_attributes(
         derive(
             Derivative,
@@ -384,18 +391,18 @@ where
     pub slashings: Vector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
-    #[superstruct(only(Base))]
+    #[superstruct(feature(not(Altair)))]
     #[test_random(default)]
     pub previous_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
-    #[superstruct(only(Base))]
+    #[superstruct(feature(not(Altair)))]
     #[test_random(default)]
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     #[test_random(default)]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     #[test_random(default)]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
@@ -415,15 +422,15 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     #[test_random(default)]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(feature(Altair))]
     #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
@@ -454,51 +461,51 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
 
     // Capella
-    #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
+    #[superstruct(feature(Capella), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
+    #[superstruct(feature(Capella), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     #[test_random(default)]
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
     // Electra
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(feature(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_receipts_start_index: u64,
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(feature(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_balance_to_consume: u64,
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(feature(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub exit_balance_to_consume: u64,
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(feature(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_exit_epoch: Epoch,
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(feature(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub consolidation_balance_to_consume: u64,
-    #[superstruct(only(Electra), partial_getter(copy))]
+    #[superstruct(feature(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_consolidation_epoch: Epoch,
     #[test_random(default)]
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
     #[test_random(default)]
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
     #[test_random(default)]
-    #[superstruct(only(Electra))]
+    #[superstruct(feature(Electra))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 
     // Caching (not in the spec)
@@ -625,20 +632,6 @@ impl<E: EthSpec> BeaconState<E> {
                 fork_at_slot,
                 object_fork,
             })
-        }
-    }
-
-    /// Returns the name of the fork pertaining to `self`.
-    ///
-    /// Does not check if `self` is consistent with the fork dictated by `self.slot()`.
-    pub fn fork_name_unchecked(&self) -> ForkName {
-        match self {
-            BeaconState::Base { .. } => ForkName::Base,
-            BeaconState::Altair { .. } => ForkName::Altair,
-            BeaconState::Bellatrix { .. } => ForkName::Bellatrix,
-            BeaconState::Capella { .. } => ForkName::Capella,
-            BeaconState::Deneb { .. } => ForkName::Deneb,
-            BeaconState::Electra { .. } => ForkName::Electra,
         }
     }
 
@@ -1586,16 +1579,14 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// Uses the current epoch committee cache, and will error if it isn't initialized.
     pub fn get_activation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
-        Ok(match self {
-            BeaconState::Base(_)
-            | BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_) => self.get_validator_churn_limit(spec)?,
-            BeaconState::Deneb(_) | BeaconState::Electra(_) => std::cmp::min(
+        if self.has_feature(FeatureName::Deneb) {
+            Ok(std::cmp::min(
                 spec.max_per_epoch_activation_churn_limit,
                 self.get_validator_churn_limit(spec)?,
-            ),
-        })
+            ))
+        } else {
+            Ok(self.get_validator_churn_limit(spec)?)
+        }
     }
 
     /// Returns the `slot`, `index`, `committee_position` and `committee_len` for which a validator must produce an

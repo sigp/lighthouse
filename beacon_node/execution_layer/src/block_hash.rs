@@ -45,8 +45,8 @@ pub fn calculate_execution_block_hash<E: EthSpec>(
         KECCAK_EMPTY_LIST_RLP.as_fixed_bytes().into(),
         rlp_transactions_root,
         rlp_withdrawals_root,
-        rlp_blob_gas_used,
-        rlp_excess_blob_gas,
+        rlp_blob_gas_used.copied(),
+        rlp_excess_blob_gas.copied(),
         parent_beacon_block_root,
     );
 

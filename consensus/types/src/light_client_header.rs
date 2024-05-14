@@ -1,5 +1,4 @@
 use crate::ChainSpec;
-use crate::ForkName;
 use crate::ForkVersionDeserialize;
 use crate::{light_client_update::*, BeaconBlockBody};
 use crate::{
@@ -7,6 +6,7 @@ use crate::{
     FixedVector, Hash256, SignedBeaconBlock,
 };
 use crate::{BeaconBlockHeader, ExecutionPayloadHeader};
+use crate::{FeatureName, ForkName};
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
@@ -17,7 +17,15 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Altair, Capella, Deneb),
+    feature(Altair),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "has_feature"
+    ),
     variant_attributes(
         derive(
             Debug,
@@ -55,7 +63,7 @@ pub struct LightClientHeader<E: EthSpec> {
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_header_deneb"))]
     pub execution: ExecutionPayloadHeaderDeneb<E>,
 
-    #[superstruct(only(Capella, Deneb))]
+    #[superstruct(feature(Capella))]
     pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLen>,
 
     #[ssz(skip_serializing, skip_deserializing)]

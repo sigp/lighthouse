@@ -22,7 +22,7 @@ use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconState, BlindedPayload, Deposit,
-    ExecutionPayload, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
+    ExecutionPayload, FeatureName, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
     SignedVoluntaryExit, SyncAggregate,
 };
 
@@ -90,29 +90,24 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
     ) -> Result<(), BlockProcessingError> {
         initialize_epoch_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
-        match state {
-            BeaconState::Base(_) => base::process_attestations(
+        if state.has_feature(FeatureName::Altair) {
+            initialize_progressive_balances_cache(state, spec)?;
+            altair_deneb::process_attestation(
+                state,
+                self,
+                0,
+                &mut ctxt,
+                VerifySignatures::True,
+                spec,
+            )
+        } else {
+            base::process_attestations(
                 state,
                 &[self.clone()],
                 VerifySignatures::True,
                 &mut ctxt,
                 spec,
-            ),
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => {
-                initialize_progressive_balances_cache(state, spec)?;
-                altair_deneb::process_attestation(
-                    state,
-                    self,
-                    0,
-                    &mut ctxt,
-                    VerifySignatures::True,
-                    spec,
-                )
-            }
+            )
         }
     }
 }

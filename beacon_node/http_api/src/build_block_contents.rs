@@ -1,6 +1,6 @@
 use beacon_chain::{BeaconBlockResponse, BeaconBlockResponseWrapper, BlockProductionError};
 use eth2::types::{BlockContents, FullBlockContents, ProduceBlockV3Response};
-use types::{EthSpec, ForkName};
+use types::{EthSpec, FeatureName, ForkName};
 type Error = warp::reject::Rejection;
 
 pub fn build_block_contents<E: EthSpec>(
@@ -11,11 +11,8 @@ pub fn build_block_contents<E: EthSpec>(
         BeaconBlockResponseWrapper::Blinded(block) => {
             Ok(ProduceBlockV3Response::Blinded(block.block))
         }
-        BeaconBlockResponseWrapper::Full(block) => match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => Ok(
-                ProduceBlockV3Response::Full(FullBlockContents::Block(block.block)),
-            ),
-            ForkName::Deneb | ForkName::Electra => {
+        BeaconBlockResponseWrapper::Full(block) => {
+            if fork_name.has_feature(FeatureName::Deneb) {
                 let BeaconBlockResponse {
                     block,
                     state: _,
@@ -37,7 +34,11 @@ pub fn build_block_contents<E: EthSpec>(
                         blobs,
                     }),
                 ))
+            } else {
+                Ok(ProduceBlockV3Response::Full(FullBlockContents::Block(
+                    block.block,
+                )))
             }
-        },
+        }
     }
 }

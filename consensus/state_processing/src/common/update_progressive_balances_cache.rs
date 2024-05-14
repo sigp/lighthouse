@@ -6,8 +6,8 @@ use crate::metrics::{
 use crate::{BlockProcessingError, EpochProcessingError};
 use lighthouse_metrics::set_gauge;
 use types::{
-    is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, Epoch,
-    EpochTotalBalances, EthSpec, ParticipationFlags, ProgressiveBalancesCache, Validator,
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EpochTotalBalances, EthSpec, FeatureName,
+    ParticipationFlags, ProgressiveBalancesCache, Validator,
 };
 
 /// Initializes the `ProgressiveBalancesCache` if it is unbuilt.
@@ -15,7 +15,7 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), BeaconStateError> {
-    if !is_progressive_balances_enabled(state)
+    if !state.has_feature(FeatureName::Altair)
         || state.progressive_balances_cache().is_initialized()
     {
         return Ok(());
@@ -92,7 +92,7 @@ pub fn update_progressive_balances_on_attestation<E: EthSpec>(
     validator_effective_balance: u64,
     validator_slashed: bool,
 ) -> Result<(), BlockProcessingError> {
-    if is_progressive_balances_enabled(state) {
+    if state.has_feature(FeatureName::Altair) {
         state.progressive_balances_cache_mut().on_new_attestation(
             epoch,
             validator_slashed,
@@ -109,7 +109,7 @@ pub fn update_progressive_balances_on_slashing<E: EthSpec>(
     validator_index: usize,
     validator_effective_balance: u64,
 ) -> Result<(), BlockProcessingError> {
-    if is_progressive_balances_enabled(state) {
+    if state.has_feature(FeatureName::Altair) {
         let previous_epoch_participation = *state
             .previous_epoch_participation()?
             .get(validator_index)
@@ -135,7 +135,7 @@ pub fn update_progressive_balances_on_epoch_transition<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
-    if is_progressive_balances_enabled(state) {
+    if state.has_feature(FeatureName::Altair) {
         state
             .progressive_balances_cache_mut()
             .on_epoch_transition(spec)?;

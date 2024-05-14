@@ -26,7 +26,7 @@ pub use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, KzgProofs,
+    ExecutionPayloadElectra, FeatureName, KzgProofs,
 };
 use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
@@ -155,7 +155,15 @@ pub struct ExecutionBlock {
 
 /// Representation of an execution block with enough detail to reconstruct a payload.
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    feature(Bellatrix),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "has_feature"
+    ),
     variant_attributes(
         derive(Clone, Debug, PartialEq, Serialize, Deserialize,),
         serde(bound = "E: EthSpec", rename_all = "camelCase"),
@@ -189,12 +197,12 @@ pub struct ExecutionBlockWithTransactions<E: EthSpec> {
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(feature(Capella))]
     pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(feature(Deneb))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(feature(Deneb))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
 }
@@ -425,7 +433,15 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    feature(Bellatrix),
+    variants_and_features_from = "FORK_ORDER",
+    feature_dependencies = "FEATURE_DEPENDENCIES",
+    variant_type(name = "ForkName", getter = "fork_name"),
+    feature_type(
+        name = "FeatureName",
+        list = "list_all_features",
+        check = "has_feature"
+    ),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -446,9 +462,9 @@ pub struct GetPayloadResponse<E: EthSpec> {
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     pub execution_payload: ExecutionPayloadElectra<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(feature(Deneb))]
     pub blobs_bundle: BlobsBundle<E>,
-    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
+    #[superstruct(feature(Deneb), partial_getter(copy))]
     pub should_override_builder: bool,
 }
 

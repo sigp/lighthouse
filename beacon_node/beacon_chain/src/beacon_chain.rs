@@ -733,6 +733,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
+    /// Returns the latest fork for the current slot.
+    pub fn current_fork(&self) -> Result<ForkName, Error> {
+        Ok(self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?))
+    }
+
+    /// Checks if a feature is enabled on the current fork.
+    pub fn has_feature(&self, feature: FeatureName) -> bool {
+        if let Ok(current_fork) = self.current_fork() {
+            current_fork.has_feature(feature)
+        } else {
+            // TODO(superstruct_features): Is this safe?
+            false
+        }
+    }
+
     /// Iterates across all `(block_root, slot)` pairs from `start_slot`
     /// to the head of the chain (inclusive).
     ///
@@ -2523,7 +2538,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bls_to_execution_change: SignedBlsToExecutionChange,
     ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
         // Ignore BLS to execution changes on gossip prior to Capella.
-        if !self.current_slot_is_post_capella()? {
+        if !self.has_feature(FeatureName::Capella) {
             return Err(Error::BlsToExecutionPriorToCapella);
         }
         self.verify_bls_to_execution_change_for_http_api(bls_to_execution_change)
@@ -2534,16 +2549,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     e => Err(e),
                 }
             })
-    }
-
-    /// Check if the current slot is greater than or equal to the Capella fork epoch.
-    pub fn current_slot_is_post_capella(&self) -> Result<bool, Error> {
-        let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
-        if let ForkName::Base | ForkName::Altair | ForkName::Bellatrix = current_fork {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
     }
 
     /// Import a BLS to execution change to the op pool.
@@ -4833,23 +4838,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If required, start the process of loading an execution payload from the EL early. This
         // allows it to run concurrently with things like attestation packing.
-        let prepare_payload_handle = match &state {
-            BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => {
-                let prepare_payload_handle = get_execution_payload(
-                    self.clone(),
-                    &state,
-                    parent_root,
-                    proposer_index,
-                    builder_params,
-                    builder_boost_factor,
-                    block_production_version,
-                )?;
-                Some(prepare_payload_handle)
-            }
+        let prepare_payload_handle = if state.has_feature(FeatureName::Bellatrix) {
+            let prepare_payload_handle = get_execution_payload(
+                self.clone(),
+                &state,
+                parent_root,
+                proposer_index,
+                builder_params,
+                builder_boost_factor,
+                block_production_version,
+            )?;
+            Some(prepare_payload_handle)
+        } else {
+            None
         };
 
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
@@ -5552,26 +5553,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_attributes
         } else {
             let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-            let withdrawals = match prepare_slot_fork {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix => None,
-                ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
-                    let chain = self.clone();
-                    self.spawn_blocking_handle(
-                        move || {
-                            chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot)
-                        },
-                        "prepare_beacon_proposer_withdrawals",
-                    )
-                    .await?
-                    .map(Some)?
-                }
+            let withdrawals = if prepare_slot_fork.has_feature(FeatureName::Capella) {
+                let chain = self.clone();
+                self.spawn_blocking_handle(
+                    move || chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot),
+                    "prepare_beacon_proposer_withdrawals",
+                )
+                .await?
+                .map(Some)?
+            } else {
+                None
             };
 
-            let parent_beacon_block_root = match prepare_slot_fork {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => None,
-                ForkName::Deneb | ForkName::Electra => {
-                    Some(pre_payload_attributes.parent_beacon_block_root)
-                }
+            let parent_beacon_block_root = if prepare_slot_fork.has_feature(FeatureName::Deneb) {
+                Some(pre_payload_attributes.parent_beacon_block_root)
+            } else {
+                None
             };
 
             let payload_attributes = PayloadAttributes::new(
@@ -6609,17 +6606,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name(&self.spec)
             .map_err(Error::InconsistentFork)?;
 
-        match fork_name {
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
-                LightClientBootstrap::from_beacon_state(&mut state, &block, &self.spec)
-                    .map(|bootstrap| Some((bootstrap, fork_name)))
-                    .map_err(Error::LightClientError)
-            }
-            ForkName::Base => Err(Error::UnsupportedFork),
+        if fork_name.has_feature(FeatureName::Altair) {
+            LightClientBootstrap::from_beacon_state(&mut state, &block, &self.spec)
+                .map(|bootstrap| Some((bootstrap, fork_name)))
+                .map_err(Error::LightClientError)
+        } else {
+            Err(Error::UnsupportedFork)
         }
     }
 }

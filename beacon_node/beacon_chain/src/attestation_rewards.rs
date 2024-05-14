@@ -30,7 +30,7 @@ use store::consts::altair::{
     TIMELY_TARGET_FLAG_INDEX,
 };
 use types::consts::altair::WEIGHT_DENOMINATOR;
-use types::{BeaconState, Epoch, EthSpec, RelativeEpoch};
+use types::{BeaconState, Epoch, EthSpec, FeatureName, RelativeEpoch};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_attestation_rewards(
@@ -51,13 +51,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_state(&state_root, Some(state_slot))?
             .ok_or(BeaconChainError::MissingBeaconState(state_root))?;
 
-        match state {
-            BeaconState::Base(_) => self.compute_attestation_rewards_base(state, validators),
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => self.compute_attestation_rewards_altair(state, validators),
+        if state.has_feature(FeatureName::Altair) {
+            self.compute_attestation_rewards_altair(state, validators)
+        } else {
+            self.compute_attestation_rewards_base(state, validators)
         }
     }
 
