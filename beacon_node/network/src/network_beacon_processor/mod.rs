@@ -1,10 +1,8 @@
-use crate::{
-    service::NetworkMessage,
-    sync::{manager::BlockProcessType, SamplingId, SyncMessage},
-};
-use beacon_chain::{
-    block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn,
-};
+use crate::sync::manager::BlockProcessType;
+use crate::sync::SamplingId;
+use crate::{service::NetworkMessage, sync::manager::SyncMessage};
+use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{

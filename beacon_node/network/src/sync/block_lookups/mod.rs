@@ -133,7 +133,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 Some(block_component),
                 Some(parent_root),
-                &[peer_id],
+                // On a `UnknownParentBlock` or `UnknownParentBlob` event the peer is not required
+                // to have the rest of the block components (refer to decoupled blob gossip). Create
+                // the lookup with zero peers to house the block components.
+                &[],
                 cx,
             );
         }
@@ -564,6 +567,30 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 Ok(LookupResult::Completed)
             }
         }
+    }
+
+    pub fn on_external_processing_result(
+        &mut self,
+        block_root: Hash256,
+        imported: bool,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        let Some((id, lookup)) = self
+            .single_block_lookups
+            .iter_mut()
+            .find(|(_, lookup)| lookup.is_for_block(block_root))
+        else {
+            // Ok to ignore gossip process events
+            return;
+        };
+
+        let lookup_result = if imported {
+            Ok(LookupResult::Completed)
+        } else {
+            lookup.continue_requests(cx)
+        };
+        let id = *id;
+        self.on_lookup_result(id, lookup_result, "external_processing_result", cx);
     }
 
     /// Makes progress on the immediate children of `block_root`

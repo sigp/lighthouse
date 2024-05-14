@@ -3,12 +3,10 @@
 
 pub use self::custody::CustodyId;
 use self::custody::{ActiveCustodyRequest, CustodyRequester, Error as CustodyRequestError};
-use self::requests::{
-    ActiveBlobsByRootRequest, ActiveBlocksByRootRequest, ActiveDataColumnsByRootRequest,
-};
-pub use self::requests::{
-    BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest,
-};
+use self::requests::ActiveDataColumnsByRootRequest;
+pub use self::requests::DataColumnsByRootSingleBlockRequest;
+use self::requests::{ActiveBlobsByRootRequest, ActiveBlocksByRootRequest};
+pub use self::requests::{BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest};
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::{
     BlockProcessType, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
@@ -107,6 +105,19 @@ impl PeerGroup {
     pub fn all(&self) -> &[PeerId] {
         &self.peers
     }
+}
+
+pub enum LookupRequestResult {
+    /// A request is sent. Sync MUST receive an event from the network in the future for either:
+    /// completed response or failed request
+    RequestSent,
+    /// No request is sent, and no further action is necessary to consider this request completed
+    NoRequestNeeded,
+    /// No request is sent, but the request is not completed. Sync MUST receive some future event
+    /// that makes progress on the request. For example: request is processing from a different
+    /// source (i.e. block received from gossip) and sync MUST receive an event with that processing
+    /// result.
+    Pending,
 }
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
@@ -411,14 +422,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_id: SingleLookupId,
         peer_id: PeerId,
         block_root: Hash256,
-    ) -> Result<bool, &'static str> {
+    ) -> Result<LookupRequestResult, &'static str> {
+        // da_checker includes block that are execution verified, but are missing components
+        if self
+            .chain
+            .data_availability_checker
+            .has_execution_valid_block(&block_root)
+        {
+            return Ok(LookupRequestResult::NoRequestNeeded);
+        }
+
+        // reqresp_pre_import_cache includes blocks that may not be yet execution verified
         if self
             .chain
             .reqresp_pre_import_cache
             .read()
             .contains_key(&block_root)
         {
-            return Ok(false);
+            // A block is on the `reqresp_pre_import_cache` but NOT in the
+            // `data_availability_checker` only if it is actively processing. We can expect a future
+            // event with the result of processing
+            return Ok(LookupRequestResult::Pending);
         }
 
         let id = SingleLookupReqId {
@@ -446,7 +470,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blocks_by_root_requests
             .insert(id, ActiveBlocksByRootRequest::new(request));
 
-        Ok(true)
+        Ok(LookupRequestResult::RequestSent)
     }
 
     /// Request necessary blobs for `block_root`. Requests only the necessary blobs by checking:
@@ -461,7 +485,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         block_root: Hash256,
         downloaded_block_expected_blobs: Option<usize>,
-    ) -> Result<bool, &'static str> {
+    ) -> Result<LookupRequestResult, &'static str> {
         // Check if we are into deneb, and before peerdas
         if !self
             .chain
@@ -475,7 +499,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     .epoch(T::EthSpec::slots_per_epoch()),
             )
         {
-            return Ok(false);
+            return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
         let expected_blobs = downloaded_block_expected_blobs
@@ -501,7 +525,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         if indices.is_empty() {
             // No blobs required, do not issue any request
-            return Ok(false);
+            return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
         let id = SingleLookupReqId {
@@ -533,7 +557,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blobs_by_root_requests
             .insert(id, ActiveBlobsByRootRequest::new(request));
 
-        Ok(true)
+        Ok(LookupRequestResult::RequestSent)
     }
 
     pub fn data_column_lookup_request(
@@ -572,7 +596,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_id: SingleLookupId,
         block_root: Hash256,
         downloaded_block_expected_data: Option<usize>,
-    ) -> Result<bool, &'static str> {
+    ) -> Result<LookupRequestResult, &'static str> {
         // Check if we are into peerdas
         if !self
             .chain
@@ -586,7 +610,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     .epoch(T::EthSpec::slots_per_epoch()),
             )
         {
-            return Ok(false);
+            return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
         let expects_data = downloaded_block_expected_data
@@ -601,7 +625,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // No data required for this block
         if !expects_data {
-            return Ok(false);
+            return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
         let custody_indexes_imported = self
@@ -622,7 +646,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         if custody_indexes_to_fetch.is_empty() {
             // No indexes required, do not issue any request
-            return Ok(false);
+            return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
         let id = SingleLookupReqId {
@@ -654,7 +678,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 // created cannot return data immediately, it must send some request to the network
                 // first. And there must exist some request, `custody_indexes_to_fetch` is not empty.
                 self.custody_by_root_requests.insert(requester, request);
-                Ok(true)
+                Ok(LookupRequestResult::RequestSent)
             }
             // TODO(das): handle this error properly
             Err(_) => Err("custody_send_error"),
@@ -971,19 +995,19 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     pub fn send_block_for_processing(
         &self,
+        id: Id,
         block_root: Hash256,
         block: RpcBlock<T::EthSpec>,
         duration: Duration,
-        process_type: BlockProcessType,
     ) -> Result<(), &'static str> {
         match self.beacon_processor_if_enabled() {
             Some(beacon_processor) => {
-                debug!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
+                debug!(self.log, "Sending block for processing"; "block" => ?block_root, "id" => id);
                 if let Err(e) = beacon_processor.send_rpc_beacon_block(
                     block_root,
                     block,
                     duration,
-                    process_type,
+                    BlockProcessType::SingleBlock { id },
                 ) {
                     error!(
                         self.log,
@@ -1004,17 +1028,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     pub fn send_blobs_for_processing(
         &self,
+        id: Id,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
         duration: Duration,
-        process_type: BlockProcessType,
     ) -> Result<(), &'static str> {
         match self.beacon_processor_if_enabled() {
             Some(beacon_processor) => {
-                debug!(self.log, "Sending blobs for processing"; "block" => ?block_root, "process_type" => ?process_type);
-                if let Err(e) =
-                    beacon_processor.send_rpc_blobs(block_root, blobs, duration, process_type)
-                {
+                debug!(self.log, "Sending blobs for processing"; "block" => ?block_root, "id" => id);
+                if let Err(e) = beacon_processor.send_rpc_blobs(
+                    block_root,
+                    blobs,
+                    duration,
+                    BlockProcessType::SingleBlob { id },
+                ) {
                     error!(
                         self.log,
                         "Failed to send sync blobs to processor";
