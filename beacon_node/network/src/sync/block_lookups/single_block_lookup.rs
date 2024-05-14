@@ -90,6 +90,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.awaiting_parent = None;
     }
 
+    /// Returns the time elapsed since this lookup was created
     pub fn elapsed_since_created(&self) -> Duration {
         self.created.elapsed()
     }
