@@ -1,11 +1,38 @@
-# Validator Manager Import
+# Lighthouse General Commands
 
 ```
-Uploads validators to a validator client using the HTTP API. The validators are
-defined in a JSON file which can be generated using the "create-validators"
-command.
+Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon node, a
+validator client and utilities for managing validator accounts.
 
-Usage: lighthouse validator_manager import [OPTIONS] --validators-file <PATH_TO_JSON_FILE>
+Usage: lighthouse [OPTIONS] [COMMAND]
+
+Commands:
+  account_manager
+          Utilities for generating and managing Ethereum 2.0 accounts. [aliases:
+          a, am, account, account_manager]
+  beacon_node
+          The primary component which connects to the Ethereum 2.0 P2P network
+          and downloads, verifies and stores blocks. Provides a HTTP API for
+          querying the beacon chain and publishing messages to the network.
+          [aliases: b, bn, beacon]
+  boot_node
+          Start a special Lighthouse process that only serves as a discv5
+          boot-node. This process will *not* import blocks or perform most
+          typical beacon node functions. Instead, it will simply run the discv5
+          service and assist nodes on the network to discover each other. This
+          is the recommended way to provide a network boot-node since it has a
+          reduced attack surface compared to a full beacon node.
+  database_manager
+          Manage a beacon node database [aliases: db]
+  validator_client
+          When connected to a beacon node, performs the duties of a staked
+          validator (e.g., proposing blocks and attestations). [aliases: v, vc,
+          validator]
+  validator_manager
+          Utilities for managing a Lighthouse validator client via the HTTP API.
+          [aliases: vm, validator-manager, validator_manager]
+  help
+          Print this message or the help of the given subcommand(s)
 
 Options:
   -d, --datadir <DIR>
@@ -83,16 +110,8 @@ Options:
           the broad Ethereum community has elected to override the terminal
           difficulty. Incorrect use of this flag will cause your node to
           experience a consensus failure. Be extremely careful with this flag.
-      --validators-file <PATH_TO_JSON_FILE>
-          The path to a JSON file containing a list of validators to be imported
-          to the validator client. This file is usually named "validators.json".
-      --vc-token <PATH>
-          The file containing a token required by the validator client.
-      --vc-url <HTTP_ADDRESS>
-          A HTTP(S) address of a validator client using the keymanager-API. If
-          this value is not supplied then a 'dry run' will be conducted where no
-          changes are made to the validator client. [default:
-          http://localhost:5062]
+  -V, --version
+          Print version
 
 Flags:
       --disable-log-timestamp
@@ -103,13 +122,9 @@ Flags:
           debugging specific memory allocation issues.
   -h, --help
           Prints help information
-      --ignore-duplicates
-          If present, ignore any validators which already exist on the VC.
-          Without this flag, the process will terminate without making any
-          changes. This flag should be used with caution, whilst it does not
-          directly cause slashable conditions, it might be an indicator that
-          something is amiss. Users should also be careful to avoid submitting
-          duplicate deposits for validators that already exist on the VC.
+  -l
+          DEPRECATED Enables environment logging giving access to sub-protocol
+          logs such as discv5 and libp2p
       --log-color
           Force outputting colors when emitting logs to the terminal.
       --logfile-compress
@@ -121,4 +136,4 @@ Flags:
           contain sensitive information about your validator and so this flag
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
-```<style> .content main {max-width:88%;} </style>
+```
