@@ -2507,7 +2507,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             if summary.slot <= split.slot {
                 let old = summary.slot < split.slot;
-                let non_canonical = summary.slot == split.slot && state_root != split.state_root;
+                let non_canonical = summary.slot == split.slot
+                    && state_root != split.state_root
+                    && !split.state_root.is_zero();
                 if old || non_canonical {
                     let reason = if old {
                         "old dangling state"
