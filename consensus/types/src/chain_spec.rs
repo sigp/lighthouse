@@ -195,7 +195,6 @@ pub struct ChainSpec {
      * DAS params
      */
     pub eip7594_fork_epoch: Option<Epoch>,
-    pub custody_requirement: u64,
 
     /*
      * Networking
@@ -772,7 +771,6 @@ impl ChainSpec {
              * DAS params
              */
             eip7594_fork_epoch: None,
-            custody_requirement: 1,
 
             /*
              * Network specific
@@ -1085,7 +1083,6 @@ impl ChainSpec {
              * DAS params
              */
             eip7594_fork_epoch: None,
-            custody_requirement: 1,
             /*
              * Network specific
              */
@@ -1436,7 +1433,7 @@ const fn default_max_request_blob_sidecars() -> u64 {
 }
 
 const fn default_max_request_data_column_sidecars() -> u64 {
-    16384
+    512
 }
 
 const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {

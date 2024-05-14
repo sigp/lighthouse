@@ -38,7 +38,7 @@ pub trait Eth2Enr {
     ) -> Result<EnrSyncCommitteeBitfield<E>, &'static str>;
 
     /// The peerdas custody subnet count associated with the ENR.
-    fn custody_subnet_count<E: EthSpec>(&self) -> Result<u64, &'static str>;
+    fn custody_subnet_count<E: EthSpec>(&self) -> u64;
 
     fn eth2(&self) -> Result<EnrForkId, &'static str>;
 }
@@ -64,15 +64,12 @@ impl Eth2Enr for Enr {
             .map_err(|_| "Could not decode the ENR syncnets bitfield")
     }
 
-    fn custody_subnet_count<E: EthSpec>(&self) -> Result<u64, &'static str> {
-        // NOTE: if the custody value is non-existent in the ENR, then we assume the minimum
-        // custody value defined in the spec.
-        let min_custody_bytes = E::min_custody_requirement().as_ssz_bytes();
-        let custody_bytes = self
-            .get(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
-            .unwrap_or(&min_custody_bytes);
-        u64::from_ssz_bytes(custody_bytes)
-            .map_err(|_| "Could not decode the ENR custody subnet count")
+    /// if the custody value is non-existent in the ENR, then we assume the minimum custody value
+    /// defined in the spec.
+    fn custody_subnet_count<E: EthSpec>(&self) -> u64 {
+        self.get(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
+            .and_then(|custody_bytes| u64::from_ssz_bytes(custody_bytes).ok())
+            .unwrap_or(E::min_custody_requirement() as u64)
     }
 
     fn eth2(&self) -> Result<EnrForkId, &'static str> {

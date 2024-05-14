@@ -25,11 +25,7 @@ where
         let sync_committee_bitfield: Result<EnrSyncCommitteeBitfield<E>, _> =
             enr.sync_committee_bitfield::<E>();
 
-        // Pre-fork/fork-boundary enrs may not contain a peerdas custody field.
-        // Don't return early here.
-        //
-        // NOTE: we could map to minimum custody requirement here.
-        let custody_subnet_count: Result<u64, _> = enr.custody_subnet_count::<E>();
+        let custody_subnet_count = enr.custody_subnet_count::<E>();
 
         let predicate = subnets.iter().any(|subnet| match subnet {
             Subnet::Attestation(s) => attestation_bitfield
@@ -38,13 +34,13 @@ where
             Subnet::SyncCommittee(s) => sync_committee_bitfield
                 .as_ref()
                 .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
-            Subnet::DataColumn(s) => custody_subnet_count.map_or(false, |count| {
+            Subnet::DataColumn(s) => {
                 let mut subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
                     enr.node_id().raw().into(),
-                    count,
+                    custody_subnet_count,
                 );
                 subnets.contains(s)
-            }),
+            }
         });
 
         if !predicate {

@@ -115,8 +115,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
     pub fn custody_columns(&self, _epoch: Epoch) -> Result<Vec<ColumnIndex>, &'static str> {
         let enr = self.local_enr();
         let node_id = enr.node_id().raw().into();
-        // TODO(das): cache this number at start-up to not make this fallible
-        let custody_subnet_count = enr.custody_subnet_count::<E>()?;
+        let custody_subnet_count = enr.custody_subnet_count::<E>();
         Ok(
             DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count)
                 .collect(),
@@ -152,7 +151,7 @@ mod test {
     fn test_custody_count_default() {
         let log = logging::test_logger();
         let default_custody_requirement_column_count =
-            E::number_of_columns() / E::data_column_subnet_count();
+            E::number_of_columns() / E::data_column_subnet_count() * E::min_custody_requirement();
         let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log);
         let any_epoch = Epoch::new(0);
         let columns = globals.custody_columns(any_epoch).unwrap();

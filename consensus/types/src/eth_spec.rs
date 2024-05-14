@@ -417,7 +417,7 @@ impl EthSpec for MainnetEthSpec {
     type BytesPerBlob = U131072;
     type BytesPerCell = U2048;
     type KzgCommitmentInclusionProofDepth = U17;
-    type MinCustodyRequirement = U1;
+    type MinCustodyRequirement = U4;
     type DataColumnSubnetCount = U32;
     type DataColumnCount = U128;
     type DataColumnsPerSubnet = U4;
@@ -471,7 +471,7 @@ impl EthSpec for MinimalEthSpec {
     type MaxDepositReceiptsPerPayload = U4;
     type MaxWithdrawalRequestsPerPayload = U2;
     // DAS spec values copied from `MainnetEthSpec`
-    type MinCustodyRequirement = U1;
+    type MinCustodyRequirement = U4;
     type DataColumnSubnetCount = U32;
     type DataColumnCount = U128;
     type DataColumnsPerSubnet = U4;
@@ -565,7 +565,7 @@ impl EthSpec for GnosisEthSpec {
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
     // DAS spec values copied from `MainnetEthSpec`
-    type MinCustodyRequirement = U1;
+    type MinCustodyRequirement = U4;
     type DataColumnSubnetCount = U32;
     type DataColumnCount = U128;
     type DataColumnsPerSubnet = U4;
