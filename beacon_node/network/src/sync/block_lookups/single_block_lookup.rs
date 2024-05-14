@@ -560,8 +560,8 @@ impl<T: BeaconChainTypes> std::fmt::Debug for SingleBlockLookup<T> {
             .field("block_root", &self.block_root)
             .field("awaiting_parent", &self.awaiting_parent)
             .field("created", &self.created)
-            .field("block_request_state", &self.block_request_state)
-            .field("blob_request_state", &self.blob_request_state)
+            .field("block_request_state", &self.block_request_state.state)
+            .field("blob_request_state", &self.blob_request_state.state)
             // Log peers once for block and blob requests as are identical
             .field("peers", &self.block_request_state.state.available_peers)
             .finish()
