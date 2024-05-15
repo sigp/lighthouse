@@ -208,10 +208,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         for (peer_id, peer_info) in self.network_globals().peers.read().connected_peers() {
             if let Some(enr) = peer_info.enr() {
-                // TODO(das): ignores decode errors
-                let custody_subnet_count = enr
-                    .custody_subnet_count::<T::EthSpec>()
-                    .unwrap_or(T::EthSpec::min_custody_requirement() as u64);
+                let custody_subnet_count = enr.custody_subnet_count::<T::EthSpec>();
                 // TODO(das): consider caching a map of subnet -> Vec<PeerId> and invalidating
                 // whenever a peer connected or disconnect event in received
                 let mut subnets = DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(

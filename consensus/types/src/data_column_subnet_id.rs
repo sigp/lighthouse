@@ -160,7 +160,7 @@ impl From<ArithError> for Error {
 mod test {
     use crate::data_column_subnet_id::DataColumnSubnetId;
     use crate::EthSpec;
-    use crate::{ChainSpec, MainnetEthSpec};
+    use crate::MainnetEthSpec;
 
     type E = MainnetEthSpec;
 
@@ -182,15 +182,14 @@ mod test {
         .map(|v| ethereum_types::U256::from_dec_str(v).unwrap())
         .collect::<Vec<_>>();
 
-        let spec = ChainSpec::mainnet();
-
+        let custody_requirement = 4;
         for node_id in node_ids {
             let computed_subnets =
-                DataColumnSubnetId::compute_custody_subnets::<E>(node_id, spec.custody_requirement);
+                DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_requirement);
             let computed_subnets: Vec<_> = computed_subnets.collect();
 
             // the number of subnets is equal to the custody requirement
-            assert_eq!(computed_subnets.len() as u64, spec.custody_requirement);
+            assert_eq!(computed_subnets.len() as u64, custody_requirement);
 
             let subnet_count = E::data_column_subnet_count();
             for subnet in computed_subnets {
