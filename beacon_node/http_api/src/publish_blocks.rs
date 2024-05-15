@@ -11,6 +11,7 @@ use eth2::types::{FullPayloadContents, PublishBlockRequest};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::{NetworkGlobals, PubsubMessage};
 use network::NetworkMessage;
+use rand::seq::SliceRandom;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
@@ -71,6 +72,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let block = block_contents.inner_block().clone();
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     debug!(log, "Signed block received in HTTP API"; "slot" => block.slot());
+    let malicious_withhold_count = chain.config.malicious_withhold_count;
 
     /* actually publish a block */
     let publish_block = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -117,6 +119,19 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     }
                 }
                 if let Some(data_col_sidecars) = data_cols_opt {
+                    let mut data_col_sidecars = data_col_sidecars.to_vec();
+                    if malicious_withhold_count > 0 {
+                        let columns_to_keep = data_col_sidecars
+                            .len()
+                            .saturating_sub(malicious_withhold_count);
+                        // Randomize columns before dropping the last malicious_withhold_count items
+                        data_col_sidecars.shuffle(&mut rand::thread_rng());
+                        data_col_sidecars = data_col_sidecars
+                            .into_iter()
+                            .take(columns_to_keep)
+                            .collect::<Vec<_>>();
+                    }
+
                     for data_col in data_col_sidecars {
                         let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
                             data_col.index as usize,

@@ -47,6 +47,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("malicious-withhold-count")
+                .long("malicious-withhold-count")
+                .help("TESTING ONLY do not use this")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("subscribe-all-subnets")
                 .long("subscribe-all-subnets")
                 .help("Subscribe to all subnets regardless of validator count. \

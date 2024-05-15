@@ -86,6 +86,8 @@ pub struct ChainConfig {
     pub epochs_per_migration: u64,
     /// When set to true Light client server computes and caches state proofs for serving updates
     pub enable_light_client_server: bool,
+    /// Enable malicious PeerDAS mode where node withholds data columns when publishing a block
+    pub malicious_withhold_count: usize,
 }
 
 impl Default for ChainConfig {
@@ -118,6 +120,7 @@ impl Default for ChainConfig {
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             enable_light_client_server: false,
+            malicious_withhold_count: 0,
         }
     }
 }
