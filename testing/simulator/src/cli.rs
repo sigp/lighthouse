@@ -57,7 +57,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .arg(
                     Arg::with_name("continue-after-checks")
-                        .short("c")
                         .long("continue_after_checks")
                         .takes_value(false)
                         .help("Continue after checks (default false)"),
@@ -77,7 +76,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .arg(
                     Arg::with_name("vc-count")
-                        .short("c")
                         .long("vc-count")
                         .takes_value(true)
                         .default_value("3")
@@ -117,7 +115,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .arg(
                     Arg::with_name("continue-after-checks")
-                        .short("c")
                         .long("continue_after_checks")
                         .takes_value(false)
                         .help("Continue after checks (default false)"),

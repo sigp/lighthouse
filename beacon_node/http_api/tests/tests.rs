@@ -1704,7 +1704,9 @@ impl ApiTester {
 
     pub async fn test_get_beacon_light_client_updates(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
-        let current_sync_committee_period = current_epoch.sync_committee_period(&self.chain.spec).unwrap();
+        let current_sync_committee_period = current_epoch
+            .sync_committee_period(&self.chain.spec)
+            .unwrap();
 
         let result = match self
             .client
@@ -1718,7 +1720,13 @@ impl ApiTester {
         let expected = self
             .chain
             .light_client_server_cache
-            .get_light_client_updates(&self.chain.store, current_sync_committee_period as u64, 1, &self.chain.spec).unwrap();
+            .get_light_client_updates(
+                &self.chain.store,
+                current_sync_committee_period as u64,
+                1,
+                &self.chain.spec,
+            )
+            .unwrap();
 
         // assert_eq!(result, expected);
 

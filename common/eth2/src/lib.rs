@@ -739,7 +739,7 @@ impl BeaconNodeHttpClient {
         &self,
         start_period: u64,
         count: u64,
-    ) -> Result<Option<Vec<ForkVersionedResponse<LightClientUpdate<E>>>>, Error>  {
+    ) -> Result<Option<Vec<ForkVersionedResponse<LightClientUpdate<E>>>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()

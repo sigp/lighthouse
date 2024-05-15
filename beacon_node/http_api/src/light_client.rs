@@ -67,18 +67,33 @@ pub fn validate_light_client_updates_request<T: BeaconChainTypes>(
     query: &LightClientUpdatesQuery,
 ) -> Result<(), Rejection> {
     if query.count > MAX_REQUEST_LIGHT_CLIENT_UPDATES {
-        return Err(warp_utils::reject::custom_bad_request("Invalid count requested".to_string()))
+        return Err(warp_utils::reject::custom_bad_request(
+            "Invalid count requested".to_string(),
+        ));
     }
 
-    let current_sync_period = chain.epoch().unwrap().sync_committee_period(&chain.spec).unwrap();
+    let current_sync_period = chain
+        .epoch()
+        .unwrap()
+        .sync_committee_period(&chain.spec)
+        .unwrap();
     println!("start period {:?}", query.start_period);
     if query.start_period > current_sync_period {
-        return Err(warp_utils::reject::custom_bad_request("Invalid sync committee period requested 1".to_string()))
+        return Err(warp_utils::reject::custom_bad_request(
+            "Invalid sync committee period requested 1".to_string(),
+        ));
     }
 
-    let earliest_altair_sync_committee = chain.spec.altair_fork_epoch.unwrap().sync_committee_period(&chain.spec).unwrap();
+    let earliest_altair_sync_committee = chain
+        .spec
+        .altair_fork_epoch
+        .unwrap()
+        .sync_committee_period(&chain.spec)
+        .unwrap();
     if query.start_period < earliest_altair_sync_committee {
-        return Err(warp_utils::reject::custom_bad_request("Invalid sync committee period requested 2".to_string()))
+        return Err(warp_utils::reject::custom_bad_request(
+            "Invalid sync committee period requested 2".to_string(),
+        ));
     }
 
     Ok(())
@@ -93,7 +108,7 @@ fn map_light_client_update_to_ssz_chunk<T: BeaconChainTypes>(
         .fork_name_at_slot::<T::EthSpec>(*light_client_update.signature_slot());
 
     let fork_digest = match fork_name {
-        types::ForkName::Base =>  ChainSpec::compute_fork_digest(
+        types::ForkName::Base => ChainSpec::compute_fork_digest(
             chain.spec.genesis_fork_version,
             chain.genesis_validators_root,
         ),
@@ -101,7 +116,7 @@ fn map_light_client_update_to_ssz_chunk<T: BeaconChainTypes>(
             chain.spec.altair_fork_version,
             chain.genesis_validators_root,
         ),
-        types::ForkName::Merge => ChainSpec::compute_fork_digest(
+        types::ForkName::Bellatrix => ChainSpec::compute_fork_digest(
             chain.spec.bellatrix_fork_version,
             chain.genesis_validators_root,
         ),
