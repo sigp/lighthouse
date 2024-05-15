@@ -1362,7 +1362,7 @@ async fn add_base_block_to_altair_chain() {
             )
             .await,
         ChainSegmentResult::Failed {
-            imported_blocks: 0,
+            imported_blocks: vec![],
             error: BlockError::InconsistentFork(InconsistentFork {
                 fork_at_slot: ForkName::Altair,
                 object_fork: ForkName::Base,
@@ -1497,7 +1497,7 @@ async fn add_altair_block_to_base_chain() {
             )
             .await,
         ChainSegmentResult::Failed {
-            imported_blocks: 0,
+            imported_blocks: vec![],
             error: BlockError::InconsistentFork(InconsistentFork {
                 fork_at_slot: ForkName::Base,
                 object_fork: ForkName::Altair,
