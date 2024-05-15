@@ -816,7 +816,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         committees_per_slot: u64,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
-    ) -> Result<(u64, SubnetId), Error> { 
+    ) -> Result<(u64, SubnetId), Error> {
         let expected_subnet_id = SubnetId::compute_subnet_for_attestation::<T::EthSpec>(
             &attestation,
             committees_per_slot,
