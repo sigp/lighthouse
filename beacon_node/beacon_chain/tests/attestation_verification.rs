@@ -146,8 +146,8 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
         )
         .expect("should sign attestation");
 
-    let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
-        valid_attestation.data(),
+    let subnet_id = SubnetId::compute_subnet_for_attestation::<E>(
+        &valid_attestation.to_ref(),
         head.beacon_state
             .get_committee_count_at_slot(current_slot)
             .expect("should get committee count"),
