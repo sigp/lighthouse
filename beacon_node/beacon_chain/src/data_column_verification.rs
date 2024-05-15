@@ -577,7 +577,8 @@ fn verify_index_matches_subnet<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
     subnet: u64,
 ) -> Result<(), GossipDataColumnError<E>> {
-    let expected_subnet = DataColumnSubnetId::from_column_index::<E>(data_column.index as usize);
+    let expected_subnet: u64 =
+        DataColumnSubnetId::from_column_index::<E>(data_column.index as usize).into();
     if expected_subnet != subnet {
         return Err(GossipDataColumnError::InvalidSubnetId {
             received: subnet,
