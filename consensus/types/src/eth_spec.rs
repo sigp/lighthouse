@@ -110,17 +110,20 @@ pub trait EthSpec:
     type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type MaxBlobCommitmentsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type FieldElementsPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type KzgCommitmentInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * New in PeerDAS
      */
-    type MinCustodyRequirement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type DataColumnSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type DataColumnCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type DataColumnsPerSubnet: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type FieldElementsPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type FieldElementsPerExtBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type KzgCommitmentsInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /*
+     * Config values in PeerDAS
+     */
+    type CustodyRequirement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type DataColumnSidecarSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type NumberOfColumns: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -148,6 +151,11 @@ pub trait EthSpec:
     ///
     /// Must be set to `BytesPerFieldElement * FieldElementsPerCell`.
     type BytesPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
+    /// Number of data columns per subnet.
+    ///
+    /// Must be set to `NumberOfColumns / DataColumnSidecarSubnetCount`
+    type DataColumnsPerSubnet: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     /*
      * New in Electra
@@ -296,6 +304,11 @@ pub trait EthSpec:
         Self::FieldElementsPerBlob::to_usize()
     }
 
+    /// Returns the `FIELD_ELEMENTS_PER_EXT_BLOB` constant for this specification.
+    fn field_elements_per_ext_blob() -> usize {
+        Self::FieldElementsPerExtBlob::to_usize()
+    }
+
     /// Returns the `FIELD_ELEMENTS_PER_CELL` constant for this specification.
     fn field_elements_per_cell() -> usize {
         Self::FieldElementsPerCell::to_usize()
@@ -352,19 +365,19 @@ pub trait EthSpec:
     }
 
     fn number_of_columns() -> usize {
-        Self::DataColumnCount::to_usize()
+        Self::NumberOfColumns::to_usize()
     }
 
     fn data_columns_per_subnet() -> usize {
         Self::DataColumnsPerSubnet::to_usize()
     }
 
-    fn min_custody_requirement() -> usize {
-        Self::MinCustodyRequirement::to_usize()
+    fn custody_requirement() -> usize {
+        Self::CustodyRequirement::to_usize()
     }
 
     fn data_column_subnet_count() -> usize {
-        Self::DataColumnSubnetCount::to_usize()
+        Self::DataColumnSidecarSubnetCount::to_usize()
     }
 
     fn kzg_commitments_inclusion_proof_depth() -> usize {
@@ -414,13 +427,14 @@ impl EthSpec for MainnetEthSpec {
     type BytesPerFieldElement = U32;
     type FieldElementsPerBlob = U4096;
     type FieldElementsPerCell = U64;
+    type FieldElementsPerExtBlob = U8192;
     type BytesPerBlob = U131072;
     type BytesPerCell = U2048;
     type KzgCommitmentInclusionProofDepth = U17;
-    type MinCustodyRequirement = U4;
-    type DataColumnSubnetCount = U64;
-    type DataColumnCount = U128;
-    type DataColumnsPerSubnet = U4;
+    type CustodyRequirement = U4;
+    type DataColumnSidecarSubnetCount = U64;
+    type NumberOfColumns = U128;
+    type DataColumnsPerSubnet = U2;
     type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
@@ -461,20 +475,20 @@ impl EthSpec for MinimalEthSpec {
     type SlotsPerEth1VotingPeriod = U32; // 4 epochs * 8 slots per epoch
     type MaxWithdrawalsPerPayload = U4;
     type FieldElementsPerBlob = U4096;
-    type FieldElementsPerCell = U64;
     type BytesPerBlob = U131072;
-    type BytesPerCell = U2048;
     type MaxBlobCommitmentsPerBlock = U16;
     type KzgCommitmentInclusionProofDepth = U9;
     type PendingPartialWithdrawalsLimit = U64;
     type PendingConsolidationsLimit = U64;
     type MaxDepositReceiptsPerPayload = U4;
     type MaxWithdrawalRequestsPerPayload = U2;
-    // DAS spec values copied from `MainnetEthSpec`
-    type MinCustodyRequirement = U4;
-    type DataColumnSubnetCount = U64;
-    type DataColumnCount = U128;
-    type DataColumnsPerSubnet = U4;
+    type FieldElementsPerCell = U64;
+    type FieldElementsPerExtBlob = U8192;
+    type BytesPerCell = U2048;
+    type CustodyRequirement = U4;
+    type DataColumnSidecarSubnetCount = U64;
+    type NumberOfColumns = U128;
+    type DataColumnsPerSubnet = U2;
     type KzgCommitmentsInclusionProofDepth = U4;
 
     params_from_eth_spec!(MainnetEthSpec {
@@ -551,10 +565,8 @@ impl EthSpec for GnosisEthSpec {
     type MaxBlobsPerBlock = U6;
     type MaxBlobCommitmentsPerBlock = U4096;
     type FieldElementsPerBlob = U4096;
-    type FieldElementsPerCell = U64;
     type BytesPerFieldElement = U32;
     type BytesPerBlob = U131072;
-    type BytesPerCell = U2048;
     type KzgCommitmentInclusionProofDepth = U17;
     type PendingBalanceDepositsLimit = U134217728;
     type PendingPartialWithdrawalsLimit = U134217728;
@@ -564,11 +576,13 @@ impl EthSpec for GnosisEthSpec {
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
-    // DAS spec values copied from `MainnetEthSpec`
-    type MinCustodyRequirement = U4;
-    type DataColumnSubnetCount = U64;
-    type DataColumnCount = U128;
-    type DataColumnsPerSubnet = U4;
+    type FieldElementsPerCell = U64;
+    type FieldElementsPerExtBlob = U8192;
+    type BytesPerCell = U2048;
+    type CustodyRequirement = U4;
+    type DataColumnSidecarSubnetCount = U64;
+    type NumberOfColumns = U128;
+    type DataColumnsPerSubnet = U2;
     type KzgCommitmentsInclusionProofDepth = U4;
 
     fn default_spec() -> ChainSpec {

@@ -69,7 +69,7 @@ impl Eth2Enr for Enr {
     fn custody_subnet_count<E: EthSpec>(&self) -> u64 {
         self.get(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
             .and_then(|custody_bytes| u64::from_ssz_bytes(custody_bytes).ok())
-            .unwrap_or(E::min_custody_requirement() as u64)
+            .unwrap_or(E::custody_requirement() as u64)
     }
 
     fn eth2(&self) -> Result<EnrForkId, &'static str> {
@@ -238,7 +238,7 @@ pub fn build_enr<E: EthSpec>(
     let custody_subnet_count = if config.subscribe_all_data_column_subnets {
         E::data_column_subnet_count() as u64
     } else {
-        E::min_custody_requirement() as u64
+        E::custody_requirement() as u64
     };
 
     builder.add_value(

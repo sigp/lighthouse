@@ -63,7 +63,7 @@ pub type DataColumnsToPublish<E> = Option<Vec<Arc<DataColumnSidecar<E>>>>;
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
-    pub verified_data_columns: VariableList<KzgVerifiedCustodyDataColumn<E>, E::DataColumnCount>,
+    pub verified_data_columns: VariableList<KzgVerifiedCustodyDataColumn<E>, E::NumberOfColumns>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
 }
 

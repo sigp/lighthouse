@@ -149,7 +149,7 @@ impl<E: EthSpec> From<BeaconStateError> for GossipDataColumnError<E> {
 
 pub type GossipVerifiedDataColumnList<T> = VariableList<
     GossipVerifiedDataColumn<T>,
-    <<T as BeaconChainTypes>::EthSpec as EthSpec>::DataColumnCount,
+    <<T as BeaconChainTypes>::EthSpec as EthSpec>::NumberOfColumns,
 >;
 
 /// A wrapper around a `DataColumnSidecar` that indicates it has been approved for re-gossiping on
@@ -243,7 +243,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
 }
 
 pub type CustodyDataColumnList<E> =
-    VariableList<CustodyDataColumn<E>, <E as EthSpec>::DataColumnCount>;
+    VariableList<CustodyDataColumn<E>, <E as EthSpec>::NumberOfColumns>;
 
 /// Data column that we must custody
 #[derive(Debug, Derivative, Clone, Encode, Decode)]

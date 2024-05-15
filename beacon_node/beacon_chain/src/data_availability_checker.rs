@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let custody_subnet_count = if import_all_data_columns {
             T::EthSpec::data_column_subnet_count()
         } else {
-            T::EthSpec::min_custody_requirement()
+            T::EthSpec::custody_requirement()
         };
 
         let custody_column_count =
