@@ -686,11 +686,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::UnknownValidator(_)
                     | GossipDataColumnError::ProposerIndexMismatch { .. }
                     | GossipDataColumnError::IsNotLaterThanParent { .. }
-                    | GossipDataColumnError::InvalidIndexForSubnet { .. }
-                    | GossipDataColumnError::InvalidInclusionProof
-                    | GossipDataColumnError::KzgError(_)
-                    | GossipDataColumnError::InclusionProof(_)
+                    | GossipDataColumnError::InvalidSubnetId { .. }
+                    | GossipDataColumnError::InvalidInclusionProof { .. }
+                    | GossipDataColumnError::InvalidKzgProof { .. }
                     | GossipDataColumnError::NotFinalizedDescendant { .. } => {
+                        // TODO(das): downgrade log to debug after interop
                         warn!(
                             self.log,
                             "Could not verify column sidecar for gossip. Rejecting the column sidecar";
@@ -712,8 +712,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                     GossipDataColumnError::FutureSlot { .. }
-                    | GossipDataColumnError::RepeatColumn { .. }
+                    | GossipDataColumnError::PriorKnown { .. }
                     | GossipDataColumnError::PastFinalizedSlot { .. } => {
+                        // TODO(das): downgrade log to debug after interop
                         warn!(
                             self.log,
                             "Could not verify column sidecar for gossip. Ignoring the column sidecar";

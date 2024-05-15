@@ -1,4 +1,4 @@
-use crate::beacon_block_body::KzgCommitments;
+use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::test_utils::TestRandom;
 use crate::{
     BeaconBlockHeader, EthSpec, Hash256, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader,
@@ -11,7 +11,7 @@ use derivative::Derivative;
 use kzg::Kzg;
 use kzg::{Blob as KzgBlob, Error as KzgError};
 use kzg::{KzgCommitment, KzgProof};
-use merkle_proof::MerkleTreeError;
+use merkle_proof::verify_merkle_proof;
 #[cfg(test)]
 use mockall_double::double;
 use safe_arith::ArithError;
@@ -85,9 +85,16 @@ impl<E: EthSpec> DataColumnSidecar<E> {
     }
 
     /// Verifies the kzg commitment inclusion merkle proof.
-    pub fn verify_inclusion_proof(&self) -> Result<bool, MerkleTreeError> {
-        // FIXME(das): implement
-        Ok(true)
+    pub fn verify_inclusion_proof(&self) -> bool {
+        let blob_kzg_commitments_root = self.kzg_commitments.tree_hash_root();
+
+        verify_merkle_proof(
+            blob_kzg_commitments_root,
+            &self.kzg_commitments_inclusion_proof,
+            E::kzg_commitments_inclusion_proof_depth(),
+            BLOB_KZG_COMMITMENTS_INDEX,
+            self.signed_block_header.message.body_root,
+        )
     }
 
     pub fn build_sidecars(

@@ -7,7 +7,6 @@ use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
-use merkle_proof::MerkleTreeError;
 use proto_array::Block;
 use slasher::test_utils::E;
 use slog::debug;
@@ -32,21 +31,18 @@ pub enum GossipDataColumnError<E: EthSpec> {
     /// We were unable to process this data column due to an internal error. It's
     /// unclear if the data column is valid.
     BeaconChainError(BeaconChainError),
-
     /// The proposal signature in invalid.
     ///
     /// ## Peer scoring
     ///
     /// The data column is invalid and the peer is faulty.
     ProposalSignatureInvalid,
-
     /// The proposal_index corresponding to data column.beacon_block_root is not known.
     ///
     /// ## Peer scoring
     ///
     /// The data column is invalid and the peer is faulty.
     UnknownValidator(u64),
-
     /// The provided data column is not from a later slot than its parent.
     ///
     /// ## Peer scoring
@@ -56,31 +52,24 @@ pub enum GossipDataColumnError<E: EthSpec> {
         data_column_slot: Slot,
         parent_slot: Slot,
     },
-
     /// `Kzg` struct hasn't been initialized. This is an internal error.
     ///
     /// ## Peer scoring
     ///
     /// The peer isn't faulty, This is an internal error.
     KzgNotInitialized,
-
     /// The kzg verification failed.
     ///
     /// ## Peer scoring
     ///
     /// The data column sidecar is invalid and the peer is faulty.
-    KzgError(kzg::Error),
-
+    InvalidKzgProof(kzg::Error),
     /// The column was gossiped over an incorrect subnet.
     ///
     /// ## Peer scoring
     ///
     /// The column is invalid or the peer is faulty.
-    InvalidIndexForSubnet {
-        expected: Vec<ColumnIndex>,
-        received: ColumnIndex,
-    },
-
+    InvalidSubnetId { received: u64, expected: u64 },
     /// The column sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
     ///
@@ -91,7 +80,6 @@ pub enum GossipDataColumnError<E: EthSpec> {
         message_slot: Slot,
         latest_permissible_slot: Slot,
     },
-
     /// The sidecar corresponds to a slot older than the finalized head slot.
     ///
     /// ## Peer scoring
@@ -102,14 +90,12 @@ pub enum GossipDataColumnError<E: EthSpec> {
         column_slot: Slot,
         finalized_slot: Slot,
     },
-
     /// The pubkey cache timed out.
     ///
     /// ## Peer scoring
     ///
     /// The column sidecar may be valid, this is an internal error.
     PubkeyCacheTimeout,
-
     /// The proposer index specified in the sidecar does not match the locally computed
     /// proposer index.
     ///
@@ -117,14 +103,12 @@ pub enum GossipDataColumnError<E: EthSpec> {
     ///
     /// The column is invalid and the peer is faulty.
     ProposerIndexMismatch { sidecar: usize, local: usize },
-
     /// The provided columns's parent block is unknown.
     ///
     /// ## Peer scoring
     ///
     /// We cannot process the columns without validating its parent, the peer isn't necessarily faulty.
     ParentUnknown(Arc<DataColumnSidecar<E>>),
-
     /// The column conflicts with finalization, no need to propagate.
     ///
     /// ## Peer scoring
@@ -132,27 +116,19 @@ pub enum GossipDataColumnError<E: EthSpec> {
     /// It's unclear if this column is valid, but it conflicts with finality and shouldn't be
     /// imported.
     NotFinalizedDescendant { block_parent_root: Hash256 },
-
     /// Invalid kzg commitment inclusion proof
+    ///
     /// ## Peer scoring
     ///
     /// The column sidecar is invalid and the peer is faulty
     InvalidInclusionProof,
-
-    /// The kzg commitment inclusion proof failed.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The column sidecar is invalid
-    InclusionProof(MerkleTreeError),
-
     /// A column has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
     /// over gossip or no gossip sources.
     ///
     /// ## Peer scoring
     ///
     /// The peer isn't faulty, but we do not forward it over gossip.
-    RepeatColumn {
+    PriorKnown {
         proposer: u64,
         slot: Slot,
         index: ColumnIndex,
@@ -389,7 +365,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
         .clone()
         .ok_or(GossipDataColumnError::KzgNotInitialized)?;
     let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), &kzg)
-        .map_err(GossipDataColumnError::KzgError)?;
+        .map_err(GossipDataColumnError::InvalidKzgProof)?;
 
     chain
         .observed_slashable
@@ -419,7 +395,7 @@ fn verify_is_first_sidecar<T: BeaconChainTypes>(
         .proposer_is_known(data_column)
         .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?
     {
-        return Err(GossipDataColumnError::RepeatColumn {
+        return Err(GossipDataColumnError::PriorKnown {
             proposer: data_column.block_proposer_index(),
             slot: data_column.slot(),
             index: data_column.index,
@@ -432,10 +408,7 @@ fn verify_column_inclusion_proof<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
 ) -> Result<(), GossipDataColumnError<E>> {
     let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION);
-    if !data_column
-        .verify_inclusion_proof()
-        .map_err(GossipDataColumnError::InclusionProof)?
-    {
+    if !data_column.verify_inclusion_proof() {
         return Err(GossipDataColumnError::InvalidInclusionProof);
     }
 
@@ -579,14 +552,14 @@ fn verify_index_matches_subnet<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
     subnet: u64,
 ) -> Result<(), GossipDataColumnError<E>> {
-    let expected_col_indices: Vec<_> = DataColumnSubnetId::new(subnet).columns::<E>().collect();
-    let column_index = data_column.index;
-    if column_index >= E::number_of_columns() as u64
-        || !expected_col_indices.contains(&column_index)
-    {
-        return Err(GossipDataColumnError::InvalidIndexForSubnet {
-            expected: expected_col_indices,
-            received: column_index,
+    let expected_subnet =
+        DataColumnSubnetId::try_from_column_index::<E>(data_column.index as usize)
+            .expect("subnet count is never zero")
+            .into();
+    if expected_subnet != subnet {
+        return Err(GossipDataColumnError::InvalidSubnetId {
+            received: subnet,
+            expected: expected_subnet,
         });
     }
     Ok(())
