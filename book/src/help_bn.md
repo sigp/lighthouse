@@ -259,7 +259,7 @@ OPTIONS:
 
         --graffiti <GRAFFITI>
             Specify your custom graffiti to be included in blocks. Defaults to the current version and commit, truncated
-            to fit in 32 bytes. 
+            to fit in 32 bytes.
         --historic-state-cache-size <SIZE>
             Specifies how many states from the freezer database should cache in memory [default: 1]
 
@@ -491,4 +491,5 @@ OPTIONS:
             Specify a weak subjectivity checkpoint in `block_root:epoch` format to verify the node's sync against. The
             block root should be 0x-prefixed. Note that this flag is for verification only, to perform a checkpoint sync
             from a recent state use --checkpoint-sync-url.
-```<style> .content main {max-width:88%;} </style>
+```
+<style> .content main {max-width:88%;} </style>
