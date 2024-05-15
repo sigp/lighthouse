@@ -47,9 +47,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            // TODO(das): remove this before release
             Arg::with_name("malicious-withhold-count")
                 .long("malicious-withhold-count")
                 .help("TESTING ONLY do not use this")
+                .hidden(true)
                 .takes_value(true),
         )
         .arg(
