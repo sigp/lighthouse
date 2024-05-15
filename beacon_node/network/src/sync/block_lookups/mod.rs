@@ -20,7 +20,7 @@ use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
 
 pub mod common;
 pub mod parent_chain;
@@ -34,6 +34,7 @@ pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
     Blob(DownloadResult<Arc<BlobSidecar<E>>>),
+    DataColumn(DownloadResult<Arc<DataColumnSidecar<E>>>),
 }
 
 impl<E: EthSpec> BlockComponent<E> {
@@ -41,12 +42,14 @@ impl<E: EthSpec> BlockComponent<E> {
         match self {
             BlockComponent::Block(block) => block.value.parent_root(),
             BlockComponent::Blob(blob) => blob.value.block_parent_root(),
+            BlockComponent::DataColumn(column) => column.value.block_parent_root(),
         }
     }
     fn get_type(&self) -> &'static str {
         match self {
             BlockComponent::Block(_) => "block",
             BlockComponent::Blob(_) => "blob",
+            BlockComponent::DataColumn(_) => "data_column",
         }
     }
 }

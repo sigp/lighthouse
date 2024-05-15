@@ -207,7 +207,7 @@ impl<E: EthSpec, T: Copy> ActiveDataColumnsByRootRequest<E, T> {
                 "un-requested block root {block_root:?}"
             )));
         }
-        if !data_column.verify_inclusion_proof().unwrap_or(false) {
+        if !data_column.verify_inclusion_proof() {
             return Err(RPCError::InvalidData("invalid inclusion proof".to_string()));
         }
         if !self.request.indices.contains(&data_column.index) {

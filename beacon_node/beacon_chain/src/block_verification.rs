@@ -2075,7 +2075,7 @@ impl<E: EthSpec> BlockBlobError for GossipBlobError<E> {
 
 impl<E: EthSpec> BlockBlobError for GossipDataColumnError<E> {
     fn not_later_than_parent_error(data_column_slot: Slot, parent_slot: Slot) -> Self {
-        GossipDataColumnError::DataColumnIsNotLaterThanParent {
+        GossipDataColumnError::IsNotLaterThanParent {
             data_column_slot,
             parent_slot,
         }

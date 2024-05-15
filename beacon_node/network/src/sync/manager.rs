@@ -145,6 +145,9 @@ pub enum SyncMessage<E: EthSpec> {
     /// A blob with an unknown parent has been received.
     UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
 
+    /// A data column with an unknown parent has been received.
+    UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
+
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
@@ -674,6 +677,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     blob_slot,
                     BlockComponent::Blob(DownloadResult {
                         value: blob,
+                        block_root,
+                        seen_timestamp: timestamp_now(),
+                        peer_group: PeerGroup::from_single(peer_id),
+                    }),
+                );
+            }
+            SyncMessage::UnknownParentDataColumn(peer_id, data_column) => {
+                let data_column_slot = data_column.slot();
+                let block_root = data_column.block_root();
+                let parent_root = data_column.block_parent_root();
+                debug!(self.log, "Received unknown parent data column message"; "block_root" => %block_root, "parent_root" => %parent_root);
+                self.handle_unknown_parent(
+                    peer_id,
+                    block_root,
+                    parent_root,
+                    data_column_slot,
+                    BlockComponent::DataColumn(DownloadResult {
+                        value: data_column,
                         block_root,
                         seen_timestamp: timestamp_now(),
                         peer_group: PeerGroup::from_single(peer_id),
