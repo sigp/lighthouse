@@ -124,7 +124,6 @@ pub trait EthSpec:
     type CustodyRequirement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type DataColumnSidecarSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type NumberOfColumns: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type DataColumnsPerSubnet: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -152,6 +151,11 @@ pub trait EthSpec:
     ///
     /// Must be set to `BytesPerFieldElement * FieldElementsPerCell`.
     type BytesPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
+    /// Number of data columns per subnet.
+    ///
+    /// Must be set to `NumberOfColumns / DataColumnSidecarSubnetCount`
+    type DataColumnsPerSubnet: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     /*
      * New in Electra
@@ -428,7 +432,7 @@ impl EthSpec for MainnetEthSpec {
     type BytesPerCell = U2048;
     type KzgCommitmentInclusionProofDepth = U17;
     type CustodyRequirement = U4;
-    type DataColumnSidecarSubnetCount = U32;
+    type DataColumnSidecarSubnetCount = U64;
     type NumberOfColumns = U128;
     type DataColumnsPerSubnet = U4;
     type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
@@ -482,7 +486,7 @@ impl EthSpec for MinimalEthSpec {
     type FieldElementsPerExtBlob = U8192;
     type BytesPerCell = U2048;
     type CustodyRequirement = U4;
-    type DataColumnSidecarSubnetCount = U32;
+    type DataColumnSidecarSubnetCount = U64;
     type NumberOfColumns = U128;
     type DataColumnsPerSubnet = U4;
     type KzgCommitmentsInclusionProofDepth = U4;
@@ -576,7 +580,7 @@ impl EthSpec for GnosisEthSpec {
     type FieldElementsPerExtBlob = U8192;
     type BytesPerCell = U2048;
     type CustodyRequirement = U4;
-    type DataColumnSidecarSubnetCount = U32;
+    type DataColumnSidecarSubnetCount = U64;
     type NumberOfColumns = U128;
     type DataColumnsPerSubnet = U4;
     type KzgCommitmentsInclusionProofDepth = U4;
