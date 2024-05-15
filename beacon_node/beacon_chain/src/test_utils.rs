@@ -1168,8 +1168,8 @@ where
                             agg_sig
                         };
 
-                        let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
-                            attestation.data(),
+                        let subnet_id = SubnetId::compute_subnet_for_attestation::<E>(
+                            &attestation.to_ref(),
                             committee_count,
                             &self.chain.spec,
                         )
