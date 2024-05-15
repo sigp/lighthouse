@@ -1,20 +1,18 @@
-# Lighthouse General Commands
+# Validator Manager Move
 
 ```
-Sigma Prime <contact@sigmaprime.io>
-Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon node, a validator client and utilities for managing
-validator accounts.
+Uploads validators to a validator client using the HTTP API. The validators are defined in a JSON file which can be
+generated using the "create-validators" command. This command only supports validators signing via a keystore on the
+local file system (i.e., not Web3Signer validators).
 
 USAGE:
-    lighthouse [FLAGS] [OPTIONS] [SUBCOMMAND]
+    lighthouse validator_manager move [FLAGS] [OPTIONS] --dest-vc-token <PATH> --dest-vc-url <HTTP_ADDRESS> --src-vc-token <PATH> --src-vc-url <HTTP_ADDRESS>
 
 FLAGS:
         --disable-log-timestamp          If present, do not include timestamps in logging output.
         --disable-malloc-tuning          If present, do not configure the system allocator. Providing this flag will
                                          generally increase memory usage, it should only be provided when debugging
                                          specific memory allocation issues.
-    -l                                   DEPRECATED Enables environment logging giving access to sub-protocol logs such
-                                         as discv5 and libp2p
     -h, --help                           Prints help information
         --log-color                      Force outputting colors when emitting logs to the terminal.
         --logfile-compress               If present, compress old log files. This can help reduce the space needed to
@@ -24,9 +22,17 @@ FLAGS:
                                          information about your validator and so this flag should be used with caution.
                                          For Windows users, the log file permissions will be inherited from the parent
                                          folder.
+        --stdin-inputs                   If present, read all user inputs from stdin instead of tty.
     -V, --version                        Prints version information
 
 OPTIONS:
+        --builder-boost-factor <UINT64>
+            Defines the boost factor, a percentage multiplier to apply to the builder's payload value when choosing
+            between a builder payload header and payload from the local execution node.
+        --builder-proposals <builder-proposals>
+            When provided, all created validators will attempt to create blocks via builder rather than the local EL.
+            [possible values: true, false]
+        --count <VALIDATOR_COUNT>                                The number of validators to move.
     -d, --datadir <DIR>
             Used to specify a custom root data directory for lighthouse keys and databases. Defaults to
             $HOME/.lighthouse/{network} where network is the value of the `network` flag Note: Users should specify
@@ -34,6 +40,15 @@ OPTIONS:
         --debug-level <LEVEL>
             Specifies the verbosity level used when emitting logs to the terminal. [default: info]  [possible values:
             info, debug, trace, warn, error, crit]
+        --dest-vc-token <PATH>
+            The file containing a token required by the destination validator client.
+
+        --dest-vc-url <HTTP_ADDRESS>
+            A HTTP(S) address of a validator client using the keymanager-API. This validator client is the "destination"
+            and will have new validators added as they are removed from the "source" validator client.
+        --gas-limit <UINT64>
+            All created validators will use this gas limit. It is recommended to leave this as the default value by not
+            specifying this flag.
         --genesis-state-url <URL>
             A URL of a beacon-API compatible server from which to download the genesis state. Checkpoint sync server
             URLs can generally be used with this flag. If not supplied, a default URL or the --checkpoint-sync-url may
@@ -63,11 +78,23 @@ OPTIONS:
         --network <network>
             Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
             chiado, sepolia, holesky]
+        --prefer-builder-proposals <prefer-builder-proposals>
+            If this flag is set, Lighthouse will always prefer blocks constructed by builders, regardless of payload
+            value. [possible values: true, false]
         --safe-slots-to-import-optimistically <INTEGER>
             Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
             this parameter in the event of an attack at the PoS transition block. Incorrect use of this flag can cause
             your node to possibly accept an invalid chain or sync more slowly. Be extremely careful with this flag.
+        --src-vc-token <PATH>
+            The file containing a token required by the source validator client.
+
+        --src-vc-url <HTTP_ADDRESS>
+            A HTTP(S) address of a validator client using the keymanager-API. This validator client is the "source" and
+            contains the validators that are to be moved.
+        --suggested-fee-recipient <ETH1_ADDRESS>
+            All created validators will use this value for the suggested fee recipient. Omit this flag to use the
+            default value from the VC.
         --terminal-block-hash-epoch-override <EPOCH>
             Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override
@@ -86,22 +113,6 @@ OPTIONS:
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
-
-SUBCOMMANDS:
-    account_manager      Utilities for generating and managing Ethereum 2.0 accounts. [aliases: a, am, account,
-                         account_manager]
-    beacon_node          The primary component which connects to the Ethereum 2.0 P2P network and downloads,
-                         verifies and stores blocks. Provides a HTTP API for querying the beacon chain and
-                         publishing messages to the network. [aliases: b, bn, beacon]
-    boot_node            Start a special Lighthouse process that only serves as a discv5 boot-node. This process
-                         will *not* import blocks or perform most typical beacon node functions. Instead, it will
-                         simply run the discv5 service and assist nodes on the network to discover each other. This
-                         is the recommended way to provide a network boot-node since it has a reduced attack surface
-                         compared to a full beacon node.
-    database_manager     Manage a beacon node database [aliases: db]
-    help                 Prints this message or the help of the given subcommand(s)
-    validator_client     When connected to a beacon node, performs the duties of a staked validator (e.g., proposing
-                         blocks and attestations). [aliases: v, vc, validator]
-    validator_manager    Utilities for managing a Lighthouse validator client via the HTTP API. [aliases: vm,
-                         validator-manager, validator_manager]
-```<style> .content main {max-width:88%;} </style>
+        --validators <STRING>
+            The validators to be moved. Either a list of 0x-prefixed validator pubkeys or the keyword "all".
+```

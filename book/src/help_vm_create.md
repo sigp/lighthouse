@@ -134,5 +134,4 @@ OPTIONS:
     -t, --testnet-dir <DIR>
             Path to directory containing eth2_testnet specs. Defaults to a hard-coded Lighthouse testnet. Only effective
             if there is no existing database.
-```
-<style> .content main {max-width:88%;} </style>
+```<style> .content main {max-width:88%;} </style>
