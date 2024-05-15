@@ -434,11 +434,9 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
         .canonical_head
         .cached_head()
         .snapshot
-        .beacon_block
-        .message()
-        .body()
-        .execution_payload()
-        .map_or(false, |payload| payload.withdrawals_root().is_ok());
+        .beacon_state
+        .fork_name_unchecked()
+        >= ForkName::Capella;
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -496,11 +494,9 @@ async fn deneb_readiness_logging<T: BeaconChainTypes>(
         .canonical_head
         .cached_head()
         .snapshot
-        .beacon_block
-        .message()
-        .body()
-        .execution_payload()
-        .map_or(false, |payload| payload.blob_gas_used().is_ok());
+        .beacon_state
+        .fork_name_unchecked()
+        >= ForkName::Deneb;
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
