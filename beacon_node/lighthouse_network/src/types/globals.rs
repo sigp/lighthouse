@@ -151,7 +151,7 @@ mod test {
     fn test_custody_count_default() {
         let log = logging::test_logger();
         let default_custody_requirement_column_count =
-            E::number_of_columns() / E::data_column_subnet_count() * E::min_custody_requirement();
+            E::number_of_columns() / E::data_column_subnet_count() * E::custody_requirement();
         let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log);
         let any_epoch = Epoch::new(0);
         let columns = globals.custody_columns(any_epoch).unwrap();

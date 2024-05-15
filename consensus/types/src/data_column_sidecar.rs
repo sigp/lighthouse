@@ -383,9 +383,9 @@ impl From<SszError> for DataColumnSidecarError {
 }
 
 pub type DataColumnSidecarList<E> =
-    VariableList<Arc<DataColumnSidecar<E>>, <E as EthSpec>::DataColumnCount>;
+    VariableList<Arc<DataColumnSidecar<E>>, <E as EthSpec>::NumberOfColumns>;
 pub type FixedDataColumnSidecarList<E> =
-    FixedVector<Option<Arc<DataColumnSidecar<E>>>, <E as EthSpec>::DataColumnCount>;
+    FixedVector<Option<Arc<DataColumnSidecar<E>>>, <E as EthSpec>::NumberOfColumns>;
 
 /// Converts a cell ssz List object to an array to be used with the kzg
 /// crypto library.
