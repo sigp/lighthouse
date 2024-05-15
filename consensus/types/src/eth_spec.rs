@@ -434,7 +434,7 @@ impl EthSpec for MainnetEthSpec {
     type CustodyRequirement = U4;
     type DataColumnSidecarSubnetCount = U64;
     type NumberOfColumns = U128;
-    type DataColumnsPerSubnet = U4;
+    type DataColumnsPerSubnet = U2;
     type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
@@ -488,7 +488,7 @@ impl EthSpec for MinimalEthSpec {
     type CustodyRequirement = U4;
     type DataColumnSidecarSubnetCount = U64;
     type NumberOfColumns = U128;
-    type DataColumnsPerSubnet = U4;
+    type DataColumnsPerSubnet = U2;
     type KzgCommitmentsInclusionProofDepth = U4;
 
     params_from_eth_spec!(MainnetEthSpec {
@@ -582,7 +582,7 @@ impl EthSpec for GnosisEthSpec {
     type CustodyRequirement = U4;
     type DataColumnSidecarSubnetCount = U64;
     type NumberOfColumns = U128;
-    type DataColumnsPerSubnet = U4;
+    type DataColumnsPerSubnet = U2;
     type KzgCommitmentsInclusionProofDepth = U4;
 
     fn default_spec() -> ChainSpec {
