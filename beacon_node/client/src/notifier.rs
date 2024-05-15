@@ -549,17 +549,13 @@ async fn electra_readiness_logging<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     log: &Logger,
 ) {
-    // TODO(electra): Once Electra has features, this code can be swapped back.
-    let electra_completed = false;
-    //let electra_completed = beacon_chain
-    //    .canonical_head
-    //    .cached_head()
-    //    .snapshot
-    //    .beacon_block
-    //    .message()
-    //    .body()
-    //    .execution_payload()
-    //    .map_or(false, |payload| payload.electra_placeholder().is_ok());
+    let electra_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_state
+        .fork_name_unchecked()
+        >= ForkName::Electra;
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
