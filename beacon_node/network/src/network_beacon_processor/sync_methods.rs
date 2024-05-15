@@ -316,21 +316,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await;
 
         match &result {
-            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
-                debug!(
-                    self.log,
-                    "Block components retrieved";
-                    "result" => "imported block and custody columns",
-                    "block_hash" => %hash,
-                );
-                self.chain.recompute_head_at_current_slot().await;
-            }
-            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                debug!(
-                    self.log,
-                    "Missing components over rpc";
-                    "block_hash" => %block_root,
-                );
+            Ok((availability, data_columns_to_publish)) => {
+                self.handle_data_columns_to_publish(data_columns_to_publish.clone());
+
+                match availability {
+                    AvailabilityProcessingStatus::Imported(hash) => {
+                        debug!(
+                            self.log,
+                            "Block components retrieved";
+                            "result" => "imported block and custody columns",
+                            "block_hash" => %hash,
+                        );
+                        self.chain.recompute_head_at_current_slot().await;
+                    }
+                    AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                        debug!(
+                            self.log,
+                            "Missing components over rpc";
+                            "block_hash" => %block_root,
+                        );
+                    }
+                }
             }
             Err(BlockError::BlockIsAlreadyKnown(_)) => {
                 debug!(
@@ -351,7 +357,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.into(),
+            result: result.map(|(r, _)| r).into(),
         });
     }
 

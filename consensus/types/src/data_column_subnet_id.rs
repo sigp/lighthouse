@@ -41,9 +41,12 @@ impl DataColumnSubnetId {
         id.into()
     }
 
-    pub fn try_from_column_index<E: EthSpec>(column_index: usize) -> Result<Self, Error> {
-        let id = column_index.safe_rem(E::data_column_subnet_count())? as u64;
-        Ok(id.into())
+    pub fn from_column_index<E: EthSpec>(column_index: usize) -> Self {
+        (column_index
+            .safe_rem(E::data_column_subnet_count())
+            .expect("data_column_subnet_count should never be zero if this function is called")
+            as u64)
+            .into()
     }
 
     #[allow(clippy::arithmetic_side_effects)]

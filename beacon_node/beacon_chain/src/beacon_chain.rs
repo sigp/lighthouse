@@ -22,6 +22,7 @@ pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
+    DataColumnsToPublish,
 };
 use crate::data_column_verification::{
     CustodyDataColumn, GossipDataColumnError, GossipVerifiedDataColumn,
@@ -3028,7 +3029,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_gossip_data_column(
         self: &Arc<Self>,
         data_column: GossipVerifiedDataColumn<T>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+    ) -> Result<
+        (
+            AvailabilityProcessingStatus,
+            DataColumnsToPublish<T::EthSpec>,
+        ),
+        BlockError<T::EthSpec>,
+    > {
         let block_root = data_column.block_root();
 
         // If this block has already been imported to forkchoice it must have been available, so
@@ -3044,7 +3051,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let r = self
             .check_gossip_data_column_availability_and_import(data_column)
             .await;
-        self.remove_notified(&block_root, r)
+        self.remove_notified_custody_columns(&block_root, r)
     }
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
@@ -3087,7 +3094,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+    ) -> Result<
+        (
+            AvailabilityProcessingStatus,
+            DataColumnsToPublish<T::EthSpec>,
+        ),
+        BlockError<T::EthSpec>,
+    > {
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its columns again.
         if self
@@ -3109,7 +3122,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let r = self
             .check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
             .await;
-        self.remove_notified(&block_root, r)
+        self.remove_notified_custody_columns(&block_root, r)
     }
 
     /// Remove any block components from the *processing cache* if we no longer require them. If the
@@ -3121,6 +3134,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let has_missing_components =
             matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
+        if !has_missing_components {
+            self.reqresp_pre_import_cache.write().remove(block_root);
+        }
+        r
+    }
+
+    /// Remove any block components from the *processing cache* if we no longer require them. If the
+    /// block was imported full or erred, we no longer require them.
+    fn remove_notified_custody_columns<P>(
+        &self,
+        block_root: &Hash256,
+        r: Result<(AvailabilityProcessingStatus, P), BlockError<T::EthSpec>>,
+    ) -> Result<(AvailabilityProcessingStatus, P), BlockError<T::EthSpec>> {
+        let has_missing_components = matches!(
+            r,
+            Ok((AvailabilityProcessingStatus::MissingComponents(_, _), _))
+        );
         if !has_missing_components {
             self.reqresp_pre_import_cache.write().remove(block_root);
         }
@@ -3362,16 +3392,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn check_gossip_data_column_availability_and_import(
         self: &Arc<Self>,
         data_column: GossipVerifiedDataColumn<T>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+    ) -> Result<
+        (
+            AvailabilityProcessingStatus,
+            DataColumnsToPublish<T::EthSpec>,
+        ),
+        BlockError<T::EthSpec>,
+    > {
         let slot = data_column.slot();
         if let Some(slasher) = self.slasher.as_ref() {
             slasher.accept_block_header(data_column.signed_block_header());
         }
-        let availability = self
+        let (availability, data_columns_to_publish) = self
             .data_availability_checker
             .put_gossip_data_column(data_column)?;
 
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability)
+            .await
+            .map(|result| (result, data_columns_to_publish))
     }
 
     /// Checks if the provided blobs can make any cached blocks available, and imports immediately
@@ -3419,7 +3457,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         block_root: Hash256,
         custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+    ) -> Result<
+        (
+            AvailabilityProcessingStatus,
+            DataColumnsToPublish<T::EthSpec>,
+        ),
+        BlockError<T::EthSpec>,
+    > {
         // Need to scope this to ensure the lock is dropped before calling `process_availability`
         // Even an explicit drop is not enough to convince the borrow checker.
         {
@@ -3443,11 +3487,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         }
-        let availability = self
+        let (availability, data_columns_to_publish) = self
             .data_availability_checker
             .put_rpc_custody_columns(block_root, custody_columns)?;
 
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability)
+            .await
+            .map(|result| (result, data_columns_to_publish))
     }
 
     /// Imports a fully available block. Otherwise, returns `AvailabilityProcessingStatus::MissingComponents`

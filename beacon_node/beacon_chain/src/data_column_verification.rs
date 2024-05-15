@@ -235,6 +235,31 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         })
     }
 
+    pub fn reconstruct_columns(
+        kzg: &Kzg,
+        partial_set_of_columns: &[Self],
+    ) -> Result<Vec<Self>, KzgError> {
+        // Will only return an error if:
+        // - < 50% of columns
+        // - There are duplicates
+        let all_data_columns = DataColumnSidecar::reconstruct(
+            kzg,
+            &partial_set_of_columns
+                .iter()
+                .map(|d| d.clone_arc())
+                .collect::<Vec<_>>(),
+        )?;
+
+        Ok(all_data_columns
+            .into_iter()
+            .map(|d| {
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn {
+                    data: d,
+                })
+            })
+            .collect::<Vec<_>>())
+    }
+
     pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
         self.data
     }

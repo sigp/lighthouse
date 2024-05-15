@@ -22,6 +22,8 @@ pub enum Error {
     Kzg(c_kzg::Error),
     /// The kzg verification failed
     KzgVerificationFailed,
+    /// Misc indexing error
+    InconsistentArrayLength(String),
 }
 
 impl From<c_kzg::Error> for Error {
@@ -44,6 +46,7 @@ impl Kzg {
             trusted_setup: KzgSettings::load_trusted_setup(
                 &trusted_setup.g1_points(),
                 &trusted_setup.g2_points(),
+                0,
             )?,
         })
     }
@@ -189,6 +192,22 @@ impl Kzg {
         } else {
             Ok(())
         }
+    }
+
+    pub fn cells_to_blob(&self, cells: &[Cell; c_kzg::CELLS_PER_EXT_BLOB]) -> Result<Blob, Error> {
+        Ok(Blob::cells_to_blob(cells)?)
+    }
+
+    pub fn recover_all_cells(
+        &self,
+        cell_ids: &[u64],
+        cells: &[Cell],
+    ) -> Result<Box<[Cell; c_kzg::CELLS_PER_EXT_BLOB]>, Error> {
+        Ok(c_kzg::Cell::recover_all_cells(
+            cell_ids,
+            cells,
+            &self.trusted_setup,
+        )?)
     }
 }
 
