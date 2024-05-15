@@ -46,6 +46,7 @@ impl Kzg {
             trusted_setup: KzgSettings::load_trusted_setup(
                 &trusted_setup.g1_points(),
                 &trusted_setup.g2_points(),
+                0,
             )?,
         })
     }
@@ -201,13 +202,12 @@ impl Kzg {
         &self,
         cell_ids: &[u64],
         cells: &[Cell],
-    ) -> Result<[Cell; c_kzg::CELLS_PER_EXT_BLOB], Error> {
-        let all_cells = c_kzg::Cell::recover_all_cells(cell_ids, cells, &self.trusted_setup)?;
-        all_cells.try_into().map_err(|_| {
-            Error::InconsistentArrayLength(
-                "recover_all_cells returned unexpected length".to_string(),
-            )
-        })
+    ) -> Result<Box<[Cell; c_kzg::CELLS_PER_EXT_BLOB]>, Error> {
+        Ok(c_kzg::Cell::recover_all_cells(
+            cell_ids,
+            cells,
+            &self.trusted_setup,
+        )?)
     }
 }
 
