@@ -775,7 +775,9 @@ fn rewards() {
     }
 }
 
+// TODO(das): ignore until new spec test release with column subnet count = 64.
 #[test]
+#[ignore]
 fn get_custody_columns() {
     GetCustodyColumnsHandler::<MainnetEthSpec>::default()
         .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);

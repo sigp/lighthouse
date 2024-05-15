@@ -22,6 +22,8 @@ tests_dir_filename = sys.argv[2]
 excluded_paths = [
     # TODO(das): remove once electra tests are on unstable
     "tests/.*/electra/",
+    # TODO(das): ignore until new spec test release with column subnet count = 64.
+    "tests/.*/.*/.*/get_custody_columns/",
     # Eth1Block and PowBlock
     #
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835

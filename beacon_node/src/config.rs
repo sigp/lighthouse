@@ -443,6 +443,12 @@ pub fn get_config<E: EthSpec>(
         client_config.store.epochs_per_blob_prune = epochs_per_blob_prune;
     }
 
+    if let Some(blob_prune_margin_epochs) =
+        clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
+    {
+        client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
+    }
+
     if let Some(malicious_withhold_count) =
         clap_utils::parse_optional(cli_args, "malicious-withhold-count")?
     {
