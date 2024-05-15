@@ -65,6 +65,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
     pub verified_data_columns: VariableList<KzgVerifiedCustodyDataColumn<E>, E::NumberOfColumns>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
+    pub reconstruction_started: bool,
 }
 
 pub enum BlockImportRequirement {
@@ -278,6 +279,7 @@ impl<E: EthSpec> PendingComponents<E> {
             verified_blobs: FixedVector::default(),
             verified_data_columns: VariableList::default(),
             executed_block: None,
+            reconstruction_started: false,
         }
     }
 
@@ -302,6 +304,7 @@ impl<E: EthSpec> PendingComponents<E> {
             verified_blobs,
             verified_data_columns,
             executed_block,
+            ..
         } = self;
 
         let blobs_available_timestamp = verified_blobs
@@ -358,6 +361,10 @@ impl<E: EthSpec> PendingComponents<E> {
         Ok(Availability::Available(Box::new(
             AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome),
         )))
+    }
+
+    pub fn reconstruction_started(&mut self) {
+        self.reconstruction_started = true;
     }
 
     /// Returns the epoch of the block if it is cached, otherwise returns the epoch of the first blob.
@@ -838,6 +845,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // - We >= 50% of columns
         let data_columns_to_publish =
             if self.should_reconstruct(&block_import_requirement, &pending_components) {
+                pending_components.reconstruction_started();
+
                 let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
 
                 let existing_column_indices = pending_components
@@ -908,7 +917,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             return false;
         };
 
-        *num_expected_columns == T::EthSpec::number_of_columns()
+        !pending_components.reconstruction_started
+            && *num_expected_columns == T::EthSpec::number_of_columns()
             && pending_components.verified_data_columns.len() >= T::EthSpec::number_of_columns() / 2
     }
 
