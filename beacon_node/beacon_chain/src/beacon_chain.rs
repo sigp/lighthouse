@@ -6385,9 +6385,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// account the current slot when accounting for skips.
     pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
         let cached_head = self.canonical_head.cached_head();
-        // Check if the merge has been finalized.
-        if let Some(finalized_hash) = cached_head.forkchoice_update_parameters().finalized_hash {
-            if ExecutionBlockHash::zero() == finalized_hash {
+        if let Some(head_hash) = cached_head.forkchoice_update_parameters().head_hash {
+            if ExecutionBlockHash::zero() == head_hash {
                 return Ok(ChainHealth::PreMerge);
             }
         } else {
