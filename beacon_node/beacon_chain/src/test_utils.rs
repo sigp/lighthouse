@@ -2578,6 +2578,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     (block, blob_sidecars)
 }
 
+#[allow(clippy::type_complexity)]
 pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,

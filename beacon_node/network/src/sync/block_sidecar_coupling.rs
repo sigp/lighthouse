@@ -299,7 +299,7 @@ mod tests {
         for block in &blocks {
             for column in &block.1 {
                 if expects_custody_columns.contains(&column.index) {
-                    info.add_data_column(Some(column.clone().into()));
+                    info.add_data_column(Some(column.clone()));
                 }
             }
         }
