@@ -259,7 +259,7 @@ OPTIONS:
 
         --graffiti <GRAFFITI>
             Specify your custom graffiti to be included in blocks. Defaults to the current version and commit, truncated
-            to fit in 32 bytes. 
+            to fit in 32 bytes.
         --historic-state-cache-size <SIZE>
             Specifies how many states from the freezer database should cache in memory [default: 1]
 
@@ -324,6 +324,9 @@ OPTIONS:
         --logfile-max-size <SIZE>
             The maximum size (in MB) each log file can grow to before rotating. If set to 0, background file logging is
             disabled. [default: 200]
+        --malicious-withhold-count <malicious-withhold-count>
+            TESTING ONLY do not use this
+
         --max-skip-slots <NUM_SLOTS>
             Refuse to skip more than this many slots when processing an attestation. This prevents nodes on minority
             forks from wasting our time and disk space, but could also cause unnecessary consensus failures, so is

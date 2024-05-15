@@ -1987,6 +1987,13 @@ fn epochs_per_migration_override() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.epochs_per_migration, 128));
 }
+#[test]
+fn malicious_withhold_count_flag() {
+    CommandLineTest::new()
+        .flag("malicious-withhold-count", Some("128"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.malicious_withhold_count, 128));
+}
 
 // Tests for Slasher flags.
 // Using `--slasher-max-db-size` to work around https://github.com/sigp/lighthouse/issues/2342
