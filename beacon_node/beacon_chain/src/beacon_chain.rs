@@ -6830,10 +6830,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// TODO(das): check if the block is still within the da_window
     pub fn should_sample_slot(&self, slot: Slot) -> bool {
         self.spec
-            .eip7594_fork_epoch
-            .map_or(false, |eip7594_fork_epoch| {
-                slot.epoch(T::EthSpec::slots_per_epoch()) >= eip7594_fork_epoch
-            })
+            .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
     pub fn logger(&self) -> &Logger {
