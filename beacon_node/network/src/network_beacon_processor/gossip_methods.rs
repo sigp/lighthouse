@@ -1382,20 +1382,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
+        // TODO(das) Might be too early to issue a request here. We haven't checked that the block
+        // actually includes blob transactions and thus has data. A peer could send a block is
+        // garbage commitments, and make us trigger sampling for a block that does not have data.
         if block.num_expected_blobs() > 0 {
             // Trigger sampling for block not yet execution valid. At this point column custodials are
             // unlikely to have received their columns. Triggering sampling so early is only viable with
             // either:
             // - Sync delaying sampling until some latter window
             // - Re-processing early sampling requests: https://github.com/sigp/lighthouse/pull/5569
-            if self
-                .chain
-                .spec
-                .eip7594_fork_epoch
-                .map_or(false, |eip7594_fork_epoch| {
-                    block.epoch() >= eip7594_fork_epoch
-                })
-            {
+            if self.chain.should_sample_slot(block.slot()) {
                 self.send_sync_message(SyncMessage::SampleBlock(block_root, block.slot()));
             }
         }

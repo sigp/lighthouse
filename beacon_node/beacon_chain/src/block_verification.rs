@@ -1220,6 +1220,10 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     pub fn block_root(&self) -> Hash256 {
         self.block_root
     }
+
+    pub fn slot(&self) -> Slot {
+        self.block.slot()
+    }
 }
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBlock<T> {
