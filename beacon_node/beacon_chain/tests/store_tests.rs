@@ -2458,6 +2458,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 full_block.canonical_root(),
                 RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs)).unwrap(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             )
             .await
@@ -2676,6 +2677,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
             invalid_fork_block.canonical_root(),
             invalid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -2689,6 +2691,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
             valid_fork_block.canonical_root(),
             valid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
