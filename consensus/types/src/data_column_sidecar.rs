@@ -461,6 +461,7 @@ mod test {
                 col_sidecar.kzg_commitments_inclusion_proof,
                 block_kzg_commitments_inclusion_proof
             );
+            assert!(col_sidecar.verify_inclusion_proof());
         }
     }
 

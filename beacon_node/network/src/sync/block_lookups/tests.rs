@@ -241,7 +241,9 @@ impl TestRig {
         generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
     }
 
-    fn rand_block_and_data_columns(&mut self) -> (SignedBeaconBlock<E>, Vec<DataColumnSidecar<E>>) {
+    fn rand_block_and_data_columns(
+        &mut self,
+    ) -> (SignedBeaconBlock<E>, Vec<Arc<DataColumnSidecar<E>>>) {
         let num_blobs = NumBlobs::Number(1);
         generate_rand_block_and_data_columns::<E>(self.fork_name, num_blobs, &mut self.rng)
     }
@@ -640,7 +642,7 @@ impl TestRig {
     fn complete_valid_sampling_column_requests(
         &mut self,
         sampling_ids: SamplingIds,
-        data_columns: Vec<DataColumnSidecar<E>>,
+        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
     ) {
         for (id, column_index) in sampling_ids {
             self.log(&format!("return valid data column for {column_index}"));
@@ -654,7 +656,7 @@ impl TestRig {
     fn complete_valid_sampling_column_request(
         &mut self,
         id: DataColumnsByRootRequestId,
-        data_column: DataColumnSidecar<E>,
+        data_column: Arc<DataColumnSidecar<E>>,
     ) {
         let block_root = data_column.block_root();
         let column_index = data_column.index;
@@ -677,7 +679,7 @@ impl TestRig {
     fn complete_valid_custody_request(
         &mut self,
         sampling_ids: SamplingIds,
-        data_columns: Vec<DataColumnSidecar<E>>,
+        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         missing_components: bool,
     ) {
         let lookup_id = if let DataColumnsByRootRequester::Custody(id) =
@@ -720,14 +722,14 @@ impl TestRig {
     fn complete_data_columns_by_root_request(
         &mut self,
         id: DataColumnsByRootRequestId,
-        data_column: DataColumnSidecar<E>,
+        data_column: Arc<DataColumnSidecar<E>>,
     ) {
         let peer_id = PeerId::random();
         // Send chunk
         self.send_sync_message(SyncMessage::RpcDataColumn {
             request_id: SyncRequestId::DataColumnsByRoot(id),
             peer_id,
-            data_column: Some(Arc::new(data_column)),
+            data_column: Some(data_column),
             seen_timestamp: timestamp_now(),
         });
         // Send stream termination
