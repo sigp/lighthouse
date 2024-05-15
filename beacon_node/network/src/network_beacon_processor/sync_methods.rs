@@ -24,6 +24,7 @@ use store::KzgCommitment;
 use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::BlockImportSource;
 use types::{Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -153,7 +154,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .process_block_with_early_caching(block_root, block, NotifyExecutionLayer::Yes)
+            .process_block_with_early_caching(
+                block_root,
+                block,
+                BlockImportSource::Lookup,
+                NotifyExecutionLayer::Yes,
+            )
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
