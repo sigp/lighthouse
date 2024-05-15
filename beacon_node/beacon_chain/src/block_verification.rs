@@ -799,12 +799,7 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
             let mut gossip_verified_data_columns = vec![];
             for sidecar in sidecars {
                 let subnet =
-                    DataColumnSubnetId::try_from_column_index::<T::EthSpec>(sidecar.index as usize)
-                        .map_err(|_| {
-                            BlockContentsError::<T::EthSpec>::DataColumnSidecarError(
-                                DataColumnSidecarError::DataColumnIndexOutOfBounds,
-                            )
-                        })?;
+                    DataColumnSubnetId::from_column_index::<T::EthSpec>(sidecar.index as usize);
                 let column = GossipVerifiedDataColumn::new(sidecar, subnet.into(), chain)?;
                 gossip_verified_data_columns.push(column);
             }

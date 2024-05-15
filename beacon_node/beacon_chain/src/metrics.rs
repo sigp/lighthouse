@@ -1184,6 +1184,14 @@ lazy_static! {
             "data_availability_overflow_store_cache_size",
             "Number of entries in the data availability overflow store cache."
         );
+    pub static ref DATA_AVAILABILITY_RECONSTRUCTION_TIME: Result<Histogram> = try_create_histogram(
+        "data_availability_reconstruction_time_seconds",
+        "Time taken to reconstruct columns"
+    );
+    pub static ref DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: Result<IntCounter> = try_create_int_counter(
+        "data_availability_reconstructed_columns_total",
+        "Total count of reconstructed columns"
+    );
 
     /*
     * light_client server metrics

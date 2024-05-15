@@ -128,3 +128,62 @@ pub fn verify_kzg_proof<E: EthSpec>(
 ) -> Result<bool, KzgError> {
     kzg.verify_kzg_proof(kzg_commitment, &z.0.into(), &y.0.into(), kzg_proof)
 }
+
+#[cfg(test)]
+mod test {
+    use bls::Signature;
+    use eth2_network_config::TRUSTED_SETUP_BYTES;
+    use kzg::{Kzg, KzgCommitment, TrustedSetup};
+    use types::{
+        beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList,
+        ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,
+    };
+
+    #[test]
+    fn build_and_reconstruct() {
+        type E = MainnetEthSpec;
+        let num_of_blobs = 6;
+        let spec = E::default_spec();
+        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, &spec);
+
+        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            .expect("should have trusted setup");
+        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+
+        let column_sidecars =
+            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &kzg).unwrap();
+
+        // Now reconstruct
+        let reconstructed_columns = DataColumnSidecar::reconstruct(
+            &kzg,
+            &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
+        )
+        .unwrap();
+
+        for i in 0..E::number_of_columns() {
+            assert_eq!(reconstructed_columns.get(i), column_sidecars.get(i), "{i}");
+        }
+    }
+
+    fn create_test_block_and_blobs<E: EthSpec>(
+        num_of_blobs: usize,
+        spec: &ChainSpec,
+    ) -> (SignedBeaconBlock<E>, BlobsList<E>) {
+        let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec));
+        let mut body = block.body_mut();
+        let blob_kzg_commitments = body.blob_kzg_commitments_mut().unwrap();
+        *blob_kzg_commitments =
+            KzgCommitments::<E>::new(vec![KzgCommitment::empty_for_testing(); num_of_blobs])
+                .unwrap();
+
+        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
+
+        let blobs = (0..num_of_blobs)
+            .map(|_| Blob::<E>::default())
+            .collect::<Vec<_>>()
+            .into();
+
+        (signed_block, blobs)
+    }
+}

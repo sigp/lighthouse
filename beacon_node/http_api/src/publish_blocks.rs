@@ -118,12 +118,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                 }
                 if let Some(data_col_sidecars) = data_cols_opt {
                     for data_col in data_col_sidecars {
-                        let subnet = DataColumnSubnetId::try_from_column_index::<T::EthSpec>(
+                        let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
                             data_col.index as usize,
-                        )
-                        .map_err(|e| {
-                            BeaconChainError::UnableToBuildColumnSidecar(format!("{e:?}"))
-                        })?;
+                        );
                         pubsub_messages.push(PubsubMessage::DataColumnSidecar(Box::new((
                             subnet, data_col,
                         ))));

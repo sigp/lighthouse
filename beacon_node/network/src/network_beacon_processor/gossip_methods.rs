@@ -4,7 +4,6 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
-use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
@@ -19,7 +18,13 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
-use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use beacon_chain::{
+    blob_verification::{GossipBlobError, GossipVerifiedBlob},
+    data_availability_checker::DataColumnsToPublish,
+};
+use lighthouse_network::{
+    Client, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage, ReportSource,
+};
 use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -163,6 +168,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             source: ReportSource::Gossipsub,
             msg,
         })
+    }
+
+    pub(crate) fn handle_data_columns_to_publish(
+        &self,
+        data_columns_to_publish: DataColumnsToPublish<T::EthSpec>,
+    ) {
+        if let Some(data_columns_to_publish) = data_columns_to_publish {
+            self.send_network_message(NetworkMessage::Publish {
+                messages: data_columns_to_publish
+                    .iter()
+                    .map(|d| {
+                        let subnet =
+                            DataColumnSubnetId::from_column_index::<T::EthSpec>(d.index as usize);
+                        PubsubMessage::DataColumnSidecar(Box::new((subnet, d.clone())))
+                    })
+                    .collect(),
+            });
+        }
     }
 
     /// Send a message on `message_tx` that the `message_id` sent by `peer_id` should be propagated on
@@ -961,24 +984,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .process_gossip_data_column(verified_data_column)
             .await
         {
-            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                // Note: Reusing block imported metric here
-                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
-                info!(
-                    self.log,
-                    "Gossipsub data column processed, imported fully available block";
-                    "block_root" => %block_root
-                );
-                self.chain.recompute_head_at_current_slot().await;
-            }
-            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                trace!(
-                    self.log,
-                    "Processed data column, waiting for other components";
-                    "slot" => %slot,
-                    "data_column_index" => %data_column_index,
-                    "block_root" => %block_root,
-                );
+            Ok((availability, data_columns_to_publish)) => {
+                self.handle_data_columns_to_publish(data_columns_to_publish);
+
+                match availability {
+                    AvailabilityProcessingStatus::Imported(block_root) => {
+                        // Note: Reusing block imported metric here
+                        metrics::inc_counter(
+                            &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL,
+                        );
+                        info!(
+                            self.log,
+                            "Gossipsub data column processed, imported fully available block";
+                            "block_root" => %block_root
+                        );
+                        self.chain.recompute_head_at_current_slot().await;
+                    }
+                    AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
+                        trace!(
+                            self.log,
+                            "Processed data column, waiting for other components";
+                            "slot" => %slot,
+                            "data_column_index" => %data_column_index,
+                            "block_root" => %block_root,
+                        );
+
+                        // Potentially trigger reconstruction
+                    }
+                }
             }
             Err(err) => {
                 debug!(
