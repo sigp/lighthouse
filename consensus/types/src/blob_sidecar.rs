@@ -12,7 +12,7 @@ use kzg::{
 };
 use merkle_proof::{merkle_root_from_branch, verify_merkle_proof, MerkleTreeError};
 use rand::Rng;
-use safe_arith::{ArithError, SafeArith};
+use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -190,33 +190,30 @@ impl<E: EthSpec> BlobSidecar<E> {
     }
 
     /// Verifies the kzg commitment inclusion merkle proof.
-    pub fn verify_blob_sidecar_inclusion_proof(&self) -> Result<bool, MerkleTreeError> {
-        // Depth of the subtree rooted at `blob_kzg_commitments` in the `BeaconBlockBody`
-        // is equal to depth of the ssz List max size + 1 for the length mixin
-        let kzg_commitments_tree_depth = (E::max_blob_commitments_per_block()
-            .next_power_of_two()
-            .ilog2()
-            .safe_add(1))? as usize;
+    pub fn verify_blob_sidecar_inclusion_proof(&self) -> bool {
+        let kzg_commitments_tree_depth = E::kzg_commitments_tree_depth();
+
+        // EthSpec asserts that kzg_commitments_tree_depth is less than KzgCommitmentInclusionProofDepth
+        let (kzg_commitment_subtree_proof, kzg_commitments_proof) = self
+            .kzg_commitment_inclusion_proof
+            .split_at(kzg_commitments_tree_depth);
+
         // Compute the `tree_hash_root` of the `blob_kzg_commitments` subtree using the
         // inclusion proof branches
         let blob_kzg_commitments_root = merkle_root_from_branch(
             self.kzg_commitment.tree_hash_root(),
-            self.kzg_commitment_inclusion_proof
-                .get(0..kzg_commitments_tree_depth)
-                .ok_or(MerkleTreeError::PleaseNotifyTheDevs)?,
+            kzg_commitment_subtree_proof,
             kzg_commitments_tree_depth,
             self.index as usize,
         );
         // The remaining inclusion proof branches are for the top level `BeaconBlockBody` tree
-        Ok(verify_merkle_proof(
+        verify_merkle_proof(
             blob_kzg_commitments_root,
-            self.kzg_commitment_inclusion_proof
-                .get(kzg_commitments_tree_depth..E::kzg_proof_inclusion_proof_depth())
-                .ok_or(MerkleTreeError::PleaseNotifyTheDevs)?,
-            E::kzg_proof_inclusion_proof_depth().safe_sub(kzg_commitments_tree_depth)?,
+            kzg_commitments_proof,
+            E::block_body_tree_depth(),
             BLOB_KZG_COMMITMENTS_INDEX,
             self.signed_block_header.message.body_root,
-        ))
+        )
     }
 
     pub fn random_valid<R: Rng>(rng: &mut R, kzg: &Kzg) -> Result<Self, String> {
