@@ -429,8 +429,8 @@ impl EthSpec for MainnetEthSpec {
     type BytesPerBlob = U131072;
     type BytesPerCell = U2048;
     type KzgCommitmentInclusionProofDepth = U17;
-    type CustodyRequirement = U4;
-    type DataColumnSidecarSubnetCount = U64;
+    type CustodyRequirement = U1;
+    type DataColumnSidecarSubnetCount = U32;
     type NumberOfColumns = U128;
     type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
@@ -482,8 +482,8 @@ impl EthSpec for MinimalEthSpec {
     type FieldElementsPerCell = U64;
     type FieldElementsPerExtBlob = U8192;
     type BytesPerCell = U2048;
-    type CustodyRequirement = U4;
-    type DataColumnSidecarSubnetCount = U64;
+    type CustodyRequirement = U1;
+    type DataColumnSidecarSubnetCount = U32;
     type NumberOfColumns = U128;
     type KzgCommitmentsInclusionProofDepth = U4;
 
@@ -575,8 +575,8 @@ impl EthSpec for GnosisEthSpec {
     type FieldElementsPerCell = U64;
     type FieldElementsPerExtBlob = U8192;
     type BytesPerCell = U2048;
-    type CustodyRequirement = U4;
-    type DataColumnSidecarSubnetCount = U64;
+    type CustodyRequirement = U1;
+    type DataColumnSidecarSubnetCount = U32;
     type NumberOfColumns = U128;
     type KzgCommitmentsInclusionProofDepth = U4;
 
