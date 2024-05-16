@@ -22,6 +22,7 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     block_reward_tx: Sender<EventKind<E>>,
     proposer_slashing_tx: Sender<EventKind<E>>,
     attester_slashing_tx: Sender<EventKind<E>>,
+    bls_to_execution_change_tx: Sender<EventKind<E>>,
     log: Logger,
 }
 
@@ -49,6 +50,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         let (block_reward_tx, _) = broadcast::channel(capacity);
         let (proposer_slashing_tx, _) = broadcast::channel(capacity);
         let (attester_slashing_tx, _) = broadcast::channel(capacity);
+        let (bls_to_execution_change_tx, _) = broadcast::channel(capacity);
 
         Self {
             attestation_tx,
@@ -66,6 +68,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             block_reward_tx,
             proposer_slashing_tx,
             attester_slashing_tx,
+            bls_to_execution_change_tx,
             log,
         }
     }
@@ -140,6 +143,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .attester_slashing_tx
                 .send(kind)
                 .map(|count| log_count("attester slashing", count)),
+            EventKind::BlsToExecutionChange(_) => self
+                .bls_to_execution_change_tx
+                .send(kind)
+                .map(|count| log_count("bls to execution change", count)),
         };
         if let Err(SendError(event)) = result {
             trace!(self.log, "No receivers registered to listen for event"; "event" => ?event);
