@@ -240,7 +240,8 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             let max_topics = ctx.chain_spec.attestation_subnet_count as usize
                 + SYNC_COMMITTEE_SUBNET_COUNT as usize
                 + ctx.chain_spec.blob_sidecar_subnet_count as usize
-                + ctx.chain_spec.data_column_sidecar_subnet_count as usize
+                // TODO: move to chainspec
+                + E::data_column_subnet_count()
                 + BASE_CORE_TOPICS.len()
                 + ALTAIR_CORE_TOPICS.len()
                 + CAPELLA_CORE_TOPICS.len()
@@ -254,11 +255,11 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
                     ctx.chain_spec.blob_sidecar_subnet_count,
-                    ctx.chain_spec.data_column_sidecar_subnet_count,
+                    E::data_column_subnet_count() as u64,
                 ),
                 // during a fork we subscribe to both the old and new topics
                 max_subscribed_topics: max_topics * 4,
-                // 162 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics) * 2
+                // 209 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics + 64 column topics) * 2
                 max_subscriptions_per_request: max_topics * 2,
             };
 
