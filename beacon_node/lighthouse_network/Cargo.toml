@@ -52,7 +52,6 @@ either = { workspace = true }
 futures-ticker = "0.0.3"
 getrandom = "0.2.11"
 hex_fmt = "0.3.0"
-instant = "0.1.12"
 void = "1.0.2"
 base64 = "0.21.5"
 libp2p-mplex = "0.41"
@@ -72,4 +71,3 @@ async-channel = { workspace = true }
 
 [features]
 libp2p-websocket = []
-
