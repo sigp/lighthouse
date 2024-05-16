@@ -1881,6 +1881,7 @@ where
                 block_root,
                 RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
                 || Ok(()),
             )
             .await?
@@ -1907,6 +1908,7 @@ where
                 block_root,
                 RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
                 || Ok(()),
             )
             .await?

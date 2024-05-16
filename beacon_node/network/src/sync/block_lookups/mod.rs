@@ -30,6 +30,7 @@ mod tests;
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
+const LOOKUP_MAX_DURATION_SECS: u64 = 60;
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
@@ -325,7 +326,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         response: Result<(R::VerifiedResponseType, PeerGroup, Duration), LookupFailure>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
-        // Note: do not downscore peers here for requests errors, SyncNetworkContext does it.
+        // Note: no need to downscore peers here, already downscored on network context
 
         let response_type = R::response_type();
         let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {
@@ -454,27 +455,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // if both components have been processed.
                 request_state.on_processing_success()?;
 
-                // If this was the result of a block request, we can't determined if the block peer did anything
-                // wrong. If we already had both a block and blobs response processed, we should penalize the
-                // blobs peer because they did not provide all blobs on the initial request.
                 if lookup.both_components_processed() {
-                    // TODO(das): extend to columns peers too
-                    if let Some(blob_peer) = lookup
-                        .blob_request_state
-                        .state
-                        .on_post_process_validation_failure()?
-                    {
-                        // TODO(das): downscore only the peer that served the request for all blobs
-                        for peer in blob_peer.all() {
-                            cx.report_peer(
-                                *peer,
-                                PeerAction::MidToleranceError,
-                                "sent_incomplete_blobs",
-                            );
-                        }
-                    }
+                    // We don't request for other block components until being sure that the block has
+                    // data. If we request blobs / columns to a peer we are sure those must exist.
+                    // Therefore if all components are processed and we still receive `MissingComponents`
+                    // it indicates an internal bug.
+                    return Err(LookupRequestError::MissingComponentsAfterAllProcessed);
+                } else {
+                    // Continue request, potentially request blobs
+                    Action::Retry
                 }
-                Action::Retry
             }
             BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
@@ -681,5 +671,22 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
             self.single_block_lookups.len() as i64,
         );
+    }
+
+    pub fn log_stuck_lookups(&self) {
+        let mut stuck_count = 0;
+        for lookup in self.single_block_lookups.values() {
+            if lookup.elapsed_since_created() > Duration::from_secs(LOOKUP_MAX_DURATION_SECS) {
+                debug!(self.log, "Lookup maybe stuck";
+                    // Fields id and block_root are also part of the summary. However, logging them
+                    // here allows log parsers o index them and have better search
+                    "id" => lookup.id,
+                    "block_root" => ?lookup.block_root(),
+                    "summary" => ?lookup,
+                );
+                stuck_count += 1;
+            }
+        }
+        metrics::set_gauge(&metrics::SYNC_LOOKUPS_STUCK, stuck_count);
     }
 }

@@ -2886,6 +2886,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         signature_verified_block.block_root(),
                         signature_verified_block,
                         notify_execution_layer,
+                        BlockImportSource::RangeSync,
                         || Ok(()),
                     )
                     .await
@@ -3168,6 +3169,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         unverified_block: B,
+        block_source: BlockImportSource,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.reqresp_pre_import_cache
@@ -3175,9 +3177,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .insert(block_root, unverified_block.block_cloned());
 
         let r = self
-            .process_block(block_root, unverified_block, notify_execution_layer, || {
-                Ok(())
-            })
+            .process_block(
+                block_root,
+                unverified_block,
+                notify_execution_layer,
+                block_source,
+                || Ok(()),
+            )
             .await;
         self.remove_notified(&block_root, r)
     }
@@ -3200,6 +3206,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
+        block_source: BlockImportSource,
         publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
@@ -3260,6 +3267,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Beacon block imported";
                     "block_root" => ?block_root,
                     "block_slot" => block_slot,
+                    "source" => %block_source,
                 );
 
                 // Increment the Prometheus counter for block processing successes.

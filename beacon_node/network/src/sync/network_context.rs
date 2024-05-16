@@ -501,16 +501,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
-        let expected_blobs = downloaded_block_expected_blobs
-            .or_else(|| {
-                self.chain
-                    .data_availability_checker
-                    .num_expected_blobs(&block_root)
-            })
-            .unwrap_or(
-                // If we don't about the block being requested, attempt to fetch all blobs
-                T::EthSpec::max_blobs_per_block(),
-            );
+        let Some(expected_blobs) = downloaded_block_expected_blobs.or_else(|| {
+            self.chain
+                .data_availability_checker
+                .num_expected_blobs(&block_root)
+        }) else {
+            // Wait to download the block before downloading blobs. Then we can be sure that the
+            // block has data, so there's no need to do "blind" requests for all possible blobs and
+            // latter handle the case where if the peer sent no blobs, penalize.
+            // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
+            // - if `num_expected_blobs` returns Some = block is processed.
+            return Ok(LookupRequestResult::Pending);
+        };
 
         let imported_blob_indexes = self
             .chain
@@ -846,8 +848,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             }
         };
 
-        if let Err(ref e) = resp {
-            self.on_lookup_failure(peer_id, e);
+        if let Err(LookupFailure::LookupVerifyError(e)) = &resp {
+            self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
         }
         Some(resp)
     }
@@ -863,35 +865,42 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         let resp = match blob {
-            RpcEvent::Response(blob, _) => match request.get_mut().add_response(blob) {
-                Ok(Some(blobs)) => to_fixed_blob_sidecar_list(blobs)
-                    .map(|blobs| (blobs, timestamp_now()))
-                    .map_err(Into::into),
-                Ok(None) => return None,
-                Err(e) => {
-                    request.remove();
-                    Err(e.into())
+            RpcEvent::Response(blob, seen_timestamp) => {
+                let request = request.get_mut();
+                match request.add_response(blob) {
+                    Ok(Some(blobs)) => to_fixed_blob_sidecar_list(blobs)
+                        .map(|blobs| (blobs, seen_timestamp))
+                        .map_err(|e| (e.into(), request.resolve())),
+                    Ok(None) => return None,
+                    Err(e) => Err((e.into(), request.resolve())),
                 }
+            }
+            RpcEvent::StreamTermination => match request.remove().terminate() {
+                Ok(_) => return None,
+                // (err, false = not resolved) because terminate returns Ok() if resolved
+                Err(e) => Err((e.into(), false)),
             },
-            RpcEvent::StreamTermination => {
-                // Stream terminator
-                match request.remove().terminate() {
-                    Some(blobs) => to_fixed_blob_sidecar_list(blobs)
-                        .map(|blobs| (blobs, timestamp_now()))
-                        .map_err(Into::into),
-                    None => return None,
-                }
-            }
-            RpcEvent::RPCError(e) => {
-                request.remove();
-                Err(e.into())
-            }
+            RpcEvent::RPCError(e) => Err((e.into(), request.remove().resolve())),
         };
 
-        if let Err(ref e) = resp {
-            self.on_lookup_failure(peer_id, e);
+        match resp {
+            Ok(resp) => Some(Ok(resp)),
+            // Track if this request has already returned some value downstream. Ensure that
+            // downstream code only receives a single Result per request. If the serving peer does
+            // multiple penalizable actions per request, downscore and return None. This allows to
+            // catch if a peer is returning more blobs than requested or if the excess blobs are
+            // invalid.
+            Err((e, resolved)) => {
+                if let LookupFailure::LookupVerifyError(e) = &e {
+                    self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
+                }
+                if resolved {
+                    None
+                } else {
+                    Some(Err(e))
+                }
+            }
         }
-        Some(resp)
     }
 
     #[allow(clippy::type_complexity)]

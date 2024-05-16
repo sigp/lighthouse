@@ -21,9 +21,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::data_column_sidecar::DataColumnSidecarList;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, DataColumnSubnetId, EthSpec, ExecPayload,
-    ExecutionBlockHash, ForkName, FullPayload, FullPayloadBellatrix, Hash256, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, VariableList,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, BlockImportSource, DataColumnSubnetId,
+    EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadBellatrix, Hash256,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
@@ -305,6 +305,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         block_root,
         gossip_verified_block,
         NotifyExecutionLayer::Yes,
+        BlockImportSource::HttpApi,
         publish_fn,
     ))
     .await

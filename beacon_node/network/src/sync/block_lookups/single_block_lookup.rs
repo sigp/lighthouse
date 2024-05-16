@@ -5,11 +5,12 @@ use crate::sync::block_lookups::Id;
 use crate::sync::network_context::{LookupRequestResult, PeerGroup, ReqId, SyncNetworkContext};
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::BeaconChainTypes;
+use derivative::Derivative;
 use rand::seq::IteratorRandom;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::FixedBlobSidecarList;
@@ -39,6 +40,9 @@ pub enum LookupRequestError {
     BadState(String),
     /// Lookup failed for some other reason and should be dropped
     Failed,
+    /// Received MissingComponents when all components have been processed. This should never
+    /// happen, and indicates some internal bug
+    MissingComponentsAfterAllProcessed,
     /// Attempted to retrieve a not known lookup id
     UnknownLookup,
     /// Received a download result for a different request id than the in-flight request.
@@ -50,6 +54,8 @@ pub enum LookupRequestError {
     },
 }
 
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     pub block_request_state: BlockRequestState<T::EthSpec>,
@@ -59,6 +65,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     awaiting_parent: Option<Hash256>,
     /// Peers that claim to have imported this block
     peers: HashSet<PeerId>,
+    created: Instant,
 }
 
 impl<T: BeaconChainTypes> SingleBlockLookup<T> {
@@ -76,6 +83,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             block_root: requested_block_root,
             awaiting_parent,
             peers: peers.iter().copied().collect(),
+            created: Instant::now(),
         }
     }
 
@@ -98,6 +106,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// processing.
     pub fn resolve_awaiting_parent(&mut self) {
         self.awaiting_parent = None;
+    }
+
+    /// Returns the time elapsed since this lookup was created
+    pub fn elapsed_since_created(&self) -> Duration {
+        self.created.elapsed()
     }
 
     /// Maybe insert a verified response into this lookup. Returns true if imported
@@ -246,7 +259,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct BlobRequestState<E: EthSpec> {
+    #[derivative(Debug = "ignore")]
     pub block_root: Hash256,
     pub state: SingleLookupRequestState<FixedBlobSidecarList<E>>,
 }
@@ -261,7 +277,10 @@ impl<E: EthSpec> BlobRequestState<E> {
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct CustodyRequestState<E: EthSpec> {
+    #[derivative(Debug = "ignore")]
     pub block_root: Hash256,
     pub state: SingleLookupRequestState<Vec<CustodyDataColumn<E>>>,
 }
@@ -276,7 +295,10 @@ impl<E: EthSpec> CustodyRequestState<E> {
 }
 
 /// The state of the block request component of a `SingleBlockLookup`.
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct BlockRequestState<E: EthSpec> {
+    #[derivative(Debug = "ignore")]
     pub requested_block_root: Hash256,
     pub state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
 }
@@ -298,7 +320,7 @@ pub struct DownloadResult<T: Clone> {
     pub peer_group: PeerGroup,
 }
 
-#[derive(Debug, IntoStaticStr)]
+#[derive(IntoStaticStr)]
 pub enum State<T: Clone> {
     AwaitingDownload,
     Downloading(ReqId),
@@ -306,9 +328,7 @@ pub enum State<T: Clone> {
     /// Request is processing, sent by lookup sync
     Processing(DownloadResult<T>),
     /// Request is processed:
-    /// - `Processed(Some)` if lookup sync downloaded and sent to process this request
-    /// - `Processed(None)` if another source (i.e. gossip) sent this component for processing
-    Processed(Option<PeerGroup>),
+    Processed,
 }
 
 /// Object representing the state of a single block or blob lookup request.
@@ -472,8 +492,8 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
     pub fn on_processing_success(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
-            State::Processing(result) => {
-                self.state = State::Processed(Some(result.peer_group.clone()));
+            State::Processing(_) => {
+                self.state = State::Processed;
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -482,27 +502,11 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
-    pub fn on_post_process_validation_failure(
-        &mut self,
-    ) -> Result<Option<PeerGroup>, LookupRequestError> {
-        match &self.state {
-            State::Processed(peer_group) => {
-                let peer_group = peer_group.clone();
-                self.failed_processing = self.failed_processing.saturating_add(1);
-                self.state = State::AwaitingDownload;
-                Ok(peer_group)
-            }
-            other => Err(LookupRequestError::BadState(format!(
-                "Bad state on_post_process_validation_failure expected Processed got {other}"
-            ))),
-        }
-    }
-
     /// Mark a request as complete without any download or processing
     pub fn on_completed_request(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
             State::AwaitingDownload => {
-                self.state = State::Processed(None);
+                self.state = State::Processed;
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -521,8 +525,23 @@ impl<T: Clone> SingleLookupRequestState<T> {
     }
 }
 
+// Display is used in the BadState assertions above
 impl<T: Clone> std::fmt::Display for State<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", Into::<&'static str>::into(self))
+    }
+}
+
+// Debug is used in the log_stuck_lookups print to include some more info. Implements custom Debug
+// to not dump an entire block or blob to terminal which don't add valuable data.
+impl<T: Clone> std::fmt::Debug for State<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AwaitingDownload { .. } => write!(f, "AwaitingDownload"),
+            Self::Downloading(req_id) => write!(f, "Downloading({:?})", req_id),
+            Self::AwaitingProcess(d) => write!(f, "AwaitingProcess({:?})", d.peer_group),
+            Self::Processing(d) => write!(f, "Processing({:?})", d.peer_group),
+            Self::Processed { .. } => write!(f, "Processed"),
+        }
     }
 }
