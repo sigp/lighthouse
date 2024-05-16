@@ -204,4 +204,17 @@ mod test {
             }
         }
     }
+
+    #[test]
+    fn test_columns_subnet_conversion() {
+        for subnet in 0..E::data_column_subnet_count() as u64 {
+            let subnet_id = DataColumnSubnetId::new(subnet);
+            for column_index in subnet_id.columns::<E>() {
+                assert_eq!(
+                    subnet_id,
+                    DataColumnSubnetId::from_column_index::<E>(column_index as usize)
+                );
+            }
+        }
+    }
 }

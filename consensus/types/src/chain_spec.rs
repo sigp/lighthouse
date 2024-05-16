@@ -227,7 +227,6 @@ pub struct ChainSpec {
     pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
     pub blob_sidecar_subnet_count: u64,
-    pub data_column_sidecar_subnet_count: u64,
 
     /*
      * Networking Derived
@@ -804,7 +803,6 @@ impl ChainSpec {
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
-            data_column_sidecar_subnet_count: default_data_column_sidecar_subnet_count(),
 
             /*
              * Derived Deneb Specific
@@ -1115,7 +1113,6 @@ impl ChainSpec {
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
-            data_column_sidecar_subnet_count: default_data_column_sidecar_subnet_count(),
 
             /*
              * Derived Deneb Specific
@@ -1316,9 +1313,6 @@ pub struct Config {
     #[serde(default = "default_blob_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
     blob_sidecar_subnet_count: u64,
-    #[serde(default = "default_data_column_sidecar_subnet_count")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    data_column_sidecar_subnet_count: u64,
 
     #[serde(default = "default_min_per_epoch_churn_limit_electra")]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1442,10 +1436,6 @@ const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
 
 const fn default_blob_sidecar_subnet_count() -> u64 {
     6
-}
-
-const fn default_data_column_sidecar_subnet_count() -> u64 {
-    32
 }
 
 const fn default_min_per_epoch_churn_limit_electra() -> u64 {
@@ -1655,7 +1645,6 @@ impl Config {
             max_request_data_column_sidecars: spec.max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
-            data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
 
             min_per_epoch_churn_limit_electra: spec.min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit: spec
@@ -1729,7 +1718,6 @@ impl Config {
             max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
-            data_column_sidecar_subnet_count,
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
@@ -1795,7 +1783,6 @@ impl Config {
             max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
-            data_column_sidecar_subnet_count,
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
