@@ -1013,6 +1013,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
             }
+            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+                debug!(
+                    self.log,
+                    "Ignoring gossip column already imported";
+                    "block_root" => ?block_root,
+                    "data_column_index" =>  data_column_index,
+                );
+            }
             Err(err) => {
                 debug!(
                     self.log,
@@ -1026,10 +1034,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     PeerAction::MidToleranceError,
                     "bad_gossip_data_column_ssz",
-                );
-                trace!(
-                    self.log,
-                    "Invalid gossip data column ssz";
                 );
             }
         }
