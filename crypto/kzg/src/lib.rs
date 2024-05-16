@@ -46,7 +46,8 @@ impl Kzg {
             trusted_setup: KzgSettings::load_trusted_setup(
                 &trusted_setup.g1_points(),
                 &trusted_setup.g2_points(),
-                0,
+                // Enable precomputed table for 8 bits
+                8,
             )?,
         })
     }
