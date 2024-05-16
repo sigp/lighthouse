@@ -5,7 +5,7 @@ use ethereum_types::U256;
 use itertools::Itertools;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
+use std::collections::HashSet;
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
 
@@ -67,7 +67,7 @@ impl DataColumnSubnetId {
         // TODO(das): we could perform check on `custody_subnet_count` here to ensure that it is a valid
         // value, but here we assume it is valid.
 
-        let mut subnets = SmallVec::<[u64; 32]>::new();
+        let mut subnets: HashSet<u64> = HashSet::new();
         let mut current_id = node_id;
         while (subnets.len() as u64) < custody_subnet_count {
             let mut node_id_bytes = [0u8; 32];
@@ -80,7 +80,7 @@ impl DataColumnSubnetId {
             let subnet = hash_prefix_u64 % (E::data_column_subnet_count() as u64);
 
             if !subnets.contains(&subnet) {
-                subnets.push(subnet);
+                subnets.insert(subnet);
             }
 
             if current_id == U256::MAX {
