@@ -428,7 +428,7 @@ mod tests {
     // This test will only pass with `blst`, if we run these tests with another
     // BLS library in future we will have to make it generic.
     #[test]
-    fn size_of() {
+    fn size_of_base() {
         use std::mem::size_of;
 
         let aggregation_bits =
@@ -441,16 +441,43 @@ mod tests {
         assert_eq!(signature, 288 + 16);
 
         let attestation_expected = aggregation_bits + attestation_data + signature;
-        // TODO(electra) since we've removed attestation aggregation for electra variant
-        // i've updated the attestation value expected from 488 544
-        // assert_eq!(attestation_expected, 488);
         assert_eq!(attestation_expected, 488);
         assert_eq!(
-            size_of::<Attestation<MainnetEthSpec>>(),
+            size_of::<AttestationBase<MainnetEthSpec>>(),
             attestation_expected
         );
     }
 
-    // TODO(electra): can we do this with both variants or should we?
-    ssz_and_tree_hash_tests!(AttestationBase<MainnetEthSpec>);
+    #[test]
+    fn size_of_electra() {
+        use std::mem::size_of;
+
+        let aggregation_bits =
+            size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxValidatorsPerSlot>>();
+        let attestation_data = size_of::<AttestationData>();
+        let committee_bits =
+            size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxCommitteesPerSlot>>();
+        let signature = size_of::<AggregateSignature>();
+
+        assert_eq!(aggregation_bits, 56);
+        assert_eq!(committee_bits, 56);
+        assert_eq!(attestation_data, 128);
+        assert_eq!(signature, 288 + 16);
+
+        let attestation_expected = aggregation_bits + committee_bits + attestation_data + signature;
+        assert_eq!(attestation_expected, 544);
+        assert_eq!(
+            size_of::<AttestationElectra<MainnetEthSpec>>(),
+            attestation_expected
+        );
+    }
+
+    mod base {
+        use super::*;
+        ssz_and_tree_hash_tests!(AttestationBase<MainnetEthSpec>);
+    }
+    mod electra {
+        use super::*;
+        ssz_and_tree_hash_tests!(AttestationElectra<MainnetEthSpec>);
+    }
 }

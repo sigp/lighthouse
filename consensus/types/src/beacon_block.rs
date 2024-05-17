@@ -606,14 +606,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
     /// Return a Electra block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
-        // TODO(electra): check this
         let indexed_attestation: IndexedAttestationElectra<E> = IndexedAttestationElectra {
             attesting_indices: VariableList::new(vec![0_u64; E::MaxValidatorsPerSlot::to_usize()])
                 .unwrap(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
         };
-        // TODO(electra): fix this so we calculate this size correctly
         let attester_slashings = vec![
             AttesterSlashingElectra {
                 attestation_1: indexed_attestation.clone(),
@@ -626,7 +624,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
             aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerSlot::to_usize()).unwrap(),
             data: AttestationData::default(),
             signature: AggregateSignature::empty(),
-            // TODO(electra): does this actually allocate the size correctly?
             committee_bits: BitVector::new(),
         };
         let mut attestations_electra = vec![];

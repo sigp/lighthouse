@@ -5120,50 +5120,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
         );
 
-        // TODO(electra): figure out what should *actually* be done here when we have attestations / attester_slashings of the wrong type
-        match &state {
-            BeaconState::Base(_)
-            | BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => {
-                if !attestations_electra.is_empty() {
-                    error!(
-                        self.log,
-                        "Tried to produce block with attestations of the wrong type";
-                        "slot" => slot,
-                        "attestations" => attestations_electra.len(),
-                    );
-                }
-                if !attester_slashings_electra.is_empty() {
-                    error!(
-                        self.log,
-                        "Tried to produce block with attester slashings of the wrong type";
-                        "slot" => slot,
-                        "attester_slashings" => attester_slashings_electra.len(),
-                    );
-                }
-            }
-            BeaconState::Electra(_) => {
-                if !attestations_base.is_empty() {
-                    error!(
-                        self.log,
-                        "Tried to produce block with attestations of the wrong type";
-                        "slot" => slot,
-                        "attestations" => attestations_base.len(),
-                    );
-                }
-                if !attester_slashings_base.is_empty() {
-                    error!(
-                        self.log,
-                        "Tried to produce block with attester slashings of the wrong type";
-                        "slot" => slot,
-                        "attester_slashings" => attester_slashings_base.len(),
-                    );
-                }
-            }
-        };
-
         let (inner_block, maybe_blobs_and_proofs, execution_payload_value) = match &state {
             BeaconState::Base(_) => (
                 BeaconBlock::Base(BeaconBlockBase {
