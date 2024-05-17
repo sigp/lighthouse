@@ -14,6 +14,7 @@ use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
 #[cfg(test)]
 use mockall_double::double;
+use rayon::prelude::*;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -120,10 +121,15 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             vec![Vec::with_capacity(E::max_blobs_per_block()); E::number_of_columns()];
 
         // NOTE: assumes blob sidecars are ordered by index
-        for blob in blobs {
-            let blob = KzgBlob::from_bytes(blob).map_err(KzgError::from)?;
-            let (blob_cells, blob_cell_proofs) = kzg.compute_cells_and_proofs(&blob)?;
+        let blob_cells_and_proofs_vec = blobs
+            .into_par_iter()
+            .map(|blob| {
+                let blob = KzgBlob::from_bytes(blob).map_err(KzgError::from)?;
+                kzg.compute_cells_and_proofs(&blob)
+            })
+            .collect::<Result<Vec<_>, KzgError>>()?;
 
+        for (blob_cells, blob_cell_proofs) in blob_cells_and_proofs_vec {
             // we iterate over each column, and we construct the column from "top to bottom",
             // pushing on the cell and the corresponding proof at each column index. we do this for
             // each blob (i.e. the outer loop).
@@ -197,31 +203,34 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             ))?;
         let num_of_blobs = first_data_column.kzg_commitments.len();
 
-        for row_index in 0..num_of_blobs {
-            let mut cells: Vec<KzgCell> = vec![];
-            let mut cell_ids: Vec<u64> = vec![];
-            for data_column in data_columns {
-                let cell =
-                    data_column
-                        .column
-                        .get(row_index)
-                        .ok_or(KzgError::InconsistentArrayLength(format!(
+        let blob_cells_and_proofs_vec = (0..num_of_blobs)
+            .into_par_iter()
+            .map(|row_index| {
+                let mut cells: Vec<KzgCell> = vec![];
+                let mut cell_ids: Vec<u64> = vec![];
+                for data_column in data_columns {
+                    let cell = data_column.column.get(row_index).ok_or(
+                        KzgError::InconsistentArrayLength(format!(
                             "Missing data column at index {row_index}"
-                        )))?;
+                        )),
+                    )?;
 
-                cells.push(ssz_cell_to_crypto_cell::<E>(cell)?);
-                cell_ids.push(data_column.index);
-            }
-            // recover_all_cells does not expect sorted
-            let all_cells = kzg.recover_all_cells(&cell_ids, &cells)?;
-            let blob = kzg.cells_to_blob(&all_cells)?;
+                    cells.push(ssz_cell_to_crypto_cell::<E>(cell)?);
+                    cell_ids.push(data_column.index);
+                }
+                // recover_all_cells does not expect sorted
+                let all_cells = kzg.recover_all_cells(&cell_ids, &cells)?;
+                let blob = kzg.cells_to_blob(&all_cells)?;
 
-            // Note: This function computes all cells and proofs. According to Justin this is okay,
-            // computing a partial set may be more expensive and requires code paths that don't exist.
-            // Computing the blobs cells is technically unnecessary but very cheap. It's done here again
-            // for simplicity.
-            let (blob_cells, blob_cell_proofs) = kzg.compute_cells_and_proofs(&blob)?;
+                // Note: This function computes all cells and proofs. According to Justin this is okay,
+                // computing a partial set may be more expensive and requires code paths that don't exist.
+                // Computing the blobs cells is technically unnecessary but very cheap. It's done here again
+                // for simplicity.
+                kzg.compute_cells_and_proofs(&blob)
+            })
+            .collect::<Result<Vec<_>, KzgError>>()?;
 
+        for (blob_cells, blob_cell_proofs) in blob_cells_and_proofs_vec {
             // we iterate over each column, and we construct the column from "top to bottom",
             // pushing on the cell and the corresponding proof at each column index. we do this for
             // each blob (i.e. the outer loop).

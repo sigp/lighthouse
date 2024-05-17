@@ -46,7 +46,8 @@ impl Kzg {
             trusted_setup: KzgSettings::load_trusted_setup(
                 &trusted_setup.g1_points(),
                 &trusted_setup.g2_points(),
-                // Enable precomputed table for 8 bits
+                // Enable precomputed table for 8 bits, with 96MB of memory overhead per process
+                // Ref: https://notes.ethereum.org/@jtraglia/windowed_multiplications
                 8,
             )?,
         })
