@@ -82,7 +82,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
         cx.block_lookup_request(id, peer_id, self.requested_block_root)
-            .map_err(LookupRequestError::SendFailed)
+            .map_err(LookupRequestError::SendFailedNetwork)
     }
 
     fn send_for_processing(
@@ -102,7 +102,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
             RpcBlock::new_without_blobs(Some(block_root), value),
             seen_timestamp,
         )
-        .map_err(LookupRequestError::SendFailed)
+        .map_err(LookupRequestError::SendFailedProcessor)
     }
 
     fn response_type() -> ResponseType {
@@ -135,7 +135,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
             self.block_root,
             downloaded_block_expected_blobs,
         )
-        .map_err(LookupRequestError::SendFailed)
+        .map_err(LookupRequestError::SendFailedNetwork)
     }
 
     fn send_for_processing(
@@ -150,7 +150,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
             peer_id: _,
         } = download_result;
         cx.send_blobs_for_processing(id, block_root, value, seen_timestamp)
-            .map_err(LookupRequestError::SendFailed)
+            .map_err(LookupRequestError::SendFailedProcessor)
     }
 
     fn response_type() -> ResponseType {
