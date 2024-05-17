@@ -112,14 +112,11 @@ impl<E: EthSpec> NetworkGlobals<E> {
     }
 
     /// Compute custody data columns the node is assigned to custody.
-    pub fn custody_columns(&self, _epoch: Epoch) -> Result<Vec<ColumnIndex>, &'static str> {
+    pub fn custody_columns(&self, _epoch: Epoch) -> Vec<ColumnIndex> {
         let enr = self.local_enr();
         let node_id = enr.node_id().raw().into();
         let custody_subnet_count = enr.custody_subnet_count::<E>();
-        Ok(
-            DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count)
-                .collect(),
-        )
+        DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count).collect()
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.

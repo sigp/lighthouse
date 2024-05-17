@@ -2,7 +2,9 @@ use super::common::ResponseType;
 use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
-use crate::sync::network_context::{LookupRequestResult, PeerGroup, ReqId, SyncNetworkContext};
+use crate::sync::network_context::{
+    LookupRequestResult, PeerGroup, ReqId, RpcRequestSendError, SendErrorProcessor, SyncNetworkContext,
+};
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::BeaconChainTypes;
 use derivative::Derivative;
@@ -34,8 +36,10 @@ pub enum LookupRequestError {
     },
     /// No peers left to serve this lookup
     NoPeers,
-    /// Error sending event to network or beacon processor
-    SendFailed(&'static str),
+    /// Error sending event to network
+    SendFailedNetwork(RpcRequestSendError),
+    /// Error sending event to processor
+    SendFailedProcessor(SendErrorProcessor),
     /// Inconsistent lookup request state
     BadState(String),
     /// Lookup failed for some other reason and should be dropped

@@ -9,7 +9,7 @@ use slog::{debug, warn};
 use std::{marker::PhantomData, sync::Arc};
 use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Epoch, Hash256};
 
-use super::{PeerGroup, RpcProcessingResult, SyncNetworkContext};
+use super::{PeerGroup, RpcResponseResult, SyncNetworkContext};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodyId {
@@ -35,7 +35,7 @@ pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     _phantom: PhantomData<T>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     SendFailed(&'static str),
     TooManyFailures,
@@ -79,7 +79,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         &mut self,
         _peer_id: PeerId,
         column_index: ColumnIndex,
-        resp: RpcProcessingResult<DataColumnSidecarList<T::EthSpec>>,
+        resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
         // TODO(das): Should downscore peers for verify errors here

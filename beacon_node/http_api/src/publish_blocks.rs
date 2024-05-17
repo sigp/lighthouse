@@ -273,15 +273,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     }
 
     if let Some(gossip_verified_data_columns) = gossip_verified_data_columns {
-        let custody_columns_indices =
-            network_globals
-                .custody_columns(block.epoch())
-                .map_err(|e| {
-                    warp_utils::reject::broadcast_without_import(format!(
-                        "Failed to compute custody column indices: {:?}",
-                        e
-                    ))
-                })?;
+        let custody_columns_indices = network_globals.custody_columns(block.epoch());
 
         let custody_columns = gossip_verified_data_columns
             .into_iter()

@@ -2,7 +2,7 @@ use self::parent_chain::{compute_parent_chains, NodeChain};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
 use super::manager::{BlockProcessType, BlockProcessingResult};
-use super::network_context::{LookupFailure, PeerGroup, SyncNetworkContext};
+use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
 use crate::metrics;
 use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
@@ -301,9 +301,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         let result = lookup.continue_requests(cx);
-        self.on_lookup_result(id, result, "new_current_lookup", cx);
-        self.update_metrics();
-        true
+        if self.on_lookup_result(id, result, "new_current_lookup", cx) {
+            self.update_metrics();
+            true
+        } else {
+            false
+        }
     }
 
     /* Lookup responses */
@@ -312,7 +315,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_download_response<R: RequestState<T>>(
         &mut self,
         id: SingleLookupReqId,
-        response: Result<(R::VerifiedResponseType, PeerGroup, Duration), LookupFailure>,
+        response: Result<(R::VerifiedResponseType, PeerGroup, Duration), RpcResponseError>,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let result = self.on_download_response_inner::<R>(id, response, cx);
@@ -323,7 +326,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_download_response_inner<R: RequestState<T>>(
         &mut self,
         id: SingleLookupReqId,
-        response: Result<(R::VerifiedResponseType, PeerGroup, Duration), LookupFailure>,
+        response: Result<(R::VerifiedResponseType, PeerGroup, Duration), RpcResponseError>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         // Note: no need to downscore peers here, already downscored on network context
@@ -628,15 +631,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Common handler a lookup request error, drop it and update metrics
+    /// Returns true if the lookup is created or already exists
     fn on_lookup_result(
         &mut self,
         id: SingleLookupId,
         result: Result<LookupResult, LookupRequestError>,
         source: &str,
         cx: &mut SyncNetworkContext<T>,
-    ) {
+    ) -> bool {
         match result {
-            Ok(LookupResult::Pending) => {} // no action
+            Ok(LookupResult::Pending) => true, // no action
             Ok(LookupResult::Completed) => {
                 if let Some(lookup) = self.single_block_lookups.remove(&id) {
                     debug!(self.log, "Dropping completed lookup"; "block" => ?lookup.block_root(), "id" => id);
@@ -647,12 +651,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 } else {
                     debug!(self.log, "Attempting to drop non-existent lookup"; "id" => id);
                 }
+                false
             }
             Err(error) => {
                 debug!(self.log, "Dropping lookup on request error"; "id" => id, "source" => source, "error" => ?error);
                 metrics::inc_counter_vec(&metrics::SYNC_LOOKUP_DROPPED, &[error.into()]);
                 self.drop_lookup_and_children(id);
                 self.update_metrics();
+                false
             }
         }
     }
