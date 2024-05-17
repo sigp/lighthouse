@@ -383,7 +383,7 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 f,
                 "Aggregate and Proof: slot: {}, index: {}, aggregator_index: {}",
                 att.message().aggregate().data().slot,
-                att.message().aggregate().data().index,
+                att.message().aggregate().committee_index(),
                 att.message().aggregator_index(),
             ),
             PubsubMessage::Attestation(data) => write!(
@@ -391,7 +391,7 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 "Attestation: subnet_id: {}, attestation_slot: {}, attestation_index: {}",
                 *data.0,
                 data.1.data().slot,
-                data.1.data().index,
+                data.1.committee_index(),
             ),
             PubsubMessage::VoluntaryExit(_data) => write!(f, "Voluntary Exit"),
             PubsubMessage::ProposerSlashing(_data) => write!(f, "Proposer Slashing"),

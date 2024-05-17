@@ -1,7 +1,6 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
 use core::slice::Iter;
 use derivative::Derivative;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz::Encode;
@@ -187,20 +186,6 @@ impl<E: EthSpec> Decode for IndexedAttestation<E> {
         Err(ssz::DecodeError::BytesInvalid(String::from(
             "bytes not valid for any fork variant",
         )))
-    }
-}
-
-impl<E: EthSpec> TestRandom for IndexedAttestation<E> {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let attesting_indices = VariableList::random_for_test(rng);
-        let data = AttestationData::random_for_test(rng);
-        let signature = AggregateSignature::random_for_test(rng);
-
-        Self::Base(IndexedAttestationBase {
-            attesting_indices,
-            data,
-            signature,
-        })
     }
 }
 

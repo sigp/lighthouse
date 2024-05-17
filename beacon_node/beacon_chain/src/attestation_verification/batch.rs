@@ -66,7 +66,6 @@ where
             .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
 
         let mut signature_sets = Vec::with_capacity(num_indexed * 3);
-
         // Iterate, flattening to get only the `Ok` values.
         for indexed in indexing_results.iter().flatten() {
             let signed_aggregate = &indexed.signed_aggregate;

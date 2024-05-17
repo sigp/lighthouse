@@ -41,9 +41,8 @@ pub struct SplitAttestation<E: EthSpec> {
     pub indexed: CompactIndexedAttestation<E>,
 }
 
-// TODO(electra): rename this type
 #[derive(Debug, Clone)]
-pub struct AttestationRef<'a, E: EthSpec> {
+pub struct CompactAttestationRef<'a, E: EthSpec> {
     pub checkpoint: &'a CheckpointKey,
     pub data: &'a CompactAttestationData,
     pub indexed: &'a CompactIndexedAttestation<E>,
@@ -97,8 +96,8 @@ impl<E: EthSpec> SplitAttestation<E> {
         }
     }
 
-    pub fn as_ref(&self) -> AttestationRef<E> {
-        AttestationRef {
+    pub fn as_ref(&self) -> CompactAttestationRef<E> {
+        CompactAttestationRef {
             checkpoint: &self.checkpoint,
             data: &self.data,
             indexed: &self.indexed,
@@ -106,7 +105,7 @@ impl<E: EthSpec> SplitAttestation<E> {
     }
 }
 
-impl<'a, E: EthSpec> AttestationRef<'a, E> {
+impl<'a, E: EthSpec> CompactAttestationRef<'a, E> {
     pub fn attestation_data(&self) -> AttestationData {
         AttestationData {
             slot: self.data.slot,
@@ -171,7 +170,7 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
         }
     }
 
-    pub fn aggregate(&mut self, other: &Self) {
+    pub fn aggregate(&mut self, other: &Self) -> Option<()> {
         match (self, other) {
             (CompactIndexedAttestation::Base(this), CompactIndexedAttestation::Base(other)) => {
                 this.aggregate(other)
@@ -181,7 +180,7 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
                 CompactIndexedAttestation::Electra(other),
             ) => this.aggregate_same_committee(other),
             // TODO(electra) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
-            _ => (),
+            _ => None,
         }
     }
 }
@@ -193,7 +192,7 @@ impl<E: EthSpec> CompactIndexedAttestationBase<E> {
             .is_zero()
     }
 
-    pub fn aggregate(&mut self, other: &Self) {
+    pub fn aggregate(&mut self, other: &Self) -> Option<()> {
         self.attesting_indices = self
             .attesting_indices
             .drain(..)
@@ -202,6 +201,8 @@ impl<E: EthSpec> CompactIndexedAttestationBase<E> {
             .collect();
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
+
+        Some(())
     }
 }
 
@@ -215,9 +216,11 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
                 .is_zero()
     }
 
-    pub fn aggregate_same_committee(&mut self, other: &Self) {
+    pub fn aggregate_same_committee(&mut self, other: &Self) -> Option<()> {
         // TODO(electra): remove assert in favour of Result
-        assert_eq!(self.committee_bits, other.committee_bits);
+        if self.committee_bits != other.committee_bits {
+            return None;
+        }
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.attesting_indices = self
             .attesting_indices
@@ -226,34 +229,48 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
             .dedup()
             .collect();
         self.signature.add_assign_aggregate(&other.signature);
+        Some(())
     }
 
-    pub fn aggregate_with_disjoint_committees(&mut self, other: &Self) {
-        // TODO(electra): remove asserts or use Result
-        assert!(self
+    pub fn aggregate_with_disjoint_committees(&mut self, other: &Self) -> Option<()> {
+        if !self
             .committee_bits
             .intersection(&other.committee_bits)
-            .is_zero(),);
+            .is_zero()
+        {
+            return None;
+        }
         // The attestation being aggregated in must only have 1 committee bit set.
-        assert_eq!(other.committee_bits.num_set_bits(), 1);
+        if other.committee_bits.num_set_bits() != 1 {
+            return None;
+        }
+
         // Check we are aggregating in increasing committee index order (so we can append
         // aggregation bits).
-        assert!(self.committee_bits.highest_set_bit() < other.committee_bits.highest_set_bit());
+        if self.committee_bits.highest_set_bit() >= other.committee_bits.highest_set_bit() {
+            return None;
+        }
 
         self.committee_bits = self.committee_bits.union(&other.committee_bits);
-        self.aggregation_bits =
-            bitlist_extend(&self.aggregation_bits, &other.aggregation_bits).unwrap();
-        self.attesting_indices = self
-            .attesting_indices
-            .drain(..)
-            .merge(other.attesting_indices.iter().copied())
-            .dedup()
-            .collect();
-        self.signature.add_assign_aggregate(&other.signature);
+        if let Some(agg_bits) = bitlist_extend(&self.aggregation_bits, &other.aggregation_bits) {
+            self.aggregation_bits = agg_bits;
+
+            self.attesting_indices = self
+                .attesting_indices
+                .drain(..)
+                .merge(other.attesting_indices.iter().copied())
+                .dedup()
+                .collect();
+            self.signature.add_assign_aggregate(&other.signature);
+
+            return Some(());
+        }
+
+        None
     }
 
-    pub fn committee_index(&self) -> u64 {
-        *self.get_committee_indices().first().unwrap_or(&0u64)
+    pub fn committee_index(&self) -> Option<u64> {
+        self.get_committee_indices().first().copied()
     }
 
     pub fn get_committee_indices(&self) -> Vec<u64> {
@@ -350,27 +367,28 @@ impl<E: EthSpec> AttestationMap<E> {
                         continue;
                     }
                 };
-                let committee_index = electra_attestation.committee_index();
-                if let Some(existing_attestation) =
-                    best_attestations_by_committee.get_mut(&committee_index)
-                {
-                    // Search for the best (most aggregation bits) attestation for this committee
-                    // index.
-                    if electra_attestation.aggregation_bits.num_set_bits()
-                        > existing_attestation.aggregation_bits.num_set_bits()
+                if let Some(committee_index) = electra_attestation.committee_index() {
+                    if let Some(existing_attestation) =
+                        best_attestations_by_committee.get_mut(&committee_index)
                     {
-                        // New attestation is better than the previously known one for this
-                        // committee. Replace it.
-                        std::mem::swap(existing_attestation, &mut electra_attestation);
+                        // Search for the best (most aggregation bits) attestation for this committee
+                        // index.
+                        if electra_attestation.aggregation_bits.num_set_bits()
+                            > existing_attestation.aggregation_bits.num_set_bits()
+                        {
+                            // New attestation is better than the previously known one for this
+                            // committee. Replace it.
+                            std::mem::swap(existing_attestation, &mut electra_attestation);
+                        }
+                        // Put the inferior attestation into the list of aggregated attestations
+                        // without performing any cross-committee aggregation.
+                        aggregated_attestations
+                            .push(CompactIndexedAttestation::Electra(electra_attestation));
+                    } else {
+                        // First attestation seen for this committee. Place it in the map
+                        // provisionally.
+                        best_attestations_by_committee.insert(committee_index, electra_attestation);
                     }
-                    // Put the inferior attestation into the list of aggregated attestations
-                    // without performing any cross-committee aggregation.
-                    aggregated_attestations
-                        .push(CompactIndexedAttestation::Electra(electra_attestation));
-                } else {
-                    // First attestation seen for this committee. Place it in the map
-                    // provisionally.
-                    best_attestations_by_committee.insert(committee_index, electra_attestation);
                 }
             }
 
@@ -399,7 +417,7 @@ impl<E: EthSpec> AttestationMap<E> {
     pub fn get_attestations<'a>(
         &'a self,
         checkpoint_key: &'a CheckpointKey,
-    ) -> impl Iterator<Item = AttestationRef<'a, E>> + 'a {
+    ) -> impl Iterator<Item = CompactAttestationRef<'a, E>> + 'a {
         self.checkpoint_map
             .get(checkpoint_key)
             .into_iter()
@@ -407,7 +425,7 @@ impl<E: EthSpec> AttestationMap<E> {
     }
 
     /// Iterate all attestations in the map.
-    pub fn iter(&self) -> impl Iterator<Item = AttestationRef<E>> {
+    pub fn iter(&self) -> impl Iterator<Item = CompactAttestationRef<E>> {
         self.checkpoint_map
             .iter()
             .flat_map(|(checkpoint_key, attestation_map)| attestation_map.iter(checkpoint_key))
@@ -438,9 +456,9 @@ impl<E: EthSpec> AttestationDataMap<E> {
     pub fn iter<'a>(
         &'a self,
         checkpoint_key: &'a CheckpointKey,
-    ) -> impl Iterator<Item = AttestationRef<'a, E>> + 'a {
+    ) -> impl Iterator<Item = CompactAttestationRef<'a, E>> + 'a {
         self.attestations.iter().flat_map(|(data, vec_indexed)| {
-            vec_indexed.iter().map(|indexed| AttestationRef {
+            vec_indexed.iter().map(|indexed| CompactAttestationRef {
                 checkpoint: checkpoint_key,
                 data,
                 indexed,

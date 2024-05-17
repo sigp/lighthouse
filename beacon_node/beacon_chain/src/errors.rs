@@ -226,6 +226,7 @@ pub enum BeaconChainError {
     LightClientError(LightClientError),
     UnsupportedFork,
     MilhouseError(MilhouseError),
+    AttestationError(AttestationError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -256,6 +257,7 @@ easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
 easy_from_to!(LightClientError, BeaconChainError);
 easy_from_to!(MilhouseError, BeaconChainError);
+easy_from_to!(AttestationError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {

@@ -24,8 +24,11 @@ impl<N: Unsigned + Clone> TestRandom for BitList<N> {
 
 impl<N: Unsigned + Clone> TestRandom for BitVector<N> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
+        println!("check {}", N::to_usize());
         let mut raw_bytes = smallvec![0; std::cmp::max(1, (N::to_usize() + 7) / 8)];
         rng.fill_bytes(&mut raw_bytes);
+        println!("raw bytes {:?}", raw_bytes);
+        println!("{:?}", raw_bytes);
         Self::from_bytes(raw_bytes).expect("we generate a valid BitVector")
     }
 }

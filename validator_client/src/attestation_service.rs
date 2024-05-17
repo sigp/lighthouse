@@ -362,9 +362,16 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let duty = &duty_and_proof.duty;
             let attestation_data = attestation_data_ref;
 
+            let fork_name = self
+                .context
+                .eth2_config
+                .spec
+                .fork_name_at_slot::<E>(attestation_data.slot);
+
             // Ensure that the attestation matches the duties.
             #[allow(clippy::suspicious_operation_groupings)]
-            if duty.slot != attestation_data.slot || duty.committee_index != attestation_data.index
+            if duty.slot != attestation_data.slot
+                || (fork_name < ForkName::Electra && duty.committee_index != attestation_data.index)
             {
                 crit!(
                     log,
@@ -378,11 +385,26 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 return None;
             }
 
-            let mut attestation = Attestation::Base(AttestationBase {
-                aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
-                data: attestation_data.clone(),
-                signature: AggregateSignature::infinity(),
-            });
+            let mut attestation = if fork_name >= ForkName::Electra {
+                let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
+                committee_bits
+                    .set(duty.committee_index as usize, true)
+                    .unwrap();
+                Attestation::Electra(AttestationElectra {
+                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
+                        .unwrap(),
+                    data: attestation_data.clone(),
+                    committee_bits,
+                    signature: AggregateSignature::infinity(),
+                })
+            } else {
+                Attestation::Base(AttestationBase {
+                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
+                        .unwrap(),
+                    data: attestation_data.clone(),
+                    signature: AggregateSignature::infinity(),
+                })
+            };
 
             match self
                 .validator_store
@@ -531,6 +553,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
             .map_err(|e| e.to_string())?;
 
+        let fork_name = self
+            .context
+            .eth2_config
+            .spec
+            .fork_name_at_slot::<E>(attestation_data.slot);
+
         // Create futures to produce the signed aggregated attestations.
         let signing_futures = validator_duties.iter().map(|duty_and_proof| async move {
             let duty = &duty_and_proof.duty;
@@ -539,7 +567,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let slot = attestation_data.slot;
             let committee_index = attestation_data.index;
 
-            if duty.slot != slot || duty.committee_index != committee_index {
+            if duty.slot != slot
+                || (fork_name < ForkName::Electra && duty.committee_index != committee_index)
+            {
                 crit!(log, "Inconsistent validator duties during signing");
                 return None;
             }
@@ -612,7 +642,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
                             "signatures" => attestation.num_set_aggregation_bits(),
                             "head_block" => format!("{:?}", attestation.data().beacon_block_root),
-                            "committee_index" => attestation.data().index,
+                            "committee_index" => attestation.committee_index(),
                             "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );
@@ -626,7 +656,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             "Failed to publish attestation";
                             "error" => %e,
                             "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
-                            "committee_index" => attestation.data().index,
+                            "committee_index" => attestation.committee_index(),
                             "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );

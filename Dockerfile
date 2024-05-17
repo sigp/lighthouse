@@ -1,7 +1,7 @@
 FROM rust:1.75.0-bullseye AS builder
 RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
 COPY . lighthouse
-ARG FEATURES
+ARG FEATURES=spec-minimal
 ARG PROFILE=release
 ARG CARGO_USE_GIT_CLI=true
 ENV FEATURES $FEATURES

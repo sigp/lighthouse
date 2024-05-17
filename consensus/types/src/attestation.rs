@@ -1,7 +1,6 @@
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, Hash256, Slot};
 use derivative::Derivative;
-use rand::RngCore;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
@@ -22,6 +21,7 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),
     SubnetCountIsZero(ArithError),
+    IncorrectStateVariant,
 }
 
 #[superstruct(
@@ -43,7 +43,9 @@ pub enum Error {
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
     ),
-    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent"))
+    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(
     Debug,
@@ -89,23 +91,6 @@ impl<E: EthSpec> Decode for Attestation<E> {
         Err(ssz::DecodeError::BytesInvalid(String::from(
             "bytes not valid for any fork variant",
         )))
-    }
-}
-
-// TODO(electra): think about how to handle fork variants here
-impl<E: EthSpec> TestRandom for Attestation<E> {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let aggregation_bits: BitList<E::MaxValidatorsPerCommittee> = BitList::random_for_test(rng);
-        // let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
-        let data = AttestationData::random_for_test(rng);
-        let signature = AggregateSignature::random_for_test(rng);
-
-        Self::Base(AttestationBase {
-            aggregation_bits,
-            // committee_bits,
-            data,
-            signature,
-        })
     }
 }
 
@@ -242,6 +227,25 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
         match self {
             AttestationRef::Base(att) => att.data.index,
             AttestationRef::Electra(att) => att.committee_index(),
+        }
+    }
+
+    pub fn set_aggregation_bits(&self) -> Vec<usize> {
+        match self {
+            Self::Base(att) => att
+                .aggregation_bits
+                .iter()
+                .enumerate()
+                .filter(|(_i, bit)| *bit)
+                .map(|(i, _bit)| i)
+                .collect::<Vec<_>>(),
+            Self::Electra(att) => att
+                .aggregation_bits
+                .iter()
+                .enumerate()
+                .filter(|(_i, bit)| *bit)
+                .map(|(i, _bit)| i)
+                .collect::<Vec<_>>(),
         }
     }
 }
