@@ -383,6 +383,8 @@ jobs:
       run: make audit-CI
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
+    - name: Markdown-linter
+      run: make mdlint
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
