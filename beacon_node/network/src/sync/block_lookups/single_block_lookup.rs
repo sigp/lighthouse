@@ -3,7 +3,8 @@ use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
 use crate::sync::network_context::{
-    LookupRequestResult, PeerGroup, ReqId, RpcRequestSendError, SendErrorProcessor, SyncNetworkContext,
+    LookupRequestResult, PeerGroup, ReqId, RpcRequestSendError, SendErrorProcessor,
+    SyncNetworkContext,
 };
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::BeaconChainTypes;
