@@ -981,7 +981,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match self
             .chain
-            .process_gossip_data_column(verified_data_column)
+            .process_gossip_data_columns(vec![verified_data_column])
             .await
         {
             Ok((availability, data_columns_to_publish)) => {
@@ -1262,6 +1262,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(e @ BlockError::AvailabilityCheck(_)) => {
                 crit!(self.log, "Internal block gossip validation error. Availability check during
                  gossip validation";
+                    "error" => %e
+                );
+                return None;
+            }
+            Err(e @ BlockError::InternalError(_)) => {
+                error!(self.log, "Internal block gossip validation error";
                     "error" => %e
                 );
                 return None;

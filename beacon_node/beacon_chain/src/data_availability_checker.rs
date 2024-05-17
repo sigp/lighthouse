@@ -233,22 +233,26 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ///
     /// This should only accept gossip verified data columns, so we should not have to worry about dupes.
     #[allow(clippy::type_complexity)]
-    pub fn put_gossip_data_column(
+    pub fn put_gossip_data_columns(
         &self,
-        gossip_data_column: GossipVerifiedDataColumn<T>,
+        gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
         let Some(kzg) = self.kzg.as_ref() else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
-        let block_root = gossip_data_column.block_root();
+        let block_root = gossip_data_columns
+            .first()
+            .ok_or(AvailabilityCheckError::MissingCustodyColumns)?
+            .block_root();
 
-        // TODO(das): ensure that our custody requirements include this column
-        let custody_column =
-            KzgVerifiedCustodyDataColumn::from_asserted_custody(gossip_data_column.into_inner());
+        let custody_columns = gossip_data_columns
+            .into_iter()
+            .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
+            .collect::<Vec<_>>();
 
         self.availability_cache
-            .put_kzg_verified_data_columns(kzg, block_root, vec![custody_column])
+            .put_kzg_verified_data_columns(kzg, block_root, custody_columns)
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information

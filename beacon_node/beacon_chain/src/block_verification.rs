@@ -317,6 +317,13 @@ pub enum BlockError<E: EthSpec> {
     ///
     /// This indicates the peer is sending an unexpected gossip blob and should be penalised.
     BlobNotRequired(Slot),
+    /// An internal error has occurred when processing the block or sidecars.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We were unable to process this block due to an internal error. It's unclear if the block is
+    /// valid.
+    InternalError(String),
 }
 
 impl<E: EthSpec> From<AvailabilityCheckError> for BlockError<E> {

@@ -3030,11 +3030,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.remove_notified(&block_root, r)
     }
 
-    /// Cache the data column in the processing cache, process it, then evict it from the cache if it was
+    /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
-    pub async fn process_gossip_data_column(
+    pub async fn process_gossip_data_columns(
         self: &Arc<Self>,
-        data_column: GossipVerifiedDataColumn<T>,
+        data_columns: Vec<GossipVerifiedDataColumn<T>>,
     ) -> Result<
         (
             AvailabilityProcessingStatus,
@@ -3042,7 +3042,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ),
         BlockError<T::EthSpec>,
     > {
-        let block_root = data_column.block_root();
+        let Ok(block_root) = data_columns
+            .iter()
+            .map(|c| c.block_root())
+            .unique()
+            .exactly_one()
+        else {
+            return Err(BlockError::InternalError(
+                "Columns should be from the same block".to_string(),
+            ));
+        };
 
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its samples again.
@@ -3055,7 +3064,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let r = self
-            .check_gossip_data_column_availability_and_import(data_column)
+            .check_gossip_data_columns_availability_and_import(data_columns)
             .await;
         self.remove_notified_custody_columns(&block_root, r)
     }
@@ -3402,9 +3411,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Checks if the provided data column can make any cached blocks available, and imports immediately
     /// if so, otherwise caches the data column in the data availability checker.
-    async fn check_gossip_data_column_availability_and_import(
+    async fn check_gossip_data_columns_availability_and_import(
         self: &Arc<Self>,
-        data_column: GossipVerifiedDataColumn<T>,
+        data_columns: Vec<GossipVerifiedDataColumn<T>>,
     ) -> Result<
         (
             AvailabilityProcessingStatus,
@@ -3412,13 +3421,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ),
         BlockError<T::EthSpec>,
     > {
-        let slot = data_column.slot();
         if let Some(slasher) = self.slasher.as_ref() {
-            slasher.accept_block_header(data_column.signed_block_header());
+            for data_colum in &data_columns {
+                slasher.accept_block_header(data_colum.signed_block_header());
+            }
         }
+
+        let Ok(slot) = data_columns.iter().map(|c| c.slot()).unique().exactly_one() else {
+            return Err(BlockError::InternalError(
+                "Columns for the same block should have matching slot".to_string(),
+            ));
+        };
+
         let (availability, data_columns_to_publish) = self
             .data_availability_checker
-            .put_gossip_data_column(data_column)?;
+            .put_gossip_data_columns(data_columns)?;
 
         self.process_availability(slot, availability)
             .await
