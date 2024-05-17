@@ -2,7 +2,7 @@ use self::parent_chain::{compute_parent_chains, NodeChain};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
 use super::manager::{BlockProcessType, BlockProcessingResult};
-use super::network_context::{RpcProcessingResult, SyncNetworkContext};
+use super::network_context::{RpcRequestResult, SyncNetworkContext};
 use crate::metrics;
 use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
@@ -310,7 +310,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        response: RpcProcessingResult<R::VerifiedResponseType>,
+        response: RpcRequestResult<R::VerifiedResponseType>,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let result = self.on_download_response_inner::<R>(id, peer_id, response, cx);
@@ -322,7 +322,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        response: RpcProcessingResult<R::VerifiedResponseType>,
+        response: RpcRequestResult<R::VerifiedResponseType>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         // Note: no need to downscore peers here, already downscored on network context
