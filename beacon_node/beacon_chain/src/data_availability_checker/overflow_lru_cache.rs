@@ -906,7 +906,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
     /// Potentially trigger reconstruction if:
     /// - Our custody requirement is all columns
-    /// - We >= 50% of columns
+    /// - We >= 50% of columns, but not all columns
     fn should_reconstruct(
         &self,
         block_import_requirement: &BlockImportRequirement,
@@ -917,9 +917,13 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             return false;
         };
 
-        !pending_components.reconstruction_started
-            && *num_expected_columns == T::EthSpec::number_of_columns()
-            && pending_components.verified_data_columns.len() >= T::EthSpec::number_of_columns() / 2
+        let num_of_columns = T::EthSpec::number_of_columns();
+        let has_missing_columns = pending_components.verified_data_columns.len() < num_of_columns;
+
+        has_missing_columns
+            && !pending_components.reconstruction_started
+            && *num_expected_columns == num_of_columns
+            && pending_components.verified_data_columns.len() >= num_of_columns / 2
     }
 
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
