@@ -52,7 +52,7 @@ pub enum RpcEvent<T> {
     RPCError(RPCError),
 }
 
-pub type RpcRequestResult<T> = Result<(T, Duration), RpcResponseError>;
+pub type RpcResponseResult<T> = Result<(T, Duration), RpcResponseError>;
 
 pub enum RpcResponseError {
     RpcError(RPCError),
@@ -569,7 +569,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: SingleLookupReqId,
         peer_id: PeerId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
-    ) -> Option<RpcRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
+    ) -> Option<RpcResponseResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
         let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
             return None;
         };
@@ -606,7 +606,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: SingleLookupReqId,
         peer_id: PeerId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
-    ) -> Option<RpcRequestResult<FixedBlobSidecarList<T::EthSpec>>> {
+    ) -> Option<RpcResponseResult<FixedBlobSidecarList<T::EthSpec>>> {
         let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
             return None;
         };
