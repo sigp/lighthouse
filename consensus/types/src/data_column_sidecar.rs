@@ -121,10 +121,15 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             vec![Vec::with_capacity(E::max_blobs_per_block()); E::number_of_columns()];
 
         // NOTE: assumes blob sidecars are ordered by index
-        for blob in blobs {
-            let blob = KzgBlob::from_bytes(blob).map_err(KzgError::from)?;
-            let (blob_cells, blob_cell_proofs) = kzg.compute_cells_and_proofs(&blob)?;
+        let blob_cells_and_proofs_vec = blobs
+            .into_par_iter()
+            .map(|blob| {
+                let blob = KzgBlob::from_bytes(blob).map_err(KzgError::from)?;
+                kzg.compute_cells_and_proofs(&blob)
+            })
+            .collect::<Result<Vec<_>, KzgError>>()?;
 
+        for (blob_cells, blob_cell_proofs) in blob_cells_and_proofs_vec {
             // we iterate over each column, and we construct the column from "top to bottom",
             // pushing on the cell and the corresponding proof at each column index. we do this for
             // each blob (i.e. the outer loop).
@@ -221,12 +226,11 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                 // computing a partial set may be more expensive and requires code paths that don't exist.
                 // Computing the blobs cells is technically unnecessary but very cheap. It's done here again
                 // for simplicity.
-                let (blob_cells, blob_cell_proofs) = kzg.compute_cells_and_proofs(&blob)?;
-                Ok((blob_cells, blob_cell_proofs))
+                kzg.compute_cells_and_proofs(&blob)
             })
             .collect::<Result<Vec<_>, KzgError>>()?;
 
-        for (blob_cells, blob_cell_proofs) in blob_cells_and_proofs_vec.iter() {
+        for (blob_cells, blob_cell_proofs) in blob_cells_and_proofs_vec {
             // we iterate over each column, and we construct the column from "top to bottom",
             // pushing on the cell and the corresponding proof at each column index. we do this for
             // each blob (i.e. the outer loop).
