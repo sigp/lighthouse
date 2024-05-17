@@ -2121,7 +2121,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              eth1_service: eth1::Service| {
                 task_spawner.blocking_response_task(Priority::P1, move || match accept_header {
-                    Some(api_types::Accept::Json) | None => {
+                    Some(api_types::Accept::Json) | Some(api_types::Accept::Any) | None => {
                         let snapshot = eth1_service.get_deposit_snapshot();
                         Ok(
                             warp::reply::json(&api_types::GenericResponse::from(snapshot))
