@@ -39,19 +39,14 @@ logging = { workspace = true }
 task_executor = { workspace = true }
 igd-next = "0.14"
 itertools = { workspace = true }
-num_cpus = { workspace = true }
 lru_cache = { workspace = true }
-lru = { workspace = true }
 strum = { workspace = true }
-tokio-util = { workspace = true }
 derivative = { workspace = true }
 delay_map = { workspace = true }
-ethereum-types = { workspace = true }
 operation_pool = { workspace = true }
 execution_layer = { workspace = true }
 beacon_processor = { workspace = true }
 parking_lot = { workspace = true }
-environment = { workspace = true }
 
 [features]
 # NOTE: This can be run via cargo build --bin lighthouse --features network/disable-backfill
