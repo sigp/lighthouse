@@ -30,17 +30,11 @@ pub enum RequestId<AppReqId> {
 //       leave the Behaviour. For all protocols managed by RPC see `RPCRequest`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Request {
-    
     Status(StatusMessage),
-    
     BlocksByRange(BlocksByRangeRequest),
-    
     BlobsByRange(BlobsByRangeRequest),
-    
     BlocksByRoot(BlocksByRootRequest),
-    
     LightClientBootstrap(LightClientBootstrapRequest),
-    
     BlobsByRoot(BlobsByRootRequest),
 }
 

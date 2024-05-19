@@ -374,37 +374,22 @@ impl BlobsByRootRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RPCResponse<T: EthSpec> {
-
     Status(StatusMessage),
-
     BlocksByRange(Arc<SignedBeaconBlock<T>>),
-
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),
-
     BlobsByRange(Arc<BlobSidecar<T>>),
-
     LightClientBootstrap(Arc<LightClientBootstrap<T>>),
-
     BlobsByRoot(Arc<BlobSidecar<T>>),
-
     Pong(Ping),
-    
     MetaData(MetaData<T>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
 #[derive(Debug, Clone)]
 pub enum ResponseTermination {
-    /// Blocks by range stream termination.
     BlocksByRange,
-
-    /// Blocks by root stream termination.
     BlocksByRoot,
-
-    /// Blobs by range stream termination.
     BlobsByRange,
-
-    /// Blobs by root stream termination.
     BlobsByRoot,
 }
 
@@ -412,7 +397,6 @@ pub enum ResponseTermination {
 /// and the contents of the response
 #[derive(Debug, Clone)]
 pub enum RPCCodedResponse<T: EthSpec> {
-    /// The response is a successful.
     Success(RPCResponse<T>),
 
     Error(RPCResponseErrorCode, ErrorType),

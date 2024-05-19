@@ -81,23 +81,14 @@ pub struct RPCRateLimiter {
     prune_interval: Interval,
     /// Creation time of the rate limiter.
     init_time: Instant,
-   
     goodbye_rl: Limiter<PeerId>,
-    
     ping_rl: Limiter<PeerId>,
-    
     metadata_rl: Limiter<PeerId>,
-    
     status_rl: Limiter<PeerId>,
-    
     bbrange_rl: Limiter<PeerId>,
-    
     bbroots_rl: Limiter<PeerId>,
-    
     blbrange_rl: Limiter<PeerId>,
-    
     blbroot_rl: Limiter<PeerId>,
-   
     lcbootstrap_rl: Limiter<PeerId>,
 }
 

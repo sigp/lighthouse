@@ -565,7 +565,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Ping | Protocol::MetaData | Protocol::Status => PeerAction::Fatal,
                     Protocol::BlocksByRange | Protocol::BlocksByRoot | Protocol::BlobsByRange | Protocol::BlobsByRoot | Protocol::Goodbye | Protocol::LightClientBootstrap => return,
                 }
-                
             }
             RPCError::StreamTimeout => match direction {
                 ConnectionDirection::Incoming => {
