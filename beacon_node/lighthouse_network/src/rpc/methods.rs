@@ -374,45 +374,22 @@ impl BlobsByRootRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RPCResponse<T: EthSpec> {
-    /// A HELLO message.
     Status(StatusMessage),
-
-    /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
-    /// batch.
     BlocksByRange(Arc<SignedBeaconBlock<T>>),
-
-    /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),
-
-    /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobSidecar<T>>),
-
-    /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(Arc<LightClientBootstrap<T>>),
-
-    /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<T>>),
-
-    /// A PONG response to a PING request.
     Pong(Ping),
-
-    /// A response to a META_DATA request.
     MetaData(MetaData<T>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
 #[derive(Debug, Clone)]
 pub enum ResponseTermination {
-    /// Blocks by range stream termination.
     BlocksByRange,
-
-    /// Blocks by root stream termination.
     BlocksByRoot,
-
-    /// Blobs by range stream termination.
     BlobsByRange,
-
-    /// Blobs by root stream termination.
     BlobsByRoot,
 }
 
@@ -420,7 +397,6 @@ pub enum ResponseTermination {
 /// and the contents of the response
 #[derive(Debug, Clone)]
 pub enum RPCCodedResponse<T: EthSpec> {
-    /// The response is a successful.
     Success(RPCResponse<T>),
 
     Error(RPCResponseErrorCode, ErrorType),
