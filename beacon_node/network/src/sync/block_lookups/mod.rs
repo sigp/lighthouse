@@ -2,12 +2,11 @@ use self::parent_chain::{compute_parent_chains, NodeChain};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
 use super::manager::{BlockProcessType, BlockProcessingResult};
-use super::network_context::{RpcProcessingResult, SyncNetworkContext};
+use super::network_context::{RpcResponseResult, SyncNetworkContext};
 use crate::metrics;
 use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
-use crate::sync::manager::Id;
-use crate::sync::network_context::LookupFailure;
+use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_availability_checker::AvailabilityCheckErrorCategory;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
@@ -31,6 +30,7 @@ mod tests;
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
+const LOOKUP_MAX_DURATION_SECS: u64 = 60;
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
@@ -134,7 +134,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 Some(block_component),
                 Some(parent_root),
-                &[peer_id],
+                // On a `UnknownParentBlock` or `UnknownParentBlob` event the peer is not required
+                // to have the rest of the block components (refer to decoupled blob gossip). Create
+                // the lookup with zero peers to house the block components.
+                &[],
                 cx,
             );
         }
@@ -295,9 +298,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         let result = lookup.continue_requests(cx);
-        self.on_lookup_result(id, result, "new_current_lookup", cx);
-        self.update_metrics();
-        true
+        if self.on_lookup_result(id, result, "new_current_lookup", cx) {
+            self.update_metrics();
+            true
+        } else {
+            false
+        }
     }
 
     /* Lookup responses */
@@ -305,35 +311,30 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Process a block or blob response received from a single lookup request.
     pub fn on_download_response<R: RequestState<T>>(
         &mut self,
-        id: SingleLookupId,
+        id: SingleLookupReqId,
         peer_id: PeerId,
-        response: RpcProcessingResult<R::VerifiedResponseType>,
+        response: RpcResponseResult<R::VerifiedResponseType>,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let result = self.on_download_response_inner::<R>(id, peer_id, response, cx);
-        self.on_lookup_result(id, result, "download_response", cx);
+        self.on_lookup_result(id.lookup_id, result, "download_response", cx);
     }
 
     /// Process a block or blob response received from a single lookup request.
     pub fn on_download_response_inner<R: RequestState<T>>(
         &mut self,
-        id: SingleLookupId,
+        id: SingleLookupReqId,
         peer_id: PeerId,
-        response: RpcProcessingResult<R::VerifiedResponseType>,
+        response: RpcResponseResult<R::VerifiedResponseType>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
-        // Downscore peer even if lookup is not known
-        // Only downscore lookup verify errors. RPC errors are downscored in the network handler.
-        if let Err(LookupFailure::LookupVerifyError(e)) = &response {
-            // Note: the error is displayed in full debug form on the match below
-            cx.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
-        }
+        // Note: no need to downscore peers here, already downscored on network context
 
         let response_type = R::response_type();
-        let Some(lookup) = self.single_block_lookups.get_mut(&id) else {
+        let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {
             // We don't have the ability to cancel in-flight RPC requests. So this can happen
             // if we started this RPC request, and later saw the block/blobs via gossip.
-            debug!(self.log, "Block returned for single block lookup not present"; "id" => id);
+            debug!(self.log, "Block returned for single block lookup not present"; "id" => ?id);
             return Err(LookupRequestError::UnknownLookup);
         };
 
@@ -345,7 +346,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 debug!(self.log,
                     "Received lookup download success";
                     "block_root" => ?block_root,
-                    "id" => id,
+                    "id" => ?id,
                     "peer_id" => %peer_id,
                     "response_type" => ?response_type,
                 );
@@ -353,25 +354,28 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // Register the download peer here. Once we have received some data over the wire we
                 // attribute it to this peer for scoring latter regardless of how the request was
                 // done.
-                request_state.on_download_success(DownloadResult {
-                    value: response,
-                    block_root,
-                    seen_timestamp,
-                    peer_id,
-                })?;
+                request_state.on_download_success(
+                    id.req_id,
+                    DownloadResult {
+                        value: response,
+                        block_root,
+                        seen_timestamp,
+                        peer_id,
+                    },
+                )?;
                 // continue_request will send for  processing as the request state is AwaitingProcessing
             }
             Err(e) => {
                 debug!(self.log,
                     "Received lookup download failure";
                     "block_root" => ?block_root,
-                    "id" => id,
+                    "id" => ?id,
                     "peer_id" => %peer_id,
                     "response_type" => ?response_type,
                     "error" => %e,
                 );
 
-                request_state.on_download_failure()?;
+                request_state.on_download_failure(id.req_id)?;
                 // continue_request will retry a download as the request state is AwaitingDownload
             }
         }
@@ -408,7 +412,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.on_processing_result_inner::<BlobRequestState<T::EthSpec>>(id, result, cx)
             }
         };
-        self.on_lookup_result(process_type.id(), lookup_result, "processing_result", cx);
+        let id = match process_type {
+            BlockProcessType::SingleBlock { id } | BlockProcessType::SingleBlob { id } => id,
+        };
+        self.on_lookup_result(id, lookup_result, "processing_result", cx);
     }
 
     pub fn on_processing_result_inner<R: RequestState<T>>(
@@ -450,23 +457,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // if both components have been processed.
                 request_state.on_processing_success()?;
 
-                // If this was the result of a block request, we can't determined if the block peer did anything
-                // wrong. If we already had both a block and blobs response processed, we should penalize the
-                // blobs peer because they did not provide all blobs on the initial request.
                 if lookup.both_components_processed() {
-                    if let Some(blob_peer) = lookup
-                        .blob_request_state
-                        .state
-                        .on_post_process_validation_failure()?
-                    {
-                        cx.report_peer(
-                            blob_peer,
-                            PeerAction::MidToleranceError,
-                            "sent_incomplete_blobs",
-                        );
-                    }
+                    // We don't request for other block components until being sure that the block has
+                    // data. If we request blobs / columns to a peer we are sure those must exist.
+                    // Therefore if all components are processed and we still receive `MissingComponents`
+                    // it indicates an internal bug.
+                    return Err(LookupRequestError::MissingComponentsAfterAllProcessed);
+                } else {
+                    // Continue request, potentially request blobs
+                    Action::Retry
                 }
-                Action::Retry
             }
             BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
@@ -521,6 +521,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                     other => {
                         debug!(self.log, "Invalid lookup component"; "block_root" => ?block_root, "component" => ?R::response_type(), "error" => ?other);
+
                         let peer_id = request_state.on_processing_failure()?;
                         cx.report_peer(
                             peer_id,
@@ -559,6 +560,30 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 Ok(LookupResult::Completed)
             }
         }
+    }
+
+    pub fn on_external_processing_result(
+        &mut self,
+        block_root: Hash256,
+        imported: bool,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        let Some((id, lookup)) = self
+            .single_block_lookups
+            .iter_mut()
+            .find(|(_, lookup)| lookup.is_for_block(block_root))
+        else {
+            // Ok to ignore gossip process events
+            return;
+        };
+
+        let lookup_result = if imported {
+            Ok(LookupResult::Completed)
+        } else {
+            lookup.continue_requests(cx)
+        };
+        let id = *id;
+        self.on_lookup_result(id, lookup_result, "external_processing_result", cx);
     }
 
     /// Makes progress on the immediate children of `block_root`
@@ -600,15 +625,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Common handler a lookup request error, drop it and update metrics
+    /// Returns true if the lookup is created or already exists
     fn on_lookup_result(
         &mut self,
         id: SingleLookupId,
         result: Result<LookupResult, LookupRequestError>,
         source: &str,
         cx: &mut SyncNetworkContext<T>,
-    ) {
+    ) -> bool {
         match result {
-            Ok(LookupResult::Pending) => {} // no action
+            Ok(LookupResult::Pending) => true, // no action
             Ok(LookupResult::Completed) => {
                 if let Some(lookup) = self.single_block_lookups.remove(&id) {
                     debug!(self.log, "Dropping completed lookup"; "block" => ?lookup.block_root(), "id" => id);
@@ -619,12 +645,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 } else {
                     debug!(self.log, "Attempting to drop non-existent lookup"; "id" => id);
                 }
+                false
             }
             Err(error) => {
                 debug!(self.log, "Dropping lookup on request error"; "id" => id, "source" => source, "error" => ?error);
                 metrics::inc_counter_vec(&metrics::SYNC_LOOKUP_DROPPED, &[error.into()]);
                 self.drop_lookup_and_children(id);
                 self.update_metrics();
+                false
             }
         }
     }
@@ -643,5 +671,22 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
             self.single_block_lookups.len() as i64,
         );
+    }
+
+    pub fn log_stuck_lookups(&self) {
+        let mut stuck_count = 0;
+        for lookup in self.single_block_lookups.values() {
+            if lookup.elapsed_since_created() > Duration::from_secs(LOOKUP_MAX_DURATION_SECS) {
+                debug!(self.log, "Lookup maybe stuck";
+                    // Fields id and block_root are also part of the summary. However, logging them
+                    // here allows log parsers o index them and have better search
+                    "id" => lookup.id,
+                    "block_root" => ?lookup.block_root(),
+                    "summary" => ?lookup,
+                );
+                stuck_count += 1;
+            }
+        }
+        metrics::set_gauge(&metrics::SYNC_LOOKUPS_STUCK, stuck_count);
     }
 }

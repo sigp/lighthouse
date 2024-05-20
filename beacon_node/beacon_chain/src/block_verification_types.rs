@@ -314,6 +314,26 @@ pub struct BlockImportData<E: EthSpec> {
     pub consensus_context: ConsensusContext<E>,
 }
 
+impl<E: EthSpec> BlockImportData<E> {
+    pub fn __new_for_test(
+        block_root: Hash256,
+        state: BeaconState<E>,
+        parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
+    ) -> Self {
+        Self {
+            block_root,
+            state,
+            parent_block,
+            parent_eth1_finalization_data: Eth1FinalizationData {
+                eth1_data: <_>::default(),
+                eth1_deposit_index: 0,
+            },
+            confirmed_state_roots: vec![],
+            consensus_context: ConsensusContext::new(Slot::new(0)),
+        }
+    }
+}
+
 pub type GossipVerifiedBlockContents<E> =
     (GossipVerifiedBlock<E>, Option<GossipVerifiedBlobList<E>>);
 

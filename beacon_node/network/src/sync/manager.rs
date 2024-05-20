@@ -144,6 +144,9 @@ pub enum SyncMessage<E: EthSpec> {
         process_type: BlockProcessType,
         result: BlockProcessingResult<E>,
     },
+
+    /// A block from gossip has completed processing,
+    GossipBlockProcessResult { block_root: Hash256, imported: bool },
 }
 
 /// The type of processing specified for a received block.
@@ -151,14 +154,6 @@ pub enum SyncMessage<E: EthSpec> {
 pub enum BlockProcessType {
     SingleBlock { id: Id },
     SingleBlob { id: Id },
-}
-
-impl BlockProcessType {
-    pub fn id(&self) -> Id {
-        match self {
-            BlockProcessType::SingleBlock { id } | BlockProcessType::SingleBlob { id } => *id,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -552,6 +547,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             futures::stream::iter(ee_responsiveness_watch.await).flatten()
         };
 
+        // LOOKUP_MAX_DURATION_SECS is 60 seconds. Logging every 30 seconds allows enough timely
+        // visbility while being sparse and not increasing the debug log volume in a noticeable way
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -560,6 +559,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 },
                 Some(engine_state) = check_ee_stream.next(), if check_ee => {
                     self.handle_new_execution_engine_state(engine_state);
+                }
+                _ = interval.tick() => {
+                    self.block_lookups.log_stuck_lookups();
                 }
             }
         }
@@ -637,6 +639,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => self
                 .block_lookups
                 .on_processing_result(process_type, result, &mut self.network),
+            SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported,
+            } => self.block_lookups.on_external_processing_result(
+                block_root,
+                imported,
+                &mut self.network,
+            ),
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                 ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                     self.range_sync.handle_block_process_result(
@@ -813,10 +823,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        if let Some(resp) = self.network.on_single_block_response(id, block) {
+        if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
             self.block_lookups
                 .on_download_response::<BlockRequestState<T::EthSpec>>(
-                    id.lookup_id,
+                    id,
                     peer_id,
                     resp,
                     &mut self.network,
@@ -855,10 +865,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
-        if let Some(resp) = self.network.on_single_blob_response(id, blob) {
+        if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
             self.block_lookups
                 .on_download_response::<BlobRequestState<T::EthSpec>>(
-                    id.lookup_id,
+                    id,
                     peer_id,
                     resp,
                     &mut self.network,
