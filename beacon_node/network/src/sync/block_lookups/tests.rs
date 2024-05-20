@@ -526,8 +526,10 @@ impl TestRig {
 
     fn peer_disconnected(&mut self, disconnected_peer_id: PeerId) {
         self.send_sync_message(SyncMessage::Disconnect(disconnected_peer_id));
+    }
 
-        // Return RPCErrors for all active requests of peer
+    /// Return RPCErrors for all active requests of peer
+    fn rpc_error_all_active_requests(&mut self, disconnected_peer_id: PeerId) {
         self.drain_network_rx();
         while let Ok(request_id) = self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
@@ -1265,13 +1267,25 @@ fn test_parent_lookup_too_deep() {
 }
 
 #[test]
-fn test_parent_lookup_disconnection_no_peers_left() {
+fn test_lookup_peer_disconnected_no_peers_left_while_request() {
     let mut rig = TestRig::test_setup();
     let peer_id = rig.new_connected_peer();
     let trigger_block = rig.rand_block();
     rig.trigger_unknown_parent_block(peer_id, trigger_block.into());
-
     rig.peer_disconnected(peer_id);
+    rig.rpc_error_all_active_requests(peer_id);
+    rig.expect_no_active_lookups();
+}
+
+#[test]
+fn test_lookup_peer_disconnected_no_peers_left_not_while_request() {
+    let mut rig = TestRig::test_setup();
+    let peer_id = rig.new_connected_peer();
+    let trigger_block = rig.rand_block();
+    rig.trigger_unknown_parent_block(peer_id, trigger_block.into());
+    rig.peer_disconnected(peer_id);
+    // Note: this test case may be removed in the future. It's not strictly necessary to drop a
+    // lookup if there are no peers left. Lookup should only be dropped if it can not make progress
     rig.expect_no_active_lookups();
 }
 
@@ -1279,13 +1293,15 @@ fn test_parent_lookup_disconnection_no_peers_left() {
 fn test_lookup_disconnection_peer_left() {
     let mut rig = TestRig::test_setup();
     let peer_ids = (0..2).map(|_| rig.new_connected_peer()).collect::<Vec<_>>();
+    let disconnecting_peer = *peer_ids.first().unwrap();
     let block_root = Hash256::random();
     // lookup should have two peers associated with the same block
     for peer_id in peer_ids.iter() {
         rig.trigger_unknown_block_from_attestation(block_root, *peer_id);
     }
     // Disconnect the first peer only, which is the one handling the request
-    rig.peer_disconnected(*peer_ids.first().unwrap());
+    rig.peer_disconnected(disconnecting_peer);
+    rig.rpc_error_all_active_requests(disconnecting_peer);
     rig.assert_single_lookups_count(1);
 }
 
