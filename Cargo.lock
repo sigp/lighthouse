@@ -4888,7 +4888,6 @@ dependencies = [
 name = "lighthouse_metrics"
 version = "0.2.0"
 dependencies = [
- "lazy_static",
  "prometheus",
 ]
 
