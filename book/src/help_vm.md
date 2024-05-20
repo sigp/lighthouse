@@ -123,4 +123,5 @@ Flags:
           contain sensitive information about your validator and so this flag
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
-```<style> .content main {max-width:88%;} </style>
+```
+<style> .content main {max-width:88%;} </style>
