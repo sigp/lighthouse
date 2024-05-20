@@ -7562,9 +7562,7 @@ version = "0.2.0"
 dependencies = [
  "clap",
  "env_logger 0.9.3",
- "eth1",
  "eth2_network_config",
- "ethereum-types 0.14.1",
  "execution_layer",
  "futures",
  "node_test_rig",
@@ -7572,7 +7570,6 @@ dependencies = [
  "rayon",
  "sensitive_url",
  "serde_json",
- "ssz_types",
  "tokio",
  "types",
 ]
