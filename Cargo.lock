@@ -8108,7 +8108,6 @@ dependencies = [
  "lighthouse_network",
  "parking_lot 0.12.2",
  "serde",
- "serde_json",
  "sysinfo",
  "types",
 ]
