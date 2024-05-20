@@ -7894,7 +7894,6 @@ name = "store"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
- "bls",
  "db-key",
  "directory",
  "ethereum_ssz",
@@ -7903,14 +7902,11 @@ dependencies = [
  "lazy_static",
  "leveldb",
  "lighthouse_metrics",
- "logging",
  "lru",
  "parking_lot 0.12.2",
- "safe_arith",
  "serde",
  "slog",
  "sloggers",
- "smallvec",
  "state_processing",
  "strum",
  "tempfile",
