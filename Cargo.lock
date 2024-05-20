@@ -7606,7 +7606,6 @@ dependencies = [
  "safe_arith",
  "serde",
  "slog",
- "sloggers",
  "strum",
  "tempfile",
  "tree_hash",
