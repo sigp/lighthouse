@@ -191,7 +191,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         .iter()
                         .find(|(_, l)| l.block_root() == block_to_drop)
                     {
-                        for &peer_id in lookup.all_used_peers() {
+                        for &peer_id in lookup.all_peers() {
                             cx.report_peer(
                                 peer_id,
                                 PeerAction::LowToleranceError,
@@ -387,8 +387,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
         self.single_block_lookups.retain(|_, lookup| {
-            if lookup.remove_peer(peer_id) {
-                debug!(self.log, "Dropping single lookup after peer disconnection"; "block_root" => ?lookup.block_root());
+            lookup.remove_peer(peer_id);
+
+            // Note: this condition should be removed in the future. It's not strictly necessary to drop a
+            // lookup if there are no peers left. Lookup should only be dropped if it can not make progress
+            if lookup.has_no_peers() {
+                debug!(self.log,
+                    "Dropping single lookup after peer disconnection";
+                    "block_root" => ?lookup.block_root()
+                );
                 false
             } else {
                 true
@@ -545,7 +552,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 lookup.continue_requests(cx)
             }
             Action::ParentUnknown { parent_root } => {
-                let peers = lookup.all_available_peers().cloned().collect::<Vec<_>>();
+                let peers = lookup.all_peers().copied().collect::<Vec<_>>();
                 lookup.set_awaiting_parent(parent_root);
                 debug!(self.log, "Marking lookup as awaiting parent"; "id" => lookup.id, "block_root" => ?block_root, "parent_root" => ?parent_root);
                 self.search_parent_of_child(parent_root, block_root, &peers, cx);
