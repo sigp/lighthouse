@@ -5026,7 +5026,6 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "slog-async",
  "slog-term",
  "sloggers",
  "take_mut",
