@@ -1327,12 +1327,9 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
- "logging",
  "monitoring_api",
  "network",
- "num_cpus",
  "operation_pool",
- "parking_lot 0.12.2",
  "sensitive_url",
  "serde",
  "serde_yaml",
@@ -1346,7 +1343,6 @@ dependencies = [
  "time",
  "timer",
  "tokio",
- "tree_hash",
  "types",
 ]
 
