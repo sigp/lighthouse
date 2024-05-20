@@ -9044,12 +9044,10 @@ name = "validator_manager"
 version = "0.1.0"
 dependencies = [
  "account_utils",
- "bls",
  "clap",
  "clap_utils",
  "environment",
  "eth2",
- "eth2_keystore",
  "eth2_network_config",
  "eth2_wallet",
  "ethereum_serde_utils",
