@@ -842,11 +842,8 @@ dependencies = [
 name = "beacon_processor"
 version = "0.1.0"
 dependencies = [
- "derivative",
- "ethereum_ssz",
  "fnv",
  "futures",
- "hex",
  "itertools",
  "lazy_static",
  "lighthouse_metrics",
