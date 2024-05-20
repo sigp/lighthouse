@@ -2374,7 +2374,6 @@ dependencies = [
  "libsecp256k1",
  "lighthouse_network",
  "mediatype",
- "mime",
  "pretty_reqwest_error",
  "procfs",
  "proto_array",
@@ -2388,7 +2387,6 @@ dependencies = [
  "ssz_types",
  "store",
  "tokio",
- "tree_hash",
  "types",
 ]
 
