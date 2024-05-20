@@ -1780,12 +1780,9 @@ dependencies = [
  "clap_utils",
  "environment",
  "hex",
- "logging",
  "slog",
- "sloggers",
  "store",
  "strum",
- "tempfile",
  "types",
 ]
 
