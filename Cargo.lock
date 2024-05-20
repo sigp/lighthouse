@@ -2790,7 +2790,6 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "deposit_contract",
- "environment",
  "ethers-core",
  "ethers-providers",
  "execution_layer",
