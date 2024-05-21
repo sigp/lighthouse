@@ -493,12 +493,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
             let current_slot_opt = duties_service.slot_clock.now();
 
             if let Some(current_slot) = current_slot_opt {
-                let is_first_slot_of_epoch = {
-                    let current_epoch_first_slot = current_slot
-                        .epoch(E::slots_per_epoch())
-                        .start_slot(E::slots_per_epoch());
-                    current_slot == current_epoch_first_slot
-                };
+               let is_first_slot_of_epoch = current_slot % E::slots_per_epoch() == 0;
 
                 // Query an unknown validator later if it was queried within the last epoch, or if
                 // the current slot is the first slot of an epoch.
