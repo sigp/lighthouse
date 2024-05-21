@@ -3,6 +3,7 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
+use crate::versioned_hashes::BlobTransactionId;
 use lazy_static::lazy_static;
 use lighthouse_version::{COMMIT_PREFIX, VERSION};
 use reqwest::header::CONTENT_TYPE;
@@ -56,6 +57,9 @@ pub const ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT: Duration = Duration::from_secs(1
 pub const ENGINE_GET_CLIENT_VERSION_V1: &str = "engine_getClientVersionV1";
 pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
 
+pub const ENGINE_GET_BLOBS_V1: &str = "engine_getBlobsV1";
+pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
 /// This code is returned by all clients when a method is not supported
@@ -75,6 +79,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_GET_CLIENT_VERSION_V1,
+    ENGINE_GET_BLOBS_V1,
 ];
 
 lazy_static! {
@@ -700,6 +705,20 @@ impl HttpJsonRpc {
             Some(false) => Ok(()),
             _ => Err(Error::IsSyncing),
         }
+    }
+
+    pub async fn get_blobs<E: EthSpec>(
+        &self,
+        blob_ids: Vec<BlobTransactionId>,
+    ) -> Result<GetBlobsResponse<E>, Error> {
+        let params = json!([blob_ids]);
+
+        self.rpc_request(
+            ENGINE_GET_BLOBS_V1,
+            params,
+            ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
     }
 
     pub async fn get_block_by_number<'a>(

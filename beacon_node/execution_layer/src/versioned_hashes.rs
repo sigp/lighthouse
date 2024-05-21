@@ -1,8 +1,8 @@
-extern crate alloy_consensus;
-extern crate alloy_rlp;
 use alloy_consensus::TxEnvelope;
 use alloy_rlp::Decodable;
-use types::{EthSpec, ExecutionPayloadRef, Hash256, Unsigned, VersionedHash};
+use alloy_rlp::Encodable;
+use serde::{Deserialize, Serialize};
+use types::{Address, EthSpec, ExecutionPayloadRef, Hash256, Unsigned, VersionedHash};
 
 #[derive(Debug)]
 pub enum Error {
@@ -44,26 +44,61 @@ pub fn extract_versioned_hashes_from_transactions<E: EthSpec>(
     let mut versioned_hashes = Vec::new();
 
     for tx in transactions {
-        match beacon_tx_to_tx_envelope(tx)? {
-            TxEnvelope::Eip4844(signed_tx_eip4844) => {
-                versioned_hashes.extend(
-                    signed_tx_eip4844
-                        .tx()
-                        .blob_versioned_hashes
-                        .iter()
-                        .map(|fb| Hash256::from(fb.0)),
-                );
-            }
-            // enumerating all variants explicitly to make pattern irrefutable
-            // in case new types are added in the future which also have blobs
-            TxEnvelope::Legacy(_)
-            | TxEnvelope::TaggedLegacy(_)
-            | TxEnvelope::Eip2930(_)
-            | TxEnvelope::Eip1559(_) => {}
+        if let TxEnvelope::Eip4844(signed_tx_eip4844) = beacon_tx_to_tx_envelope(tx)? {
+            versioned_hashes.extend(
+                signed_tx_eip4844
+                    .tx()
+                    .tx()
+                    .blob_versioned_hashes
+                    .iter()
+                    .map(|fb| Hash256::from(fb.0)),
+            );
         }
     }
 
     Ok(versioned_hashes)
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct BlobTransactionId {
+    // TODO: use transaction hash instead
+    sender: Address,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    nonce: u64,
+    versioned_hashes: Vec<VersionedHash>,
+}
+
+pub fn extract_blob_transaction_ids<E: EthSpec>(
+    transactions: &types::Transactions<E>,
+) -> Result<Vec<BlobTransactionId>, Error> {
+    let mut transaction_ids = vec![];
+
+    for tx in transactions {
+        if let TxEnvelope::Eip4844(signed_tx_eip4844) = beacon_tx_to_tx_envelope(tx)? {
+            let signature = signed_tx_eip4844.signature();
+            let mut signature_bytes = vec![];
+            signature.encode(&mut signature_bytes);
+            let sender = reth_primitives::transaction::Signature::decode(&mut &signature_bytes[..])
+                .expect("valid signature bytes")
+                .recover_signer(signed_tx_eip4844.signature_hash())
+                .expect("recover signer");
+            let nonce = signed_tx_eip4844.tx().tx().nonce;
+            let versioned_hashes = signed_tx_eip4844
+                .tx()
+                .tx()
+                .blob_versioned_hashes
+                .iter()
+                .map(|fb| Hash256::from(fb.0))
+                .collect();
+            transaction_ids.push(BlobTransactionId {
+                sender: Address::from_slice(&sender.into_array()),
+                nonce,
+                versioned_hashes,
+            });
+        }
+    }
+
+    Ok(transaction_ids)
 }
 
 pub fn beacon_tx_to_tx_envelope<N: Unsigned>(
@@ -78,7 +113,8 @@ pub fn beacon_tx_to_tx_envelope<N: Unsigned>(
 mod test {
     use super::*;
     use crate::test_utils::static_valid_tx;
-    use alloy_consensus::{TxKind, TxLegacy};
+    use alloy_consensus::TxLegacy;
+    use reth_primitives::alloy_primitives::TxKind;
 
     type E = types::MainnetEthSpec;
 
