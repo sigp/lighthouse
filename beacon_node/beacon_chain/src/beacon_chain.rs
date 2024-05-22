@@ -2550,14 +2550,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .observed_bls_to_execution_changes
             .lock()
             .verify_and_observe(bls_to_execution_change, head_state, &self.spec)?)
-
-            if let Some(event_handler) = self.event_handler.as_ref() {
-                if event_handler.has_bls_to_execution_change_subscribers() {
-                    event_handler.register(EventKind::BlsToExecutionChange(Box::new(
-                        Blt_To_Execution_Change.clone().into_inner(),
-                    )));
-                }
-            }
     }
 
     /// Verify a signed BLS to execution change before allowing it to propagate on the gossip network.
