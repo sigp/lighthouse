@@ -1082,7 +1082,7 @@ pub enum EventKind<E: EthSpec> {
     PayloadAttributes(VersionedSsePayloadAttributes),
     ProposerSlashing(Box<ProposerSlashing>),
     AttesterSlashing(Box<AttesterSlashing<E>>),
-    BlsToExecutionChange(Box<BlsToExecutionChange>),
+    BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
 }
 
 impl<E: EthSpec> EventKind<E> {
