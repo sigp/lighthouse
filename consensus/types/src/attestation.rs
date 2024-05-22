@@ -1,6 +1,7 @@
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, Hash256, Slot};
 use derivative::Derivative;
+use rand::RngCore;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
@@ -91,6 +92,23 @@ impl<E: EthSpec> Decode for Attestation<E> {
         Err(ssz::DecodeError::BytesInvalid(String::from(
             "bytes not valid for any fork variant",
         )))
+    }
+}
+
+// TODO(electra): think about how to handle fork variants here
+impl<E: EthSpec> TestRandom for Attestation<E> {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        let aggregation_bits = BitList::random_for_test(rng);
+        let data = AttestationData::random_for_test(rng);
+        let signature = AggregateSignature::random_for_test(rng);
+        let committee_bits = BitVector::random_for_test(rng);
+
+        Self::Electra(AttestationElectra {
+            aggregation_bits,
+            committee_bits,
+            data,
+            signature,
+        })
     }
 }
 

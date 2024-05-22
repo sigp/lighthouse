@@ -510,7 +510,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             });
         }
 
-<<<<<<< HEAD
         let observed_attestation_key_root = ObservedAttestationKey {
             committee_index: attestation.committee_index(),
             attestation_data: attestation.data().clone(),
@@ -519,14 +518,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
 
         // [New in Electra:EIP7549]
         verify_committee_index(attestation, &chain.spec)?;
-=======
-        // [New in Electra:EIP7549]
-        verify_committee_index(attestation, &chain.spec)?;
-
-        // Ensure the valid aggregated attestation has not already been seen locally.
-        let attestation_data = attestation.data();
-        let attestation_data_root = attestation_data.tree_hash_root();
->>>>>>> f5eb33d54 (add new gossip conditions)
 
         if chain
             .observed_attestations

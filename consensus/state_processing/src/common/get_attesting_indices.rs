@@ -53,7 +53,7 @@ pub mod attesting_indices_electra {
 
     // TODO(electra) remove duplicate code
     // get_indexed_attestation is almost an exact duplicate
-    // the only differences are the invalid selection proof 
+    // the only differences are the invalid selection proof
     // and aggregator not in committee checks
     pub fn get_indexed_attestation_from_signed_aggregate<E: EthSpec>(
         committees: &[BeaconCommittee],
