@@ -16,9 +16,8 @@ use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
 use types::ForkName;
 use types::{
-    attestation::AttestationBase, Ablock_gossip_verificationggregateSignature, Attestation,
-    AttestationData, AttestationElectra, BitList, BitVector, ChainSpec, CommitteeIndex, EthSpec,
-    Slot,
+    attestation::AttestationBase, AggregateSignature, Attestation, AttestationData,
+    AttestationElectra, BitList, BitVector, ChainSpec, CommitteeIndex, EthSpec, Slot,
 };
 
 /// Builds an `AttestationService`.
