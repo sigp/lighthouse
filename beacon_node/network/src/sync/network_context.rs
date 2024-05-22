@@ -9,8 +9,7 @@ pub use self::requests::DataColumnsByRootSingleBlockRequest;
 use self::requests::{ActiveBlobsByRootRequest, ActiveBlocksByRootRequest};
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::{
-    BlockProcessType, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
-    RequestId as SyncRequestId,
+    BlockProcessType, DataColumnsByRootRequester, Id, RequestId as SyncRequestId,
 };
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
@@ -63,6 +62,11 @@ pub enum RangeRequestId {
         batch_id: BatchId,
     },
 }
+
+/// Request ID for data_columns_by_root requests. Block lookup do not issue this requests directly.
+/// Wrapping this particular req_id, ensures not mixing this requests with a custody req_id.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct DataColumnsByRootRequestId(Id);
 
 #[derive(Debug)]
 pub enum RpcEvent<T> {
@@ -139,10 +143,10 @@ impl PeerGroup {
 /// Sequential ID that uniquely identifies ReqResp outgoing requests
 pub type ReqId = u32;
 
-pub enum LookupRequestResult {
+pub enum LookupRequestResult<R = ReqId> {
     /// A request is sent. Sync MUST receive an event from the network in the future for either:
     /// completed response or failed request
-    RequestSent(ReqId),
+    RequestSent(R),
     /// No request is sent, and no further action is necessary to consider this request completed
     NoRequestNeeded,
     /// No request is sent, but the request is not completed. Sync MUST receive some future event
@@ -598,8 +602,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         requester: DataColumnsByRootRequester,
         peer_id: PeerId,
         request: DataColumnsByRootSingleBlockRequest,
-    ) -> Result<LookupRequestResult, &'static str> {
-        let req_id = self.next_id();
+    ) -> Result<LookupRequestResult<DataColumnsByRootRequestId>, &'static str> {
+        let req_id = DataColumnsByRootRequestId(self.next_id());
         debug!(
             self.log,
             "Sending DataColumnsByRoot Request";
@@ -608,18 +612,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "indices" => ?request.indices,
             "peer" => %peer_id,
             "requester" => ?requester,
-            "id" => req_id,
+            "req_id" => %req_id,
         );
-        let id = DataColumnsByRootRequestId { requester, req_id };
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: Request::DataColumnsByRoot(request.clone().into_request(&self.chain.spec)),
-            request_id: RequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
+            request_id: RequestId::Sync(SyncRequestId::DataColumnsByRoot(req_id, requester)),
         })?;
 
         self.data_columns_by_root_requests
-            .insert(id, ActiveDataColumnsByRootRequest::new(request));
+            .insert(req_id, ActiveDataColumnsByRootRequest::new(request));
 
         Ok(LookupRequestResult::RequestSent(req_id))
     }
@@ -947,10 +950,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: DataColumnsByRootRequestId,
         peer_id: PeerId,
         item: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
-    ) -> Option<(
-        DataColumnsByRootRequestId,
-        RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
-    )> {
+    ) -> Option<RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>> {
         let Entry::Occupied(mut request) = self.data_columns_by_root_requests.entry(id) else {
             return None;
         };
@@ -981,7 +981,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         if let Err(ref e) = resp {
             self.on_lookup_failure(peer_id, e);
         }
-        Some((id, resp))
+        Some(resp)
     }
 
     /// Insert a downloaded column into an active custody request. Then make progress on the
@@ -995,7 +995,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn on_custody_by_root_response(
         &mut self,
         id: CustodyId,
-        req_id: ReqId,
+        req_id: DataColumnsByRootRequestId,
         peer_id: PeerId,
         resp: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
     ) -> Option<Result<(Vec<CustodyDataColumn<T::EthSpec>>, PeerGroup), RpcResponseError>> {
@@ -1139,4 +1139,10 @@ fn to_fixed_blob_sidecar_list<E: EthSpec>(
             .ok_or(LookupVerifyError::UnrequestedBlobIndex(index as u64))? = Some(blob)
     }
     Ok(fixed_list)
+}
+
+impl std::fmt::Display for DataColumnsByRootRequestId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }

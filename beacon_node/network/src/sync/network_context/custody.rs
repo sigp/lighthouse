@@ -1,5 +1,7 @@
 use crate::sync::manager::{DataColumnsByRootRequester, SingleLookupReqId};
-use crate::sync::network_context::DataColumnsByRootSingleBlockRequest;
+use crate::sync::network_context::{
+    DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
+};
 
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::BeaconChainTypes;
@@ -32,7 +34,8 @@ pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     /// List of column indices this request needs to download to complete successfully
     column_requests: FnvHashMap<ColumnIndex, ColumnRequest<T::EthSpec>>,
     /// Active requests for 1 or more columns each
-    active_batch_columns_requests: FnvHashMap<ReqId, ActiveBatchColumnsRequest>,
+    active_batch_columns_requests:
+        FnvHashMap<DataColumnsByRootRequestId, ActiveBatchColumnsRequest>,
     /// Logger for the `SyncNetworkContext`.
     pub log: slog::Logger,
     _phantom: PhantomData<T>,
@@ -44,6 +47,13 @@ pub enum Error {
     TooManyFailures,
     BadState(String),
     NoPeers(ColumnIndex),
+    /// Received a download result for a different request id than the in-flight request.
+    /// There should only exist a single request at a time. Having multiple requests is a bug and
+    /// can result in undefined state, so it's treated as a hard error and the lookup is dropped.
+    UnexpectedRequestId {
+        expected_req_id: DataColumnsByRootRequestId,
+        req_id: DataColumnsByRootRequestId,
+    },
 }
 
 struct ActiveBatchColumnsRequest {
@@ -86,7 +96,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn on_data_column_downloaded(
         &mut self,
         peer_id: PeerId,
-        req_id: ReqId,
+        req_id: DataColumnsByRootRequestId,
         resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
@@ -97,7 +107,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 "Received custody column response for unrequested index";
                 "id" => ?self.custody_id,
                 "block_root" => ?self.block_root,
-                "req_id" => req_id,
+                "req_id" => %req_id,
             );
             return Ok(None);
         };
@@ -108,13 +118,17 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     "Custody column download success";
                     "id" => ?self.custody_id,
                     "block_root" => ?self.block_root,
-                    "req_id" => req_id,
+                    "req_id" => %req_id,
                     "count" => data_columns.len()
                 );
 
+                // Map columns by index as an optimization to not loop the returned list on each
+                // requested index. The worse case is 128 loops over a 128 item vec + mutation to
+                // drop the consumed columns.
                 let mut data_columns = HashMap::<ColumnIndex, _>::from_iter(
                     data_columns.into_iter().map(|d| (d.index, d)),
                 );
+                // Accumulate columns that the peer does not have to issue a single log per request
                 let mut missing_column_indexes = vec![];
 
                 for column_index in &batch_request.indices {
@@ -124,17 +138,20 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         .ok_or(Error::BadState("unknown column_index".to_owned()))?;
 
                     if let Some(data_column) = data_columns.remove(column_index) {
-                        // If on_download_success is successful, we are expecting a columns for this
-                        // custody requirement.
                         column_request.on_download_success(
+                            req_id,
                             peer_id,
+                            // Safe to cast, self.column_requests only contains indexes for columns we must custody
                             CustodyDataColumn::from_asserted_custody(data_column),
                         )?;
                     } else {
+                        // Peer does not have the requested data.
                         // TODO(das) do not consider this case a success. We know for sure the block has
                         // data. However we allow the peer to return empty as we can't attribute fault.
-                        column_request.on_dont_have_data()?;
-                        // TODO: Should track which columns are missing and eventually give up
+                        // TODO(das): Should track which columns are missing and eventually give up
+                        // TODO(das): If the peer is in the lookup peer set it claims to have imported
+                        // the block AND its custody columns. So in this case we can downscore
+                        column_request.on_download_error(req_id)?;
                         missing_column_indexes.push(column_index);
                     }
                 }
@@ -143,18 +160,14 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 // successful responses only contain requested data.
 
                 if !missing_column_indexes.is_empty() {
-                    // Peer does not have the requested data.
                     // Note: Batch logging that columns are missing to not spam logger
-                    // TODO(das) what to do?
-                    // TODO(das): If the peer is in the lookup peer set it claims to have imported
-                    // the block AND its custody columns. So in this case we can downscore
                     debug!(self.log,
                         "Custody column peer claims to not have some data";
                         "id" => ?self.custody_id,
                         "block_root" => ?self.block_root,
                         // TODO(das): this property can become very noisy, being the full range 0..128
                         "missing_column_indexes" => ?missing_column_indexes,
-                        "req_id" => req_id,
+                        "req_id" => %req_id,
                     );
                 }
             }
@@ -163,17 +176,16 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     "Custody column download error";
                     "id" => ?self.custody_id,
                     "block_root" => ?self.block_root,
-                    "req_id" => req_id,
+                    "req_id" => %req_id,
                     "error" => ?err
                 );
 
-                // Error downloading, maybe penalize peer and retry again.
-                // TODO(das) with different peer or different peer?
+                // TODO(das): Should mark peer as failed and try from another peer
                 for column_index in &batch_request.indices {
                     self.column_requests
                         .get_mut(column_index)
                         .ok_or(Error::BadState("unknown column_index".to_owned()))?
-                        .on_download_error()?;
+                        .on_download_error_and_mark_failure(req_id)?;
                 }
             }
         };
@@ -213,6 +225,10 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
         for (column_index, request) in self.column_requests.iter_mut() {
             if request.is_awaiting_download() {
+                if request.download_failures > MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS {
+                    return Err(Error::TooManyFailures);
+                }
+
                 // TODO: When is a fork and only a subset of your peers know about a block, sampling should only
                 // be queried on the peers on that fork. Should this case be handled? How to handle it?
                 let peer_ids = cx.get_custodial_peers(self.block_epoch, *column_index);
@@ -278,7 +294,7 @@ struct ColumnRequest<E: EthSpec> {
 #[derive(Debug, Clone)]
 enum Status<E: EthSpec> {
     NotStarted,
-    Downloading(ReqId),
+    Downloading(DataColumnsByRootRequestId),
     Downloaded(PeerId, CustodyDataColumn<E>),
 }
 
@@ -304,8 +320,8 @@ impl<E: EthSpec> ColumnRequest<E> {
         }
     }
 
-    fn on_download_start(&mut self, req_id: ReqId) -> Result<(), Error> {
-        match self.status.clone() {
+    fn on_download_start(&mut self, req_id: DataColumnsByRootRequestId) -> Result<(), Error> {
+        match &self.status {
             Status::NotStarted => {
                 self.status = Status::Downloading(req_id);
                 Ok(())
@@ -316,36 +332,52 @@ impl<E: EthSpec> ColumnRequest<E> {
         }
     }
 
-    fn on_download_error(&mut self) -> Result<(), Error> {
-        match self.status.clone() {
-            Status::Downloading(_) => {
-                self.download_failures += 1;
+    fn on_download_error(&mut self, req_id: DataColumnsByRootRequestId) -> Result<(), Error> {
+        match &self.status {
+            Status::Downloading(expected_req_id) => {
+                if req_id != *expected_req_id {
+                    return Err(Error::UnexpectedRequestId {
+                        expected_req_id: *expected_req_id,
+                        req_id,
+                    });
+                }
                 self.status = Status::NotStarted;
                 Ok(())
             }
             other => Err(Error::BadState(format!(
-                "bad state on_sampling_error expected Sampling got {other:?}"
+                "bad state on_download_error expected Sampling got {other:?}"
             ))),
         }
     }
 
-    fn on_dont_have_data(&mut self) -> Result<(), Error> {
+    fn on_download_error_and_mark_failure(
+        &mut self,
+        req_id: DataColumnsByRootRequestId,
+    ) -> Result<(), Error> {
         // TODO(das): Should track which peers don't have data
-        self.on_download_error()
+        self.download_failures += 1;
+        self.on_download_error(req_id)
     }
 
     fn on_download_success(
         &mut self,
+        req_id: DataColumnsByRootRequestId,
         peer_id: PeerId,
         data_column: CustodyDataColumn<E>,
     ) -> Result<(), Error> {
         match &self.status {
-            Status::Downloading(_) => {
+            Status::Downloading(expected_req_id) => {
+                if req_id != *expected_req_id {
+                    return Err(Error::UnexpectedRequestId {
+                        expected_req_id: *expected_req_id,
+                        req_id,
+                    });
+                }
                 self.status = Status::Downloaded(peer_id, data_column);
                 Ok(())
             }
             other => Err(Error::BadState(format!(
-                "bad state on_sampling_success expected Sampling got {other:?}"
+                "bad state on_download_success expected Sampling got {other:?}"
             ))),
         }
     }

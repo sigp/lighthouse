@@ -36,7 +36,8 @@
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
 use super::network_context::{
-    BlockOrBlob, CustodyId, RangeRequestId, RpcEvent, SyncNetworkContext,
+    BlockOrBlob, CustodyId, DataColumnsByRootRequestId, RangeRequestId, RpcEvent,
+    SyncNetworkContext,
 };
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -92,18 +93,9 @@ pub enum RequestId {
     /// Request searching for a set of blobs given a hash.
     SingleBlob { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
-    DataColumnsByRoot(DataColumnsByRootRequestId),
+    DataColumnsByRoot(DataColumnsByRootRequestId, DataColumnsByRootRequester),
     /// Range request that is composed by both a block range request and a blob range request.
     RangeBlockComponents(Id),
-}
-
-// TODO(das): Make
-// struct DataColumnsByRootRequestId(id);
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct DataColumnsByRootRequestId {
-    pub requester: DataColumnsByRootRequester,
-    pub req_id: Id,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -401,9 +393,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlob { id } => {
                 self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            RequestId::DataColumnsByRoot(id) => {
-                self.on_single_data_column_response(id, peer_id, RpcEvent::RPCError(error))
-            }
+            RequestId::DataColumnsByRoot(req_id, requester) => self.on_single_data_column_response(
+                req_id,
+                requester,
+                peer_id,
+                RpcEvent::RPCError(error),
+            ),
             RequestId::RangeBlockComponents(id) => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
                     match sender_id {
@@ -978,9 +973,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { .. } | RequestId::SingleBlob { .. } => {
                 crit!(self.log, "bad request id for data_column"; "peer_id" => %peer_id  );
             }
-            RequestId::DataColumnsByRoot(id) => {
+            RequestId::DataColumnsByRoot(req_id, requester) => {
                 self.on_single_data_column_response(
-                    id,
+                    req_id,
+                    requester,
                     peer_id,
                     match data_column {
                         Some(data_column) => RpcEvent::Response(data_column, seen_timestamp),
@@ -1018,15 +1014,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn on_single_data_column_response(
         &mut self,
-        id: DataColumnsByRootRequestId,
+        req_id: DataColumnsByRootRequestId,
+        requester: DataColumnsByRootRequester,
         peer_id: PeerId,
         data_column: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        if let Some((id, resp)) =
+        if let Some(resp) =
             self.network
-                .on_data_columns_by_root_response(id, peer_id, data_column)
+                .on_data_columns_by_root_response(req_id, peer_id, data_column)
         {
-            match id.requester {
+            match requester {
                 DataColumnsByRootRequester::Sampling(id) => {
                     if let Some((requester, result)) =
                         self.sampling
@@ -1038,7 +1035,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 DataColumnsByRootRequester::Custody(custody_id) => {
                     if let Some(custody_columns) = self
                         .network
-                        .on_custody_by_root_response(custody_id, id.req_id, peer_id, resp)
+                        .on_custody_by_root_response(custody_id, req_id, peer_id, resp)
                     {
                         // TODO(das): get proper timestamp
                         let seen_timestamp = timestamp_now();

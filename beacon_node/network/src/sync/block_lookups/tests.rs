@@ -1,9 +1,7 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
-
 use crate::service::RequestId;
 use crate::sync::manager::{
-    DataColumnsByRootRequestId, DataColumnsByRootRequester, RequestId as SyncRequestId,
-    SingleLookupReqId, SyncManager,
+    DataColumnsByRootRequester, RequestId as SyncRequestId, SingleLookupReqId, SyncManager,
 };
 use crate::sync::sampling::{SamplingConfig, SamplingRequester};
 use crate::sync::{SamplingId, SyncMessage};
@@ -94,7 +92,8 @@ const D: Duration = Duration::new(0, 0);
 const PARENT_FAIL_TOLERANCE: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
 const SAMPLING_REQUIRED_SUCCESSES: usize = 2;
 
-type SamplingIds = Vec<(DataColumnsByRootRequestId, ColumnIndex)>;
+type DCByRootIds = Vec<DCByRootId>;
+type DCByRootId = (SyncRequestId, ColumnIndex);
 
 struct TestRigConfig {
     peer_das_enabled: bool,
@@ -609,18 +608,18 @@ impl TestRig {
         })
     }
 
-    fn return_empty_sampling_requests(&mut self, sampling_ids: SamplingIds) {
-        for (id, column_index) in sampling_ids {
-            self.log(&format!("return empty data column for {column_index}"));
+    fn return_empty_sampling_requests(&mut self, ids: DCByRootIds) {
+        for id in ids {
+            self.log(&format!("return empty data column for {id:?}"));
             self.return_empty_sampling_request(id)
         }
     }
 
-    fn return_empty_sampling_request(&mut self, id: DataColumnsByRootRequestId) {
+    fn return_empty_sampling_request(&mut self, (request_id, _): DCByRootId) {
         let peer_id = PeerId::random();
         // Send stream termination
         self.send_sync_message(SyncMessage::RpcDataColumn {
-            request_id: SyncRequestId::DataColumnsByRoot(id),
+            request_id,
             peer_id,
             data_column: None,
             seen_timestamp: timestamp_now(),
@@ -655,21 +654,19 @@ impl TestRig {
 
     fn complete_valid_sampling_column_requests(
         &mut self,
-        sampling_ids: SamplingIds,
+        ids: DCByRootIds,
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
     ) {
-        for (id, column_index) in sampling_ids {
-            self.log(&format!("return valid data column for {column_index}"));
-            self.complete_valid_sampling_column_request(
-                id,
-                data_columns[column_index as usize].clone(),
-            );
+        for id in ids {
+            self.log(&format!("return valid data column for {id:?}"));
+            let column_index = id.1 as usize;
+            self.complete_valid_sampling_column_request(id, data_columns[column_index].clone());
         }
     }
 
     fn complete_valid_sampling_column_request(
         &mut self,
-        id: DataColumnsByRootRequestId,
+        id: DCByRootId,
         data_column: Arc<DataColumnSidecar<E>>,
     ) {
         let block_root = data_column.block_root();
@@ -692,24 +689,25 @@ impl TestRig {
 
     fn complete_valid_custody_request(
         &mut self,
-        sampling_ids: SamplingIds,
+        ids: DCByRootIds,
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         missing_components: bool,
     ) {
-        let lookup_id = if let DataColumnsByRootRequester::Custody(id) =
-            sampling_ids.first().unwrap().0.requester
-        {
-            id.requester.0.lookup_id
-        } else {
-            panic!("not a custody requester")
-        };
+        let lookup_id =
+            if let SyncRequestId::DataColumnsByRoot(_, DataColumnsByRootRequester::Custody(id)) =
+                ids.first().unwrap().0
+            {
+                id.requester.0.lookup_id
+            } else {
+                panic!("not a custody requester")
+            };
 
         let first_column = data_columns.first().cloned().unwrap();
 
-        for (id, column_index) in sampling_ids {
+        for id in ids {
+            let column_index = id.1 as usize;
             self.log(&format!("return valid data column for {column_index}"));
-
-            let data_column = data_columns[column_index as usize].clone();
+            let data_column = data_columns[column_index].clone();
             self.complete_data_columns_by_root_request(id, data_column);
         }
 
@@ -735,20 +733,20 @@ impl TestRig {
 
     fn complete_data_columns_by_root_request(
         &mut self,
-        id: DataColumnsByRootRequestId,
+        (request_id, _): DCByRootId,
         data_column: Arc<DataColumnSidecar<E>>,
     ) {
         let peer_id = PeerId::random();
         // Send chunk
         self.send_sync_message(SyncMessage::RpcDataColumn {
-            request_id: SyncRequestId::DataColumnsByRoot(id),
+            request_id,
             peer_id,
             data_column: Some(data_column),
             seen_timestamp: timestamp_now(),
         });
         // Send stream termination
         self.send_sync_message(SyncMessage::RpcDataColumn {
-            request_id: SyncRequestId::DataColumnsByRoot(id),
+            request_id,
             peer_id,
             data_column: None,
             seen_timestamp: timestamp_now(),
@@ -925,14 +923,14 @@ impl TestRig {
         &mut self,
         for_block: Hash256,
         count: usize,
-    ) -> SamplingIds {
+    ) -> DCByRootIds {
         (0..count)
             .map(|i| {
                 self.pop_received_network_event(|ev| match ev {
                     NetworkMessage::SendRequest {
                         peer_id: _,
                         request: Request::DataColumnsByRoot(request),
-                        request_id: RequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
+                        request_id: RequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
                     } if request
                         .data_column_ids
                         .to_vec()
@@ -955,7 +953,7 @@ impl TestRig {
         &mut self,
         for_block: Hash256,
         count: usize,
-    ) -> SamplingIds {
+    ) -> DCByRootIds {
         let ids = self.expect_data_columns_by_root_requests(for_block, count);
         self.expect_empty_network();
         ids
