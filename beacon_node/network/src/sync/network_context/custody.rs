@@ -7,7 +7,10 @@ use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
+use lru_cache::LRUTimeCache;
+use rand::Rng;
 use slog::{debug, warn};
+use std::time::Duration;
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use types::EthSpec;
 use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Epoch, Hash256};
@@ -19,6 +22,8 @@ pub struct CustodyId {
     pub requester: CustodyRequester,
     pub req_id: ReqId,
 }
+
+const FAILED_PEERS_CACHE_EXPIRY_SECONDS: u64 = 5;
 
 /// Downstream components that perform custody by root requests.
 /// Currently, it's only single block lookups, so not using an enum
@@ -36,6 +41,9 @@ pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     /// Active requests for 1 or more columns each
     active_batch_columns_requests:
         FnvHashMap<DataColumnsByRootRequestId, ActiveBatchColumnsRequest>,
+    /// Peers that have recently failed to successfully respond to a columns by root request.
+    /// Having a LRUTimeCache allows this request to not have to track disconnecting peers.
+    failed_peers: LRUTimeCache<PeerId>,
     /// Logger for the `SyncNetworkContext`.
     pub log: slog::Logger,
     _phantom: PhantomData<T>,
@@ -57,6 +65,7 @@ pub enum Error {
 }
 
 struct ActiveBatchColumnsRequest {
+    peer_id: PeerId,
     indices: Vec<ColumnIndex>,
 }
 
@@ -80,6 +89,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     .map(|index| (*index, ColumnRequest::new())),
             ),
             active_batch_columns_requests: <_>::default(),
+            failed_peers: LRUTimeCache::new(Duration::from_secs(FAILED_PEERS_CACHE_EXPIRY_SECONDS)),
             log,
             _phantom: PhantomData,
         }
@@ -169,6 +179,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         "missing_column_indexes" => ?missing_column_indexes,
                         "req_id" => %req_id,
                     );
+
+                    self.failed_peers.insert(peer_id);
                 }
             }
             Err(err) => {
@@ -187,6 +199,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         .ok_or(Error::BadState("unknown column_index".to_owned()))?
                         .on_download_error_and_mark_failure(req_id)?;
                 }
+
+                self.failed_peers.insert(peer_id);
             }
         };
 
@@ -231,10 +245,35 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
                 // TODO: When is a fork and only a subset of your peers know about a block, sampling should only
                 // be queried on the peers on that fork. Should this case be handled? How to handle it?
-                let peer_ids = cx.get_custodial_peers(self.block_epoch, *column_index);
+                let custodial_peers = cx.get_custodial_peers(self.block_epoch, *column_index);
 
-                // TODO(das) randomize custodial peer and avoid failing peers
-                let Some(peer_id) = peer_ids.first().cloned() else {
+                // TODO(das): cache this computation in a OneCell or similar to prevent having to
+                // run it every loop
+                let mut active_requests_by_peer = HashMap::<PeerId, usize>::new();
+                for batch_request in self.active_batch_columns_requests.values() {
+                    *active_requests_by_peer
+                        .entry(batch_request.peer_id)
+                        .or_default() += 1;
+                }
+
+                let mut priorized_peers = custodial_peers
+                    .iter()
+                    .map(|peer| {
+                        (
+                            // De-prioritize peers that have failed to successfully respond to
+                            // requests recently
+                            self.failed_peers.contains(peer),
+                            // Prefer peers with less requests to load balance across peers
+                            active_requests_by_peer.get(peer).copied().unwrap_or(0),
+                            // Final random factor to give all peers a shot in each retry
+                            rand::thread_rng().gen::<u32>(),
+                            *peer,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                priorized_peers.sort_unstable();
+
+                let Some((_, _, _, peer_id)) = priorized_peers.first() else {
                     // Do not tolerate not having custody peers, hard error.
                     // TODO(das): we might implement some grace period. The request will pause for X
                     // seconds expecting the peer manager to find peers before failing the request.
@@ -242,7 +281,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 };
 
                 columns_to_request_by_peer
-                    .entry(peer_id)
+                    .entry(*peer_id)
                     .or_default()
                     .push(*column_index);
             }
@@ -272,7 +311,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     }
 
                     self.active_batch_columns_requests
-                        .insert(req_id, ActiveBatchColumnsRequest { indices });
+                        .insert(req_id, ActiveBatchColumnsRequest { indices, peer_id });
                 }
                 LookupRequestResult::NoRequestNeeded => unreachable!(),
                 LookupRequestResult::Pending => unreachable!(),
