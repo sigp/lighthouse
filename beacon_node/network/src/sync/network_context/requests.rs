@@ -183,17 +183,15 @@ impl DataColumnsByRootSingleBlockRequest {
     }
 }
 
-pub struct ActiveDataColumnsByRootRequest<E: EthSpec, T: Copy> {
-    pub requester: T,
+pub struct ActiveDataColumnsByRootRequest<E: EthSpec> {
     request: DataColumnsByRootSingleBlockRequest,
     items: Vec<Arc<DataColumnSidecar<E>>>,
     resolved: bool,
 }
 
-impl<E: EthSpec, T: Copy> ActiveDataColumnsByRootRequest<E, T> {
-    pub fn new(request: DataColumnsByRootSingleBlockRequest, requester: T) -> Self {
+impl<E: EthSpec> ActiveDataColumnsByRootRequest<E> {
+    pub fn new(request: DataColumnsByRootSingleBlockRequest) -> Self {
         Self {
-            requester,
             request,
             items: vec![],
             resolved: false,

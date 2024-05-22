@@ -97,6 +97,9 @@ pub enum RequestId {
     RangeBlockComponents(Id),
 }
 
+// TODO(das): Make
+// struct DataColumnsByRootRequestId(id);
+
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct DataColumnsByRootRequestId {
     pub requester: DataColumnsByRootRequester,
@@ -1019,11 +1022,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         data_column: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        if let Some((requester, resp)) =
+        if let Some((id, resp)) =
             self.network
                 .on_data_columns_by_root_response(id, peer_id, data_column)
         {
-            match requester {
+            match id.requester {
                 DataColumnsByRootRequester::Sampling(id) => {
                     if let Some((requester, result)) =
                         self.sampling
@@ -1032,15 +1035,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.on_sampling_result(requester, result)
                     }
                 }
-                DataColumnsByRootRequester::Custody(id) => {
-                    if let Some((requester, custody_columns)) =
-                        self.network.on_custody_by_root_response(id, peer_id, resp)
+                DataColumnsByRootRequester::Custody(custody_id) => {
+                    if let Some(custody_columns) = self
+                        .network
+                        .on_custody_by_root_response(custody_id, id.req_id, peer_id, resp)
                     {
                         // TODO(das): get proper timestamp
                         let seen_timestamp = timestamp_now();
                         self.block_lookups
                             .on_download_response::<CustodyRequestState<T::EthSpec>>(
-                                requester.0,
+                                custody_id.requester.0,
                                 custody_columns.map(|(columns, peer_group)| {
                                     (columns, peer_group, seen_timestamp)
                                 }),

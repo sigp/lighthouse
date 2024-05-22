@@ -33,6 +33,7 @@ pub use requests::LookupVerifyError;
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -118,18 +119,20 @@ impl From<LookupVerifyError> for RpcResponseError {
 
 #[derive(Clone, Debug)]
 pub struct PeerGroup {
-    peers: Vec<PeerId>,
+    peers: HashMap<PeerId, Vec<usize>>,
 }
 
 impl PeerGroup {
     pub fn from_single(peer: PeerId) -> Self {
-        Self { peers: vec![peer] }
+        Self {
+            peers: HashMap::from_iter([(peer, vec![0])]),
+        }
     }
-    pub fn from_set(peers: Vec<PeerId>) -> Self {
+    pub fn from_set(peers: HashMap<PeerId, Vec<usize>>) -> Self {
         Self { peers }
     }
-    pub fn all(&self) -> &[PeerId] {
-        &self.peers
+    pub fn all(&self) -> impl Iterator<Item = &PeerId> + '_ {
+        self.peers.keys()
     }
 }
 
@@ -162,10 +165,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     /// A mapping of active BlobsByRoot requests, including both current slot and parent lookups.
     blobs_by_root_requests: FnvHashMap<SingleLookupReqId, ActiveBlobsByRootRequest<T::EthSpec>>,
-    data_columns_by_root_requests: FnvHashMap<
-        DataColumnsByRootRequestId,
-        ActiveDataColumnsByRootRequest<T::EthSpec, DataColumnsByRootRequester>,
-    >,
+    data_columns_by_root_requests:
+        FnvHashMap<DataColumnsByRootRequestId, ActiveDataColumnsByRootRequest<T::EthSpec>>,
     /// Mapping of active custody column requests for a block root
     custody_by_root_requests: FnvHashMap<CustodyRequester, ActiveCustodyRequest<T>>,
 
@@ -597,7 +598,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         requester: DataColumnsByRootRequester,
         peer_id: PeerId,
         request: DataColumnsByRootSingleBlockRequest,
-    ) -> Result<(), &'static str> {
+    ) -> Result<LookupRequestResult, &'static str> {
         let req_id = self.next_id();
         debug!(
             self.log,
@@ -618,16 +619,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })?;
 
         self.data_columns_by_root_requests
-            .insert(id, ActiveDataColumnsByRootRequest::new(request, requester));
+            .insert(id, ActiveDataColumnsByRootRequest::new(request));
 
-        Ok(())
+        Ok(LookupRequestResult::RequestSent(req_id))
     }
 
     pub fn custody_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
         block_root: Hash256,
-        downloaded_block_expected_data: Option<usize>,
+        downloaded_block_expected_blobs: Option<usize>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
         // Check if we are into peerdas
         if !self
@@ -645,18 +646,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
-        let expects_data = downloaded_block_expected_data
-            .or_else(|| {
-                self.chain
-                    .data_availability_checker
-                    .num_expected_blobs(&block_root)
-            })
-            .map(|n| n > 0)
-            // If we don't know about the block being requested, assume block has data
-            .unwrap_or(true);
+        let Some(expected_blobs) = downloaded_block_expected_blobs.or_else(|| {
+            self.chain
+                .data_availability_checker
+                .num_expected_blobs(&block_root)
+        }) else {
+            // Wait to download the block before downloading columns. Then we can be sure that the
+            // block has data, so there's no need to do "blind" requests for all possible columns and
+            // latter handle the case where if the peer sent no columns, penalize.
+            // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
+            // - if `num_expected_blobs` returns Some = block is processed.
+            return Ok(LookupRequestResult::Pending);
+        };
 
         // No data required for this block
-        if !expects_data {
+        if expected_blobs == 0 {
             return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
@@ -695,8 +699,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let requester = CustodyRequester(id);
         let mut request = ActiveCustodyRequest::new(
             block_root,
-            requester,
-            custody_indexes_to_fetch,
+            // TODO(das): req_id is duplicated here, also present in id
+            CustodyId { requester, req_id },
+            &custody_indexes_to_fetch,
             self.log.clone(),
         );
 
@@ -943,14 +948,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         item: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) -> Option<(
-        DataColumnsByRootRequester,
+        DataColumnsByRootRequestId,
         RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
     )> {
         let Entry::Occupied(mut request) = self.data_columns_by_root_requests.entry(id) else {
             return None;
         };
-
-        let requester = request.get().requester;
 
         let resp = match item {
             RpcEvent::Response(item, _) => match request.get_mut().add_response(item) {
@@ -978,7 +981,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         if let Err(ref e) = resp {
             self.on_lookup_failure(peer_id, e);
         }
-        Some((requester, resp))
+        Some((id, resp))
     }
 
     /// Insert a downloaded column into an active custody request. Then make progress on the
@@ -992,22 +995,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn on_custody_by_root_response(
         &mut self,
         id: CustodyId,
+        req_id: ReqId,
         peer_id: PeerId,
         resp: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
-    ) -> Option<(
-        CustodyRequester,
-        Result<(Vec<CustodyDataColumn<T::EthSpec>>, PeerGroup), RpcResponseError>,
-    )> {
+    ) -> Option<Result<(Vec<CustodyDataColumn<T::EthSpec>>, PeerGroup), RpcResponseError>> {
         // Note: need to remove the request to borrow self again below. Otherwise we can't
         // do nested requests
-        let Some(mut request) = self.custody_by_root_requests.remove(&id.id) else {
+        let Some(mut request) = self.custody_by_root_requests.remove(&id.requester) else {
             // TOOD(das): This log can happen if the request is error'ed early and dropped
             debug!(self.log, "Custody column downloaded event for unknown request"; "id" => ?id);
             return None;
         };
 
         let result = request
-            .on_data_column_downloaded(peer_id, id.column_index, resp, self)
+            .on_data_column_downloaded(peer_id, req_id, resp, self)
             .map_err(RpcResponseError::CustodyRequestError)
             .transpose();
 
@@ -1023,9 +1024,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 }
             }
 
-            Some((id.id, result))
+            Some(result)
         } else {
-            self.custody_by_root_requests.insert(id.id, request);
+            self.custody_by_root_requests.insert(id.requester, request);
             None
         }
     }

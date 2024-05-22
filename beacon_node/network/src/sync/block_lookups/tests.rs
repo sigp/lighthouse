@@ -699,7 +699,7 @@ impl TestRig {
         let lookup_id = if let DataColumnsByRootRequester::Custody(id) =
             sampling_ids.first().unwrap().0.requester
         {
-            id.id.0.lookup_id
+            id.requester.0.lookup_id
         } else {
             panic!("not a custody requester")
         };
