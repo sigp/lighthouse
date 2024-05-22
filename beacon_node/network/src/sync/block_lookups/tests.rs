@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::*;
 
-use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
+use crate::sync::block_lookups::common::ResponseType;
 use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::block_verification_types::{BlockImportData, RpcBlock};
 use beacon_chain::builder::Witness;
