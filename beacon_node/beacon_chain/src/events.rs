@@ -213,6 +213,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.proposer_slashing_tx.subscribe()
     }
 
+    pub fn subscribe_bls_to_execution_change(&self) -> Receiver<EventKind<E>> {
+        self.bls_to_execution_change_tx.subscribe()
+    }
+
     pub fn has_attestation_subscribers(&self) -> bool {
         self.attestation_tx.receiver_count() > 0
     }
@@ -263,5 +267,9 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_attester_slashing_subscribers(&self) -> bool {
         self.attester_slashing_tx.receiver_count() > 0
+    }
+
+    pub fn has_bls_to_execution_change_subscribers(&self) -> bool {
+        self.bls_to_execution_change_tx.receiver_count() > 0
     }
 }
