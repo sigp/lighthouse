@@ -10,7 +10,7 @@ use std::{
     collections::hash_map::Entry, collections::HashMap, marker::PhantomData, sync::Arc,
     time::Duration,
 };
-use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, EthSpec, Hash256, Slot};
+use types::{data_column_sidecar::ColumnIndex, ChainSpec, DataColumnSidecar, Hash256, Slot};
 
 pub type SamplingResult = Result<(), SamplingError>;
 
@@ -69,6 +69,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
                 id,
                 &self.sampling_config,
                 self.log.clone(),
+                &cx.chain.spec,
             )),
             Entry::Occupied(_) => {
                 // Sampling is triggered from multiple sources, duplicate sampling requests are
@@ -201,10 +202,11 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         requester_id: SamplingRequester,
         sampling_config: &SamplingConfig,
         log: slog::Logger,
+        spec: &ChainSpec,
     ) -> Self {
         // Select ahead of time the full list of to-sample columns
-        let mut column_shuffle = (0..<T::EthSpec as EthSpec>::number_of_columns() as ColumnIndex)
-            .collect::<Vec<ColumnIndex>>();
+        let mut column_shuffle =
+            (0..spec.number_of_columns as ColumnIndex).collect::<Vec<ColumnIndex>>();
         let mut rng = thread_rng();
         column_shuffle.shuffle(&mut rng);
 

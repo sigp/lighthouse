@@ -34,6 +34,7 @@ fn create_test_block_and_blobs<E: EthSpec>(
 
 fn all_benches(c: &mut Criterion) {
     type E = MainnetEthSpec;
+    let spec = Arc::new(E::default_spec());
 
     let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
         .map_err(|e| format!("Unable to read trusted setup file: {}", e))
@@ -42,11 +43,13 @@ fn all_benches(c: &mut Criterion) {
 
     for blob_count in [1, 2, 3, 6] {
         let kzg = kzg.clone();
-        let spec = E::default_spec();
         let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(blob_count, &spec);
 
         let column_sidecars =
-            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &kzg.clone()).unwrap();
+            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &kzg.clone(), &spec)
+                .unwrap();
+
+        let spec = spec.clone();
 
         c.bench(
             &format!("reconstruct_{}", blob_count),
@@ -55,6 +58,7 @@ fn all_benches(c: &mut Criterion) {
                     black_box(DataColumnSidecar::reconstruct(
                         &kzg,
                         &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
+                        spec.as_ref(),
                     ))
                 })
             }),

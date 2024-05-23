@@ -41,7 +41,6 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::data_column_sidecar::DataColumnSidecarList;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -1670,7 +1669,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .get_bytes(DBColumn::BeaconDataColumn.into(), block_root.as_bytes())?
         {
             Some(ref data_columns_bytes) => {
-                let data_columns = DataColumnSidecarList::from_ssz_bytes(data_columns_bytes)?;
+                let data_columns = RuntimeVariableList::from_ssz_bytes(
+                    data_columns_bytes,
+                    self.spec.number_of_columns,
+                )?;
                 self.block_cache
                     .lock()
                     .put_data_columns(*block_root, data_columns.clone());

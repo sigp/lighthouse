@@ -179,8 +179,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 messages: data_columns_to_publish
                     .iter()
                     .map(|d| {
-                        let subnet =
-                            DataColumnSubnetId::from_column_index::<T::EthSpec>(d.index as usize);
+                        let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
+                            d.index as usize,
+                            &self.chain.spec,
+                        );
                         PubsubMessage::DataColumnSidecar(Box::new((subnet, d.clone())))
                     })
                     .collect(),

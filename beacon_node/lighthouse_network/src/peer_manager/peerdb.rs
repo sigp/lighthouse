@@ -14,7 +14,7 @@ use std::{
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
 
 pub mod client;
 pub mod peer_info;
@@ -679,6 +679,7 @@ impl<E: EthSpec> PeerDB<E> {
         &mut self,
         peer_id: &PeerId,
         supernode: bool,
+        spec: &ChainSpec,
     ) -> Option<BanOperation> {
         let enr_key = CombinedKey::generate_secp256k1();
         let mut enr = Enr::builder().build(&enr_key).unwrap();
@@ -686,7 +687,7 @@ impl<E: EthSpec> PeerDB<E> {
         if supernode {
             enr.insert(
                 PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
-                &(E::data_column_subnet_count() as u64).as_ssz_bytes(),
+                &spec.data_column_sidecar_subnet_count.as_ssz_bytes(),
                 &enr_key,
             )
             .expect("u64 can be encoded");

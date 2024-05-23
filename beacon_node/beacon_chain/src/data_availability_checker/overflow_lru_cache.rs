@@ -43,13 +43,15 @@ use lru::LruCache;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
 use slog::{debug, trace, Logger};
 use ssz::{Decode, Encode};
-use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
 use types::data_column_sidecar::DataColumnIdentifier;
-use types::{BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256};
+use types::{
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256,
+    RuntimeVariableList,
+};
 
 pub type DataColumnsToPublish<E> = Option<Vec<Arc<DataColumnSidecar<E>>>>;
 
@@ -59,11 +61,11 @@ pub type DataColumnsToPublish<E> = Option<Vec<Arc<DataColumnSidecar<E>>>>;
 /// The block has completed all verifications except the availability check.
 /// TODO(das): this struct can potentially be reafactored as blobs and data columns are mutually
 /// exclusive and this could simplify `is_importable`.
-#[derive(Encode, Decode, Clone)]
+#[derive(Clone)]
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
-    pub verified_data_columns: VariableList<KzgVerifiedCustodyDataColumn<E>, E::NumberOfColumns>,
+    pub verified_data_columns: RuntimeVariableList<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
 }
@@ -273,11 +275,11 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns an empty `PendingComponents` object with the given block root.
-    pub fn empty(block_root: Hash256) -> Self {
+    pub fn empty(block_root: Hash256, spec: &ChainSpec) -> Self {
         Self {
             block_root,
             verified_blobs: FixedVector::default(),
-            verified_data_columns: VariableList::default(),
+            verified_data_columns: RuntimeVariableList::empty(spec.number_of_columns),
             executed_block: None,
             reconstruction_started: false,
         }
@@ -291,7 +293,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
     pub fn make_available<R>(
         self,
-        spec: &ChainSpec,
+        spec: &Arc<ChainSpec>,
         recover: R,
     ) -> Result<Availability<E>, AvailabilityCheckError>
     where
@@ -349,14 +351,16 @@ impl<E: EthSpec> PendingComponents<E> {
             blobs_available_timestamp,
             // TODO(das): Update store types to prevent this conversion
             data_columns: Some(
-                VariableList::new(
+                RuntimeVariableList::new(
                     verified_data_columns
                         .into_iter()
                         .map(|d| d.into_inner())
                         .collect(),
+                    spec.number_of_columns,
                 )
                 .expect("data column list is within bounds"),
             ),
+            spec: spec.clone(),
         };
         Ok(Availability::Available(Box::new(
             AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome),
@@ -420,10 +424,11 @@ impl OverflowKey {
         Ok(Self::Blob(blob_id.block_root, blob_id.index as u8))
     }
 
-    pub fn from_data_column_id<E: EthSpec>(
+    pub fn from_data_column_id(
         data_column_id: DataColumnIdentifier,
+        spec: &ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
-        if data_column_id.index >= E::number_of_columns() as u64
+        if data_column_id.index >= spec.number_of_columns as u64
             || data_column_id.index > u8::MAX as u64
         {
             return Err(AvailabilityCheckError::DataColumnIndexInvalid(
@@ -448,9 +453,16 @@ impl OverflowKey {
 /// A wrapper around BeaconStore<T> that implements various
 /// methods used for saving and retrieving blocks / blobs
 /// from the store (for organization)
-struct OverflowStore<T: BeaconChainTypes>(BeaconStore<T>);
+struct OverflowStore<T: BeaconChainTypes> {
+    store: BeaconStore<T>,
+    spec: Arc<ChainSpec>,
+}
 
 impl<T: BeaconChainTypes> OverflowStore<T> {
+    fn new(store: BeaconStore<T>, spec: Arc<ChainSpec>) -> Self {
+        Self { store, spec }
+    }
+
     /// Store pending components in the database
     pub fn persist_pending_components(
         &self,
@@ -461,7 +473,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
 
         if let Some(block) = pending_components.executed_block.take() {
             let key = OverflowKey::from_block_root(block_root);
-            self.0
+            self.store
                 .hot_db
                 .put_bytes(col.as_str(), &key.as_ssz_bytes(), &block.as_ssz_bytes())?
         }
@@ -475,18 +487,21 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
                 index: blob.blob_index(),
             })?;
 
-            self.0
+            self.store
                 .hot_db
                 .put_bytes(col.as_str(), &key.as_ssz_bytes(), &blob.as_ssz_bytes())?
         }
 
         for data_column in pending_components.verified_data_columns.into_iter() {
-            let key = OverflowKey::from_data_column_id::<T::EthSpec>(DataColumnIdentifier {
-                block_root,
-                index: data_column.index(),
-            })?;
+            let key = OverflowKey::from_data_column_id(
+                DataColumnIdentifier {
+                    block_root,
+                    index: data_column.index(),
+                },
+                &self.spec,
+            )?;
 
-            self.0.hot_db.put_bytes(
+            self.store.hot_db.put_bytes(
                 col.as_str(),
                 &key.as_ssz_bytes(),
                 &data_column.as_ssz_bytes(),
@@ -504,7 +519,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         // read everything from disk and reconstruct
         let mut maybe_pending_components = None;
         for res in self
-            .0
+            .store
             .hot_db
             .iter_raw_entries(DBColumn::OverflowLRUCache, block_root.as_bytes())
         {
@@ -512,7 +527,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
             match OverflowKey::from_ssz_bytes(&key_bytes)? {
                 OverflowKey::Block(_) => {
                     maybe_pending_components
-                        .get_or_insert_with(|| PendingComponents::empty(block_root))
+                        .get_or_insert_with(|| PendingComponents::empty(block_root, &self.spec))
                         .executed_block =
                         Some(DietAvailabilityPendingExecutedBlock::from_ssz_bytes(
                             value_bytes.as_slice(),
@@ -520,7 +535,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
                 }
                 OverflowKey::Blob(_, index) => {
                     *maybe_pending_components
-                        .get_or_insert_with(|| PendingComponents::empty(block_root))
+                        .get_or_insert_with(|| PendingComponents::empty(block_root, &self.spec))
                         .verified_blobs
                         .get_mut(index as usize)
                         .ok_or(AvailabilityCheckError::BlobIndexInvalid(index as u64))? =
@@ -530,7 +545,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
                     let data_column =
                         KzgVerifiedCustodyDataColumn::from_ssz_bytes(value_bytes.as_slice())?;
                     maybe_pending_components
-                        .get_or_insert_with(|| PendingComponents::empty(block_root))
+                        .get_or_insert_with(|| PendingComponents::empty(block_root, &self.spec))
                         .merge_data_columns(vec![data_column])?;
                 }
             }
@@ -542,7 +557,11 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
     /// Returns the hashes of all the blocks we have any data for on disk
     pub fn read_keys_on_disk(&self) -> Result<HashSet<Hash256>, AvailabilityCheckError> {
         let mut disk_keys = HashSet::new();
-        for res in self.0.hot_db.iter_raw_keys(DBColumn::OverflowLRUCache, &[]) {
+        for res in self
+            .store
+            .hot_db
+            .iter_raw_keys(DBColumn::OverflowLRUCache, &[])
+        {
             let key_bytes = res?;
             disk_keys.insert(*OverflowKey::from_ssz_bytes(&key_bytes)?.root());
         }
@@ -556,7 +575,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
     ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
         let key = OverflowKey::from_blob_id::<T::EthSpec>(*blob_id)?;
 
-        self.0
+        self.store
             .hot_db
             .get_bytes(DBColumn::OverflowLRUCache.as_str(), &key.as_ssz_bytes())?
             .map(|blob_bytes| Arc::<BlobSidecar<T::EthSpec>>::from_ssz_bytes(blob_bytes.as_slice()))
@@ -569,9 +588,9 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         &self,
         data_column_id: &DataColumnIdentifier,
     ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
-        let key = OverflowKey::from_data_column_id::<T::EthSpec>(*data_column_id)?;
+        let key = OverflowKey::from_data_column_id(*data_column_id, &self.spec)?;
 
-        self.0
+        self.store
             .hot_db
             .get_bytes(DBColumn::OverflowLRUCache.as_str(), &key.as_ssz_bytes())?
             .map(|data_column_bytes| {
@@ -584,7 +603,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
     /// Delete a set of keys from the database
     pub fn delete_keys(&self, keys: &Vec<OverflowKey>) -> Result<(), AvailabilityCheckError> {
         for key in keys {
-            self.0
+            self.store
                 .hot_db
                 .key_delete(DBColumn::OverflowLRUCache.as_str(), &key.as_ssz_bytes())?;
         }
@@ -725,7 +744,7 @@ pub struct OverflowLRUCache<T: BeaconChainTypes> {
     /// The number of data columns the node is custodying.
     custody_column_count: usize,
     log: Logger,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
 }
 
 impl<T: BeaconChainTypes> OverflowLRUCache<T> {
@@ -734,15 +753,15 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         beacon_store: BeaconStore<T>,
         custody_column_count: usize,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
-        let overflow_store = OverflowStore(beacon_store.clone());
+        let overflow_store = OverflowStore::new(beacon_store.clone(), spec.clone());
         let mut critical = Critical::new(capacity);
         critical.reload_store_keys(&overflow_store)?;
         Ok(Self {
             critical: RwLock::new(critical),
             overflow_store,
-            state_cache: StateLRUCache::new(beacon_store, spec.clone()),
+            state_cache: StateLRUCache::new(beacon_store, (*spec).clone()),
             maintenance_lock: Mutex::new(()),
             capacity,
             custody_column_count,
@@ -833,7 +852,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
             .pop_pending_components(block_root, &self.overflow_store)?
-            .unwrap_or_else(|| PendingComponents::empty(block_root));
+            .unwrap_or_else(|| PendingComponents::empty(block_root, &self.spec));
 
         // Merge in the data columns.
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
@@ -860,7 +879,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 // - There are duplicates
                 let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
                     kzg,
-                    &pending_components.verified_data_columns,
+                    pending_components.verified_data_columns.as_slice(),
+                    &self.spec,
                 )?;
 
                 let data_columns_to_publish = all_data_columns
@@ -869,7 +889,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                     .map(|d| d.clone_arc())
                     .collect::<Vec<_>>();
 
-                pending_components.verified_data_columns = all_data_columns.into();
+                pending_components.verified_data_columns =
+                    RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns);
 
                 metrics::stop_timer(timer);
                 metrics::inc_counter_by(
@@ -917,7 +938,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             return false;
         };
 
-        let num_of_columns = T::EthSpec::number_of_columns();
+        let num_of_columns = self.spec.number_of_columns;
         let has_missing_columns = pending_components.verified_data_columns.len() < num_of_columns;
 
         has_missing_columns
@@ -944,7 +965,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
             .pop_pending_components(block_root, &self.overflow_store)?
-            .unwrap_or_else(|| PendingComponents::empty(block_root));
+            .unwrap_or_else(|| PendingComponents::empty(block_root, &self.spec));
 
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
@@ -983,7 +1004,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
             .pop_pending_components(block_root, &self.overflow_store)?
-            .unwrap_or_else(|| PendingComponents::empty(block_root));
+            .unwrap_or_else(|| PendingComponents::empty(block_root, &self.spec));
 
         // Merge in the block.
         pending_components.merge_block(diet_executed_block);
@@ -1133,7 +1154,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let mut current_block_data: Option<BlockData> = None;
         for res in self
             .overflow_store
-            .0
+            .store
             .hot_db
             .iter_raw_entries(DBColumn::OverflowLRUCache, &[])
         {
@@ -1516,7 +1537,7 @@ mod test {
         let log = test_logger();
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_deneb_chain(log.clone(), &chain_db_path).await;
-        let spec = harness.spec.clone();
+        let spec = Arc::new(harness.spec.clone());
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
         let cache = Arc::new(
@@ -1525,7 +1546,7 @@ mod test {
                 test_store,
                 DEFAULT_TEST_CUSTODY_COLUMN_COUNT,
                 harness.logger().clone(),
-                spec.clone(),
+                spec,
             )
             .expect("should create cache"),
         );
@@ -2032,7 +2053,7 @@ mod test {
             harness.chain.store.clone(),
             DEFAULT_TEST_CUSTODY_COLUMN_COUNT,
             harness.logger().clone(),
-            harness.chain.spec.clone(),
+            Arc::new(harness.chain.spec.clone()),
         )
         .expect("should recover cache");
         // again, everything should be on disk
@@ -2333,7 +2354,8 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let spec = E::default_spec();
+        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
         cache.merge_block(block_commitments);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
@@ -2347,7 +2369,8 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let spec = E::default_spec();
+        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
         cache.merge_blobs(random_blobs);
         cache.merge_block(block_commitments);
         cache.merge_blobs(blobs);
@@ -2362,7 +2385,8 @@ mod pending_components_tests {
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let spec = E::default_spec();
+        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
         cache.merge_block(block_commitments);
@@ -2377,7 +2401,8 @@ mod pending_components_tests {
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let spec = E::default_spec();
+        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
         cache.merge_block(block_commitments);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);
@@ -2392,7 +2417,8 @@ mod pending_components_tests {
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let spec = E::default_spec();
+        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
         cache.merge_blobs(blobs);
         cache.merge_block(block_commitments);
         cache.merge_blobs(random_blobs);
@@ -2407,7 +2433,8 @@ mod pending_components_tests {
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let spec = E::default_spec();
+        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);
         cache.merge_block(block_commitments);

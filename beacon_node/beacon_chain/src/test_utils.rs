@@ -2585,13 +2585,14 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
     rng: &mut impl Rng,
+    spec: &ChainSpec,
 ) -> (
     SignedBeaconBlock<E, FullPayload<E>>,
     Vec<Arc<DataColumnSidecar<E>>>,
 ) {
     let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
     let blob: BlobsList<E> = blobs.into_iter().map(|b| b.blob).collect::<Vec<_>>().into();
-    let data_columns = DataColumnSidecar::build_sidecars(&blob, &block, &KZG)
+    let data_columns = DataColumnSidecar::build_sidecars(&blob, &block, &KZG, spec)
         .unwrap()
         .into();
 

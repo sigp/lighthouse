@@ -15,8 +15,8 @@ use std::sync::Arc;
 use types::blob_sidecar::{self, BlobIdentifier, FixedBlobSidecarList};
 use types::data_column_sidecar::{self};
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, Epoch, EthSpec,
+    Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// A block that has been received over RPC. It has 2 internal variants:
@@ -158,6 +158,7 @@ impl<E: EthSpec> RpcBlock<E> {
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
         custody_columns: Vec<CustodyDataColumn<E>>,
+        spec: &ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
 
@@ -167,7 +168,10 @@ impl<E: EthSpec> RpcBlock<E> {
         }
         // Treat empty data column lists as if they are missing.
         let inner = if !custody_columns.is_empty() {
-            RpcBlockInner::BlockAndCustodyColumns(block, VariableList::new(custody_columns)?)
+            RpcBlockInner::BlockAndCustodyColumns(
+                block,
+                RuntimeVariableList::new(custody_columns, spec.number_of_columns)?,
+            )
         } else {
             RpcBlockInner::Block(block)
         };
@@ -592,6 +596,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     }
 
     fn into_rpc_block(self) -> RpcBlock<E> {
+        let number_of_columns = self.spec.number_of_columns;
         let (block_root, block, blobs_opt, data_columns_opt) = self.deconstruct();
         // Circumvent the constructor here, because an Available block will have already had
         // consistency checks performed.
@@ -600,7 +605,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
             (Some(blobs), _) => RpcBlockInner::BlockAndBlobs(block, blobs),
             (_, Some(data_columns)) => RpcBlockInner::BlockAndCustodyColumns(
                 block,
-                VariableList::new(
+                RuntimeVariableList::new(
                     data_columns
                         .into_iter()
                         // TODO(das): This is an ugly hack that should be removed. After updating
@@ -609,6 +614,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
                         // columns.
                         .map(|d| CustodyDataColumn::from_asserted_custody(d))
                         .collect(),
+                    number_of_columns,
                 )
                 .expect("data column list is within bounds"),
             ),

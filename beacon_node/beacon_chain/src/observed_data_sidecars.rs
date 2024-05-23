@@ -6,7 +6,7 @@
 use crate::observed_block_producers::ProposalKey;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, Slot};
+use types::{BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -23,7 +23,7 @@ pub trait ObservableDataSidecar {
     fn slot(&self) -> Slot;
     fn block_proposer_index(&self) -> u64;
     fn index(&self) -> u64;
-    fn max_num_of_items() -> usize;
+    fn max_num_of_items(spec: &ChainSpec) -> usize;
 }
 
 impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
@@ -39,7 +39,7 @@ impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
         self.index
     }
 
-    fn max_num_of_items() -> usize {
+    fn max_num_of_items(_spec: &ChainSpec) -> usize {
         E::max_blobs_per_block()
     }
 }
@@ -57,8 +57,8 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
         self.index
     }
 
-    fn max_num_of_items() -> usize {
-        E::number_of_columns()
+    fn max_num_of_items(spec: &ChainSpec) -> usize {
+        spec.number_of_columns
     }
 }
 
@@ -74,21 +74,21 @@ pub struct ObservedDataSidecars<T: ObservableDataSidecar> {
     finalized_slot: Slot,
     /// Stores all received data indices for a given `(ValidatorIndex, Slot)` tuple.
     items: HashMap<ProposalKey, HashSet<u64>>,
+    spec: ChainSpec,
     _phantom: PhantomData<T>,
 }
 
-impl<T: ObservableDataSidecar> Default for ObservedDataSidecars<T> {
+impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
     /// Instantiates `Self` with `finalized_slot == 0`.
-    fn default() -> Self {
+    pub fn new(spec: ChainSpec) -> Self {
         Self {
             finalized_slot: Slot::new(0),
             items: HashMap::new(),
+            spec,
             _phantom: PhantomData,
         }
     }
-}
 
-impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
     /// Observe the `data_sidecar` at (`data_sidecar.block_proposer_index, data_sidecar.slot`).
     /// This will update `self` so future calls to it indicate that this `data_sidecar` is known.
     ///
@@ -102,7 +102,7 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
                 slot: data_sidecar.slot(),
                 proposer: data_sidecar.block_proposer_index(),
             })
-            .or_insert_with(|| HashSet::with_capacity(T::max_num_of_items()));
+            .or_insert_with(|| HashSet::with_capacity(T::max_num_of_items(&self.spec)));
         let did_not_exist = data_indices.insert(data_sidecar.index());
 
         Ok(!did_not_exist)
@@ -122,7 +122,7 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
     }
 
     fn sanitize_data_sidecar(&self, data_sidecar: &T) -> Result<(), Error> {
-        if data_sidecar.index() >= T::max_num_of_items() as u64 {
+        if data_sidecar.index() >= T::max_num_of_items(&self.spec) as u64 {
             return Err(Error::InvalidDataIndex(data_sidecar.index()));
         }
         let finalized_slot = self.finalized_slot;
@@ -150,6 +150,7 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::test_spec;
     use bls::Hash256;
     use std::sync::Arc;
     use types::MainnetEthSpec;
@@ -166,7 +167,8 @@ mod tests {
 
     #[test]
     fn pruning() {
-        let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::default();
+        let spec = test_spec::<E>();
+        let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::new(spec);
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 0, "no slots should be present");
@@ -304,7 +306,8 @@ mod tests {
 
     #[test]
     fn simple_observations() {
-        let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::default();
+        let spec = test_spec::<E>();
+        let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::new(spec);
 
         // Slot 0, index 0
         let proposer_index_a = 420;

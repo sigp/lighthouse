@@ -101,7 +101,7 @@ use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecar,
     DataColumnSubnetId, Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork,
-    KzgProofs, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
+    KzgProofs, PublicKey, PublicKeyBytes, RelativeEpoch, RuntimeVariableList, SignedBeaconBlock,
     SignedBeaconBlockHeader, Slot,
 };
 use types::{BlobSidecar, ExecPayload};
@@ -801,18 +801,22 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                 ))?;
 
             let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
-            let sidecars = DataColumnSidecar::build_sidecars(&blobs, block, kzg)?;
+            let sidecars = DataColumnSidecar::build_sidecars(&blobs, block, kzg, &chain.spec)?;
             drop(timer);
             let mut gossip_verified_data_columns = vec![];
             for sidecar in sidecars {
-                let subnet =
-                    DataColumnSubnetId::from_column_index::<T::EthSpec>(sidecar.index as usize);
+                let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
+                    sidecar.index as usize,
+                    &chain.spec,
+                );
                 let column = GossipVerifiedDataColumn::new(sidecar, subnet.into(), chain)?;
                 gossip_verified_data_columns.push(column);
             }
-            let gossip_verified_data_columns =
-                GossipVerifiedDataColumnList::new(gossip_verified_data_columns)
-                    .map_err(DataColumnSidecarError::SszError)?;
+            let gossip_verified_data_columns = RuntimeVariableList::new(
+                gossip_verified_data_columns,
+                chain.spec.number_of_columns,
+            )
+            .map_err(DataColumnSidecarError::SszError)?;
             Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_data_columns)
         })
         .transpose()

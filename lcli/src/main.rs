@@ -1087,8 +1087,10 @@ fn run<E: EthSpec>(
         }
         ("check-deposit-data", Some(matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
-        ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<E>(matches)
-            .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
+        ("generate-bootnode-enr", Some(matches)) => {
+            generate_bootnode_enr::run::<E>(matches, &env.eth2_config.spec)
+                .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e))
+        }
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
         ("mnemonic-validators", Some(matches)) => mnemonic_validators::run(matches)

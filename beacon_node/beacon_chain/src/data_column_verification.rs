@@ -16,8 +16,8 @@ use std::iter;
 use std::sync::Arc;
 use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
 use types::{
-    BeaconStateError, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
-    SignedBeaconBlockHeader, Slot, VariableList,
+    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
+    RuntimeVariableList, SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -147,10 +147,7 @@ impl<E: EthSpec> From<BeaconStateError> for GossipDataColumnError<E> {
     }
 }
 
-pub type GossipVerifiedDataColumnList<T> = VariableList<
-    GossipVerifiedDataColumn<T>,
-    <<T as BeaconChainTypes>::EthSpec as EthSpec>::NumberOfColumns,
->;
+pub type GossipVerifiedDataColumnList<T> = RuntimeVariableList<GossipVerifiedDataColumn<T>>;
 
 /// A wrapper around a `DataColumnSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
@@ -242,8 +239,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     }
 }
 
-pub type CustodyDataColumnList<E> =
-    VariableList<CustodyDataColumn<E>, <E as EthSpec>::NumberOfColumns>;
+pub type CustodyDataColumnList<E> = RuntimeVariableList<CustodyDataColumn<E>>;
 
 /// Data column that we must custody
 #[derive(Debug, Derivative, Clone, Encode, Decode)]
@@ -303,6 +299,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     pub fn reconstruct_columns(
         kzg: &Kzg,
         partial_set_of_columns: &[Self],
+        spec: &ChainSpec,
     ) -> Result<Vec<Self>, KzgError> {
         // Will only return an error if:
         // - < 50% of columns
@@ -313,6 +310,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
                 .iter()
                 .map(|d| d.clone_arc())
                 .collect::<Vec<_>>(),
+            spec,
         )?;
 
         Ok(all_data_columns
@@ -376,7 +374,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
 ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError<T::EthSpec>> {
     let column_slot = data_column.slot();
 
-    verify_index_matches_subnet(&data_column, subnet)?;
+    verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
     verify_is_first_sidecar(chain, &data_column)?;
@@ -576,9 +574,10 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
 fn verify_index_matches_subnet<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
     subnet: u64,
+    spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError<E>> {
     let expected_subnet: u64 =
-        DataColumnSubnetId::from_column_index::<E>(data_column.index as usize).into();
+        DataColumnSubnetId::from_column_index::<E>(data_column.index as usize, spec).into();
     if expected_subnet != subnet {
         return Err(GossipDataColumnError::InvalidSubnetId {
             received: subnet,

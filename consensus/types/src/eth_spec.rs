@@ -119,13 +119,6 @@ pub trait EthSpec:
     type FieldElementsPerExtBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type KzgCommitmentsInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * Config values in PeerDAS
-     * TODO(das) move to `ChainSpec`
-     */
-    type CustodyRequirement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type DataColumnSidecarSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type NumberOfColumns: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    /*
      * Derived values (set these CAREFULLY)
      */
     /// The length of the `{previous,current}_epoch_attestations` lists.
@@ -360,24 +353,6 @@ pub trait EthSpec:
         Self::MaxWithdrawalRequestsPerPayload::to_usize()
     }
 
-    fn number_of_columns() -> usize {
-        Self::NumberOfColumns::to_usize()
-    }
-
-    fn data_columns_per_subnet() -> usize {
-        Self::number_of_columns()
-            .safe_div(Self::data_column_subnet_count())
-            .expect("Subnet count must be greater than 0")
-    }
-
-    fn custody_requirement() -> usize {
-        Self::CustodyRequirement::to_usize()
-    }
-
-    fn data_column_subnet_count() -> usize {
-        Self::DataColumnSidecarSubnetCount::to_usize()
-    }
-
     fn kzg_commitments_inclusion_proof_depth() -> usize {
         Self::KzgCommitmentsInclusionProofDepth::to_usize()
     }
@@ -429,9 +404,6 @@ impl EthSpec for MainnetEthSpec {
     type BytesPerBlob = U131072;
     type BytesPerCell = U2048;
     type KzgCommitmentInclusionProofDepth = U17;
-    type CustodyRequirement = U1;
-    type DataColumnSidecarSubnetCount = U32;
-    type NumberOfColumns = U128;
     type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
@@ -482,9 +454,6 @@ impl EthSpec for MinimalEthSpec {
     type FieldElementsPerCell = U64;
     type FieldElementsPerExtBlob = U8192;
     type BytesPerCell = U2048;
-    type CustodyRequirement = U1;
-    type DataColumnSidecarSubnetCount = U32;
-    type NumberOfColumns = U128;
     type KzgCommitmentsInclusionProofDepth = U4;
 
     params_from_eth_spec!(MainnetEthSpec {
@@ -575,9 +544,6 @@ impl EthSpec for GnosisEthSpec {
     type FieldElementsPerCell = U64;
     type FieldElementsPerExtBlob = U8192;
     type BytesPerCell = U2048;
-    type CustodyRequirement = U1;
-    type DataColumnSidecarSubnetCount = U32;
-    type NumberOfColumns = U128;
     type KzgCommitmentsInclusionProofDepth = U4;
 
     fn default_spec() -> ChainSpec {

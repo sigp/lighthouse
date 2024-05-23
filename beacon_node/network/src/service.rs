@@ -737,7 +737,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 if self.subscribe_all_data_column_subnets {
-                    for column_subnet in 0..T::EthSpec::data_column_subnet_count() as u64 {
+                    for column_subnet in 0..self.fork_context.spec.data_column_sidecar_subnet_count
+                    {
                         for fork_digest in self.required_gossip_fork_digests() {
                             let gossip_kind =
                                 Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
@@ -759,7 +760,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         self.network_globals.local_enr().node_id().raw().into(),
                         self.network_globals
                             .local_enr()
-                            .custody_subnet_count::<<T as BeaconChainTypes>::EthSpec>(),
+                            .custody_subnet_count::<<T as BeaconChainTypes>::EthSpec>(
+                                &self.fork_context.spec,
+                            ),
+                        &self.fork_context.spec,
                     ) {
                         for fork_digest in self.required_gossip_fork_digests() {
                             let gossip_kind = Subnet::DataColumn(column_subnet).into();
