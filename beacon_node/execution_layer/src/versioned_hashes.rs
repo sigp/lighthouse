@@ -1,8 +1,7 @@
 use alloy_consensus::TxEnvelope;
 use alloy_rlp::Decodable;
-use alloy_rlp::Encodable;
 use serde::{Deserialize, Serialize};
-use types::{Address, EthSpec, ExecutionPayloadRef, Hash256, Unsigned, VersionedHash};
+use types::{EthSpec, ExecutionPayloadRef, Hash256, Unsigned, VersionedHash};
 
 #[derive(Debug)]
 pub enum Error {
@@ -61,10 +60,7 @@ pub fn extract_versioned_hashes_from_transactions<E: EthSpec>(
 
 #[derive(Deserialize, Serialize)]
 pub struct BlobTransactionId {
-    // TODO: use transaction hash instead
-    sender: Address,
-    #[serde(with = "serde_utils::u64_hex_be")]
-    nonce: u64,
+    tx_hash: Hash256,
     versioned_hashes: Vec<VersionedHash>,
 }
 
@@ -75,14 +71,7 @@ pub fn extract_blob_transaction_ids<E: EthSpec>(
 
     for tx in transactions {
         if let TxEnvelope::Eip4844(signed_tx_eip4844) = beacon_tx_to_tx_envelope(tx)? {
-            let signature = signed_tx_eip4844.signature();
-            let mut signature_bytes = vec![];
-            signature.encode(&mut signature_bytes);
-            let sender = reth_primitives::transaction::Signature::decode(&mut &signature_bytes[..])
-                .expect("valid signature bytes")
-                .recover_signer(signed_tx_eip4844.signature_hash())
-                .expect("recover signer");
-            let nonce = signed_tx_eip4844.tx().tx().nonce;
+            let tx_hash = signed_tx_eip4844.hash();
             let versioned_hashes = signed_tx_eip4844
                 .tx()
                 .tx()
@@ -91,8 +80,7 @@ pub fn extract_blob_transaction_ids<E: EthSpec>(
                 .map(|fb| Hash256::from(fb.0))
                 .collect();
             transaction_ids.push(BlobTransactionId {
-                sender: Address::from_slice(&sender.into_array()),
-                nonce,
+                tx_hash: Hash256::from_slice(tx_hash.as_slice()),
                 versioned_hashes,
             });
         }

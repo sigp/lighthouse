@@ -1097,6 +1097,7 @@ impl HttpJsonRpc {
             get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
             get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
             get_client_version_v1: capabilities.contains(ENGINE_GET_CLIENT_VERSION_V1),
+            get_blobs_v1: capabilities.contains(ENGINE_GET_BLOBS_V1),
         })
     }
 

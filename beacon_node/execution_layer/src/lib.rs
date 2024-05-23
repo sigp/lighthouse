@@ -4,7 +4,9 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
+use crate::json_structures::GetBlobsResponse;
 use crate::payload_cache::PayloadCache;
+use crate::versioned_hashes::BlobTransactionId;
 use arc_swap::ArcSwapOption;
 use auth::{strip_prefix, Auth, JwtKey};
 pub use block_hash::calculate_execution_block_hash;
@@ -63,7 +65,7 @@ mod metrics;
 pub mod payload_cache;
 mod payload_status;
 pub mod test_utils;
-mod versioned_hashes;
+pub mod versioned_hashes;
 
 /// Indicates the default jwt authenticated execution endpoint.
 pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
@@ -1835,6 +1837,17 @@ impl<E: EthSpec> ExecutionLayer<E> {
             // Fall back to eth_blockByHash.
             self.get_payload_by_hash_legacy(hash, fork).await
         }
+    }
+
+    pub async fn get_blobs(
+        &self,
+        query: Vec<BlobTransactionId>,
+    ) -> Result<GetBlobsResponse<E>, Error> {
+        self.engine()
+            .request(|engine| async move { engine.api.get_blobs(query).await })
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
     pub async fn get_block_by_number(

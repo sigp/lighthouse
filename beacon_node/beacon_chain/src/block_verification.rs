@@ -68,6 +68,7 @@ use crate::{
 };
 use derivative::Derivative;
 use eth2::types::{EventKind, PublishBlockRequest};
+use execution_layer::versioned_hashes::extract_blob_transaction_ids;
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
@@ -95,9 +96,9 @@ use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExecutionBlockHash,
-    Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    blob_sidecar::FixedBlobSidecarList, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec,
+    Epoch, EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 use types::{BlobSidecar, ExecPayload};
 
@@ -652,9 +653,13 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     consensus_context: ConsensusContext<T::EthSpec>,
 }
 
-/// Used to await the result of executing payload with a remote EE.
+/// Used to await the result of executing payload with an EE.
 type PayloadVerificationHandle<E> =
     JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError<E>>>>;
+
+// FIXME(sproul): delete
+// Used to await the result of downloading blobs from an EE.
+// type BlobFetcherHandle<E> = JoinHandle<Option<Result<(), BlockError<E>>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
 /// ready to import into the `BeaconChain`. The validation includes:
@@ -671,6 +676,7 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub block: MaybeAvailableBlock<T::EthSpec>,
     pub import_data: BlockImportData<T::EthSpec>,
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
+    // pub blob_fetcher_handle: BlobFetcherHandle<T::EthSpec>,
 }
 
 pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
@@ -1301,6 +1307,94 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          */
 
         check_block_relevancy(block.as_block(), block_root, chain)?;
+
+        // Spawn an async call to the execution node to fetch blobs.
+        let blob_chain = chain.clone();
+        let blob_block = block.as_block().clone();
+        let blob_fetcher_future = async move {
+            let block = blob_block;
+            let chain = blob_chain;
+            let execution_payload = block.message().execution_payload()?;
+            let blob_ids = extract_blob_transaction_ids::<T::EthSpec>(
+                execution_payload.transactions().unwrap(),
+            )
+            .map_err(|e| {
+                BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(
+                    execution_layer::Error::VerifyingVersionedHashes(e),
+                ))
+            })?;
+            let execution_layer = chain
+                .execution_layer
+                .as_ref()
+                .ok_or(BeaconChainError::ExecutionLayerMissing)?;
+            debug!(
+                chain.log,
+                "Blobs from EL request";
+                "num_blob_tx" => blob_ids.len(),
+            );
+            let response = execution_layer.get_blobs(blob_ids).await.map_err(|e| {
+                BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(e))
+            })?;
+            let num_success = response.blobs.iter().filter(|b| b.is_some()).count();
+            if num_success == 0 {
+                debug!(chain.log, "Blobs from EL empty");
+            }
+            debug!(
+                chain.log,
+                "Blobs from EL success";
+                "num_blob_tx" => num_success
+            );
+            let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
+            for (i, (blob, kzg_proof)) in response
+                .blobs
+                .into_iter()
+                .flatten()
+                .flat_map(|blob| blob.blobs.into_iter().zip(blob.proofs))
+                .enumerate()
+            {
+                match BlobSidecar::new(i, blob, &block, kzg_proof) {
+                    Ok(blob) => {
+                        if let Some(blob_mut) = fixed_blob_sidecar_list.get_mut(i) {
+                            *blob_mut = Some(Arc::new(blob));
+                        } else {
+                            error!(
+                                chain.log,
+                                "Blobs from EL out of bounds";
+                                "i" => i
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            chain.log,
+                            "Blobs from EL error";
+                            "error" => ?e
+                        );
+                    }
+                }
+            }
+            debug!(
+                chain.log,
+                "Blobs from EL processing";
+                "num_blobs" => fixed_blob_sidecar_list.iter().filter(|b| b.is_some()).count(),
+            );
+            chain
+                .process_rpc_blobs(block.slot(), block_root, fixed_blob_sidecar_list)
+                .await
+                .map(|_| {
+                    debug!(chain.log, "Blobs from EL processed");
+                })
+                .map_err(|e| {
+                    debug!(chain.log, "Blobs from EL errored"; "error" => ?e);
+                    e
+                })
+        };
+        let blob_fetcher_handle = chain
+            .task_executor
+            .spawn_handle(blob_fetcher_future, "execution_blob_fetcher")
+            .ok_or(BeaconChainError::RuntimeShutdown)?;
+        // FIXME(sproul): should we wait for this handle?
+        drop(blob_fetcher_handle);
 
         // Define a future that will verify the execution payload with an execution engine.
         //
