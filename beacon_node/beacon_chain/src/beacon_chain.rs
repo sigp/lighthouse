@@ -125,7 +125,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier, DataColumnSidecarList};
+use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -1324,7 +1324,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
         match self.store.get_data_columns(block_root)? {
             Some(data_columns) => Ok(data_columns),
-            None => Ok(DataColumnSidecarList::default()),
+            None => Ok(RuntimeVariableList::empty(self.spec.number_of_columns)),
         }
     }
 

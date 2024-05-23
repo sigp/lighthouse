@@ -19,11 +19,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
-use types::data_column_sidecar::DataColumnSidecarList;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, BlockImportSource, DataColumnSubnetId,
-    EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadBellatrix, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, VariableList,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, BlockImportSource, DataColumnSidecarList,
+    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
+    FullPayloadBellatrix, Hash256, RuntimeVariableList, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
@@ -73,6 +73,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     debug!(log, "Signed block received in HTTP API"; "slot" => block.slot());
     let malicious_withhold_count = chain.config.malicious_withhold_count;
+    let chain_cloned = chain.clone();
 
     /* actually publish a block */
     let publish_block = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -135,6 +136,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                     for data_col in data_col_sidecars {
                         let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
                             data_col.index as usize,
+                            &chain_cloned.spec,
                         );
                         pubsub_messages.push(PubsubMessage::DataColumnSidecar(Box::new((
                             subnet, data_col,
@@ -206,7 +208,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                 .into_iter()
                 .map(|col| col.clone_data_column())
                 .collect::<Vec<_>>();
-            VariableList::from(data_columns)
+            RuntimeVariableList::from_vec(data_columns, chain.spec.number_of_columns)
         });
 
     let block_root = block_root.unwrap_or(gossip_verified_block.block_root);
@@ -273,7 +275,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     }
 
     if let Some(gossip_verified_data_columns) = gossip_verified_data_columns {
-        let custody_columns_indices = network_globals.custody_columns(block.epoch());
+        let custody_columns_indices = network_globals.custody_columns(block.epoch(), &chain.spec);
 
         let custody_columns = gossip_verified_data_columns
             .into_iter()

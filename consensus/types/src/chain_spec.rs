@@ -195,6 +195,9 @@ pub struct ChainSpec {
      * DAS params
      */
     pub eip7594_fork_epoch: Option<Epoch>,
+    pub custody_requirement: u64,
+    pub data_column_sidecar_subnet_count: u64,
+    pub number_of_columns: usize,
 
     /*
      * Networking
@@ -576,6 +579,12 @@ impl ChainSpec {
         }
     }
 
+    pub fn data_columns_per_subnet(&self) -> usize {
+        self.number_of_columns
+            .safe_div(self.data_column_sidecar_subnet_count as usize)
+            .expect("Subnet count must be greater than 0")
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
@@ -770,6 +779,9 @@ impl ChainSpec {
              * DAS params
              */
             eip7594_fork_epoch: None,
+            custody_requirement: 1,
+            data_column_sidecar_subnet_count: 32,
+            number_of_columns: 128,
 
             /*
              * Network specific
@@ -1081,6 +1093,9 @@ impl ChainSpec {
              * DAS params
              */
             eip7594_fork_epoch: None,
+            custody_requirement: 1,
+            data_column_sidecar_subnet_count: 32,
+            number_of_columns: 128,
             /*
              * Network specific
              */
@@ -1320,6 +1335,13 @@ pub struct Config {
     #[serde(default = "default_max_per_epoch_activation_exit_churn_limit")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_exit_churn_limit: u64,
+
+    #[serde(with = "serde_utils::quoted_u64")]
+    custody_requirement: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    data_column_sidecar_subnet_count: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    number_of_columns: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1649,6 +1671,10 @@ impl Config {
             min_per_epoch_churn_limit_electra: spec.min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit: spec
                 .max_per_epoch_activation_exit_churn_limit,
+
+            custody_requirement: spec.custody_requirement,
+            data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
+            number_of_columns: spec.number_of_columns as u64,
         }
     }
 
@@ -1721,6 +1747,9 @@ impl Config {
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
+            custody_requirement,
+            data_column_sidecar_subnet_count,
+            number_of_columns,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -1796,6 +1825,10 @@ impl Config {
             max_data_columns_by_root_request: max_data_columns_by_root_request_common(
                 max_request_data_column_sidecars,
             ),
+
+            custody_requirement,
+            data_column_sidecar_subnet_count,
+            number_of_columns: number_of_columns as usize,
 
             ..chain_spec.clone()
         })
@@ -2037,6 +2070,9 @@ mod yaml_tests {
         DEPOSIT_CHAIN_ID: 1
         DEPOSIT_NETWORK_ID: 1
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+        CUSTODY_REQUIREMENT: 1
+        DATA_COLUMN_SIDECAR_SUBNET_COUNT: 32
+        NUMBER_OF_COLUMNS: 128
         "#;
 
         let chain_spec: Config = serde_yaml::from_str(spec).unwrap();

@@ -22,11 +22,15 @@ impl<E: EthSpec> LoadCase for GetCustodyColumns<E> {
 
 impl<E: EthSpec> Case for GetCustodyColumns<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
+        let spec = E::default_spec();
         let node_id = U256::from_dec_str(&self.node_id)
             .map_err(|e| Error::FailedToParseTest(format!("{e:?}")))?;
-        let computed =
-            DataColumnSubnetId::compute_custody_columns::<E>(node_id, self.custody_subnet_count)
-                .collect::<Vec<_>>();
+        let computed = DataColumnSubnetId::compute_custody_columns::<E>(
+            node_id,
+            self.custody_subnet_count,
+            &spec,
+        )
+        .collect::<Vec<_>>();
         let expected = &self.result;
         if computed == *expected {
             Ok(())

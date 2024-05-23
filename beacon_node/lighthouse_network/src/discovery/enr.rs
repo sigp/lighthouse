@@ -14,7 +14,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::str::FromStr;
-use types::{EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId, EthSpec};
 
 use super::enr_ext::{EnrExt, QUIC6_ENR_KEY, QUIC_ENR_KEY};
 
@@ -38,7 +38,7 @@ pub trait Eth2Enr {
     ) -> Result<EnrSyncCommitteeBitfield<E>, &'static str>;
 
     /// The peerdas custody subnet count associated with the ENR.
-    fn custody_subnet_count<E: EthSpec>(&self) -> u64;
+    fn custody_subnet_count<E: EthSpec>(&self, spec: &ChainSpec) -> u64;
 
     fn eth2(&self) -> Result<EnrForkId, &'static str>;
 }
@@ -66,10 +66,10 @@ impl Eth2Enr for Enr {
 
     /// if the custody value is non-existent in the ENR, then we assume the minimum custody value
     /// defined in the spec.
-    fn custody_subnet_count<E: EthSpec>(&self) -> u64 {
+    fn custody_subnet_count<E: EthSpec>(&self, spec: &ChainSpec) -> u64 {
         self.get(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
             .and_then(|custody_bytes| u64::from_ssz_bytes(custody_bytes).ok())
-            .unwrap_or(E::custody_requirement() as u64)
+            .unwrap_or(spec.custody_requirement)
     }
 
     fn eth2(&self) -> Result<EnrForkId, &'static str> {
@@ -139,12 +139,13 @@ pub fn build_or_load_enr<E: EthSpec>(
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
     log: &slog::Logger,
+    spec: &ChainSpec,
 ) -> Result<Enr, String> {
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers, if the CLI doesn't expressly forbid it.
     let enr_key = CombinedKey::from_libp2p(local_key)?;
-    let mut local_enr = build_enr::<E>(&enr_key, config, enr_fork_id)?;
+    let mut local_enr = build_enr::<E>(&enr_key, config, enr_fork_id, spec)?;
 
     use_or_load_enr(&enr_key, &mut local_enr, config, log)?;
     Ok(local_enr)
@@ -155,6 +156,7 @@ pub fn build_enr<E: EthSpec>(
     enr_key: &CombinedKey,
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
+    spec: &ChainSpec,
 ) -> Result<Enr, String> {
     let mut builder = discv5::enr::Enr::builder();
     let (maybe_ipv4_address, maybe_ipv6_address) = &config.enr_address;
@@ -236,9 +238,9 @@ pub fn build_enr<E: EthSpec>(
 
     // set the "custody_subnet_count" field on our ENR
     let custody_subnet_count = if config.subscribe_all_data_column_subnets {
-        E::data_column_subnet_count() as u64
+        spec.data_column_sidecar_subnet_count
     } else {
-        E::custody_requirement() as u64
+        spec.custody_requirement
     };
 
     builder.add_value(

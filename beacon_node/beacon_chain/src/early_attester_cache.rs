@@ -6,7 +6,6 @@ use crate::{
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
-use types::data_column_sidecar::DataColumnSidecarList;
 use types::*;
 
 pub struct CacheItem<E: EthSpec> {

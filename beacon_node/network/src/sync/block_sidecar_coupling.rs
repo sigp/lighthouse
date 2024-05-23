@@ -6,7 +6,9 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
 };
-use types::{BlobSidecar, ColumnIndex, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock};
+use types::{
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock,
+};
 
 #[derive(Debug)]
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
@@ -69,9 +71,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
-    pub fn into_responses(self) -> Result<Vec<RpcBlock<E>>, String> {
+    pub fn into_responses(self, spec: &ChainSpec) -> Result<Vec<RpcBlock<E>>, String> {
         if let Some(expects_custody_columns) = self.expects_custody_columns.clone() {
-            self.into_responses_with_custody_columns(expects_custody_columns)
+            self.into_responses_with_custody_columns(expects_custody_columns, spec)
         } else {
             self.into_responses_with_blobs()
         }
@@ -123,6 +125,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     fn into_responses_with_custody_columns(
         self,
         expects_custody_columns: Vec<ColumnIndex>,
+        spec: &ChainSpec,
     ) -> Result<Vec<RpcBlock<E>>, String> {
         let RangeBlockComponentsRequest {
             blocks,
@@ -185,7 +188,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     ));
                 }
 
-                RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns)
+                RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, spec)
                     .map_err(|e| format!("{e:?}"))?
             } else {
                 RpcBlock::new_without_blobs(Some(block_root), block)
@@ -221,7 +224,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 mod tests {
     use super::RangeBlockComponentsRequest;
     use beacon_chain::test_utils::{
-        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, NumBlobs,
+        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec, NumBlobs,
     };
     use rand::SeedableRng;
     use types::{test_utils::XorShiftRng, ForkName, MinimalEthSpec as E};
@@ -242,7 +245,7 @@ mod tests {
 
         // Assert response is finished and RpcBlocks can be constructed
         assert!(info.is_finished());
-        info.into_responses().unwrap();
+        info.into_responses(&test_spec::<E>()).unwrap();
     }
 
     #[test]
@@ -268,11 +271,12 @@ mod tests {
         // This makes sure we don't expect blobs here when they have expired. Checking this logic should
         // be hendled elsewhere.
         assert!(info.is_finished());
-        info.into_responses().unwrap();
+        info.into_responses(&test_spec::<E>()).unwrap();
     }
 
     #[test]
     fn rpc_block_with_custody_columns() {
+        let spec = test_spec::<E>();
         let expects_custody_columns = vec![1, 2, 3, 4];
         let mut info =
             RangeBlockComponentsRequest::<E>::new(false, Some(expects_custody_columns.clone()));
@@ -283,6 +287,7 @@ mod tests {
                     ForkName::Deneb,
                     NumBlobs::Number(1),
                     &mut rng,
+                    &spec,
                 )
             })
             .collect::<Vec<_>>();
@@ -322,6 +327,6 @@ mod tests {
         }
 
         // All completed construct response
-        info.into_responses().unwrap();
+        info.into_responses(&spec).unwrap();
     }
 }

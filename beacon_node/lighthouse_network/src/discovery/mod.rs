@@ -43,7 +43,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
-use types::{EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId, EthSpec};
 
 mod subnet_predicate;
 pub use subnet_predicate::subnet_predicate;
@@ -192,6 +192,7 @@ pub struct Discovery<E: EthSpec> {
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
+    spec: ChainSpec,
 }
 
 impl<E: EthSpec> Discovery<E> {
@@ -201,6 +202,7 @@ impl<E: EthSpec> Discovery<E> {
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<E>>,
         log: &slog::Logger,
+        spec: &ChainSpec,
     ) -> error::Result<Self> {
         let log = log.clone();
 
@@ -325,6 +327,7 @@ impl<E: EthSpec> Discovery<E> {
             update_ports,
             log,
             enr_dir,
+            spec: spec.clone(),
         })
     }
 
@@ -755,7 +758,7 @@ impl<E: EthSpec> Discovery<E> {
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
             // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate = subnet_predicate::<E>(filtered_subnets, &self.log);
+            let subnet_predicate = subnet_predicate::<E>(filtered_subnets, &self.log, &self.spec);
 
             debug!(
                 self.log,
@@ -883,7 +886,7 @@ impl<E: EthSpec> Discovery<E> {
 
                             // Check the specific subnet against the enr
                             let subnet_predicate =
-                                subnet_predicate::<E>(vec![query.subnet], &self.log);
+                                subnet_predicate::<E>(vec![query.subnet], &self.log, &self.spec);
 
                             r.clone()
                                 .into_iter()
@@ -1197,11 +1200,12 @@ mod tests {
     }
 
     async fn build_discovery() -> Discovery<E> {
+        let spec = ChainSpec::default();
         let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
         config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
-        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default(), &spec).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
@@ -1215,7 +1219,7 @@ mod tests {
             &log,
         );
         let keypair = keypair.into();
-        Discovery::new(keypair, &config, Arc::new(globals), &log)
+        Discovery::new(keypair, &config, Arc::new(globals), &log, &spec)
             .await
             .unwrap()
     }

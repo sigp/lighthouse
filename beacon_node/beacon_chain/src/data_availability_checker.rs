@@ -7,7 +7,6 @@ use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
 use slog::{debug, error, o, Logger};
 use slot_clock::SlotClock;
-use ssz_types::VariableList;
 use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
@@ -16,7 +15,8 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
+    RuntimeVariableList, SignedBeaconBlock,
 };
 
 mod error;
@@ -28,7 +28,7 @@ use crate::data_column_verification::{
     KzgVerifiedCustodyDataColumn,
 };
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
-use types::data_column_sidecar::{DataColumnIdentifier, DataColumnSidecarList};
+use types::data_column_sidecar::DataColumnIdentifier;
 use types::non_zero_usize::new_non_zero_usize;
 
 pub use self::overflow_lru_cache::DataColumnsToPublish;
@@ -51,7 +51,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<OverflowLRUCache<T>>,
     slot_clock: T::SlotClock,
     kzg: Option<Arc<Kzg>>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
 }
 
 /// This type is returned after adding a block / blob to the `DataAvailabilityChecker`.
@@ -84,14 +84,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
+        let spec = Arc::new(spec);
         let custody_subnet_count = if import_all_data_columns {
-            T::EthSpec::data_column_subnet_count()
+            spec.data_column_sidecar_subnet_count as usize
         } else {
-            T::EthSpec::custody_requirement()
+            spec.custody_requirement as usize
         };
 
         let custody_column_count =
-            custody_subnet_count.saturating_mul(T::EthSpec::data_columns_per_subnet());
+            custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
         let overflow_cache = OverflowLRUCache::new(
             OVERFLOW_LRU_CAPACITY,
             store,
@@ -289,6 +290,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     blobs,
                     blobs_available_timestamp: None,
                     data_columns: None,
+                    spec: self.spec.clone(),
                 }))
             } else {
                 Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
@@ -314,14 +316,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     blobs_available_timestamp: None,
                     // TODO(das): update store type to prevent this conversion
                     data_columns: Some(
-                        VariableList::new(
+                        RuntimeVariableList::new(
                             data_column_list
                                 .into_iter()
                                 .map(|d| d.clone_arc())
                                 .collect(),
+                            self.spec.number_of_columns,
                         )
                         .expect("data column list is within bounds"),
                     ),
+                    spec: self.spec.clone(),
                 }))
             } else {
                 Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
@@ -334,6 +338,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             blobs: None,
             blobs_available_timestamp: None,
             data_columns: None,
+            spec: self.spec.clone(),
         }))
     }
 
@@ -366,15 +371,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             verify_kzg_for_blob_list(all_blobs.iter(), kzg)?;
         }
 
-        let all_data_columns: DataColumnSidecarList<T::EthSpec> = blocks
+        let all_data_columns = blocks
             .iter()
             .filter(|block| self.data_columns_required_for_block(block.as_block()))
             // this clone is cheap as it's cloning an Arc
             .filter_map(|block| block.custody_columns().cloned())
             .flatten()
             .map(CustodyDataColumn::into_inner)
-            .collect::<Vec<_>>()
-            .into();
+            .collect::<Vec<_>>();
+        let all_data_columns =
+            RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns);
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
@@ -396,6 +402,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         blobs,
                         blobs_available_timestamp: None,
                         data_columns: None,
+                        spec: self.spec.clone(),
                     })
                 } else {
                     MaybeAvailableBlock::AvailabilityPending { block_root, block }
@@ -409,11 +416,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         blobs_available_timestamp: None,
                         // TODO(das): update store type to prevent this conversion
                         data_columns: data_columns.map(|data_columns| {
-                            VariableList::new(
+                            RuntimeVariableList::new(
                                 data_columns.into_iter().map(|d| d.into_inner()).collect(),
+                                self.spec.number_of_columns,
                             )
                             .expect("data column list is within bounds")
                         }),
+                        spec: self.spec.clone(),
                     })
                 } else {
                     MaybeAvailableBlock::AvailabilityPending { block_root, block }
@@ -425,6 +434,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     blobs: None,
                     blobs_available_timestamp: None,
                     data_columns: None,
+                    spec: self.spec.clone(),
                 })
             };
 
@@ -601,6 +611,7 @@ pub struct AvailableBlock<E: EthSpec> {
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
     data_columns: Option<DataColumnSidecarList<E>>,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
@@ -609,6 +620,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
         data_columns: Option<DataColumnSidecarList<E>>,
+        spec: Arc<ChainSpec>,
     ) -> Self {
         Self {
             block_root,
@@ -616,6 +628,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             blobs,
             blobs_available_timestamp: None,
             data_columns,
+            spec,
         }
     }
 
@@ -654,6 +667,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             blobs,
             blobs_available_timestamp: _,
             data_columns,
+            ..
         } = self;
         (block_root, block, blobs, data_columns)
     }

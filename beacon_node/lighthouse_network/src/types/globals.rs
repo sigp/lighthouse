@@ -8,7 +8,7 @@ use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use types::data_column_sidecar::ColumnIndex;
-use types::{DataColumnSubnetId, Epoch, EthSpec};
+use types::{ChainSpec, DataColumnSubnetId, Epoch, EthSpec};
 
 pub struct NetworkGlobals<E: EthSpec> {
     /// The current local ENR.
@@ -112,11 +112,12 @@ impl<E: EthSpec> NetworkGlobals<E> {
     }
 
     /// Compute custody data columns the node is assigned to custody.
-    pub fn custody_columns(&self, _epoch: Epoch) -> Vec<ColumnIndex> {
+    pub fn custody_columns(&self, _epoch: Epoch, spec: &ChainSpec) -> Vec<ColumnIndex> {
         let enr = self.local_enr();
         let node_id = enr.node_id().raw().into();
-        let custody_subnet_count = enr.custody_subnet_count::<E>();
-        DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count).collect()
+        let custody_subnet_count = enr.custody_subnet_count::<E>(spec);
+        DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count, spec)
+            .collect()
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
@@ -146,12 +147,17 @@ mod test {
 
     #[test]
     fn test_custody_count_default() {
+        let spec = E::default_spec();
         let log = logging::test_logger();
-        let default_custody_requirement_column_count =
-            E::number_of_columns() / E::data_column_subnet_count() * E::custody_requirement();
+        let default_custody_requirement_column_count = spec.number_of_columns as u64
+            / spec.data_column_sidecar_subnet_count
+            * spec.custody_requirement;
         let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log);
         let any_epoch = Epoch::new(0);
-        let columns = globals.custody_columns(any_epoch);
-        assert_eq!(columns.len(), default_custody_requirement_column_count);
+        let columns = globals.custody_columns(any_epoch, &spec);
+        assert_eq!(
+            columns.len(),
+            default_custody_requirement_column_count as usize
+        );
     }
 }

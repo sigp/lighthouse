@@ -39,10 +39,10 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
+use types::{ChainSpec, ForkName};
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
 pub mod api_types;
@@ -129,6 +129,7 @@ pub struct Network<AppReqId: ReqId, E: EthSpec> {
     pub local_peer_id: PeerId,
     /// Logger for behaviour actions.
     log: slog::Logger,
+    spec: ChainSpec,
 }
 
 /// Implements the combined behaviour for the libp2p service.
@@ -161,6 +162,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                 &config,
                 &ctx.enr_fork_id,
                 &log,
+                ctx.chain_spec,
             )?;
             // Construct the metadata
             let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
@@ -240,8 +242,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             let max_topics = ctx.chain_spec.attestation_subnet_count as usize
                 + SYNC_COMMITTEE_SUBNET_COUNT as usize
                 + ctx.chain_spec.blob_sidecar_subnet_count as usize
-                // TODO: move to chainspec
-                + E::data_column_subnet_count()
+                + ctx.chain_spec.data_column_sidecar_subnet_count as usize
                 + BASE_CORE_TOPICS.len()
                 + ALTAIR_CORE_TOPICS.len()
                 + CAPELLA_CORE_TOPICS.len()
@@ -255,7 +256,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
                     ctx.chain_spec.blob_sidecar_subnet_count,
-                    E::data_column_subnet_count() as u64,
+                    ctx.chain_spec.data_column_sidecar_subnet_count,
                 ),
                 // during a fork we subscribe to both the old and new topics
                 max_subscribed_topics: max_topics * 4,
@@ -330,6 +331,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                 &config,
                 network_globals.clone(),
                 &log,
+                ctx.chain_spec,
             )
             .await?;
             // start searching for peers
@@ -462,6 +464,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             gossip_cache,
             local_peer_id,
             log,
+            spec: ctx.chain_spec.clone(),
         };
 
         network.start(&config).await?;
@@ -1216,7 +1219,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     /// Dial cached Enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
     fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet) {
-        let predicate = subnet_predicate::<E>(vec![subnet], &self.log);
+        let predicate = subnet_predicate::<E>(vec![subnet], &self.log, &self.spec);
         let peers_to_dial: Vec<Enr> = self
             .discovery()
             .cached_enrs()

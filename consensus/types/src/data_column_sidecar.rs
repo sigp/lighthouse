@@ -1,8 +1,8 @@
 use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::test_utils::TestRandom;
 use crate::{
-    BeaconBlockHeader, EthSpec, Hash256, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader,
-    Slot,
+    BeaconBlockHeader, ChainSpec, EthSpec, Hash256, KzgProofs, RuntimeVariableList,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 use crate::{BeaconStateError, BlobsList};
 use bls::Signature;
@@ -22,6 +22,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::Unsigned;
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
+use std::hash::Hash;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -39,6 +40,8 @@ pub struct DataColumnIdentifier {
     pub block_root: Hash256,
     pub index: ColumnIndex,
 }
+
+pub type DataColumnSidecarList<E> = RuntimeVariableList<Arc<DataColumnSidecar<E>>>;
 
 #[derive(
     Debug,
@@ -102,9 +105,11 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         blobs: &BlobsList<E>,
         block: &SignedBeaconBlock<E>,
         kzg: &Kzg,
+        spec: &ChainSpec,
     ) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
+        let number_of_columns = spec.number_of_columns;
         if blobs.is_empty() {
-            return Ok(DataColumnSidecarList::empty());
+            return Ok(RuntimeVariableList::empty(number_of_columns));
         }
         let kzg_commitments = block
             .message()
@@ -115,10 +120,9 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             block.message().body().kzg_commitments_merkle_proof()?;
         let signed_block_header = block.signed_block_header();
 
-        let mut columns =
-            vec![Vec::with_capacity(E::max_blobs_per_block()); E::number_of_columns()];
+        let mut columns = vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
         let mut column_kzg_proofs =
-            vec![Vec::with_capacity(E::max_blobs_per_block()); E::number_of_columns()];
+            vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
 
         // NOTE: assumes blob sidecars are ordered by index
         let blob_cells_and_proofs_vec = blobs
@@ -133,7 +137,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             // we iterate over each column, and we construct the column from "top to bottom",
             // pushing on the cell and the corresponding proof at each column index. we do this for
             // each blob (i.e. the outer loop).
-            for col in 0..E::number_of_columns() {
+            for col in 0..number_of_columns {
                 let cell =
                     blob_cells
                         .get(col)
@@ -185,16 +189,20 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                 })
             })
             .collect();
-        let sidecars = DataColumnSidecarList::from(sidecars);
+        let sidecars = RuntimeVariableList::from_vec(sidecars, number_of_columns);
 
         Ok(sidecars)
     }
 
-    pub fn reconstruct(kzg: &Kzg, data_columns: &[Arc<Self>]) -> Result<Vec<Arc<Self>>, KzgError> {
-        let mut columns =
-            vec![Vec::with_capacity(E::max_blobs_per_block()); E::number_of_columns()];
+    pub fn reconstruct(
+        kzg: &Kzg,
+        data_columns: &[Arc<Self>],
+        spec: &ChainSpec,
+    ) -> Result<Vec<Arc<Self>>, KzgError> {
+        let number_of_columns = spec.number_of_columns;
+        let mut columns = vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
         let mut column_kzg_proofs =
-            vec![Vec::with_capacity(E::max_blobs_per_block()); E::number_of_columns()];
+            vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
 
         let first_data_column = data_columns
             .first()
@@ -234,7 +242,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             // we iterate over each column, and we construct the column from "top to bottom",
             // pushing on the cell and the corresponding proof at each column index. we do this for
             // each blob (i.e. the outer loop).
-            for col in 0..E::number_of_columns() {
+            for col in 0..number_of_columns {
                 let cell = blob_cells
                     .get(col)
                     .ok_or(KzgError::InconsistentArrayLength(format!(
@@ -391,11 +399,6 @@ impl From<SszError> for DataColumnSidecarError {
     }
 }
 
-pub type DataColumnSidecarList<E> =
-    VariableList<Arc<DataColumnSidecar<E>>, <E as EthSpec>::NumberOfColumns>;
-pub type FixedDataColumnSidecarList<E> =
-    FixedVector<Option<Arc<DataColumnSidecar<E>>>, <E as EthSpec>::NumberOfColumns>;
-
 /// Converts a cell ssz List object to an array to be used with the kzg
 /// crypto library.
 fn ssz_cell_to_crypto_cell<E: EthSpec>(cell: &Cell<E>) -> Result<KzgCell, KzgError> {
@@ -425,7 +428,8 @@ mod test {
 
         let mock_kzg = Arc::new(Kzg::default());
         let column_sidecars =
-            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &mock_kzg).unwrap();
+            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &mock_kzg, &spec)
+                .unwrap();
 
         assert!(column_sidecars.is_empty());
     }
@@ -443,7 +447,8 @@ mod test {
             .returning(kzg::mock::compute_cells_and_proofs);
 
         let column_sidecars =
-            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &mock_kzg).unwrap();
+            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &mock_kzg, &spec)
+                .unwrap();
 
         let block_kzg_commitments = signed_block
             .message()
@@ -457,7 +462,7 @@ mod test {
             .kzg_commitments_merkle_proof()
             .unwrap();
 
-        assert_eq!(column_sidecars.len(), E::number_of_columns());
+        assert_eq!(column_sidecars.len(), spec.number_of_columns);
         for (idx, col_sidecar) in column_sidecars.iter().enumerate() {
             assert_eq!(col_sidecar.index, idx as u64);
 

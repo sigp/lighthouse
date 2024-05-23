@@ -245,7 +245,12 @@ impl TestRig {
         &mut self,
     ) -> (SignedBeaconBlock<E>, Vec<Arc<DataColumnSidecar<E>>>) {
         let num_blobs = NumBlobs::Number(1);
-        generate_rand_block_and_data_columns::<E>(self.fork_name, num_blobs, &mut self.rng)
+        generate_rand_block_and_data_columns::<E>(
+            self.fork_name,
+            num_blobs,
+            &mut self.rng,
+            &self.harness.spec,
+        )
     }
 
     pub fn rand_block_and_parent(
@@ -364,7 +369,7 @@ impl TestRig {
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(&peer_id, false);
+            .__add_connected_peer_testing_only(&peer_id, false, &self.harness.spec);
         peer_id
     }
 
@@ -373,7 +378,7 @@ impl TestRig {
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(&peer_id, true);
+            .__add_connected_peer_testing_only(&peer_id, true, &self.harness.spec);
         peer_id
     }
 
@@ -1845,6 +1850,7 @@ fn custody_lookup_happy_path() {
     let Some(mut r) = TestRig::test_setup_after_peerdas() else {
         return;
     };
+    let spec = E::default_spec();
     r.new_connected_peers_for_peerdas();
     let (block, data_columns) = r.rand_block_and_data_columns();
     let block_root = block.canonical_root();
@@ -1853,8 +1859,9 @@ fn custody_lookup_happy_path() {
     // Should not request blobs
     let id = r.expect_block_lookup_request(block.canonical_root());
     r.complete_valid_block_request(id, block.into(), true);
-    let custody_column_count = E::custody_requirement() * E::data_columns_per_subnet();
-    let custody_ids = r.expect_only_data_columns_by_root_requests(block_root, custody_column_count);
+    let custody_column_count = spec.custody_requirement * spec.data_columns_per_subnet() as u64;
+    let custody_ids =
+        r.expect_only_data_columns_by_root_requests(block_root, custody_column_count as usize);
     r.complete_valid_custody_request(custody_ids, data_columns, false);
     r.expect_no_active_lookups();
 }

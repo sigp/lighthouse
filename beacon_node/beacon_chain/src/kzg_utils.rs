@@ -152,16 +152,17 @@ mod test {
         let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
 
         let column_sidecars =
-            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &kzg).unwrap();
+            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &kzg, &spec).unwrap();
 
         // Now reconstruct
         let reconstructed_columns = DataColumnSidecar::reconstruct(
             &kzg,
             &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
+            &spec,
         )
         .unwrap();
 
-        for i in 0..E::number_of_columns() {
+        for i in 0..spec.number_of_columns {
             assert_eq!(reconstructed_columns.get(i), column_sidecars.get(i), "{i}");
         }
     }

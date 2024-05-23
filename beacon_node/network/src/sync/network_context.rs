@@ -233,16 +233,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         for (peer_id, peer_info) in self.network_globals().peers.read().connected_peers() {
             if let Some(enr) = peer_info.enr() {
-                let custody_subnet_count = enr.custody_subnet_count::<T::EthSpec>();
+                let custody_subnet_count = enr.custody_subnet_count::<T::EthSpec>(&self.chain.spec);
                 // TODO(das): consider caching a map of subnet -> Vec<PeerId> and invalidating
                 // whenever a peer connected or disconnect event in received
                 let mut subnets = DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
                     enr.node_id().raw().into(),
                     custody_subnet_count,
+                    &self.chain.spec,
                 );
                 if subnets.any(|subnet| {
                     subnet
-                        .columns::<T::EthSpec>()
+                        .columns::<T::EthSpec>(&self.chain.spec)
                         .any(|index| index == column_index)
                 }) {
                     peer_ids.push(*peer_id)
@@ -345,7 +346,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let expects_custody_columns = if matches!(batch_type, ByRangeRequestType::BlocksAndColumns)
         {
-            let custody_indexes = self.network_globals().custody_columns(epoch);
+            let custody_indexes = self
+                .network_globals()
+                .custody_columns(epoch, &self.chain.spec);
 
             for column_index in &custody_indexes {
                 let custody_peer_ids = self.get_custodial_peers(epoch, *column_index);
@@ -432,7 +435,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     let (expects_blobs, expects_custody_columns) = info.get_requirements();
                     Some(BlocksAndBlobsByRangeResponse {
                         sender_id,
-                        responses: info.into_responses(),
+                        responses: info.into_responses(&self.chain.spec),
                         expects_blobs,
                         expects_custody_columns,
                     })
@@ -668,7 +671,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // TODO(das): figure out how to pass block.slot if we end up doing rotation
         let block_epoch = Epoch::new(0);
-        let custody_indexes_duty = self.network_globals().custody_columns(block_epoch);
+        let custody_indexes_duty = self
+            .network_globals()
+            .custody_columns(block_epoch, &self.chain.spec);
 
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = custody_indexes_duty
