@@ -5254,6 +5254,20 @@ impl ApiTester {
                 .as_slice()
         );
 
+        // Produce a BLS to execution change event
+        self.client
+            .post_beacon_pool_bls_to_execution_changes(&[self.bls_to_execution_change.clone()])
+            .await
+            .unwrap();
+
+        let bls_events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+        assert_eq!(
+            bls_events.as_slice(),
+            &[EventKind::BlsToExecutionChange(Box::new(
+                self.bls_to_execution_change.clone()
+            ))]
+        );
+
         // Produce a voluntary exit event
         self.client
             .post_beacon_pool_voluntary_exits(&self.voluntary_exit)
