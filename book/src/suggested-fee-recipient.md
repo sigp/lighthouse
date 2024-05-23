@@ -9,14 +9,14 @@ During post-merge block production, the Beacon Node (BN) will provide a `suggest
 the execution node. This is a 20-byte Ethereum address which the execution node might choose to set as the recipient of other fees or rewards.
 
 There is no guarantee that an execution node will use the `suggested_fee_recipient` to collect fees,
-it may use any address it chooses. It is assumed that an honest execution node *will* use the
-`suggested_fee_recipient`, but users should note this trust assumption. 
+it may use any address it chooses. It is assumed that an honest execution node _will_ use the
+`suggested_fee_recipient`, but users should note this trust assumption.
 
 The `suggested_fee_recipient` can be provided to the VC, which will transmit it to the BN. The BN also
 has a choice regarding the fee recipient it passes to the execution node, creating another
 noteworthy trust assumption.
 
-To be sure *you* control your fee recipient value, run your own BN and execution node (don't use
+To be sure _you_ control your fee recipient value, run your own BN and execution node (don't use
 third-party services).
 
 ## How to configure a suggested fee recipient
@@ -68,7 +68,6 @@ Provide a 0x-prefixed address, e.g.
 lighthouse vc --suggested-fee-recipient 0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b ...
 ```
 
-
 ### 3. Using the "--suggested-fee-recipient" flag on the beacon node
 
 The `--suggested-fee-recipient` can be provided to the BN to act as a default value when the
@@ -96,7 +95,8 @@ client.
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 202, 404                                   |
 
-#### Example Request Body
+### Example Request Body
+
 ```json
 {
     "ethaddress": "0x1D4E51167DBDC4789a014357f4029ff76381b16c"
@@ -120,6 +120,7 @@ curl -X POST \
 Note that an authorization header is required to interact with the API. This is specified with the header `-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)"` which read the API token to supply the authentication. Refer to [Authorization Header](./api-vc-auth-header.md) for more information. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
 
 #### Successful Response (202)
+
 ```json
 null
 ```
@@ -137,7 +138,7 @@ The same path with a `GET` request can be used to query the fee recipient for a 
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200, 404                                   |
 
-Command: 
+Command:
 
 ```bash
 DATADIR=$HOME/.lighthouse/mainnet
@@ -150,6 +151,7 @@ curl -X GET \
 ```
 
 #### Successful Response (200)
+
 ```json
 {
   "data": {
@@ -171,7 +173,7 @@ This is useful if you want the fee recipient to fall back to the validator clien
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 204, 404                                   |
 
-Command: 
+Command:
 
 ```bash
 DATADIR=$HOME/.lighthouse/mainnet
@@ -184,6 +186,7 @@ curl -X DELETE \
 ```
 
 #### Successful Response (204)
+
 ```json
 null
 ```
