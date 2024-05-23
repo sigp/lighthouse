@@ -561,7 +561,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.handle_new_execution_engine_state(engine_state);
                 }
                 _ = interval.tick() => {
-                    self.block_lookups.log_stuck_lookups();
+                    self.block_lookups.drop_stuck_lookups();
                 }
             }
         }
