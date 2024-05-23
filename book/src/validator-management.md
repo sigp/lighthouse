@@ -60,9 +60,9 @@ Each permitted field of the file is listed below for reference:
 - `voting_keystore_password`: The password to the EIP-2335 keystore.
 
 > **Note**: Either `voting_keystore_password_path` or `voting_keystore_password` *must* be
-> supplied. If both are supplied, `voting_keystore_password_path` is ignored. 
+> supplied. If both are supplied, `voting_keystore_password_path` is ignored.
 
->If you do not wish to have  `voting_keystore_password` being stored in the `validator_definitions.yml` file, you can add the field `voting_keystore_password_path` and point it to a file containing the password. The file can be, e.g., on a mounted portable drive that contains the password so that no password is stored on the validating node. 
+>If you do not wish to have  `voting_keystore_password` being stored in the `validator_definitions.yml` file, you can add the field `voting_keystore_password_path` and point it to a file containing the password. The file can be, e.g., on a mounted portable drive that contains the password so that no password is stored on the validating node.
 
 ## Populating the `validator_definitions.yml` file
 
@@ -77,7 +77,6 @@ recap:
 - `lighthouse vc --disable-auto-discover`: validators are **not** automatically discovered.
 
 ### Automatic validator discovery
-
 
 When the `--disable-auto-discover` flag is **not** provided, the validator client will search the
 `validator-dir` for validators and add any *new* validators to the
