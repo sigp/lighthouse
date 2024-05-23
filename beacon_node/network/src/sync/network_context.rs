@@ -121,12 +121,18 @@ impl From<LookupVerifyError> for RpcResponseError {
     }
 }
 
+/// Represents a group of peers that served a block component.
 #[derive(Clone, Debug)]
 pub struct PeerGroup {
+    /// Peers group by which indexed section of the block component they served. For example:
+    /// - PeerA served = [blob index 0, blob index 2]
+    /// - PeerA served = [blob index 1]
     peers: HashMap<PeerId, Vec<usize>>,
 }
 
 impl PeerGroup {
+    /// Return a peer group where a single peer returned all parts of a block component. For
+    /// example, a block has a single component (the block = index 0/1).
     pub fn from_single(peer: PeerId) -> Self {
         Self {
             peers: HashMap::from_iter([(peer, vec![0])]),

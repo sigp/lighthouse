@@ -95,14 +95,14 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         }
     }
 
-    /// Insert a downloaded column into an active sampling request. Then make progress on the
+    /// Insert a downloaded column into an active custody request. Then make progress on the
     /// entire request.
     ///
     /// ### Returns
     ///
-    /// - `Err`: Sampling request has failed and will be dropped
-    /// - `Ok(Some)`: Sampling request has successfully completed and will be dropped
-    /// - `Ok(None)`: Sampling request still active
+    /// - `Err`: Custody request has failed and will be dropped
+    /// - `Ok(Some)`: Custody request has successfully completed and will be dropped
+    /// - `Ok(None)`: Custody request still active
     pub(crate) fn on_data_column_downloaded(
         &mut self,
         peer_id: PeerId,
@@ -129,6 +129,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     "id" => ?self.custody_id,
                     "block_root" => ?self.block_root,
                     "req_id" => %req_id,
+                    "peer" => %peer_id,
                     "count" => data_columns.len()
                 );
 
@@ -175,9 +176,10 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         "Custody column peer claims to not have some data";
                         "id" => ?self.custody_id,
                         "block_root" => ?self.block_root,
-                        // TODO(das): this property can become very noisy, being the full range 0..128
-                        "missing_column_indexes" => ?missing_column_indexes,
                         "req_id" => %req_id,
+                        "peer" => %peer_id,
+                        // TODO(das): this property can become very noisy, being the full range 0..128
+                        "missing_column_indexes" => ?missing_column_indexes
                     );
 
                     self.failed_peers.insert(peer_id);
@@ -189,6 +191,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     "id" => ?self.custody_id,
                     "block_root" => ?self.block_root,
                     "req_id" => %req_id,
+                    "peer" => %peer_id,
                     "error" => ?err
                 );
 
@@ -243,8 +246,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     return Err(Error::TooManyFailures);
                 }
 
-                // TODO: When is a fork and only a subset of your peers know about a block, sampling should only
-                // be queried on the peers on that fork. Should this case be handled? How to handle it?
+                // TODO: When is a fork and only a subset of your peers know about a block, we should only
+                // query the peers on that fork. Should this case be handled? How to handle it?
                 let custodial_peers = cx.get_custodial_peers(self.block_epoch, *column_index);
 
                 // TODO(das): cache this computation in a OneCell or similar to prevent having to
@@ -384,7 +387,7 @@ impl<E: EthSpec> ColumnRequest<E> {
                 Ok(())
             }
             other => Err(Error::BadState(format!(
-                "bad state on_download_error expected Sampling got {other:?}"
+                "bad state on_download_error expected Downloading got {other:?}"
             ))),
         }
     }
@@ -416,7 +419,7 @@ impl<E: EthSpec> ColumnRequest<E> {
                 Ok(())
             }
             other => Err(Error::BadState(format!(
-                "bad state on_download_success expected Sampling got {other:?}"
+                "bad state on_download_success expected Downloading got {other:?}"
             ))),
         }
     }

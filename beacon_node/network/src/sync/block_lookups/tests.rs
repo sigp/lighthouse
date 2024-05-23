@@ -658,8 +658,8 @@ impl TestRig {
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
     ) {
         for id in ids {
+            self.log(&format!("return valid data column for {id:?}"));
             let indices = &id.1;
-            self.log(&format!("return valid data column for {id:?} {indices:?}"));
             let columns_to_send = indices
                 .iter()
                 .map(|&i| data_columns[i as usize].clone())
@@ -710,8 +710,8 @@ impl TestRig {
         let first_column = data_columns.first().cloned().unwrap();
 
         for id in ids {
+            self.log(&format!("return valid data column for {id:?}"));
             let indices = &id.1;
-            self.log(&format!("return valid data column for {id:?} {indices:?}"));
             let columns_to_send = indices
                 .iter()
                 .map(|&i| data_columns[i as usize].clone())
