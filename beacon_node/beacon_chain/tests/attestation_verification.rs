@@ -129,7 +129,12 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     let validator_committee_index = 0;
     let validator_index = *head
         .beacon_state
-        .get_beacon_committee(current_slot, valid_attestation.committee_index())
+        .get_beacon_committee(
+            current_slot,
+            valid_attestation
+                .committee_index()
+                .expect("should get committee index"),
+        )
         .expect("should get committees")
         .committee
         .get(validator_committee_index)
@@ -174,7 +179,12 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     let current_slot = chain.slot().expect("should get slot");
 
     let committee = state
-        .get_beacon_committee(current_slot, aggregate.committee_index())
+        .get_beacon_committee(
+            current_slot,
+            aggregate
+                .committee_index()
+                .expect("should get committee index"),
+        )
         .expect("should get committees");
     let committee_len = committee.committee.len();
 
@@ -225,7 +235,12 @@ fn get_non_aggregator<T: BeaconChainTypes>(
 
     // TODO(electra) make fork-agnostic
     let committee = state
-        .get_beacon_committee(current_slot, aggregate.committee_index())
+        .get_beacon_committee(
+            current_slot,
+            aggregate
+                .committee_index()
+                .expect("should get committee index"),
+        )
         .expect("should get committees");
     let committee_len = committee.committee.len();
 
@@ -664,7 +679,7 @@ async fn aggregated_gossip_verification() {
                     .chain
                     .head_snapshot()
                     .beacon_state
-                    .get_beacon_committee(tester.slot(), a.message().aggregate().committee_index())
+                    .get_beacon_committee(tester.slot(), a.message().aggregate().committee_index().expect("should get committee index"))
                     .expect("should get committees")
                     .committee
                     .len();
@@ -837,7 +852,7 @@ async fn aggregated_gossip_verification() {
                     err,
                     AttnError::AttestationSupersetKnown(hash)
                     if hash == ObservedAttestationKey {
-                        committee_index: tester.valid_aggregate.message().aggregate().committee_index(),
+                        committee_index: tester.valid_aggregate.message().aggregate().expect("should get committee index"),
                         attestation_data: tester.valid_aggregate.message().aggregate().data().clone(),
                     }.tree_hash_root()
                 ))

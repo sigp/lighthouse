@@ -435,7 +435,7 @@ impl ForkChoiceTest {
         let validator_committee_index = 0;
         let validator_index = *head
             .beacon_state
-            .get_beacon_committee(current_slot, attestation.committee_index())
+            .get_beacon_committee(current_slot, attestation.committee_index().expect("should get committee index"))
             .expect("should get committees")
             .committee
             .get(validator_committee_index)

@@ -44,9 +44,11 @@ impl SubnetId {
         committee_count_per_slot: u64,
         spec: &ChainSpec,
     ) -> Result<SubnetId, ArithError> {
+        let committee_index = attestation.committee_index().ok_or(ArithError::Overflow)?;
+
         Self::compute_subnet::<E>(
             attestation.data().slot,
-            attestation.committee_index(),
+            committee_index,
             committee_count_per_slot,
             spec,
         )

@@ -1620,7 +1620,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             AttestationRef::Electra(att) => self.get_aggregated_attestation_electra(
                 att.data.slot,
                 &att.data.tree_hash_root(),
-                att.committee_index(),
+                att.committee_index().ok_or(Error::AttestationCommitteeIndexNotSet)?,
             ),
         }
     }

@@ -190,9 +190,9 @@ impl<E: EthSpec> Attestation<E> {
         }
     }
 
-    pub fn committee_index(&self) -> u64 {
+    pub fn committee_index(&self) -> Option<u64> {
         match self {
-            Attestation::Base(att) => att.data.index,
+            Attestation::Base(att) => Some(att.data.index),
             Attestation::Electra(att) => att.committee_index(),
         }
     }
@@ -241,9 +241,9 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
         }
     }
 
-    pub fn committee_index(&self) -> u64 {
+    pub fn committee_index(&self) -> Option<u64> {
         match self {
-            AttestationRef::Base(att) => att.data.index,
+            AttestationRef::Base(att) => Some(att.data.index),
             AttestationRef::Electra(att) => att.committee_index(),
         }
     }
@@ -279,8 +279,8 @@ impl<E: EthSpec> AttestationElectra<E> {
             .is_zero()
     }
 
-    pub fn committee_index(&self) -> u64 {
-        *self.get_committee_indices().first().unwrap_or(&0u64)
+    pub fn committee_index(&self) -> Option<u64> {
+        self.get_committee_indices().first().cloned()
     }
 
     pub fn get_committee_indices(&self) -> Vec<u64> {

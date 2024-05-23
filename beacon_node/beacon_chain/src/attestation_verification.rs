@@ -511,7 +511,9 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         }
 
         let observed_attestation_key_root = ObservedAttestationKey {
-            committee_index: attestation.committee_index(),
+            committee_index: attestation
+                .committee_index()
+                .ok_or(Error::NotExactlyOneCommitteeBitSet(0))?,
             attestation_data: attestation.data().clone(),
         }
         .tree_hash_root();
@@ -1398,7 +1400,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
                 attesting_indices_electra::get_indexed_attestation(&committees, att)
                     .map(|attestation| (attestation, committees_per_slot))
                     .map_err(|e| {
-                        let index = att.committee_index();
+                        let index = att.committee_index().unwrap_or(0);
                         if e == BlockOperationError::BeaconStateError(NoCommitteeFound(index)) {
                             Error::NoCommitteeForSlotAndIndex {
                                 slot: att.data.slot,
@@ -1460,7 +1462,7 @@ where
                 .unwrap_or_else(|_| {
                     Err(Error::NoCommitteeForSlotAndIndex {
                         slot: attestation.data().slot,
-                        index: attestation.committee_index(),
+                        index: attestation.committee_index().unwrap_or(0),
                     })
                 }))
         })

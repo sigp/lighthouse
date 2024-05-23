@@ -1345,7 +1345,7 @@ where
                         let bc = state
                             .get_beacon_committee(
                                 attestation.data().slot,
-                                attestation.committee_index(),
+                                attestation.committee_index().unwrap(),
                             )
                             .unwrap();
 
