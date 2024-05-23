@@ -3,7 +3,9 @@ use ssz_types::VariableList;
 use std::{collections::VecDeque, sync::Arc};
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
-#[derive(Debug, Default)]
+use super::range_sync::ByRangeRequestType;
+
+#[derive(Debug)]
 pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     accumulated_blocks: VecDeque<Arc<SignedBeaconBlock<E>>>,
@@ -13,9 +15,25 @@ pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
     is_blocks_stream_terminated: bool,
     /// Whether the individual RPC request for sidecars is finished or not.
     is_sidecars_stream_terminated: bool,
+    /// Used to determine if this accumulator should wait for a sidecars stream termination
+    request_type: ByRangeRequestType,
 }
 
 impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
+    pub fn new(request_type: ByRangeRequestType) -> Self {
+        Self {
+            accumulated_blocks: <_>::default(),
+            accumulated_sidecars: <_>::default(),
+            is_blocks_stream_terminated: <_>::default(),
+            is_sidecars_stream_terminated: <_>::default(),
+            request_type,
+        }
+    }
+
+    pub fn get_request_type(&self) -> ByRangeRequestType {
+        self.request_type
+    }
+
     pub fn add_block_response(&mut self, block_opt: Option<Arc<SignedBeaconBlock<E>>>) {
         match block_opt {
             Some(block) => self.accumulated_blocks.push_back(block),
@@ -78,6 +96,64 @@ impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
     }
 
     pub fn is_finished(&self) -> bool {
-        self.is_blocks_stream_terminated && self.is_sidecars_stream_terminated
+        let blobs_requested = match self.request_type {
+            ByRangeRequestType::Blocks => false,
+            ByRangeRequestType::BlocksAndBlobs => true,
+        };
+        self.is_blocks_stream_terminated && (!blobs_requested || self.is_sidecars_stream_terminated)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BlocksAndBlobsRequestInfo;
+    use crate::sync::range_sync::ByRangeRequestType;
+    use beacon_chain::test_utils::{generate_rand_block_and_blobs, NumBlobs};
+    use rand::SeedableRng;
+    use types::{test_utils::XorShiftRng, ForkName, MinimalEthSpec as E};
+
+    #[test]
+    fn no_blobs_into_responses() {
+        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::Blocks);
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let blocks = (0..4)
+            .map(|_| generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng).0)
+            .collect::<Vec<_>>();
+
+        // Send blocks and complete terminate response
+        for block in blocks {
+            info.add_block_response(Some(block.into()));
+        }
+        info.add_block_response(None);
+
+        // Assert response is finished and RpcBlocks can be constructed
+        assert!(info.is_finished());
+        info.into_responses().unwrap();
+    }
+
+    #[test]
+    fn empty_blobs_into_responses() {
+        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::BlocksAndBlobs);
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let blocks = (0..4)
+            .map(|_| {
+                // Always generate some blobs.
+                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut rng).0
+            })
+            .collect::<Vec<_>>();
+
+        // Send blocks and complete terminate response
+        for block in blocks {
+            info.add_block_response(Some(block.into()));
+        }
+        info.add_block_response(None);
+        // Expect no blobs returned
+        info.add_sidecar_response(None);
+
+        // Assert response is finished and RpcBlocks can be constructed, even if blobs weren't returned.
+        // This makes sure we don't expect blobs here when they have expired. Checking this logic should
+        // be hendled elsewhere.
+        assert!(info.is_finished());
+        info.into_responses().unwrap();
     }
 }

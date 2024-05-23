@@ -244,54 +244,62 @@ lazy_static! {
         "sync_parent_block_lookups",
         "Number of parent block lookups underway"
     );
+    pub static ref SYNC_LOOKUP_CREATED: Result<IntCounter> = try_create_int_counter(
+        "sync_lookups_created_total",
+        "Total count of sync lookups created",
+    );
+    pub static ref SYNC_LOOKUP_DROPPED: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_lookups_dropped_total",
+        "Total count of sync lookups dropped by reason",
+        &["reason"]
+    );
+    pub static ref SYNC_LOOKUP_COMPLETED: Result<IntCounter> = try_create_int_counter(
+        "sync_lookups_completed_total",
+        "Total count of sync lookups completed",
+    );
+    pub static ref SYNC_LOOKUPS_STUCK: Result<IntGauge> = try_create_int_gauge(
+        "sync_lookups_stuck",
+        "Current count of sync lookups that may be stuck",
+    );
 
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_gossip_propagation_verification_delay_time",
-        "Duration between when the block is received and when it is verified for propagation.",
-        // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
-        decimal_buckets(-3,-1)
+    pub static ref BEACON_BLOCK_DELAY_GOSSIP: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_gossip",
+        "The first time we see this block from gossip as a delay from the start of the slot"
     );
-    pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_gossip_slot_start_delay_time",
-        "Duration between when the block is received and the start of the slot it belongs to.",
-        // Create a custom bucket list for greater granularity in block delay
-        Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
-        // NOTE: Previous values, which we may want to switch back to.
-        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-        //decimal_buckets(-1,2)
-
+    pub static ref BEACON_BLOCK_DELAY_GOSSIP_VERIFICATION: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_gossip_verification",
+        "Keeps track of the time delay from the start of the slot to the point we propagate the block"
     );
-    pub static ref BEACON_BLOCK_LAST_DELAY: Result<IntGauge> = try_create_int_gauge(
-        "beacon_block_last_delay",
-        "Keeps track of the last block's delay from the start of the slot"
+    pub static ref BEACON_BLOCK_DELAY_FULL_VERIFICATION: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_full_verification",
+        "The time it takes to verify a beacon block."
     );
 
-    pub static ref BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_block_gossip_arrived_late_total",
+    pub static ref BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_delay_gossip_arrived_late_total",
         "Count of times when a gossip block arrived from the network later than the attestation deadline.",
     );
 
     /*
      * Blob Delay Metrics
      */
-    pub static ref BEACON_BLOB_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_blob_gossip_propagation_verification_delay_time",
-        "Duration between when the blob is received over gossip and when it is verified for propagation.",
-        // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
-        decimal_buckets(-3,-1)
+    pub static ref BEACON_BLOB_DELAY_GOSSIP: Result<IntGauge> = try_create_int_gauge(
+        "beacon_blob_delay_gossip_last_delay",
+        "The first time we see this blob as a delay from the start of the slot"
     );
-    pub static ref BEACON_BLOB_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_blob_gossip_slot_start_delay_time",
-        "Duration between when the blob is received over gossip and the start of the slot it belongs to.",
-        // Create a custom bucket list for greater granularity in block delay
-        Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
-        // NOTE: Previous values, which we may want to switch back to.
-        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-        //decimal_buckets(-1,2)
+
+    pub static ref BEACON_BLOB_DELAY_GOSSIP_VERIFICATION: Result<IntGauge> = try_create_int_gauge(
+        "beacon_blob_delay_gossip_verification",
+        "Keeps track of the time delay from the start of the slot to the point we propagate the blob"
     );
+    pub static ref BEACON_BLOB_DELAY_FULL_VERIFICATION: Result<IntGauge> = try_create_int_gauge(
+        "beacon_blob_last_full_verification_delay",
+        "The time it takes to verify a beacon blob"
+    );
+
     pub static ref BEACON_BLOB_RPC_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_blob_rpc_slot_start_delay_time",
         "Duration between when a blob is received over rpc and the start of the slot it belongs to.",
@@ -301,10 +309,6 @@ lazy_static! {
         // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
         //decimal_buckets(-1,2)
 
-    );
-    pub static ref BEACON_BLOB_LAST_DELAY: Result<IntGauge> = try_create_int_gauge(
-        "beacon_blob_last_delay",
-        "Keeps track of the last blob's delay from the start of the slot"
     );
 
     pub static ref BEACON_BLOB_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(

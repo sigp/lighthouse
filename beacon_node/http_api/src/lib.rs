@@ -61,7 +61,6 @@ use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
-use std::borrow::Cow;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -144,7 +143,6 @@ pub struct Config {
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub tls_config: Option<TlsConfig>,
-    pub allow_sync_stalled: bool,
     pub spec_fork_name: Option<ForkName>,
     pub data_dir: PathBuf,
     pub sse_capacity_multiplier: usize,
@@ -162,7 +160,6 @@ impl Default for Config {
             listen_port: 5052,
             allow_origin: None,
             tls_config: None,
-            allow_sync_stalled: false,
             spec_fork_name: None,
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             sse_capacity_multiplier: 1,
@@ -321,7 +318,6 @@ pub fn serve<T: BeaconChainTypes>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<HttpServer, Error> {
     let config = ctx.config.clone();
-    let allow_sync_stalled = config.allow_sync_stalled;
     let log = ctx.log.clone();
 
     // Configure CORS.
@@ -482,10 +478,7 @@ pub fn serve<T: BeaconChainTypes>(
                         | SyncState::SyncTransition
                         | SyncState::BackFillSyncing { .. } => Ok(()),
                         SyncState::Synced => Ok(()),
-                        SyncState::Stalled if allow_sync_stalled => Ok(()),
-                        SyncState::Stalled => Err(warp_utils::reject::not_synced(
-                            "sync is stalled".to_string(),
-                        )),
+                        SyncState::Stalled => Ok(()),
                     }
                 },
             );
@@ -870,10 +863,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     None
                                 };
 
-                                let committee_cache = if let Some(ref shuffling) =
+                                let committee_cache = if let Some(shuffling) =
                                     maybe_cached_shuffling
                                 {
-                                    Cow::Borrowed(&**shuffling)
+                                    shuffling
                                 } else {
                                     let possibly_built_cache =
                                         match RelativeEpoch::from_epoch(current_epoch, epoch) {
@@ -882,16 +875,13 @@ pub fn serve<T: BeaconChainTypes>(
                                                     relative_epoch,
                                                 ) =>
                                             {
-                                                state
-                                                    .committee_cache(relative_epoch)
-                                                    .map(Cow::Borrowed)
+                                                state.committee_cache(relative_epoch).cloned()
                                             }
                                             _ => CommitteeCache::initialized(
                                                 state,
                                                 epoch,
                                                 &chain.spec,
-                                            )
-                                            .map(Cow::Owned),
+                                            ),
                                         }
                                         .map_err(|e| {
                                             match e {
@@ -939,7 +929,7 @@ pub fn serve<T: BeaconChainTypes>(
                                             {
                                                 cache_write.insert_committee_cache(
                                                     shuffling_id,
-                                                    &*possibly_built_cache,
+                                                    &possibly_built_cache,
                                                 );
                                             }
                                         }
@@ -4306,7 +4296,7 @@ pub fn serve<T: BeaconChainTypes>(
             |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P1, async move {
                     let current_slot = chain.slot_clock.now_or_genesis().unwrap_or(Slot::new(0));
-                    let merge_readiness = chain.check_merge_readiness(current_slot).await;
+                    let merge_readiness = chain.check_bellatrix_readiness(current_slot).await;
                     Ok::<_, warp::reject::Rejection>(
                         warp::reply::json(&api_types::GenericResponse::from(merge_readiness))
                             .into_response(),
@@ -4367,6 +4357,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::BlockReward => {
                                     event_handler.subscribe_block_reward()
+                                }
+                                api_types::EventTopic::AttesterSlashing => {
+                                    event_handler.subscribe_attester_slashing()
+                                }
+                                api_types::EventTopic::ProposerSlashing => {
+                                    event_handler.subscribe_proposer_slashing()
                                 }
                             };
 

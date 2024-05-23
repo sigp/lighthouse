@@ -223,7 +223,7 @@ impl InvalidPayloadRig {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
 
         let head = self.harness.chain.head_snapshot();
-        let state = head.beacon_state.clone_with_only_committee_caches();
+        let state = head.beacon_state.clone();
         let slot = slot_override.unwrap_or(state.slot() + 1);
         let ((block, blobs), post_state) = self.harness.make_block(state, slot).await;
         let block_root = block.canonical_root();
@@ -702,6 +702,7 @@ async fn invalidates_all_descendants() {
             fork_block.canonical_root(),
             fork_block,
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -802,6 +803,7 @@ async fn switches_heads() {
             fork_block.canonical_root(),
             fork_block,
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -1061,7 +1063,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(), NotifyExecutionLayer::Yes,
+        rig.harness.chain.process_block(block.canonical_root(), block.clone(), NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
         ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
@@ -1352,6 +1354,7 @@ async fn build_optimistic_chain(
                 block.canonical_root(),
                 block,
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             )
             .await
@@ -1926,6 +1929,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
             fork_block.canonical_root(),
             fork_block.clone(),
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -2048,7 +2052,7 @@ async fn weights_after_resetting_optimistic_status() {
             .fork_choice_read_lock()
             .get_block_weight(&head.head_block_root())
             .unwrap(),
-        head.snapshot.beacon_state.validators()[0].effective_balance,
+        head.snapshot.beacon_state.validators().get(0).unwrap().effective_balance,
         "proposer boost should be removed from the head block and the vote of a single validator applied"
     );
 

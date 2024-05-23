@@ -211,7 +211,7 @@ async fn produces_missed_blocks() {
     // `validator_indexes[slot_in_epoch.as_usize()]` and add it below.
     let validator_index_to_monitor_altair = 2;
     // Same as above but for the merge upgrade
-    let validator_index_to_monitor_merge = 4;
+    let validator_index_to_monitor_bellatrix = 4;
     // Same as above but for the capella upgrade
     let validator_index_to_monitor_capella = 11;
     // Same as above but for the deneb upgrade
@@ -224,7 +224,7 @@ async fn produces_missed_blocks() {
         vec![
             validator_index_to_monitor,
             validator_index_to_monitor_altair,
-            validator_index_to_monitor_merge,
+            validator_index_to_monitor_bellatrix,
             validator_index_to_monitor_capella,
             validator_index_to_monitor_deneb,
             validator_index_to_monitor_electra,

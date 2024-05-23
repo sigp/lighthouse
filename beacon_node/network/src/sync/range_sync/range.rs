@@ -278,9 +278,8 @@ where
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain.
     fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
-        for (removed_chain, sync_type, remove_reason) in self
-            .chains
-            .call_all(|chain| chain.remove_peer(peer_id, network))
+        for (removed_chain, sync_type, remove_reason) in
+            self.chains.call_all(|chain| chain.remove_peer(peer_id))
         {
             self.on_chain_removed(
                 removed_chain,
@@ -384,7 +383,7 @@ mod tests {
     use crate::NetworkMessage;
 
     use super::*;
-    use crate::sync::network_context::BlockOrBlob;
+    use crate::sync::network_context::{BlockOrBlob, RangeRequestId};
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
@@ -548,6 +547,51 @@ mod tests {
             (block_req_id, blob_req_id)
         }
 
+        fn complete_range_block_and_blobs_response(
+            &mut self,
+            block_req: RequestId,
+            blob_req_opt: Option<RequestId>,
+        ) -> (ChainId, BatchId, Id) {
+            if blob_req_opt.is_some() {
+                match block_req {
+                    RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
+                        let _ = self
+                            .cx
+                            .range_block_and_blob_response(id, BlockOrBlob::Block(None));
+                        let response = self
+                            .cx
+                            .range_block_and_blob_response(id, BlockOrBlob::Blob(None))
+                            .unwrap();
+                        let (chain_id, batch_id) =
+                            TestRig::unwrap_range_request_id(response.sender_id);
+                        (chain_id, batch_id, id)
+                    }
+                    other => panic!("unexpected request {:?}", other),
+                }
+            } else {
+                match block_req {
+                    RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
+                        let response = self
+                            .cx
+                            .range_block_and_blob_response(id, BlockOrBlob::Block(None))
+                            .unwrap();
+                        let (chain_id, batch_id) =
+                            TestRig::unwrap_range_request_id(response.sender_id);
+                        (chain_id, batch_id, id)
+                    }
+                    other => panic!("unexpected request {:?}", other),
+                }
+            }
+        }
+
+        fn unwrap_range_request_id(sender_id: RangeRequestId) -> (ChainId, BatchId) {
+            if let RangeRequestId::RangeSync { chain_id, batch_id } = sender_id {
+                (chain_id, batch_id)
+            } else {
+                panic!("expected RangeSync request: {:?}", sender_id)
+            }
+        }
+
         /// Produce a head peer
         fn head_peer(
             &self,
@@ -637,7 +681,12 @@ mod tests {
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
         let (network_beacon_processor, beacon_processor_rx) =
-            NetworkBeaconProcessor::null_for_testing(globals.clone());
+            NetworkBeaconProcessor::null_for_testing(
+                globals.clone(),
+                chain.clone(),
+                harness.runtime.task_executor.clone(),
+                log.clone(),
+            );
         let cx = SyncNetworkContext::new(
             network_tx,
             Arc::new(network_beacon_processor),
@@ -739,29 +788,8 @@ mod tests {
         range.add_peer(&mut rig.cx, local_info, peer1, head_info);
         let (block_req, blob_req_opt) = rig.grab_request(&peer1, fork);
 
-        let (chain1, batch1, id1) = if blob_req_opt.is_some() {
-            match block_req {
-                RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
-                    let _ = rig
-                        .cx
-                        .range_sync_block_and_blob_response(id, BlockOrBlob::Block(None));
-                    let (chain1, response) = rig
-                        .cx
-                        .range_sync_block_and_blob_response(id, BlockOrBlob::Blob(None))
-                        .unwrap();
-                    (chain1, response.batch_id, id)
-                }
-                other => panic!("unexpected request {:?}", other),
-            }
-        } else {
-            match block_req {
-                RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
-                    let (chain, batch) = rig.cx.range_sync_block_only_response(id, true).unwrap();
-                    (chain, batch, id)
-                }
-                other => panic!("unexpected request {:?}", other),
-            }
-        };
+        let (chain1, batch1, id1) =
+            rig.complete_range_block_and_blobs_response(block_req, blob_req_opt);
 
         // make the ee offline
         rig.cx.update_execution_engine_state(EngineState::Offline);
@@ -777,29 +805,8 @@ mod tests {
         range.add_peer(&mut rig.cx, local_info, peer2, finalized_info);
         let (block_req, blob_req_opt) = rig.grab_request(&peer2, fork);
 
-        let (chain2, batch2, id2) = if blob_req_opt.is_some() {
-            match block_req {
-                RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
-                    let _ = rig
-                        .cx
-                        .range_sync_block_and_blob_response(id, BlockOrBlob::Block(None));
-                    let (chain2, response) = rig
-                        .cx
-                        .range_sync_block_and_blob_response(id, BlockOrBlob::Blob(None))
-                        .unwrap();
-                    (chain2, response.batch_id, id)
-                }
-                other => panic!("unexpected request {:?}", other),
-            }
-        } else {
-            match block_req {
-                RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
-                    let (chain, batch) = rig.cx.range_sync_block_only_response(id, true).unwrap();
-                    (chain, batch, id)
-                }
-                other => panic!("unexpected request {:?}", other),
-            }
-        };
+        let (chain2, batch2, id2) =
+            rig.complete_range_block_and_blobs_response(block_req, blob_req_opt);
 
         // send the response to the request
         range.blocks_by_range_response(&mut rig.cx, peer2, chain2, batch2, id2, None);

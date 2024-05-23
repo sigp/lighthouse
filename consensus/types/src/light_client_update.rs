@@ -37,6 +37,7 @@ pub const EXECUTION_PAYLOAD_PROOF_LEN: usize = 4;
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
+    MilhouseError(milhouse::Error),
     BeaconStateError(beacon_state::Error),
     ArithError(ArithError),
     AltairForkNotActive,
@@ -62,6 +63,12 @@ impl From<beacon_state::Error> for Error {
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Error {
         Error::ArithError(e)
+    }
+}
+
+impl From<milhouse::Error> for Error {
+    fn from(e: milhouse::Error) -> Error {
+        Error::MilhouseError(e)
     }
 }
 
@@ -184,7 +191,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             .map_err(|_| Error::InconsistentFork)?
         {
             ForkName::Base => return Err(Error::AltairForkNotActive),
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 let attested_header =
                     LightClientHeaderAltair::block_to_light_client_header(attested_block)?;
                 let finalized_header =
@@ -236,7 +243,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
 
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let update = match fork_name {
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 Self::Altair(LightClientUpdateAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => Self::Capella(LightClientUpdateCapella::from_ssz_bytes(bytes)?),

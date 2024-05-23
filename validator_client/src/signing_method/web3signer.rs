@@ -87,7 +87,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
                 block: Some(block),
                 block_header: None,
             }),
-            BeaconBlock::Merge(_) => Ok(Web3SignerObject::BeaconBlock {
+            BeaconBlock::Bellatrix(_) => Ok(Web3SignerObject::BeaconBlock {
                 version: ForkName::Bellatrix,
                 block: None,
                 block_header: Some(block.block_header()),

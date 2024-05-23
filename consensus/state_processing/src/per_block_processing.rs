@@ -40,7 +40,6 @@ mod verify_exit;
 mod verify_proposer_slashing;
 
 use crate::common::decrease_balance;
-use crate::StateProcessingStrategy;
 
 use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_metrics,
@@ -102,7 +101,6 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     signed_block: &SignedBeaconBlock<E, Payload>,
     block_signature_strategy: BlockSignatureStrategy,
-    state_processing_strategy: StateProcessingStrategy,
     verify_block_root: VerifyBlockRoot,
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
@@ -172,9 +170,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     // previous block.
     if is_execution_enabled(state, block.body()) {
         let body = block.body();
-        if state_processing_strategy == StateProcessingStrategy::Accurate {
-            process_withdrawals::<E, Payload>(state, body.execution_payload()?, spec)?;
-        }
+        process_withdrawals::<E, Payload>(state, body.execution_payload()?, spec)?;
         process_execution_payload::<E, Payload>(state, body, spec)?;
     }
 
@@ -422,9 +418,9 @@ pub fn process_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
     partially_verify_execution_payload::<E, Payload>(state, state.slot(), body, spec)?;
     let payload = body.execution_payload()?;
     match state.latest_execution_payload_header_mut()? {
-        ExecutionPayloadHeaderRefMut::Merge(header_mut) => {
+        ExecutionPayloadHeaderRefMut::Bellatrix(header_mut) => {
             match payload.to_execution_payload_header() {
-                ExecutionPayloadHeader::Merge(header) => *header_mut = header,
+                ExecutionPayloadHeader::Bellatrix(header) => *header_mut = header,
                 _ => return Err(BlockProcessingError::IncorrectStateType),
             }
         }
@@ -453,14 +449,14 @@ pub fn process_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
 /// These functions will definitely be called before the merge. Their entire purpose is to check if
 /// the merge has happened or if we're on the transition block. Thus we don't want to propagate
-/// errors from the `BeaconState` being an earlier variant than `BeaconStateMerge` as we'd have to
+/// errors from the `BeaconState` being an earlier variant than `BeaconStateBellatrix` as we'd have to
 /// repeatedly write code to treat these errors as false.
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_complete
 pub fn is_merge_transition_complete<E: EthSpec>(state: &BeaconState<E>) -> bool {
     match state {
         // We must check defaultness against the payload header with 0x0 roots, as that's what's meant
         // by `ExecutionPayloadHeader()` in the spec.
-        BeaconState::Merge(_) => state
+        BeaconState::Bellatrix(_) => state
             .latest_execution_payload_header()
             .map(|header| !header.is_default_with_zero_roots())
             .unwrap_or(false),
@@ -512,6 +508,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = vec![];
+    let fork_name = state.fork_name_unchecked();
 
     let bound = std::cmp::min(
         state.validators().len() as u64,
@@ -522,7 +519,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
         let balance = *state.balances().get(validator_index as usize).ok_or(
             BeaconStateError::BalancesOutOfBounds(validator_index as usize),
         )?;
-        if validator.is_fully_withdrawable_at(balance, epoch, spec) {
+        if validator.is_fully_withdrawable_at(balance, epoch, spec, fork_name) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
                 validator_index,
@@ -532,7 +529,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 amount: balance,
             });
             withdrawal_index.safe_add_assign(1)?;
-        } else if validator.is_partially_withdrawable_validator(balance, spec) {
+        } else if validator.is_partially_withdrawable_validator(balance, spec, fork_name) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
                 validator_index,
@@ -561,7 +558,7 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     match state {
-        BeaconState::Merge(_) => Ok(()),
+        BeaconState::Bellatrix(_) => Ok(()),
         BeaconState::Capella(_) | BeaconState::Deneb(_) | BeaconState::Electra(_) => {
             let expected_withdrawals = get_expected_withdrawals(state, spec)?;
             let expected_root = expected_withdrawals.tree_hash_root();

@@ -1,9 +1,9 @@
 use crate::metrics;
 use beacon_chain::{
+    bellatrix_readiness::{BellatrixReadiness, GenesisExecutionPayloadStatus, MergeConfig},
     capella_readiness::CapellaReadiness,
     deneb_readiness::DenebReadiness,
     electra_readiness::ElectraReadiness,
-    merge_readiness::{GenesisExecutionPayloadStatus, MergeConfig, MergeReadiness},
     BeaconChain, BeaconChainTypes, ExecutionStatus,
 };
 use lighthouse_network::{types::SyncState, NetworkGlobals};
@@ -64,7 +64,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "wait_time" => estimated_time_pretty(Some(next_slot.as_secs() as f64)),
                     );
                     eth1_logging(&beacon_chain, &log);
-                    merge_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
+                    bellatrix_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
                     capella_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
                     genesis_execution_payload_logging(&beacon_chain, &log).await;
                     sleep(slot_duration).await;
@@ -319,7 +319,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             }
 
             eth1_logging(&beacon_chain, &log);
-            merge_readiness_logging(current_slot, &beacon_chain, &log).await;
+            bellatrix_readiness_logging(current_slot, &beacon_chain, &log).await;
             capella_readiness_logging(current_slot, &beacon_chain, &log).await;
             deneb_readiness_logging(current_slot, &beacon_chain, &log).await;
             electra_readiness_logging(current_slot, &beacon_chain, &log).await;
@@ -334,7 +334,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
 /// Provides some helpful logging to users to indicate if their node is ready for the Bellatrix
 /// fork and subsequent merge transition.
-async fn merge_readiness_logging<T: BeaconChainTypes>(
+async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
     log: &Logger,
@@ -372,8 +372,8 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
         return;
     }
 
-    match beacon_chain.check_merge_readiness(current_slot).await {
-        MergeReadiness::Ready {
+    match beacon_chain.check_bellatrix_readiness(current_slot).await {
+        BellatrixReadiness::Ready {
             config,
             current_difficulty,
         } => match config {
@@ -384,7 +384,7 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
             } => {
                 info!(
                     log,
-                    "Ready for the merge";
+                    "Ready for Bellatrix";
                     "terminal_total_difficulty" => %ttd,
                     "current_difficulty" => current_difficulty
                         .map(|d| d.to_string())
@@ -398,7 +398,7 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
             } => {
                 info!(
                     log,
-                    "Ready for the merge";
+                    "Ready for Bellatrix";
                     "info" => "you are using override parameters, please ensure that you \
                         understand these parameters and their implications.",
                     "terminal_block_hash" => ?terminal_block_hash,
@@ -411,14 +411,14 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                 "config" => ?other
             ),
         },
-        readiness @ MergeReadiness::NotSynced => warn!(
+        readiness @ BellatrixReadiness::NotSynced => warn!(
             log,
-            "Not ready for merge";
+            "Not ready Bellatrix";
             "info" => %readiness,
         ),
-        readiness @ MergeReadiness::NoExecutionEndpoint => warn!(
+        readiness @ BellatrixReadiness::NoExecutionEndpoint => warn!(
             log,
-            "Not ready for merge";
+            "Not ready for Bellatrix";
             "info" => %readiness,
         ),
     }
@@ -434,11 +434,9 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
         .canonical_head
         .cached_head()
         .snapshot
-        .beacon_block
-        .message()
-        .body()
-        .execution_payload()
-        .map_or(false, |payload| payload.withdrawals_root().is_ok());
+        .beacon_state
+        .fork_name_unchecked()
+        >= ForkName::Capella;
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -496,11 +494,9 @@ async fn deneb_readiness_logging<T: BeaconChainTypes>(
         .canonical_head
         .cached_head()
         .snapshot
-        .beacon_block
-        .message()
-        .body()
-        .execution_payload()
-        .map_or(false, |payload| payload.blob_gas_used().is_ok());
+        .beacon_state
+        .fork_name_unchecked()
+        >= ForkName::Deneb;
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -549,17 +545,13 @@ async fn electra_readiness_logging<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     log: &Logger,
 ) {
-    // TODO(electra): Once Electra has features, this code can be swapped back.
-    let electra_completed = false;
-    //let electra_completed = beacon_chain
-    //    .canonical_head
-    //    .cached_head()
-    //    .snapshot
-    //    .beacon_block
-    //    .message()
-    //    .body()
-    //    .execution_payload()
-    //    .map_or(false, |payload| payload.electra_placeholder().is_ok());
+    let electra_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_state
+        .fork_name_unchecked()
+        >= ForkName::Electra;
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
