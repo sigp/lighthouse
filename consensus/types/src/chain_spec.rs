@@ -2070,6 +2070,9 @@ mod yaml_tests {
         DEPOSIT_CHAIN_ID: 1
         DEPOSIT_NETWORK_ID: 1
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+        CUSTODY_REQUIREMENT: 1
+        DATA_COLUMN_SIDECAR_SUBNET_COUNT: 32
+        NUMBER_OF_COLUMNS: 128
         "#;
 
         let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
