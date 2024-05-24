@@ -19,11 +19,11 @@ A Lighthouse validator client can be configured to expose a HTTP server by suppl
 The following CLI flags control the HTTP server:
 
 - `--http`: enable the HTTP server (required even if the following flags are
-	provided).
+ provided).
 - `--http-address`: specify the listen address of the server. It is almost always unsafe to use a non-default HTTP listen address. Use this with caution. See the  **Security** section below for more information.
 - `--http-port`: specify the listen port of the server.
 - `--http-allow-origin`: specify the value of the `Access-Control-Allow-Origin`
-		header. The default is to not supply a header.
+  header. The default is to not supply a header.
 
 ## Security
 
