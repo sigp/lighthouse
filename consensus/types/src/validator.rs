@@ -140,18 +140,6 @@ impl Validator {
         is_compounding_withdrawal_credential(self.withdrawal_credentials, spec)
     }
 
-    /// Get the eth1 withdrawal address if this validator has one initialized.
-    pub fn get_eth1_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
-        self.has_eth1_withdrawal_credential(spec)
-            .then(|| {
-                self.withdrawal_credentials
-                    .as_bytes()
-                    .get(12..)
-                    .map(Address::from_slice)
-            })
-            .flatten()
-    }
-
     /// Get the execution withdrawal address if this validator has one initialized.
     pub fn get_execution_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
         self.has_execution_withdrawal_credential(spec)

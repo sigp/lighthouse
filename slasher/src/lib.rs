@@ -53,55 +53,56 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
     pub fn into_slashing(
         self,
         new_attestation: &IndexedAttestation<E>,
-    ) -> Option<AttesterSlashing<E>> {
+    ) -> Result<Option<AttesterSlashing<E>>, String> {
         use AttesterSlashingStatus::*;
 
         // The surrounding attestation must be in `attestation_1` to be valid.
-        match self {
+        Ok(match self {
             NotSlashable => None,
             AlreadyDoubleVoted => None,
-            DoubleVote(existing) | SurroundedByExisting(existing) => {
-                match (*existing, new_attestation) {
-                    // TODO(electra) - determine when we would convert a Base attestation to Electra / how to handle mismatched attestations here
-                    (IndexedAttestation::Base(existing_att), IndexedAttestation::Base(new_att)) => {
-                        Some(AttesterSlashing::Base(AttesterSlashingBase {
-                            attestation_1: existing_att,
-                            attestation_2: new_att.clone(),
-                        }))
-                    }
-                    (
-                        IndexedAttestation::Electra(existing_att),
-                        IndexedAttestation::Electra(new_att),
-                    ) => Some(AttesterSlashing::Electra(AttesterSlashingElectra {
-                        attestation_1: existing_att,
-                        attestation_2: new_att.clone(),
-                    })),
-                    _ => panic!("attestations must be of the same type"),
-                }
-            }
-            // TODO(electra): fix this once we superstruct IndexedAttestation (return the correct type)
-            SurroundsExisting(existing) => match (*existing, new_attestation) {
-                (IndexedAttestation::Base(existing_att), IndexedAttestation::Base(new_att)) => {
+            DoubleVote(existing) | SurroundedByExisting(existing) => match *existing {
+                IndexedAttestation::Base(existing_att) => {
                     Some(AttesterSlashing::Base(AttesterSlashingBase {
-                        attestation_1: new_att.clone(),
-                        attestation_2: existing_att,
+                        attestation_1: existing_att,
+                        attestation_2: new_attestation
+                            .as_base()
+                            .map_err(|e| format!("{e:?}"))?
+                            .clone(),
                     }))
                 }
-                (
-                    IndexedAttestation::Electra(existing_att),
-                    IndexedAttestation::Electra(new_att),
-                ) => Some(AttesterSlashing::Electra(AttesterSlashingElectra {
-                    attestation_1: new_att.clone(),
-                    attestation_2: existing_att,
-                })),
-                _ => panic!("attestations must be of the same type"),
+                IndexedAttestation::Electra(existing_att) => {
+                    Some(AttesterSlashing::Electra(AttesterSlashingElectra {
+                        attestation_1: existing_att,
+                        // A double vote should never convert, a surround vote where the surrounding
+                        // vote is electra may convert.
+                        attestation_2: new_attestation
+                            .clone()
+                            .to_electra()
+                            .map_err(|e| format!("{e:?}"))?,
+                    }))
+                }
             },
-            /*
-            Some(AttesterSlashing::Base(AttesterSlashingBase {
-                attestation_1: new_attestation.clone(),
-                attestation_2: *existing,
-            })),
-            */
-        }
+            SurroundsExisting(existing) => {
+                match new_attestation {
+                    IndexedAttestation::Base(new_attestation) => {
+                        Some(AttesterSlashing::Base(AttesterSlashingBase {
+                            attestation_1: existing
+                                .as_base()
+                                .map_err(|e| format!("{e:?}"))?
+                                .clone(),
+                            attestation_2: new_attestation.clone(),
+                        }))
+                    }
+                    IndexedAttestation::Electra(new_attestation) => {
+                        Some(AttesterSlashing::Electra(AttesterSlashingElectra {
+                            attestation_1: existing.to_electra().map_err(|e| format!("{e:?}"))?,
+                            // A double vote should never convert, a surround vote where the surrounding
+                            // vote is electra may convert.
+                            attestation_2: new_attestation.clone(),
+                        }))
+                    }
+                }
+            }
+        })
     }
 }

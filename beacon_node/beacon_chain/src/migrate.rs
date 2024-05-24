@@ -703,6 +703,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         ));
 
         store.do_atomically_with_block_and_blobs_cache(batch)?;
+
+        // Do a quick separate pass to delete obsoleted hot states, usually pre-states from the state
+        // advance which are not canonical due to blocks being applied on top.
+        store.prune_old_hot_states()?;
+
         debug!(log, "Database pruning complete");
 
         Ok(PruningOutcome::Successful {

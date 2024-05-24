@@ -247,6 +247,7 @@ impl<E: EthSpec> Slasher<E> {
             batch,
             current_epoch,
             &self.config,
+            &self.log,
         ) {
             Ok(slashings) => {
                 if !slashings.is_empty() {
@@ -294,14 +295,25 @@ impl<E: EthSpec> Slasher<E> {
                 indexed_attestation_id,
             )?;
 
-            if let Some(slashing) = slashing_status.into_slashing(attestation) {
-                debug!(
-                    self.log,
-                    "Found double-vote slashing";
-                    "validator_index" => validator_index,
-                    "epoch" => slashing.attestation_1().data().target.epoch,
-                );
-                slashings.insert(slashing);
+            match slashing_status.into_slashing(attestation) {
+                Ok(Some(slashing)) => {
+                    debug!(
+                        self.log,
+                        "Found double-vote slashing";
+                        "validator_index" => validator_index,
+                        "epoch" => slashing.attestation_1().data().target.epoch,
+                    );
+                    slashings.insert(slashing);
+                }
+                Err(e) => {
+                    error!(
+                        self.log,
+                        "Invalid slashing conversion";
+                        "validator_index" => validator_index,
+                        "error" => e
+                    );
+                }
+                Ok(None) => {}
             }
         }
 
