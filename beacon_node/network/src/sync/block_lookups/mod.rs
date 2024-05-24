@@ -625,7 +625,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// dropped.
     pub fn drop_lookup_and_children(&mut self, dropped_id: SingleLookupId) {
         if let Some(dropped_lookup) = self.single_block_lookups.remove(&dropped_id) {
-            debug!(self.log, "Dropping child lookup"; "id" => ?dropped_id, "block_root" => ?dropped_lookup.block_root());
+            debug!(self.log, "Dropping lookup";
+                "id" => ?dropped_id,
+                "block_root" => ?dropped_lookup.block_root(),
+                "awaiting_parent" => ?dropped_lookup.awaiting_parent(),
+            );
 
             let child_lookups = self
                 .single_block_lookups
