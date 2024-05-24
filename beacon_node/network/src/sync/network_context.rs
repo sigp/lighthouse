@@ -397,14 +397,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // can assert that this is the correct value of `blob_kzg_commitments_count`.
             match self.chain.get_block_process_status(&block_root) {
                 BlockProcessStatus::Unknown => None,
-                BlockProcessStatus::NotValidated {
-                    blob_kzg_commitments_count,
-                    ..
-                }
-                | BlockProcessStatus::ExecutionValidated {
-                    blob_kzg_commitments_count,
-                    ..
-                } => Some(blob_kzg_commitments_count),
+                BlockProcessStatus::NotValidated(block)
+                | BlockProcessStatus::ExecutionValidated(block) => Some(block.num_expected_blobs()),
             }
         }) else {
             // Wait to download the block before downloading blobs. Then we can be sure that the
