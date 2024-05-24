@@ -663,6 +663,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
                 false
             }
+            // If UnknownLookup do not log the request error. No need to drop child lookups nor
+            // update metrics because the lookup does not exist.
+            Err(LookupRequestError::UnknownLookup) => false,
             Err(error) => {
                 debug!(self.log, "Dropping lookup on request error"; "id" => id, "source" => source, "error" => ?error);
                 metrics::inc_counter_vec(&metrics::SYNC_LOOKUP_DROPPED, &[error.into()]);
