@@ -39,7 +39,11 @@ pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
 /// Maximum time we allow a lookup to exist before assuming it is stuck and will never make
 /// progress. Assume the worse case processing time per block component set * times max depth.
 /// 15 * 2 * 32 = 16 minutes.
-const LOOKUP_MAX_DURATION_SECS: usize = 15 * PARENT_DEPTH_TOLERANCE;
+const LOOKUP_MAX_DURATION_STUCK_SECS: u64 = 15 * PARENT_DEPTH_TOLERANCE as u64;
+/// The most common case of child-lookup without peers is receiving block components before the
+/// attestation deadline when the node is lagging behind. Once peers start attesting for the child
+/// lookup at most after 4 seconds, the lookup should gain peers.
+const LOOKUP_MAX_DURATION_NO_PEERS_SECS: u64 = 10;
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
@@ -689,6 +693,53 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
     }
 
+    /// Perform some prune operations on lookups on some interval
+    pub fn prune_lookups(&mut self) {
+        self.drop_lookups_without_peers();
+        self.drop_stuck_lookups();
+    }
+
+    /// Lookups without peers are allowed to exist for some time. See this common race condition:
+    ///
+    /// 1. Receive unknown block parent event
+    /// 2. Create child lookup with zero peers
+    /// 3. Parent is processed, before receiving any attestation for the child block
+    /// 4. Child lookup is attempted to make progress but has no peers
+    /// 5. We receive an attestion for child block and add a peer to the child block lookup
+    ///
+    /// On step 4 we could drop the lookup because we attempt to issue a request with no peers
+    /// available. This has two issues:
+    /// - We may drop the lookup while some other block component is processing, triggering an
+    ///   unknown lookup error. This can potentially cause un-related child lookups to also be
+    ///   dropped when calling `drop_lookup_and_children`.
+    /// - We lose all progress of the lookup, and have to re-download its components that we may
+    ///   already have there cached.
+    ///
+    /// Instead there's no negative for keeping lookups with no peers around for some time. If we
+    /// regularly prune them, it should not be a memory concern (TODO: maybe yes!).
+    fn drop_lookups_without_peers(&mut self) {
+        for (lookup_id, block_root) in self
+            .single_block_lookups
+            .values()
+            .filter(|lookup| {
+                // Do not drop lookup that are awaiting events to prevent inconsinstencies. If a
+                // lookup gets stuck, it will be eventually pruned by `drop_stuck_lookups`
+                lookup.has_no_peers()
+                    && lookup.elapsed_since_created()
+                        > Duration::from_secs(LOOKUP_MAX_DURATION_NO_PEERS_SECS)
+                    && !lookup.is_awaiting_event()
+            })
+            .map(|lookup| (lookup.id, lookup.block_root()))
+            .collect::<Vec<_>>()
+        {
+            debug!(self.log, "Dropping lookup with no peers";
+                "id" => lookup_id,
+                "block_root" => ?block_root
+            );
+            self.drop_lookup_and_children(lookup_id);
+        }
+    }
+
     /// Safety mechanism to unstuck lookup sync. Lookup sync if purely event driven and depends on
     /// external components to feed it events to make progress. If there is a bug in network, in
     /// beacon processor, or here internally: lookups can get stuck forever. A stuck lookup can
@@ -702,10 +753,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ///
     /// - One single clear warn level log per stuck incident
     /// - If the original bug is sporadic, it reduces the time a node is stuck from forever to 15 min
-    pub fn drop_stuck_lookups(&mut self) {
+    fn drop_stuck_lookups(&mut self) {
         // While loop to find and drop all disjoint trees of potentially stuck lookups.
         while let Some(stuck_lookup) = self.single_block_lookups.values().find(|lookup| {
-            lookup.elapsed_since_created() > Duration::from_secs(LOOKUP_MAX_DURATION_SECS as u64)
+            lookup.elapsed_since_created() > Duration::from_secs(LOOKUP_MAX_DURATION_STUCK_SECS)
         }) {
             let ancestor_stuck_lookup = match self.find_oldest_ancestor_lookup(stuck_lookup) {
                 Ok(lookup) => lookup,

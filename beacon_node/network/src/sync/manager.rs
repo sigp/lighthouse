@@ -547,9 +547,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             futures::stream::iter(ee_responsiveness_watch.await).flatten()
         };
 
-        // LOOKUP_MAX_DURATION_SECS is 60 seconds. Logging every 30 seconds allows enough timely
-        // visbility while being sparse and not increasing the debug log volume in a noticeable way
-        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        // min(LOOKUP_MAX_DURATION_*) is 15 seconds. The cost of calling prune_lookups more often is
+        // one iteration over the single lookups HashMap. This map is supposed to be very small < 10
+        // unless there is a bug.
+        let mut prune_lookups_interval = tokio::time::interval(Duration::from_secs(15));
 
         // process any inbound messages
         loop {
@@ -560,8 +561,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Some(engine_state) = check_ee_stream.next(), if check_ee => {
                     self.handle_new_execution_engine_state(engine_state);
                 }
-                _ = interval.tick() => {
-                    self.block_lookups.drop_stuck_lookups();
+                _ = prune_lookups_interval.tick() => {
+                    self.block_lookups.prune_lookups();
                 }
             }
         }
