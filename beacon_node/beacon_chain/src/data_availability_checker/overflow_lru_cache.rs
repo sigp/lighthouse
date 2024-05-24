@@ -475,18 +475,18 @@ impl<T: BeaconChainTypes> Critical<T> {
         Ok(())
     }
 
-    /// Removes and returns the pending_components corresponding to
-    /// the `block_root` or `None` if it does not exist
-    pub fn pop_pending_components(
+    /// Returns the pending_components corresponding to  the `block_root` or `None` if it does not
+    /// exist
+    pub fn get_pending_components(
         &mut self,
         block_root: Hash256,
         store: &OverflowStore<T>,
     ) -> Result<Option<PendingComponents<T::EthSpec>>, AvailabilityCheckError> {
-        match self.in_memory.pop_entry(&block_root) {
-            Some((_, pending_components)) => Ok(Some(pending_components)),
+        match self.in_memory.get(&block_root) {
+            Some(pending_components) => Ok(Some(pending_components.clone())),
             None => {
                 // not in memory, is it in the store?
-                if self.store_keys.remove(&block_root) {
+                if self.store_keys.contains(&block_root) {
                     // We don't need to remove the data from the store as we have removed it from
                     // `store_keys` so we won't go looking for it on disk. The maintenance thread
                     // will remove it from disk the next time it runs.
@@ -494,6 +494,21 @@ impl<T: BeaconChainTypes> Critical<T> {
                 } else {
                     Ok(None)
                 }
+            }
+        }
+    }
+
+    /// Removes and returns the pending_components corresponding to
+    /// the `block_root` or `None` if it does not exist
+    pub fn remove_pending_components(&mut self, block_root: Hash256) {
+        match self.in_memory.pop_entry(&block_root) {
+            Some { .. } => {}
+            None => {
+                // not in memory, is it in the store?
+                // We don't need to remove the data from the store as we have removed it from
+                // `store_keys` so we won't go looking for it on disk. The maintenance thread
+                // will remove it from disk the next time it runs.
+                self.store_keys.remove(&block_root);
             }
         }
     }
@@ -600,13 +615,18 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
-            .pop_pending_components(block_root, &self.overflow_store)?
+            .get_pending_components(block_root, &self.overflow_store)?
             .unwrap_or_else(|| PendingComponents::empty(block_root));
 
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
 
         if pending_components.is_available() {
+            write_lock.put_pending_components(
+                block_root,
+                pending_components.clone(),
+                &self.overflow_store,
+            )?;
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(|diet_block| {
@@ -638,7 +658,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
-            .pop_pending_components(block_root, &self.overflow_store)?
+            .get_pending_components(block_root, &self.overflow_store)?
             .unwrap_or_else(|| PendingComponents::empty(block_root));
 
         // Merge in the block.
@@ -646,6 +666,11 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         // Check if we have all components and entire set is consistent.
         if pending_components.is_available() {
+            write_lock.put_pending_components(
+                block_root,
+                pending_components.clone(),
+                &self.overflow_store,
+            )?;
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(|diet_block| {
@@ -659,6 +684,10 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             )?;
             Ok(Availability::MissingComponents(block_root))
         }
+    }
+
+    pub fn remove_pending_components(&self, block_root: Hash256) {
+        self.critical.write().remove_pending_components(block_root);
     }
 
     /// write all in memory objects to disk

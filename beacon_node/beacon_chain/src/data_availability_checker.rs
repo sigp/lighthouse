@@ -172,6 +172,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_pending_executed_block(executed_block)
     }
 
+    pub fn remove_pending_components(&self, block_root: Hash256) {
+        self.availability_cache
+            .remove_pending_components(block_root)
+    }
+
     /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
     /// include the fully available block.
     ///
