@@ -2,7 +2,7 @@
 
 Lighthouse allows for more exotic setups that can minimize attack vectors by
 adding redundant beacon nodes and dividing the roles of attesting and block
-production between them. 
+production between them.
 
 The purpose of this is to minimize attack vectors
 where malicious users obtain the network identities (IP addresses) of beacon
@@ -24,7 +24,7 @@ harder to identify as a potential node to attack and will also consume less
 resources.
 
 Specifically, this flag reduces the default peer count (to a safe minimal
-number as maintaining peers on attestation subnets do not need to be considered), 
+number as maintaining peers on attestation subnets do not need to be considered),
 prevents the node from subscribing to any attestation-subnets or
 sync-committees which is a primary way for attackers to de-anonymize
 validators.
@@ -33,7 +33,6 @@ validators.
 > to validator clients unless via the `--proposer-nodes` flag. If connected as a
 > normal beacon node, the validator may fail to handle its duties correctly and
 > result in a loss of income.
-
 
 ## The Validator Client
 
@@ -52,7 +51,6 @@ these nodes for added security).
 > This is because the nodes subscribed to subnets have a higher chance of
 > producing a more profitable block. Any block builders should therefore be
 > attached to the `--beacon-nodes` and not necessarily the `--proposer-nodes`.
-
 
 ## Setup Overview
 
