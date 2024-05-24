@@ -130,7 +130,7 @@ pub use crate::attester_slashing::{
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockCapella,
     BeaconBlockDeneb, BeaconBlockElectra, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock,
-    EmptyBlock,
+    BlockImportSource, EmptyBlock,
 };
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,

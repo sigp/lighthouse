@@ -30,15 +30,15 @@ a `x86_64` binary.
 1. Go to the [Releases](https://github.com/sigp/lighthouse/releases) page and
    select the latest release.
 1. Download the `lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz` binary. For example, to obtain the binary file for v4.0.1 (the latest version at the time of writing), a user can run the following commands in a linux terminal:
+
     ```bash
     cd ~
     curl -LO https://github.com/sigp/lighthouse/releases/download/v4.0.1/lighthouse-v4.0.1-x86_64-unknown-linux-gnu.tar.gz
     tar -xvf lighthouse-v4.0.1-x86_64-unknown-linux-gnu.tar.gz
     ```
+
 1. Test the binary with `./lighthouse --version` (it should print the version).
 1. (Optional) Move the `lighthouse` binary to a location in your `PATH`, so the `lighthouse` command can be called from anywhere. For example, to copy `lighthouse` from the current directory to `usr/bin`, run `sudo cp lighthouse /usr/bin`.
-
-
 
 > Windows users will need to execute the commands in Step 2 from PowerShell.
 
@@ -49,10 +49,10 @@ sacrifice the ability to make use of modern CPU instructions.
 
 If you have a modern CPU then you should try running a non-portable build to get a 20-30% speed up.
 
-* For **x86_64**, any CPU supporting the [ADX](https://en.wikipedia.org/wiki/Intel_ADX) instruction set
+- For **x86_64**, any CPU supporting the [ADX](https://en.wikipedia.org/wiki/Intel_ADX) instruction set
 extension is compatible with the optimized build. This includes Intel Broadwell (2014)
 and newer, and AMD Ryzen (2017) and newer.
-* For **ARMv8**, most CPUs are compatible with the optimized build, including the Cortex-A72 used by
+- For **ARMv8**, most CPUs are compatible with the optimized build, including the Cortex-A72 used by
 the Raspberry Pi 4.
 
 ## Troubleshooting
