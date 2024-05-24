@@ -96,14 +96,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .get_execution_valid_block_summary(block_root)
     }
 
-    /// Return the required blobs `block_root` expects if the block is currenlty in the cache.
-    pub fn num_expected_blobs(&self, block_root: &Hash256) -> Option<usize> {
-        self.availability_cache
-            .peek_pending_components(block_root, |components| {
-                components.and_then(|components| components.num_expected_blobs())
-            })
-    }
-
     /// Return the set of imported blob indexes for `block_root`. Returns None if there is no block
     /// component for `block_root`.
     pub fn imported_blob_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
