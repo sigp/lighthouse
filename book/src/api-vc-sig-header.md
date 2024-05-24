@@ -9,7 +9,7 @@ The validator client HTTP server adds the following header to all responses:
 
 Example `Signature` header:
 
-```
+```text
 Signature: 0x304402205b114366444112580bf455d919401e9c869f5af067cd496016ab70d428b5a99d0220067aede1eb5819eecfd5dd7a2b57c5ac2b98f25a7be214b05684b04523aef873
 ```
 
@@ -83,7 +83,7 @@ The previous Javascript example was written using the output from the following
 curl -v localhost:5062/lighthouse/version -H "Authorization: Basic api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123"
 ```
 
-```
+```text
 *   Trying ::1:5062...
 * connect to ::1 port 5062 failed: Connection refused
 *   Trying 127.0.0.1:5062...

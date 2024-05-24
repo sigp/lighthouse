@@ -432,11 +432,6 @@ impl<T: BeaconChainTypes> Critical<T> {
         Ok(())
     }
 
-    /// Returns true if the block root is known, without altering the LRU ordering
-    pub fn has_block(&self, block_root: &Hash256) -> bool {
-        self.in_memory.peek(block_root).is_some() || self.store_keys.contains(block_root)
-    }
-
     /// This only checks for the blobs in memory
     pub fn peek_blob(
         &self,
@@ -549,8 +544,12 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     }
 
     /// Returns true if the block root is known, without altering the LRU ordering
-    pub fn has_block(&self, block_root: &Hash256) -> bool {
-        self.critical.read().has_block(block_root)
+    pub fn has_execution_valid_block(&self, block_root: &Hash256) -> bool {
+        if let Some(pending_components) = self.critical.read().peek_pending_components(block_root) {
+            pending_components.executed_block.is_some()
+        } else {
+            false
+        }
     }
 
     /// Fetch a blob from the cache without affecting the LRU ordering

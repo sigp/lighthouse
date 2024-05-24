@@ -84,10 +84,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
-    /// Checks if the block root is currenlty in the availability cache awaiting processing because
+    /// Checks if the block root is currenlty in the availability cache awaiting import because
     /// of missing components.
-    pub fn has_block(&self, block_root: &Hash256) -> bool {
-        self.availability_cache.has_block(block_root)
+    pub fn has_execution_valid_block(&self, block_root: &Hash256) -> bool {
+        self.availability_cache
+            .has_execution_valid_block(block_root)
     }
 
     /// Return the required blobs `block_root` expects if the block is currenlty in the cache.
