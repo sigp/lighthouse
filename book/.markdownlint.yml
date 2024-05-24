@@ -1,0 +1,28 @@
+# MD010: https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md#md010---hard-tabs
+MD010:
+  # Set code blocks to false so that code blocks will be ignored, default is true
+  code_blocks: false
+
+#MD013 line length: https://github.com/DavidAnson/markdownlint/blob/main/doc/md013.md
+# Set to false as this will also interfere with help_x.md files, and it is not necessary to comply with the line length of 80
+MD013: false
+
+# MD028: set to false to allow blank line between blockquote: https://github.com/DavidAnson/markdownlint/blob/main/doc/md028.md
+# This is because the blockquotes are shown separatedly (a deisred outcome) when having a blank line in between
+MD028: false
+
+# MD024: set siblings_only to true so that same headings with different parent headings are allowed
+# https://github.com/DavidAnson/markdownlint/blob/main/doc/md024.md
+MD024:
+  siblings_only: true
+
+# MD033 in-line html: https://github.com/DavidAnson/markdownlint/blob/main/doc/md033.md
+# In-line html is fine in the markdown files, so this is set to false
+MD033: false
+
+# MD036 set to false to preserve the emphasis on deprecation notice on key-management.md (a heading is not necessary)
+MD036: false
+
+# MD040 code blocks should have a language specified: https://github.com/DavidAnson/markdownlint/blob/main/doc/md040.md
+# Set to false as the help_x.md files are code blocks without a language specified, which is fine and does not need to change
+MD040: false

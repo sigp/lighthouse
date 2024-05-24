@@ -9,6 +9,7 @@ use types::{
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupVerifyError {
     NoResponseReturned,
+    NotEnoughResponsesReturned { expected: usize, actual: usize },
     TooManyResponses,
     UnrequestedBlockRoot(Hash256),
     UnrequestedBlobIndex(u64),
@@ -139,11 +140,20 @@ impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
         }
     }
 
-    pub fn terminate(self) -> Option<Vec<Arc<BlobSidecar<E>>>> {
+    pub fn terminate(self) -> Result<(), LookupVerifyError> {
         if self.resolved {
-            None
+            Ok(())
         } else {
-            Some(self.blobs)
+            Err(LookupVerifyError::NotEnoughResponsesReturned {
+                expected: self.request.indices.len(),
+                actual: self.blobs.len(),
+            })
         }
+    }
+
+    /// Mark request as resolved (= has returned something downstream) while marking this status as
+    /// true for future calls.
+    pub fn resolve(&mut self) -> bool {
+        std::mem::replace(&mut self.resolved, true)
     }
 }
