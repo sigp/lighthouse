@@ -759,7 +759,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
                 info!(
                     self.log,
-                    "Gossipsub blob processed, imported fully available block";
+                    "Gossipsub blob processed - imported fully available block";
                     "block_root" => %block_root
                 );
                 self.chain.recompute_head_at_current_slot().await;
@@ -770,9 +770,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                trace!(
+                debug!(
                     self.log,
-                    "Processed blob, waiting for other components";
+                    "Processed gossip blob - waiting for other components";
                     "slot" => %slot,
                     "blob_index" => %blob_index,
                     "block_root" => %block_root,

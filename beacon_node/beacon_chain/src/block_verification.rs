@@ -1305,7 +1305,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         /*
          *  Perform cursory checks to see if the block is even worth processing.
          */
-
         check_block_relevancy(block.as_block(), block_root, chain)?;
 
         // Spawn an async call to the execution node to fetch blobs.
@@ -1314,36 +1313,56 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         let blob_fetcher_future = async move {
             let block = blob_block;
             let chain = blob_chain;
-            let execution_payload = block.message().execution_payload()?;
-            let blob_ids = extract_blob_transaction_ids::<T::EthSpec>(
-                execution_payload.transactions().unwrap(),
-            )
-            .map_err(|e| {
-                BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(
-                    execution_layer::Error::VerifyingVersionedHashes(e),
-                ))
-            })?;
+
+            if !block.message().body().has_blobs() {
+                debug!(chain.log, "Blobs from EL - none required");
+                return Ok(());
+            }
+
             let execution_layer = chain
                 .execution_layer
                 .as_ref()
                 .ok_or(BeaconChainError::ExecutionLayerMissing)?;
+            let execution_payload = block.message().execution_payload()?;
+            let Some(transactions) = execution_payload.transactions() else {
+                debug!(chain.log, "Blobs from EL - blinded payload");
+                return Ok(());
+            };
+            debug!(chain.log, "Blobs from EL - decoding");
+            let blob_ids =
+                extract_blob_transaction_ids::<T::EthSpec>(transactions).map_err(|e| {
+                    BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(
+                        execution_layer::Error::VerifyingVersionedHashes(e),
+                    ))
+                })?;
+            let num_blob_tx = blob_ids.len();
+
             debug!(
                 chain.log,
-                "Blobs from EL request";
-                "num_blob_tx" => blob_ids.len(),
+                "Blobs from EL - start request";
+                "num_blob_tx" => num_blob_tx,
             );
             let response = execution_layer.get_blobs(blob_ids).await.map_err(|e| {
                 BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(e))
             })?;
-            let num_success = response.blobs.iter().filter(|b| b.is_some()).count();
-            if num_success == 0 {
-                debug!(chain.log, "Blobs from EL empty");
+            let num_fetched_tx = response.blobs.iter().filter(|b| b.is_some()).count();
+            if num_fetched_tx == 0 {
+                debug!(chain.log, "Blobs from EL - response with none");
+                return Ok(());
+            } else if num_fetched_tx < num_blob_tx {
+                debug!(
+                    chain.log,
+                    "Blobs from EL - response with some";
+                    "fetched" => num_fetched_tx,
+                    "total" => num_blob_tx,
+                );
+            } else {
+                debug!(
+                    chain.log,
+                    "Blobs from EL - response with all";
+                    "num_blob_tx" => num_fetched_tx
+                );
             }
-            debug!(
-                chain.log,
-                "Blobs from EL success";
-                "num_blob_tx" => num_success
-            );
             let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
             for (i, (blob, kzg_proof)) in response
                 .blobs
@@ -1359,7 +1378,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                         } else {
                             error!(
                                 chain.log,
-                                "Blobs from EL out of bounds";
+                                "Blobs from EL - out of bounds";
                                 "i" => i
                             );
                         }
@@ -1367,7 +1386,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     Err(e) => {
                         warn!(
                             chain.log,
-                            "Blobs from EL error";
+                            "Blobs from EL - error";
                             "error" => ?e
                         );
                     }
@@ -1375,17 +1394,17 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             }
             debug!(
                 chain.log,
-                "Blobs from EL processing";
+                "Blobs from EL - start processing";
                 "num_blobs" => fixed_blob_sidecar_list.iter().filter(|b| b.is_some()).count(),
             );
             chain
                 .process_rpc_blobs(block.slot(), block_root, fixed_blob_sidecar_list)
                 .await
                 .map(|_| {
-                    debug!(chain.log, "Blobs from EL processed");
+                    debug!(chain.log, "Blobs from EL - processed");
                 })
                 .map_err(|e| {
-                    debug!(chain.log, "Blobs from EL errored"; "error" => ?e);
+                    warn!(chain.log, "Blobs from EL - error"; "error" => ?e);
                     e
                 })
         };
