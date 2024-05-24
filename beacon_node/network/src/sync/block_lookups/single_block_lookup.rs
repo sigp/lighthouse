@@ -137,9 +137,17 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_root() == block_root
     }
 
-    /// Get all unique peers that claim to have imported this set of block components
-    pub fn all_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
-        self.peers.iter()
+    /// Returns true if the block has already been downloaded.
+    pub fn both_components_processed(&self) -> bool {
+        self.block_request_state.state.is_processed()
+            && self.blob_request_state.state.is_processed()
+    }
+
+    /// Returns true if this request is expecting some event to make progress
+    pub fn is_awaiting_event(&self) -> bool {
+        self.awaiting_parent.is_some()
+            || self.block_request_state.state.is_awaiting_event()
+            || self.blob_request_state.state.is_awaiting_event()
     }
 
     /// Makes progress on all requests of this lookup. Any error is not recoverable and must result
@@ -189,16 +197,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             }
 
             let Some(peer_id) = self.use_rand_available_peer() else {
-                if awaiting_parent {
-                    // Allow lookups awaiting for a parent to have zero peers. If when the parent
-                    // resolve they still have zero peers the lookup will fail gracefully.
-                    R::request_state_mut(self)
-                        .get_state_mut()
-                        .update_awaiting_download_status("no_peers_awaiting_parent");
-                    return Ok(());
-                } else {
-                    return Err(LookupRequestError::NoPeers);
-                }
+                // Allow lookup to not have any peers. In that case do nothing. If the lookup does
+                // not have peers for some time, it will be dropped.
+                return Ok(());
             };
 
             let request = R::request_state_mut(self);
@@ -234,16 +235,15 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         Ok(())
     }
 
+    /// Get all unique peers that claim to have imported this set of block components
+    pub fn all_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
+        self.peers.iter()
+    }
+
     /// Add peer to all request states. The peer must be able to serve this request.
     /// Returns true if the peer was newly inserted into some request state.
     pub fn add_peer(&mut self, peer_id: PeerId) -> bool {
         self.peers.insert(peer_id)
-    }
-
-    /// Returns true if the block has already been downloaded.
-    pub fn both_components_processed(&self) -> bool {
-        self.block_request_state.state.is_processed()
-            && self.blob_request_state.state.is_processed()
     }
 
     /// Remove peer from available peers. Return true if there are no more available peers and all
@@ -356,6 +356,24 @@ impl<T: Clone> SingleLookupRequestState<T> {
             | State::AwaitingProcess { .. }
             | State::Processing { .. } => false,
             State::Processed { .. } => true,
+        }
+    }
+
+    /// Returns true if we can expect some future event to progress this block component request
+    /// specifically.
+    pub fn is_awaiting_event(&self) -> bool {
+        match self.state {
+            // No event will progress this request specifically, but the request may be put on hold
+            // due to some external event
+            State::AwaitingDownload { .. } => false,
+            // Network will emit a download success / error event
+            State::Downloading { .. } => true,
+            // Not awaiting any external event
+            State::AwaitingProcess { .. } => false,
+            // Beacon processor will emit a processing result event
+            State::Processing { .. } => true,
+            // Request complete, no future event left
+            State::Processed { .. } => false,
         }
     }
 
