@@ -625,7 +625,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// dropped.
     pub fn drop_lookup_and_children(&mut self, dropped_id: SingleLookupId) {
         if let Some(dropped_lookup) = self.single_block_lookups.remove(&dropped_id) {
-            debug!(self.log, "Dropping child lookup"; "id" => ?dropped_id, "block_root" => ?dropped_lookup.block_root());
+            debug!(self.log, "Dropping lookup";
+                "id" => ?dropped_id,
+                "block_root" => ?dropped_lookup.block_root(),
+                "awaiting_parent" => ?dropped_lookup.awaiting_parent(),
+            );
 
             let child_lookups = self
                 .single_block_lookups
@@ -663,6 +667,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
                 false
             }
+            // If UnknownLookup do not log the request error. No need to drop child lookups nor
+            // update metrics because the lookup does not exist.
+            Err(LookupRequestError::UnknownLookup) => false,
             Err(error) => {
                 debug!(self.log, "Dropping lookup on request error"; "id" => id, "source" => source, "error" => ?error);
                 metrics::inc_counter_vec(&metrics::SYNC_LOOKUP_DROPPED, &[error.into()]);
