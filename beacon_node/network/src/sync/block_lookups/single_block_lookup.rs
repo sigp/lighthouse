@@ -192,6 +192,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 if awaiting_parent {
                     // Allow lookups awaiting for a parent to have zero peers. If when the parent
                     // resolve they still have zero peers the lookup will fail gracefully.
+                    R::request_state_mut(self)
+                        .get_state_mut()
+                        .update_awaiting_download_status("no_peers_awaiting_parent");
                     return Ok(());
                 } else {
                     return Err(LookupRequestError::NoPeers);
@@ -380,9 +383,8 @@ impl<T: Clone> SingleLookupRequestState<T> {
     /// Append metadata on why this request is in AwaitingDownload status. Very helpful to debug
     /// stuck lookups. Not fallible as it's purely informational.
     pub fn update_awaiting_download_status(&mut self, new_status: &'static str) {
-        match &mut self.state {
-            State::AwaitingDownload(status) => *status = new_status,
-            _ => {}
+        if let State::AwaitingDownload(status) = &mut self.state {
+            *status = new_status
         }
     }
 
@@ -411,7 +413,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
                     });
                 }
                 self.failed_downloading = self.failed_downloading.saturating_add(1);
-                self.state = State::AwaitingDownload("retry");
+                self.state = State::AwaitingDownload("not started");
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -475,7 +477,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
             State::Processing(result) => {
                 let peer_id = result.peer_id;
                 self.failed_processing = self.failed_processing.saturating_add(1);
-                self.state = State::AwaitingDownload("retry");
+                self.state = State::AwaitingDownload("not started");
                 Ok(peer_id)
             }
             other => Err(LookupRequestError::BadState(format!(
