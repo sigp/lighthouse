@@ -207,7 +207,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     request.get_state_mut().on_completed_request()?
                 }
                 // Sync will receive a future event to make progress on the request, do nothing now
-                LookupRequestResult::Pending => return Ok(()),
+                LookupRequestResult::Pending(reason) => {
+                    request
+                        .get_state_mut()
+                        .update_awaiting_download_status(reason);
+                    return Ok(());
+                }
             }
 
         // Otherwise, attempt to progress awaiting processing
@@ -301,7 +306,7 @@ pub struct DownloadResult<T: Clone> {
 
 #[derive(PartialEq, Eq, IntoStaticStr)]
 pub enum State<T: Clone> {
-    AwaitingDownload,
+    AwaitingDownload(&'static str),
     Downloading(ReqId),
     AwaitingProcess(DownloadResult<T>),
     /// Request is processing, sent by lookup sync
@@ -325,7 +330,7 @@ pub struct SingleLookupRequestState<T: Clone> {
 impl<T: Clone> SingleLookupRequestState<T> {
     pub fn new() -> Self {
         Self {
-            state: State::AwaitingDownload,
+            state: State::AwaitingDownload("not started"),
             failed_processing: 0,
             failed_downloading: 0,
         }
@@ -333,7 +338,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
     pub fn is_awaiting_download(&self) -> bool {
         match self.state {
-            State::AwaitingDownload => true,
+            State::AwaitingDownload { .. } => true,
             State::Downloading { .. }
             | State::AwaitingProcess { .. }
             | State::Processing { .. }
@@ -343,7 +348,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
     pub fn is_processed(&self) -> bool {
         match self.state {
-            State::AwaitingDownload
+            State::AwaitingDownload { .. }
             | State::Downloading { .. }
             | State::AwaitingProcess { .. }
             | State::Processing { .. } => false,
@@ -353,7 +358,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
 
     pub fn peek_downloaded_data(&self) -> Option<&T> {
         match &self.state {
-            State::AwaitingDownload => None,
+            State::AwaitingDownload { .. } => None,
             State::Downloading { .. } => None,
             State::AwaitingProcess(result) => Some(&result.value),
             State::Processing(result) => Some(&result.value),
@@ -364,7 +369,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
     /// Switch to `AwaitingProcessing` if the request is in `AwaitingDownload` state, otherwise
     /// ignore.
     pub fn insert_verified_response(&mut self, result: DownloadResult<T>) -> bool {
-        if let State::AwaitingDownload = &self.state {
+        if let State::AwaitingDownload { .. } = &self.state {
             self.state = State::AwaitingProcess(result);
             true
         } else {
@@ -372,10 +377,19 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
+    /// Append metadata on why this request is in AwaitingDownload status. Very helpful to debug
+    /// stuck lookups. Not fallible as it's purely informational.
+    pub fn update_awaiting_download_status(&mut self, new_status: &'static str) {
+        match &mut self.state {
+            State::AwaitingDownload(status) => *status = new_status,
+            _ => {}
+        }
+    }
+
     /// Switch to `Downloading` if the request is in `AwaitingDownload` state, otherwise returns None.
     pub fn on_download_start(&mut self, req_id: ReqId) -> Result<(), LookupRequestError> {
         match &self.state {
-            State::AwaitingDownload => {
+            State::AwaitingDownload { .. } => {
                 self.state = State::Downloading(req_id);
                 Ok(())
             }
@@ -397,7 +411,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
                     });
                 }
                 self.failed_downloading = self.failed_downloading.saturating_add(1);
-                self.state = State::AwaitingDownload;
+                self.state = State::AwaitingDownload("retry");
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -461,7 +475,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
             State::Processing(result) => {
                 let peer_id = result.peer_id;
                 self.failed_processing = self.failed_processing.saturating_add(1);
-                self.state = State::AwaitingDownload;
+                self.state = State::AwaitingDownload("retry");
                 Ok(peer_id)
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -485,7 +499,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
     /// Mark a request as complete without any download or processing
     pub fn on_completed_request(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
-            State::AwaitingDownload => {
+            State::AwaitingDownload { .. } => {
                 self.state = State::Processed;
                 Ok(())
             }
@@ -517,7 +531,7 @@ impl<T: Clone> std::fmt::Display for State<T> {
 impl<T: Clone> std::fmt::Debug for State<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AwaitingDownload { .. } => write!(f, "AwaitingDownload"),
+            Self::AwaitingDownload(status) => write!(f, "AwaitingDownload({:?})", status),
             Self::Downloading(req_id) => write!(f, "Downloading({:?})", req_id),
             Self::AwaitingProcess(d) => write!(f, "AwaitingProcess({:?})", d.peer_id),
             Self::Processing(d) => write!(f, "Processing({:?})", d.peer_id),

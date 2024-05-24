@@ -105,7 +105,7 @@ pub enum LookupRequestResult {
     /// that makes progress on the request. For example: request is processing from a different
     /// source (i.e. block received from gossip) and sync MUST receive an event with that processing
     /// result.
-    Pending,
+    Pending(&'static str),
 }
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
@@ -356,7 +356,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // A block is on the `reqresp_pre_import_cache` but NOT in the
             // `data_availability_checker` only if it is actively processing. We can expect a future
             // event with the result of processing
-            return Ok(LookupRequestResult::Pending);
+            return Ok(LookupRequestResult::Pending("block in processing cache"));
         }
 
         let req_id = self.next_id();
@@ -410,7 +410,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // latter handle the case where if the peer sent no blobs, penalize.
             // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
             // - if `num_expected_blobs` returns Some = block is processed.
-            return Ok(LookupRequestResult::Pending);
+            return Ok(LookupRequestResult::Pending("waiting for block download"));
         };
 
         let imported_blob_indexes = self
