@@ -23,8 +23,6 @@ mod state_lru_cache;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
-use self::overflow_lru_cache::ExecutionValidBlockSummary;
-
 /// The LRU Cache stores `PendingComponents` which can store up to
 /// `MAX_BLOBS_PER_BLOCK = 6` blobs each. A `BlobSidecar` is 0.131256 MB. So
 /// the maximum size of a `PendingComponents` is ~ 0.787536 MB. Setting this
@@ -88,12 +86,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
     /// of missing components.
-    pub fn get_execution_valid_block_summary(
+    pub fn get_execution_valid_block(
         &self,
         block_root: &Hash256,
-    ) -> Option<ExecutionValidBlockSummary> {
+    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
         self.availability_cache
-            .get_execution_valid_block_summary(block_root)
+            .get_execution_valid_block(block_root)
     }
 
     /// Return the set of imported blob indexes for `block_root`. Returns None if there is no block
