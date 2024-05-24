@@ -44,7 +44,7 @@ use ssz_types::{FixedVector, VariableList};
 use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256};
+use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, Slot};
 
 /// This represents the components of a partially available block
 ///
@@ -55,6 +55,11 @@ pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
+}
+
+pub struct ExecutionValidBlockSummary {
+    pub slot: Slot,
+    pub blob_kzg_commitments_count: usize,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
@@ -544,12 +549,22 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     }
 
     /// Returns true if the block root is known, without altering the LRU ordering
-    pub fn has_execution_valid_block(&self, block_root: &Hash256) -> bool {
-        if let Some(pending_components) = self.critical.read().peek_pending_components(block_root) {
-            pending_components.executed_block.is_some()
-        } else {
-            false
-        }
+    pub fn get_execution_valid_block_summary(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<ExecutionValidBlockSummary> {
+        self.critical
+            .read()
+            .peek_pending_components(block_root)
+            .and_then(|pending_components| {
+                pending_components
+                    .executed_block
+                    .as_ref()
+                    .map(|block| ExecutionValidBlockSummary {
+                        slot: block.as_block().slot(),
+                        blob_kzg_commitments_count: block.num_blobs_expected(),
+                    })
+            })
     }
 
     /// Fetch a blob from the cache without affecting the LRU ordering

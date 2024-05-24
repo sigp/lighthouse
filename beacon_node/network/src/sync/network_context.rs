@@ -12,7 +12,7 @@ use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::SingleLookupId;
 use crate::sync::manager::{BlockProcessType, SingleLookupReqId};
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
@@ -337,26 +337,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         block_root: Hash256,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
-        // da_checker includes block that are execution verified, but are missing components
-        if self
-            .chain
-            .data_availability_checker
-            .has_execution_valid_block(&block_root)
-        {
-            return Ok(LookupRequestResult::NoRequestNeeded);
-        }
-
-        // reqresp_pre_import_cache includes blocks that may not be yet execution verified
-        if self
-            .chain
-            .reqresp_pre_import_cache
-            .read()
-            .contains_key(&block_root)
-        {
-            // A block is on the `reqresp_pre_import_cache` but NOT in the
-            // `data_availability_checker` only if it is actively processing. We can expect a future
-            // event with the result of processing
-            return Ok(LookupRequestResult::Pending);
+        match self.chain.get_block_process_status(&block_root) {
+            // Unknown block, continue request to download
+            BlockProcessStatus::Unknown => {}
+            // Block is known are currently processing, expect a future event with the result of
+            // processing.
+            BlockProcessStatus::NotValidated { .. } => return Ok(LookupRequestResult::Pending),
+            // Block is fully validated. If it's not yet imported it's waiting for missing block
+            // components. Consider this request completed and do nothing.
+            BlockProcessStatus::ExecutionValidated { .. } => {
+                return Ok(LookupRequestResult::NoRequestNeeded)
+            }
         }
 
         let req_id = self.next_id();
@@ -401,9 +392,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         downloaded_block_expected_blobs: Option<usize>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
         let Some(expected_blobs) = downloaded_block_expected_blobs.or_else(|| {
-            self.chain
-                .data_availability_checker
-                .num_expected_blobs(&block_root)
+            // If the block is already being processed or fully validated, retrieve how many blobs
+            // it expects. Consider any stage of the block. If the block root has been validated, we
+            // can assert that this is the correct value of `blob_kzg_commitments_count`.
+            match self.chain.get_block_process_status(&block_root) {
+                BlockProcessStatus::Unknown => None,
+                BlockProcessStatus::NotValidated {
+                    blob_kzg_commitments_count,
+                    ..
+                }
+                | BlockProcessStatus::ExecutionValidated {
+                    blob_kzg_commitments_count,
+                    ..
+                } => Some(blob_kzg_commitments_count),
+            }
         }) else {
             // Wait to download the block before downloading blobs. Then we can be sure that the
             // block has data, so there's no need to do "blind" requests for all possible blobs and

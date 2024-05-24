@@ -337,6 +337,22 @@ struct PartialBeaconBlock<E: EthSpec> {
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
+pub enum BlockProcessStatus {
+    /// Block is not in any pre-import cache. Block may be in the data-base or in the fork-choice.
+    Unknown,
+    /// Block is currently processing but not yet validated.
+    NotValidated {
+        slot: Slot,
+        blob_kzg_commitments_count: usize,
+    },
+    /// Block is fully valid, but not yet imported. It's cached in the da_checker while awaiting
+    /// missing block components.
+    ExecutionValidated {
+        slot: Slot,
+        blob_kzg_commitments_count: usize,
+    },
+}
+
 pub type LightClientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -1235,6 +1251,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
     ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, Error> {
         Ok(self.store.get_blinded_block(block_root)?)
+    }
+
+    /// Return the status of a block as it progresses through the various caches of the beacon
+    /// chain. Used by sync to learn the status of a block and prevent repeated downloads /
+    /// processing attempts.
+    pub fn get_block_process_status(&self, block_root: &Hash256) -> BlockProcessStatus {
+        if let Some(execution_valid_block) = self
+            .data_availability_checker
+            .get_execution_valid_block_summary(block_root)
+        {
+            return BlockProcessStatus::ExecutionValidated {
+                slot: execution_valid_block.slot,
+                blob_kzg_commitments_count: execution_valid_block.blob_kzg_commitments_count,
+            };
+        }
+
+        if let Some(block) = self.reqresp_pre_import_cache.read().get(block_root) {
+            // A block is on the `reqresp_pre_import_cache` but NOT in the
+            // `data_availability_checker` only if it is actively processing. We can expect a future
+            // event with the result of processing
+            return BlockProcessStatus::NotValidated {
+                slot: block.slot(),
+                blob_kzg_commitments_count: block.num_expected_blobs(),
+            };
+        }
+
+        BlockProcessStatus::Unknown
     }
 
     /// Returns the state at the given root, if any.
