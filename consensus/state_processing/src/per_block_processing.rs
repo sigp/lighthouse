@@ -566,7 +566,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 index: withdrawal_index,
                 validator_index,
                 address: validator
-                    .get_eth1_withdrawal_address(spec)
+                    .get_execution_withdrawal_address(spec)
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
                 amount: balance,
             });
@@ -576,7 +576,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 index: withdrawal_index,
                 validator_index,
                 address: validator
-                    .get_eth1_withdrawal_address(spec)
+                    .get_execution_withdrawal_address(spec)
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
                 amount: balance.safe_sub(
                     validator

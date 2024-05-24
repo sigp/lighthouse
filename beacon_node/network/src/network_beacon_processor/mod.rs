@@ -1,7 +1,5 @@
-use crate::{
-    service::NetworkMessage,
-    sync::{manager::BlockProcessType, SyncMessage},
-};
+use crate::sync::manager::BlockProcessType;
+use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};

@@ -367,9 +367,16 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let duty = &duty_and_proof.duty;
             let attestation_data = attestation_data_ref;
 
+            let fork_name = self
+                .context
+                .eth2_config
+                .spec
+                .fork_name_at_slot::<E>(attestation_data.slot);
+
             // Ensure that the attestation matches the duties.
             #[allow(clippy::suspicious_operation_groupings)]
-            if duty.slot != attestation_data.slot || duty.committee_index != attestation_data.index
+            if duty.slot != attestation_data.slot
+                || (fork_name < ForkName::Electra && duty.committee_index != attestation_data.index)
             {
                 crit!(
                     log,
@@ -382,12 +389,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 );
                 return None;
             }
-
-            let fork_name = self
-                .context
-                .eth2_config
-                .spec
-                .fork_name_at_slot::<E>(attestation_data.slot);
 
             let mut attestation = if fork_name >= ForkName::Electra {
                 let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
@@ -576,6 +577,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
             .map_err(|e| e.to_string())?;
 
+        let fork_name = self
+            .context
+            .eth2_config
+            .spec
+            .fork_name_at_slot::<E>(attestation_data.slot);
+
         // Create futures to produce the signed aggregated attestations.
         let signing_futures = validator_duties.iter().map(|duty_and_proof| async move {
             let duty = &duty_and_proof.duty;
@@ -584,7 +591,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let slot = attestation_data.slot;
             let committee_index = attestation_data.index;
 
-            if duty.slot != slot || duty.committee_index != committee_index {
+            if duty.slot != slot
+                || (fork_name < ForkName::Electra && duty.committee_index != committee_index)
+            {
                 crit!(log, "Inconsistent validator duties during signing");
                 return None;
             }

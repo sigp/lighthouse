@@ -4,10 +4,10 @@ The `lighthouse` binary provides all necessary Ethereum consensus client functio
 has two primary sub-commands:
 
 - `$ lighthouse beacon_node`: the largest and most fundamental component which connects to
-	the p2p network, processes messages and tracks the head of the beacon
-	chain.
+ the p2p network, processes messages and tracks the head of the beacon
+ chain.
 - `$ lighthouse validator_client`: a lightweight but important component which loads a validators private
-	key and signs messages using a `beacon_node` as a source-of-truth.
+ key and signs messages using a `beacon_node` as a source-of-truth.
 
 There are also some ancillary binaries like `lcli` and `account_manager`, but
 these are primarily for testing.
@@ -34,11 +34,11 @@ Each binary supports the `--help` flag, this is the best source of
 documentation.
 
 ```bash
-$ lighthouse beacon_node --help
+lighthouse beacon_node --help
 ```
 
 ```bash
-$ lighthouse validator_client --help
+lighthouse validator_client --help
 ```
 
 ## Creating a new database/testnet
