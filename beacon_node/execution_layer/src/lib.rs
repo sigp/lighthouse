@@ -1844,7 +1844,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         query: Vec<BlobTransactionId>,
     ) -> Result<GetBlobsResponse<E>, Error> {
         self.engine()
-            .request(|engine| async move { engine.api.get_blobs(query).await })
+            .ipc_request(|ipc| ipc.get_blobs(query))
             .await
             .map_err(Box::new)
             .map_err(Error::EngineError)

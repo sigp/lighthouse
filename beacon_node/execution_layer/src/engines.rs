@@ -1,8 +1,8 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
 use crate::engine_api::{
-    EngineCapabilities, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
-    PayloadId,
+    ipc::Ipc, EngineCapabilities, Error as EngineApiError, ForkchoiceUpdatedResponse,
+    PayloadAttributes, PayloadId,
 };
 use crate::{ClientVersionV1, HttpJsonRpc};
 use lru::LruCache;
@@ -12,7 +12,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
-use tokio::sync::{watch, Mutex, RwLock};
+use tokio::sync::{watch, Mutex, OnceCell, RwLock};
 use tokio_stream::wrappers::WatchStream;
 use types::non_zero_usize::new_non_zero_usize;
 use types::ExecutionBlockHash;
@@ -124,6 +124,7 @@ pub enum EngineError {
 /// An execution engine.
 pub struct Engine {
     pub api: HttpJsonRpc,
+    ipc: OnceCell<Ipc>,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<State>,
     latest_forkchoice_state: RwLock<Option<ForkchoiceState>>,
@@ -136,6 +137,7 @@ impl Engine {
     pub fn new(api: HttpJsonRpc, executor: TaskExecutor, log: &Logger) -> Self {
         Self {
             api,
+            ipc: OnceCell::new(),
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
             state: Default::default(),
             latest_forkchoice_state: Default::default(),
@@ -414,6 +416,22 @@ impl Engine {
                 Err(EngineError::Api { error })
             }
         }
+    }
+
+    pub async fn ipc_request<'a, F, G, H>(self: &'a Arc<Self>, func: F) -> Result<H, EngineError>
+    where
+        F: FnOnce(&'a Ipc) -> G,
+        G: Future<Output = Result<H, EngineApiError>>,
+    {
+        let ipc = self
+            .ipc
+            .get_or_try_init(|| async move {
+                // FIXME(sproul): configurable path
+                Ipc::new("/tmp/reth.ipc").await
+            })
+            .await
+            .map_err(|error| EngineError::Api { error })?;
+        func(ipc).await.map_err(|error| EngineError::Api { error })
     }
 }
 
