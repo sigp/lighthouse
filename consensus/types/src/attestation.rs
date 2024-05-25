@@ -4,7 +4,6 @@ use derivative::Derivative;
 use rand::RngCore;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
 use std::hash::{Hash, Hasher};
@@ -70,26 +69,6 @@ pub struct Attestation<E: EthSpec> {
     #[superstruct(only(Electra))]
     pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
     pub signature: AggregateSignature,
-}
-
-impl<E: EthSpec> Decode for Attestation<E> {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        if let Ok(result) = AttestationBase::from_ssz_bytes(bytes) {
-            return Ok(Attestation::Base(result));
-        }
-
-        if let Ok(result) = AttestationElectra::from_ssz_bytes(bytes) {
-            return Ok(Attestation::Electra(result));
-        }
-
-        Err(ssz::DecodeError::BytesInvalid(String::from(
-            "bytes not valid for any fork variant",
-        )))
-    }
 }
 
 // TODO(electra): think about how to handle fork variants here
