@@ -86,17 +86,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
     /// of missing components.
-    pub fn has_execution_valid_block(&self, block_root: &Hash256) -> bool {
+    pub fn get_execution_valid_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
         self.availability_cache
-            .has_execution_valid_block(block_root)
-    }
-
-    /// Return the required blobs `block_root` expects if the block is currenlty in the cache.
-    pub fn num_expected_blobs(&self, block_root: &Hash256) -> Option<usize> {
-        self.availability_cache
-            .peek_pending_components(block_root, |components| {
-                components.and_then(|components| components.num_expected_blobs())
-            })
+            .get_execution_valid_block(block_root)
     }
 
     /// Return the set of imported blob indexes for `block_root`. Returns None if there is no block

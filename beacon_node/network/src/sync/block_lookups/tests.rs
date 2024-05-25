@@ -1452,13 +1452,16 @@ fn block_in_processing_cache_becomes_invalid() {
     let peer_id = r.new_connected_peer();
     r.insert_block_to_processing_cache(block.clone().into());
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
+    // Should trigger blob request
+    let id = r.expect_blob_lookup_request(block_root);
     // Should not trigger block request
     r.expect_empty_network();
     // Simulate invalid block, removing it from processing cache
     r.simulate_block_gossip_processing_becomes_invalid(block_root);
     // Should download block, then issue blobs request
     r.complete_lookup_block_download(block);
-    let id = r.expect_blob_lookup_request(block_root);
+    // Should not trigger block or blob request
+    r.expect_empty_network();
     r.complete_lookup_block_import_valid(block_root, false);
     // Resolve blob and expect lookup completed
     r.complete_single_lookup_blob_lookup_valid(id, peer_id, blobs, true);
@@ -1475,11 +1478,14 @@ fn block_in_processing_cache_becomes_valid_imported() {
     let peer_id = r.new_connected_peer();
     r.insert_block_to_processing_cache(block.clone().into());
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
+    // Should trigger blob request
+    let id = r.expect_blob_lookup_request(block_root);
     // Should not trigger block request
     r.expect_empty_network();
     // Resolve the block from processing step
     r.simulate_block_gossip_processing_becomes_valid_missing_components(block.into());
-    let id = r.expect_blob_lookup_request(block_root);
+    // Should not trigger block or blob request
+    r.expect_empty_network();
     // Resolve blob and expect lookup completed
     r.complete_single_lookup_blob_lookup_valid(id, peer_id, blobs, true);
     r.expect_no_active_lookups();
