@@ -28,38 +28,34 @@ pub const SYNC_COMMITTEE_BITFIELD_ENR_KEY: &str = "syncnets";
 /// Extension trait for ENR's within Eth2.
 pub trait Eth2Enr {
     /// The attestation subnet bitfield associated with the ENR.
-    fn attestation_bitfield<TSpec: EthSpec>(
-        &self,
-    ) -> Result<EnrAttestationBitfield<TSpec>, &'static str>;
+    fn attestation_bitfield<E: EthSpec>(&self) -> Result<EnrAttestationBitfield<E>, &'static str>;
 
     /// The sync committee subnet bitfield associated with the ENR.
-    fn sync_committee_bitfield<TSpec: EthSpec>(
+    fn sync_committee_bitfield<E: EthSpec>(
         &self,
-    ) -> Result<EnrSyncCommitteeBitfield<TSpec>, &'static str>;
+    ) -> Result<EnrSyncCommitteeBitfield<E>, &'static str>;
 
     fn eth2(&self) -> Result<EnrForkId, &'static str>;
 }
 
 impl Eth2Enr for Enr {
-    fn attestation_bitfield<TSpec: EthSpec>(
-        &self,
-    ) -> Result<EnrAttestationBitfield<TSpec>, &'static str> {
+    fn attestation_bitfield<E: EthSpec>(&self) -> Result<EnrAttestationBitfield<E>, &'static str> {
         let bitfield_bytes = self
             .get(ATTESTATION_BITFIELD_ENR_KEY)
             .ok_or("ENR attestation bitfield non-existent")?;
 
-        BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
+        BitVector::<E::SubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
             .map_err(|_| "Could not decode the ENR attnets bitfield")
     }
 
-    fn sync_committee_bitfield<TSpec: EthSpec>(
+    fn sync_committee_bitfield<E: EthSpec>(
         &self,
-    ) -> Result<EnrSyncCommitteeBitfield<TSpec>, &'static str> {
+    ) -> Result<EnrSyncCommitteeBitfield<E>, &'static str> {
         let bitfield_bytes = self
             .get(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
             .ok_or("ENR sync committee bitfield non-existent")?;
 
-        BitVector::<TSpec::SyncCommitteeSubnetCount>::from_ssz_bytes(bitfield_bytes)
+        BitVector::<E::SyncCommitteeSubnetCount>::from_ssz_bytes(bitfield_bytes)
             .map_err(|_| "Could not decode the ENR syncnets bitfield")
     }
 
@@ -125,7 +121,7 @@ pub fn use_or_load_enr(
 ///
 /// If an ENR exists, with the same NodeId, this function checks to see if the loaded ENR from
 /// disk is suitable to use, otherwise we increment our newly generated ENR's sequence number.
-pub fn build_or_load_enr<T: EthSpec>(
+pub fn build_or_load_enr<E: EthSpec>(
     local_key: Keypair,
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
@@ -135,14 +131,14 @@ pub fn build_or_load_enr<T: EthSpec>(
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers, if the CLI doesn't expressly forbid it.
     let enr_key = CombinedKey::from_libp2p(local_key)?;
-    let mut local_enr = build_enr::<T>(&enr_key, config, enr_fork_id)?;
+    let mut local_enr = build_enr::<E>(&enr_key, config, enr_fork_id)?;
 
     use_or_load_enr(&enr_key, &mut local_enr, config, log)?;
     Ok(local_enr)
 }
 
 /// Builds a lighthouse ENR given a `NetworkConfig`.
-pub fn build_enr<T: EthSpec>(
+pub fn build_enr<E: EthSpec>(
     enr_key: &CombinedKey,
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
@@ -216,12 +212,12 @@ pub fn build_enr<T: EthSpec>(
     builder.add_value(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes());
 
     // set the "attnets" field on our ENR
-    let bitfield = BitVector::<T::SubnetBitfieldLength>::new();
+    let bitfield = BitVector::<E::SubnetBitfieldLength>::new();
 
     builder.add_value(ATTESTATION_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 
     // set the "syncnets" field on our ENR
-    let bitfield = BitVector::<T::SyncCommitteeSubnetCount>::new();
+    let bitfield = BitVector::<E::SyncCommitteeSubnetCount>::new();
 
     builder.add_value(SYNC_COMMITTEE_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 

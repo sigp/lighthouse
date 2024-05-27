@@ -69,10 +69,6 @@ pub struct Config {
     /// Target number of connected peers.
     pub target_peers: usize,
 
-    /// Gossipsub configuration parameters.
-    #[serde(skip)]
-    pub gs_config: gossipsub::Config,
-
     /// Discv5 configuration parameters.
     #[serde(skip)]
     pub discv5_config: discv5::Config,
@@ -278,12 +274,6 @@ impl Default for Config {
             .join(DEFAULT_BEACON_NODE_DIR)
             .join(DEFAULT_NETWORK_DIR);
 
-        // Note: Using the default config here. Use `gossipsub_config` function for getting
-        // Lighthouse specific configuration for gossipsub.
-        let gs_config = gossipsub::ConfigBuilder::default()
-            .build()
-            .expect("valid gossipsub configuration");
-
         // Discv5 Unsolicited Packet Rate Limiter
         let filter_rate_limiter = Some(
             discv5::RateLimiterBuilder::new()
@@ -336,7 +326,6 @@ impl Default for Config {
             enr_quic6_port: None,
             enr_tcp6_port: None,
             target_peers: 100,
-            gs_config,
             discv5_config,
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
@@ -448,7 +437,11 @@ pub fn gossipsub_config(
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
         match fork_context.current_fork() {
-            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Deneb => {
+            ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
@@ -468,7 +461,7 @@ pub fn gossipsub_config(
         }
     }
     let message_domain_valid_snappy = gossipsub_config_params.message_domain_valid_snappy;
-    let is_merge_enabled = fork_context.fork_exists(ForkName::Merge);
+    let is_bellatrix_enabled = fork_context.fork_exists(ForkName::Bellatrix);
     let gossip_message_id = move |message: &gossipsub::Message| {
         gossipsub::MessageId::from(
             &Sha256::digest(
@@ -488,7 +481,7 @@ pub fn gossipsub_config(
 
     gossipsub::ConfigBuilder::default()
         .max_transmit_size(gossip_max_size(
-            is_merge_enabled,
+            is_bellatrix_enabled,
             gossipsub_config_params.gossip_max_size,
         ))
         .heartbeat_interval(load.heartbeat_interval)

@@ -10,11 +10,10 @@ use beacon_chain::{
 };
 use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
-use state_processing::{
-    per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
-};
+use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use types::{
-    BeaconState, BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, EthSpec, Hash256, Keypair, MinimalEthSpec,
+    RelativeEpoch, Slot,
 };
 
 // Should ideally be divisible by 3.
@@ -59,9 +58,7 @@ fn massive_skips() {
     assert!(state.slot() > 1, "the state should skip at least one slot");
     assert_eq!(
         error,
-        SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
-            BeaconStateError::InsufficientValidators
-        )),
+        SlotProcessingError::BeaconStateError(BeaconStateError::InsufficientValidators),
         "should return error indicating that validators have been slashed out"
     )
 }
@@ -690,6 +687,7 @@ async fn run_skip_slot_test(skip_slots: u64) {
             harness_a.chain.head_snapshot().beacon_block_root,
             harness_a.get_head_block(),
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await

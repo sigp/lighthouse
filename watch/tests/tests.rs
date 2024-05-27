@@ -14,7 +14,6 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::env;
-use std::net::SocketAddr;
 use std::time::Duration;
 use testcontainers::{clients::Cli, core::WaitFor, Image, RunnableImage};
 use tokio::{runtime, task::JoinHandle};
@@ -154,7 +153,7 @@ impl TesterBuilder {
          * Create a watch configuration
          */
         let database_port = unused_tcp4_port().expect("Unable to find unused port.");
-        let server_port = unused_tcp4_port().expect("Unable to find unused port.");
+        let server_port = 0;
         let config = Config {
             database: DatabaseConfig {
                 dbname: random_dbname(),
@@ -187,13 +186,8 @@ impl TesterBuilder {
         /*
          * Spawn a Watch HTTP API.
          */
-        let watch_server = start_server(&self.config, SLOTS_PER_EPOCH, pool).unwrap();
+        let (addr, watch_server) = start_server(&self.config, SLOTS_PER_EPOCH, pool).unwrap();
         tokio::spawn(watch_server);
-
-        let addr = SocketAddr::new(
-            self.config.server.listen_addr,
-            self.config.server.listen_port,
-        );
 
         /*
          * Create a HTTP client to talk to the watch HTTP API.

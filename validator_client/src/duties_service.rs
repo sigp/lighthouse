@@ -88,14 +88,15 @@ const _: () = assert!({
 /// bringing in the entire crate.
 const _: () = assert!(ATTESTATION_SUBSCRIPTION_OFFSETS[0] > 2);
 
+// The info in the enum variants is displayed in logging, clippy thinks it's dead code.
 #[derive(Debug)]
 pub enum Error {
     UnableToReadSlotClock,
-    FailedToDownloadAttesters(String),
-    FailedToProduceSelectionProof(ValidatorStoreError),
-    InvalidModulo(ArithError),
-    Arith(ArithError),
-    SyncDutiesNotFound(u64),
+    FailedToDownloadAttesters(#[allow(dead_code)] String),
+    FailedToProduceSelectionProof(#[allow(dead_code)] ValidatorStoreError),
+    InvalidModulo(#[allow(dead_code)] ArithError),
+    Arith(#[allow(dead_code)] ArithError),
+    SyncDutiesNotFound(#[allow(dead_code)] u64),
 }
 
 impl From<ArithError> for Error {
@@ -214,6 +215,8 @@ pub struct DutiesService<T, E: EthSpec> {
     pub sync_duties: SyncDutiesMap<E>,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<ValidatorStore<T, E>>,
+    /// Maps unknown validator pubkeys to the next slot time when a poll should be conducted again.
+    pub unknown_validator_next_poll_slots: RwLock<HashMap<PublicKeyBytes, Slot>>,
     /// Tracks the current slot.
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.
@@ -488,6 +491,24 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
             .is_some();
 
         if !is_known {
+            let current_slot_opt = duties_service.slot_clock.now();
+
+            if let Some(current_slot) = current_slot_opt {
+                let is_first_slot_of_epoch = current_slot % E::slots_per_epoch() == 0;
+
+                // Query an unknown validator later if it was queried within the last epoch, or if
+                // the current slot is the first slot of an epoch.
+                let poll_later = duties_service
+                    .unknown_validator_next_poll_slots
+                    .read()
+                    .get(&pubkey)
+                    .map(|&poll_slot| poll_slot > current_slot || is_first_slot_of_epoch)
+                    .unwrap_or(false);
+                if poll_later {
+                    continue;
+                }
+            }
+
             // Query the remote BN to resolve a pubkey to a validator index.
             let download_result = duties_service
                 .beacon_nodes
@@ -532,10 +553,23 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                         .initialized_validators()
                         .write()
                         .set_index(&pubkey, response.data.index);
+
+                    duties_service
+                        .unknown_validator_next_poll_slots
+                        .write()
+                        .remove(&pubkey);
                 }
                 // This is not necessarily an error, it just means the validator is not yet known to
                 // the beacon chain.
                 Ok(None) => {
+                    if let Some(current_slot) = current_slot_opt {
+                        let next_poll_slot = current_slot.saturating_add(E::slots_per_epoch());
+                        duties_service
+                            .unknown_validator_next_poll_slots
+                            .write()
+                            .insert(pubkey, next_poll_slot);
+                    }
+
                     debug!(
                         log,
                         "Validator without index";
@@ -896,7 +930,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
                         "Attester duties re-org";
                         "prior_dependent_root" => %prior_dependent_root,
                         "dependent_root" => %dependent_root,
-                        "msg" => "this may happen from time to time"
+                        "note" => "this may happen from time to time"
                     )
                 }
                 *mut_value = (dependent_root, duty_and_proof);

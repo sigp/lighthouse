@@ -1,5 +1,6 @@
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
+    upgrade_to_electra,
 };
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
@@ -24,11 +25,11 @@ impl From<ArithError> for Error {
 /// If the root of the supplied `state` is known, then it can be passed as `state_root`. If
 /// `state_root` is `None`, the root of `state` will be computed using a cached tree hash.
 /// Providing the `state_root` makes this function several orders of magnitude faster.
-pub fn per_slot_processing<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn per_slot_processing<E: EthSpec>(
+    state: &mut BeaconState<E>,
     state_root: Option<Hash256>,
     spec: &ChainSpec,
-) -> Result<Option<EpochProcessingSummary<T>>, Error> {
+) -> Result<Option<EpochProcessingSummary<E>>, Error> {
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
     state
         .fork_name(spec)
@@ -37,7 +38,7 @@ pub fn per_slot_processing<T: EthSpec>(
     cache_state(state, state_root)?;
 
     let summary = if state.slot() > spec.genesis_slot
-        && state.slot().safe_add(1)?.safe_rem(T::slots_per_epoch())? == 0
+        && state.slot().safe_add(1)?.safe_rem(E::slots_per_epoch())? == 0
     {
         Some(per_epoch_processing(state, spec)?)
     } else {
@@ -48,12 +49,12 @@ pub fn per_slot_processing<T: EthSpec>(
 
     // Process fork upgrades here. Note that multiple upgrades can potentially run
     // in sequence if they are scheduled in the same Epoch (common in testnets)
-    if state.slot().safe_rem(T::slots_per_epoch())? == 0 {
+    if state.slot().safe_rem(E::slots_per_epoch())? == 0 {
         // If the Altair fork epoch is reached, perform an irregular state upgrade.
         if spec.altair_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_altair(state, spec)?;
         }
-        // If the Merge fork epoch is reached, perform an irregular state upgrade.
+        // If the Bellatrix fork epoch is reached, perform an irregular state upgrade.
         if spec.bellatrix_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_bellatrix(state, spec)?;
         }
@@ -61,17 +62,26 @@ pub fn per_slot_processing<T: EthSpec>(
         if spec.capella_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_capella(state, spec)?;
         }
-        // Deneb
+        // Deneb.
         if spec.deneb_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_deneb(state, spec)?;
         }
+        // Electra.
+        if spec.electra_fork_epoch == Some(state.current_epoch()) {
+            upgrade_to_electra(state, spec)?;
+        }
+
+        // Additionally build all caches so that all valid states that are advanced always have
+        // committee caches built, and we don't have to worry about initialising them at higher
+        // layers.
+        state.build_caches(spec)?;
     }
 
     Ok(summary)
 }
 
-fn cache_state<T: EthSpec>(
-    state: &mut BeaconState<T>,
+fn cache_state<E: EthSpec>(
+    state: &mut BeaconState<E>,
     state_root: Option<Hash256>,
 ) -> Result<(), Error> {
     let previous_state_root = if let Some(root) = state_root {

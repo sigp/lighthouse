@@ -24,6 +24,7 @@ use store::KzgCommitment;
 use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::BlockImportSource;
 use types::{Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -33,8 +34,6 @@ pub enum ChainSegmentProcessId {
     RangeBatchId(ChainId, Epoch),
     /// Processing ID for a backfill syncing batch.
     BackSyncBatchId(Epoch),
-    /// Processing Id of the parent lookup of a block.
-    ParentLookup(Hash256),
 }
 
 /// Returned when a chain segment import fails.
@@ -155,7 +154,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .process_block_with_early_caching(block_root, block, NotifyExecutionLayer::Yes)
+            .process_block_with_early_caching(
+                block_root,
+                block,
+                BlockImportSource::Lookup,
+                NotifyExecutionLayer::Yes,
+            )
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
@@ -172,17 +176,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             if reprocess_tx.try_send(reprocess_msg).is_err() {
                 error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %hash)
             };
-            if matches!(process_type, BlockProcessType::SingleBlock { .. }) {
-                self.chain.block_times_cache.write().set_time_observed(
-                    hash,
-                    slot,
-                    seen_timestamp,
-                    None,
-                    None,
-                );
+            self.chain.block_times_cache.write().set_time_observed(
+                hash,
+                slot,
+                seen_timestamp,
+                None,
+                None,
+            );
 
-                self.chain.recompute_head_at_current_slot().await;
-            }
+            self.chain.recompute_head_at_current_slot().await;
         }
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
@@ -392,41 +394,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 penalty,
                             },
                             None => BatchProcessResult::NonFaultyFailure,
-                        }
-                    }
-                }
-            }
-            // this is a parent lookup request from the sync manager
-            ChainSegmentProcessId::ParentLookup(chain_head) => {
-                debug!(
-                    self.log, "Processing parent lookup";
-                    "chain_hash" => %chain_head,
-                    "blocks" => downloaded_blocks.len()
-                );
-                // parent blocks are ordered from highest slot to lowest, so we need to process in
-                // reverse
-                match self
-                    .process_blocks(downloaded_blocks.iter().rev(), notify_execution_layer)
-                    .await
-                {
-                    (imported_blocks, Err(e)) => {
-                        debug!(self.log, "Parent lookup failed"; "error" => %e.message);
-                        match e.peer_action {
-                            Some(penalty) => BatchProcessResult::FaultyFailure {
-                                imported_blocks: imported_blocks > 0,
-                                penalty,
-                            },
-                            None => BatchProcessResult::NonFaultyFailure,
-                        }
-                    }
-                    (imported_blocks, Ok(_)) => {
-                        debug!(
-                            self.log, "Parent lookup processed successfully";
-                            "chain_hash" => %chain_head,
-                            "imported_blocks" => imported_blocks
-                        );
-                        BatchProcessResult::Success {
-                            was_non_empty: imported_blocks > 0,
                         }
                     }
                 }

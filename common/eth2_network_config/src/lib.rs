@@ -36,7 +36,7 @@ pub const BASE_CONFIG_FILE: &str = "config.yaml";
 
 // Creates definitions for:
 //
-// - Each of the `HardcodedNet` values (e.g., `MAINNET`, `PRATER`, etc).
+// - Each of the `HardcodedNet` values (e.g., `MAINNET`, `HOLESKY`, etc).
 // - `HARDCODED_NETS: &[HardcodedNet]`
 // - `HARDCODED_NET_NAMES: &[&'static str]`
 instantiate_hardcoded_nets!(eth2_config);
@@ -500,13 +500,6 @@ mod tests {
             .genesis_state::<E>(None, Duration::from_secs(1), &logging::test_logger())
             .await
             .expect("beacon state can decode");
-    }
-
-    #[test]
-    fn prater_and_goerli_are_equal() {
-        let goerli = Eth2NetworkConfig::from_hardcoded_net(&GOERLI).unwrap();
-        let prater = Eth2NetworkConfig::from_hardcoded_net(&PRATER).unwrap();
-        assert_eq!(goerli, prater);
     }
 
     #[test]

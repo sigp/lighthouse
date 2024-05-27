@@ -29,6 +29,31 @@ env:
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
   TEST_FEATURES: portable
 jobs:
+  check-labels:
+    runs-on: ubuntu-latest
+    name: Check for 'skip-ci' label
+    outputs:
+      skip_ci: ${{ steps.set-output.outputs.SKIP_CI }}
+    steps:
+     - name: check for skip-ci label
+       id: set-output
+       env:
+         LABELS: ${{ toJson(github.event.pull_request.labels) }}
+       run: |
+         SKIP_CI="false"
+         if [ -z "${LABELS}" ]; then
+           LABELS="none";
+         else
+           LABELS=$(echo ${LABELS} | jq -r '.[].name')
+         fi
+         for label in ${LABELS}; do
+           if [ "$label" = "skip-ci" ]; then
+             SKIP_CI="true"
+             break
+           fi
+         done
+         echo "::set-output name=skip_ci::$SKIP_CI"
+
   target-branch-check:
     name: target-branch-check
     runs-on: ubuntu-latest
@@ -38,6 +63,8 @@ jobs:
           run: test ${{ github.base_ref }} != "stable"
   release-tests-ubuntu:
     name: release-tests-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
@@ -63,6 +90,8 @@ jobs:
       run: sccache --show-stats
   release-tests-windows:
     name: release-tests-windows
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "CI"]') || 'windows-2019'  }}
     steps:
     - uses: actions/checkout@v4
@@ -97,6 +126,8 @@ jobs:
       run: sccache --show-stats
   beacon-chain-tests:
     name: beacon-chain-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     env:
@@ -117,6 +148,8 @@ jobs:
       run: sccache --show-stats
   op-pool-tests:
     name: op-pool-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -132,6 +165,8 @@ jobs:
       run: make test-op-pool
   network-tests:
     name: network-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -147,6 +182,8 @@ jobs:
       run: make test-network
   slasher-tests:
     name: slasher-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -162,6 +199,8 @@ jobs:
       run: make test-slasher
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     env:
@@ -186,6 +225,8 @@ jobs:
       run: sccache --show-stats
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -198,6 +239,8 @@ jobs:
       run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     env:
@@ -218,6 +261,8 @@ jobs:
       run: sccache --show-stats
   dockerfile-ubuntu:
     name: dockerfile-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -225,8 +270,10 @@ jobs:
       run: docker build --build-arg FEATURES=portable -t lighthouse:local .
     - name: Test the built image
       run: docker run -t lighthouse:local lighthouse --version
-  eth1-simulator-ubuntu:
-    name: eth1-simulator-ubuntu
+  basic-simulator-ubuntu:
+    name: basic-simulator-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -235,14 +282,12 @@ jobs:
       with:
           channel: stable
           cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the beacon chain sim that starts from an eth1 contract
-      run: cargo run --release --bin simulator eth1-sim
-  merge-transition-ubuntu:
-    name: merge-transition-ubuntu
+    - name: Run a basic beacon chain sim that starts from Bellatrix
+      run: cargo run --release --bin simulator basic-sim
+  fallback-simulator-ubuntu:
+    name: fallback-simulator-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -251,42 +296,12 @@ jobs:
       with:
           channel: stable
           cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the beacon chain sim and go through the merge transition
-      run: cargo run --release --bin simulator eth1-sim --post-merge
-  no-eth1-simulator-ubuntu:
-    name: no-eth1-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Run the beacon chain sim without an eth1 connection
-      run: cargo run --release --bin simulator no-eth1-sim
-  syncing-simulator-ubuntu:
-    name: syncing-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the syncing simulator
-      run: cargo run --release --bin simulator syncing-sim
+    - name: Run a beacon chain sim which tests VC fallback behaviour
+      run: cargo run --release --bin simulator fallback-sim
   doppelganger-protection-test:
     name: doppelganger-protection-test
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     env:
       # Enable portable to prevent issues with caching `blst` for the wrong CPU type
@@ -309,9 +324,7 @@ jobs:
       run: |
           make
     - name: Install lcli
-      # TODO: uncomment after the version of lcli in https://github.com/sigp/lighthouse/pull/5137 
-      # is installed on the runners
-      # if: env.SELF_HOSTED_RUNNERS == 'false'
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       run: make install-lcli
     - name: Run the doppelganger protection failure test script
       run: |
@@ -323,6 +336,8 @@ jobs:
           ./doppelganger_protection.sh success genesis.json
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
     - uses: actions/checkout@v4
@@ -368,6 +383,8 @@ jobs:
       run: make audit-CI
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
+    - name: Markdown-linter
+      run: make mdlint
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
@@ -382,6 +399,8 @@ jobs:
       run: cargo check --workspace
   cargo-udeps:
     name: cargo-udeps
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -404,6 +423,8 @@ jobs:
       RUSTFLAGS: ""
   compile-with-beta-compiler:
     name: compile-with-beta-compiler
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -415,6 +436,8 @@ jobs:
       run: make
   cli-check:
     name: cli-check
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -429,8 +452,10 @@ jobs:
   # a PR is safe to merge. New jobs should be added here.
   test-suite-success:
     name: test-suite-success
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     needs: [
+      'check-labels',
       'target-branch-check',
       'release-tests-ubuntu',
       'release-tests-windows',
@@ -442,10 +467,8 @@ jobs:
       'state-transition-vectors-ubuntu',
       'ef-tests-ubuntu',
       'dockerfile-ubuntu',
-      'eth1-simulator-ubuntu',
-      'merge-transition-ubuntu',
-      'no-eth1-simulator-ubuntu',
-      'syncing-simulator-ubuntu',
+      'basic-simulator-ubuntu',
+      'fallback-simulator-ubuntu',
       'doppelganger-protection-test',
       'execution-engine-integration-ubuntu',
       'check-code',

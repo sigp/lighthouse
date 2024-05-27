@@ -268,9 +268,9 @@ impl BlockShufflingIds {
         }
     }
 
-    pub fn try_from_head<T: EthSpec>(
+    pub fn try_from_head<E: EthSpec>(
         head_block_root: Hash256,
-        head_state: &BeaconState<T>,
+        head_state: &BeaconState<E>,
     ) -> Result<Self, String> {
         let get_shuffling_id = |relative_epoch| {
             AttestationShufflingId::new(head_block_root, head_state, relative_epoch).map_err(|e| {
@@ -339,7 +339,7 @@ mod test {
             .clone();
         let committee_b = state.committee_cache(RelativeEpoch::Next).unwrap().clone();
         assert!(committee_a != committee_b);
-        (Arc::new(committee_a), Arc::new(committee_b))
+        (committee_a, committee_b)
     }
 
     /// Builds a deterministic but incoherent shuffling ID from a `u64`.

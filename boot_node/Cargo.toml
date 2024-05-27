@@ -18,9 +18,6 @@ slog-term = { workspace = true }
 logging = { workspace = true }
 slog-async = { workspace = true }
 slog-scope = "4.3.0"
-slog-stdlog = "4.0.0"
 hex = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 eth2_network_config = { workspace = true }

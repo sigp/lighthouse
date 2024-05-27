@@ -38,9 +38,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })?;
 
         let mut balances = HashMap::<usize, u64>::new();
+        for &validator_index in &sync_committee_indices {
+            balances.insert(
+                validator_index,
+                *state
+                    .balances()
+                    .get(validator_index)
+                    .ok_or(BeaconChainError::SyncCommitteeRewardsSyncError)?,
+            );
+        }
+
+        let proposer_index = block.proposer_index() as usize;
+        balances.insert(
+            proposer_index,
+            *state
+                .balances()
+                .get(proposer_index)
+                .ok_or(BeaconChainError::SyncCommitteeRewardsSyncError)?,
+        );
 
         let mut total_proposer_rewards = 0;
-        let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
 
         // Apply rewards to participant balances. Keep track of proposer rewards
         for (validator_index, participant_bit) in sync_committee_indices
@@ -48,15 +65,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .zip(sync_aggregate.sync_committee_bits.iter())
         {
             let participant_balance = balances
-                .entry(*validator_index)
-                .or_insert_with(|| state.balances()[*validator_index]);
+                .get_mut(validator_index)
+                .ok_or(BeaconChainError::SyncCommitteeRewardsSyncError)?;
 
             if participant_bit {
                 participant_balance.safe_add_assign(participant_reward_value)?;
 
                 balances
-                    .entry(proposer_index)
-                    .or_insert_with(|| state.balances()[proposer_index])
+                    .get_mut(&proposer_index)
+                    .ok_or(BeaconChainError::SyncCommitteeRewardsSyncError)?
                     .safe_add_assign(proposer_reward_per_bit)?;
 
                 total_proposer_rewards.safe_add_assign(proposer_reward_per_bit)?;
@@ -67,18 +84,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(balances
             .iter()
-            .filter_map(|(i, new_balance)| {
-                let reward = if *i != proposer_index {
-                    *new_balance as i64 - state.balances()[*i] as i64
-                } else if sync_committee_indices.contains(i) {
-                    *new_balance as i64
-                        - state.balances()[*i] as i64
-                        - total_proposer_rewards as i64
+            .filter_map(|(&i, &new_balance)| {
+                let initial_balance = *state.balances().get(i)? as i64;
+                let reward = if i != proposer_index {
+                    new_balance as i64 - initial_balance
+                } else if sync_committee_indices.contains(&i) {
+                    new_balance as i64 - initial_balance - total_proposer_rewards as i64
                 } else {
                     return None;
                 };
                 Some(SyncCommitteeReward {
-                    validator_index: *i as u64,
+                    validator_index: i as u64,
                     reward,
                 })
             })

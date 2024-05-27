@@ -19,7 +19,7 @@ use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, Checkpoint, EthSpe
 /// The primary motivation for defining this as a trait to be implemented upstream rather than a
 /// concrete struct is to allow this crate to be free from "impure" on-disk database logic,
 /// hopefully making auditing easier.
-pub trait ForkChoiceStore<T: EthSpec>: Sized {
+pub trait ForkChoiceStore<E: EthSpec>: Sized {
     type Error: Debug;
 
     /// Returns the last value passed to `Self::set_current_slot`.
@@ -34,11 +34,11 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
 
     /// Called whenever `ForkChoice::on_block` has verified a block, but not yet added it to fork
     /// choice. Allows the implementer to performing caching or other housekeeping duties.
-    fn on_verified_block<Payload: AbstractExecPayload<T>>(
+    fn on_verified_block<Payload: AbstractExecPayload<E>>(
         &mut self,
-        block: BeaconBlockRef<T, Payload>,
+        block: BeaconBlockRef<E, Payload>,
         block_root: Hash256,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
     ) -> Result<(), Self::Error>;
 
     /// Returns the `justified_checkpoint`.
