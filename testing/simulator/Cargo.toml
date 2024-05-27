@@ -8,7 +8,6 @@ edition = { workspace = true }
 
 [dependencies]
 node_test_rig = { path = "../node_test_rig" }
-eth1 = { workspace = true }
 execution_layer = { workspace = true }
 types = { workspace = true }
 parking_lot = { workspace = true }
@@ -18,7 +17,5 @@ env_logger = { workspace = true }
 clap = { workspace = true }
 rayon = { workspace = true }
 sensitive_url  = { path = "../../common/sensitive_url" }
-ssz_types = { workspace = true }
-ethereum-types = { workspace = true }
 eth2_network_config = { workspace = true }
 serde_json = { workspace = true }

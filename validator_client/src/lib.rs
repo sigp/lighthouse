@@ -476,6 +476,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
             validator_store: validator_store.clone(),
+            unknown_validator_next_poll_slots: <_>::default(),
             spec: context.eth2_config.spec.clone(),
             context: duties_context,
             enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,

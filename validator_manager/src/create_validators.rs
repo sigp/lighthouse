@@ -613,7 +613,7 @@ pub mod tests {
 
     type E = MainnetEthSpec;
 
-    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "2.3.0";
+    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "2.7.0";
 
     fn junk_execution_address() -> Option<Address> {
         Some(Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap())
@@ -965,12 +965,6 @@ pub mod tests {
             for deposit in &mut deposits {
                 // Ensures we can match test vectors.
                 deposit.deposit_cli_version = TEST_VECTOR_DEPOSIT_CLI_VERSION.to_string();
-
-                // We use "prater" and the vectors use "goerli" now. The two names refer to the same
-                // network so there should be no issue here.
-                if deposit.network_name == "prater" {
-                    deposit.network_name = "goerli".to_string();
-                }
             }
             deposits
         };
