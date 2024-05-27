@@ -29,7 +29,7 @@ use url::Url;
 
 pub use eth2_config::GenesisStateSource;
 
-pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
+pub const DEPLOY_BLOCK_FILE: &str = "deposit_contract_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const BASE_CONFIG_FILE: &str = "config.yaml";
