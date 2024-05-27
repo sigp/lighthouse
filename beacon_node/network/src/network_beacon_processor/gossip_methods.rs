@@ -31,8 +31,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256, IndexedAttestation,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    beacon_block::BlockImportSource, Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256,
+    IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
     SyncSubnetId,
@@ -753,7 +753,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        match self.chain.process_gossip_blob(verified_blob).await {
+        let result = self.chain.process_gossip_blob(verified_blob).await;
+
+        match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 // Note: Reusing block imported metric here
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
@@ -801,6 +803,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "bad_gossip_blob_ssz",
                 );
             }
+        }
+
+        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
+        // imported. A block can become imported both after processing a block or blob. If a
+        // importing a block results in `Imported`, notify. Do not notify of blob errors.
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: true,
+            });
         }
     }
 
@@ -1141,9 +1153,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
+        // TODO(block source)
+
         let result = self
             .chain
-            .process_block_with_early_caching(block_root, verified_block, NotifyExecutionLayer::Yes)
+            .process_block_with_early_caching(
+                block_root,
+                verified_block,
+                BlockImportSource::Gossip,
+                NotifyExecutionLayer::Yes,
+            )
             .await;
 
         match &result {

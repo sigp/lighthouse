@@ -56,6 +56,7 @@ use lighthouse_network::rpc::RPCError;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
+use lru_cache::LRUTimeCache;
 use slog::{crit, debug, error, info, o, trace, warn, Logger};
 use std::ops::Sub;
 use std::sync::Arc;
@@ -71,6 +72,11 @@ use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// gossip if no peers are further than this range ahead of us that we have not already downloaded
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
+
+/// Suppress duplicated `UnknownBlockHashFromAttestation` events for some duration of time. In
+/// practice peers are likely to send the same root during a single slot. 30 seconds is a rather
+/// arbitrary number that covers a full slot, but allows recovery if sync get stuck for a few slots.
+const NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS: u64 = 30;
 
 pub type Id = u32;
 
@@ -199,6 +205,10 @@ pub struct SyncManager<T: BeaconChainTypes> {
     backfill_sync: BackFillSync<T>,
 
     block_lookups: BlockLookups<T>,
+    /// debounce duplicated `UnknownBlockHashFromAttestation` for the same root peer tuple. A peer
+    /// may forward us thousands of a attestations, each one triggering an individual event. Only
+    /// one event is useful, the rest generating log noise and wasted cycles
+    notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -262,6 +272,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 log.new(o!("service" => "backfill_sync")),
             ),
             block_lookups: BlockLookups::new(log.new(o!("service"=> "lookup_sync"))),
+            notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
+                NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
+            )),
             log: log.clone(),
         }
     }
@@ -547,6 +560,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             futures::stream::iter(ee_responsiveness_watch.await).flatten()
         };
 
+        // min(LOOKUP_MAX_DURATION_*) is 15 seconds. The cost of calling prune_lookups more often is
+        // one iteration over the single lookups HashMap. This map is supposed to be very small < 10
+        // unless there is a bug.
+        let mut prune_lookups_interval = tokio::time::interval(Duration::from_secs(15));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -555,6 +573,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 },
                 Some(engine_state) = check_ee_stream.next(), if check_ee => {
                     self.handle_new_execution_engine_state(engine_state);
+                }
+                _ = prune_lookups_interval.tick() => {
+                    self.block_lookups.prune_lookups();
                 }
             }
         }
@@ -615,7 +636,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
-                self.handle_unknown_block_root(peer_id, block_root);
+                if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
+                    self.notified_unknown_roots.insert((peer_id, block_root));
+                    debug!(self.log, "Received unknown block hash message"; "block_root" => ?block_root, "peer" => ?peer_id);
+                    self.handle_unknown_block_root(peer_id, block_root);
+                }
             }
             SyncMessage::Disconnect(peer_id) => {
                 debug!(self.log, "Received disconnected message"; "peer_id" => %peer_id);
@@ -816,7 +841,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        if let Some(resp) = self.network.on_single_block_response(id, block) {
+        if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
             self.block_lookups
                 .on_download_response::<BlockRequestState<T::EthSpec>>(
                     id,
@@ -858,7 +883,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
-        if let Some(resp) = self.network.on_single_blob_response(id, blob) {
+        if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
             self.block_lookups
                 .on_download_response::<BlobRequestState<T::EthSpec>>(
                     id,

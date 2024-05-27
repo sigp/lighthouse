@@ -1,13 +1,12 @@
 use self::parent_chain::{compute_parent_chains, NodeChain};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
-use super::manager::{BlockProcessType, BlockProcessingResult};
-use super::network_context::{RpcProcessingResult, SyncNetworkContext};
+use super::manager::{BlockProcessType, BlockProcessingResult, SLOT_IMPORT_TOLERANCE};
+use super::network_context::{RpcResponseResult, SyncNetworkContext};
 use crate::metrics;
-use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
+use crate::sync::block_lookups::common::ResponseType;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
 use crate::sync::manager::{Id, SingleLookupReqId};
-use crate::sync::network_context::LookupFailure;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_availability_checker::AvailabilityCheckErrorCategory;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
@@ -29,8 +28,22 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
+/// The maximum depth we will search for a parent block. In principle we should have sync'd any
+/// canonical chain to its head once the peer connects. A chain should not appear where it's depth
+/// is further back than the most recent head slot.
+pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
+
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
+
+/// Maximum time we allow a lookup to exist before assuming it is stuck and will never make
+/// progress. Assume the worse case processing time per block component set * times max depth.
+/// 15 * 2 * 32 = 16 minutes.
+const LOOKUP_MAX_DURATION_STUCK_SECS: u64 = 15 * PARENT_DEPTH_TOLERANCE as u64;
+/// The most common case of child-lookup without peers is receiving block components before the
+/// attestation deadline when the node is lagging behind. Once peers start attesting for the child
+/// lookup at most after 4 seconds, the lookup should gain peers.
+const LOOKUP_MAX_DURATION_NO_PEERS_SECS: u64 = 10;
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
@@ -191,7 +204,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         .iter()
                         .find(|(_, l)| l.block_root() == block_to_drop)
                     {
-                        for &peer_id in lookup.all_used_peers() {
+                        for &peer_id in lookup.all_peers() {
                             cx.report_peer(
                                 peer_id,
                                 PeerAction::LowToleranceError,
@@ -298,9 +311,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         let result = lookup.continue_requests(cx);
-        self.on_lookup_result(id, result, "new_current_lookup", cx);
-        self.update_metrics();
-        true
+        if self.on_lookup_result(id, result, "new_current_lookup", cx) {
+            self.update_metrics();
+            true
+        } else {
+            false
+        }
     }
 
     /* Lookup responses */
@@ -310,7 +326,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        response: RpcProcessingResult<R::VerifiedResponseType>,
+        response: RpcResponseResult<R::VerifiedResponseType>,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let result = self.on_download_response_inner::<R>(id, peer_id, response, cx);
@@ -322,15 +338,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        response: RpcProcessingResult<R::VerifiedResponseType>,
+        response: RpcResponseResult<R::VerifiedResponseType>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
-        // Downscore peer even if lookup is not known
-        // Only downscore lookup verify errors. RPC errors are downscored in the network handler.
-        if let Err(LookupFailure::LookupVerifyError(e)) = &response {
-            // Note: the error is displayed in full debug form on the match below
-            cx.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
-        }
+        // Note: no need to downscore peers here, already downscored on network context
 
         let response_type = R::response_type();
         let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {
@@ -389,8 +400,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
         self.single_block_lookups.retain(|_, lookup| {
-            if lookup.remove_peer(peer_id) {
-                debug!(self.log, "Dropping single lookup after peer disconnection"; "block_root" => ?lookup.block_root());
+            lookup.remove_peer(peer_id);
+
+            // Note: this condition should be removed in the future. It's not strictly necessary to drop a
+            // lookup if there are no peers left. Lookup should only be dropped if it can not make progress
+            if lookup.has_no_peers() {
+                debug!(self.log,
+                    "Dropping single lookup after peer disconnection";
+                    "block_root" => ?lookup.block_root()
+                );
                 false
             } else {
                 true
@@ -459,23 +477,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // if both components have been processed.
                 request_state.on_processing_success()?;
 
-                // If this was the result of a block request, we can't determined if the block peer did anything
-                // wrong. If we already had both a block and blobs response processed, we should penalize the
-                // blobs peer because they did not provide all blobs on the initial request.
                 if lookup.both_components_processed() {
-                    if let Some(blob_peer) = lookup
-                        .blob_request_state
-                        .state
-                        .on_post_process_validation_failure()?
-                    {
-                        cx.report_peer(
-                            blob_peer,
-                            PeerAction::MidToleranceError,
-                            "sent_incomplete_blobs",
-                        );
-                    }
+                    // We don't request for other block components until being sure that the block has
+                    // data. If we request blobs / columns to a peer we are sure those must exist.
+                    // Therefore if all components are processed and we still receive `MissingComponents`
+                    // it indicates an internal bug.
+                    return Err(LookupRequestError::MissingComponentsAfterAllProcessed);
+                } else {
+                    // Continue request, potentially request blobs
+                    Action::Retry
                 }
-                Action::Retry
             }
             BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
@@ -554,7 +565,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 lookup.continue_requests(cx)
             }
             Action::ParentUnknown { parent_root } => {
-                let peers = lookup.all_available_peers().cloned().collect::<Vec<_>>();
+                let peers = lookup.all_peers().copied().collect::<Vec<_>>();
                 lookup.set_awaiting_parent(parent_root);
                 debug!(self.log, "Marking lookup as awaiting parent"; "id" => lookup.id, "block_root" => ?block_root, "parent_root" => ?parent_root);
                 self.search_parent_of_child(parent_root, block_root, &peers, cx);
@@ -618,7 +629,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// dropped.
     pub fn drop_lookup_and_children(&mut self, dropped_id: SingleLookupId) {
         if let Some(dropped_lookup) = self.single_block_lookups.remove(&dropped_id) {
-            debug!(self.log, "Dropping child lookup"; "id" => ?dropped_id, "block_root" => ?dropped_lookup.block_root());
+            debug!(self.log, "Dropping lookup";
+                "id" => ?dropped_id,
+                "block_root" => ?dropped_lookup.block_root(),
+                "awaiting_parent" => ?dropped_lookup.awaiting_parent(),
+            );
 
             let child_lookups = self
                 .single_block_lookups
@@ -634,15 +649,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Common handler a lookup request error, drop it and update metrics
+    /// Returns true if the lookup is created or already exists
     fn on_lookup_result(
         &mut self,
         id: SingleLookupId,
         result: Result<LookupResult, LookupRequestError>,
         source: &str,
         cx: &mut SyncNetworkContext<T>,
-    ) {
+    ) -> bool {
         match result {
-            Ok(LookupResult::Pending) => {} // no action
+            Ok(LookupResult::Pending) => true, // no action
             Ok(LookupResult::Completed) => {
                 if let Some(lookup) = self.single_block_lookups.remove(&id) {
                     debug!(self.log, "Dropping completed lookup"; "block" => ?lookup.block_root(), "id" => id);
@@ -653,12 +669,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 } else {
                     debug!(self.log, "Attempting to drop non-existent lookup"; "id" => id);
                 }
+                false
             }
+            // If UnknownLookup do not log the request error. No need to drop child lookups nor
+            // update metrics because the lookup does not exist.
+            Err(LookupRequestError::UnknownLookup) => false,
             Err(error) => {
                 debug!(self.log, "Dropping lookup on request error"; "id" => id, "source" => source, "error" => ?error);
                 metrics::inc_counter_vec(&metrics::SYNC_LOOKUP_DROPPED, &[error.into()]);
                 self.drop_lookup_and_children(id);
                 self.update_metrics();
+                false
             }
         }
     }
@@ -677,5 +698,121 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
             self.single_block_lookups.len() as i64,
         );
+    }
+
+    /// Perform some prune operations on lookups on some interval
+    pub fn prune_lookups(&mut self) {
+        self.drop_lookups_without_peers();
+        self.drop_stuck_lookups();
+    }
+
+    /// Lookups without peers are allowed to exist for some time. See this common race condition:
+    ///
+    /// 1. Receive unknown block parent event
+    /// 2. Create child lookup with zero peers
+    /// 3. Parent is processed, before receiving any attestation for the child block
+    /// 4. Child lookup is attempted to make progress but has no peers
+    /// 5. We receive an attestion for child block and add a peer to the child block lookup
+    ///
+    /// On step 4 we could drop the lookup because we attempt to issue a request with no peers
+    /// available. This has two issues:
+    /// - We may drop the lookup while some other block component is processing, triggering an
+    ///   unknown lookup error. This can potentially cause un-related child lookups to also be
+    ///   dropped when calling `drop_lookup_and_children`.
+    /// - We lose all progress of the lookup, and have to re-download its components that we may
+    ///   already have there cached.
+    ///
+    /// Instead there's no negative for keeping lookups with no peers around for some time. If we
+    /// regularly prune them, it should not be a memory concern (TODO: maybe yes!).
+    fn drop_lookups_without_peers(&mut self) {
+        for (lookup_id, block_root) in self
+            .single_block_lookups
+            .values()
+            .filter(|lookup| {
+                // Do not drop lookup that are awaiting events to prevent inconsinstencies. If a
+                // lookup gets stuck, it will be eventually pruned by `drop_stuck_lookups`
+                lookup.has_no_peers()
+                    && lookup.elapsed_since_created()
+                        > Duration::from_secs(LOOKUP_MAX_DURATION_NO_PEERS_SECS)
+                    && !lookup.is_awaiting_event()
+            })
+            .map(|lookup| (lookup.id, lookup.block_root()))
+            .collect::<Vec<_>>()
+        {
+            debug!(self.log, "Dropping lookup with no peers";
+                "id" => lookup_id,
+                "block_root" => ?block_root
+            );
+            self.drop_lookup_and_children(lookup_id);
+        }
+    }
+
+    /// Safety mechanism to unstuck lookup sync. Lookup sync if purely event driven and depends on
+    /// external components to feed it events to make progress. If there is a bug in network, in
+    /// beacon processor, or here internally: lookups can get stuck forever. A stuck lookup can
+    /// stall a node indefinitely as other lookup will be awaiting on a parent lookup to make
+    /// progress.
+    ///
+    /// If a lookup lasts more than LOOKUP_MAX_DURATION_SECS this function will find its oldest
+    /// ancestor and then drop it and all its children. This action will allow the node to unstuck
+    /// itself. Bugs that cause lookups to get stuck may be triggered consistently. So this strategy
+    /// is useful for two reasons:
+    ///
+    /// - One single clear warn level log per stuck incident
+    /// - If the original bug is sporadic, it reduces the time a node is stuck from forever to 15 min
+    fn drop_stuck_lookups(&mut self) {
+        // While loop to find and drop all disjoint trees of potentially stuck lookups.
+        while let Some(stuck_lookup) = self.single_block_lookups.values().find(|lookup| {
+            lookup.elapsed_since_created() > Duration::from_secs(LOOKUP_MAX_DURATION_STUCK_SECS)
+        }) {
+            let ancestor_stuck_lookup = match self.find_oldest_ancestor_lookup(stuck_lookup) {
+                Ok(lookup) => lookup,
+                Err(e) => {
+                    warn!(self.log, "Error finding oldest ancestor lookup"; "error" => ?e);
+                    // Default to dropping the lookup that exceeds the max duration so at least
+                    // eventually sync should be unstuck
+                    stuck_lookup
+                }
+            };
+
+            if stuck_lookup.id == ancestor_stuck_lookup.id {
+                warn!(self.log, "Notify the devs, a sync lookup is stuck";
+                    "block_root" => ?stuck_lookup.block_root(),
+                    "lookup" => ?stuck_lookup,
+                );
+            } else {
+                warn!(self.log, "Notify the devs, a sync lookup is stuck";
+                    "block_root" => ?stuck_lookup.block_root(),
+                    "lookup" => ?stuck_lookup,
+                    "ancestor_block_root" => ?ancestor_stuck_lookup.block_root(),
+                    "ancestor_lookup" => ?ancestor_stuck_lookup,
+                );
+            }
+
+            metrics::inc_counter(&metrics::SYNC_LOOKUPS_STUCK);
+            self.drop_lookup_and_children(ancestor_stuck_lookup.id);
+        }
+    }
+
+    /// Recursively find the oldest ancestor lookup of another lookup
+    fn find_oldest_ancestor_lookup<'a>(
+        &'a self,
+        stuck_lookup: &'a SingleBlockLookup<T>,
+    ) -> Result<&'a SingleBlockLookup<T>, String> {
+        if let Some(awaiting_parent) = stuck_lookup.awaiting_parent() {
+            if let Some(lookup) = self
+                .single_block_lookups
+                .values()
+                .find(|l| l.block_root() == awaiting_parent)
+            {
+                self.find_oldest_ancestor_lookup(lookup)
+            } else {
+                Err(format!(
+                    "Lookup references unknown parent {awaiting_parent:?}"
+                ))
+            }
+        } else {
+            Ok(stuck_lookup)
+        }
     }
 }

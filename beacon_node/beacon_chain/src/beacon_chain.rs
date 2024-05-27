@@ -337,6 +337,20 @@ struct PartialBeaconBlock<E: EthSpec> {
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
+pub enum BlockProcessStatus<E: EthSpec> {
+    /// Block is not in any pre-import cache. Block may be in the data-base or in the fork-choice.
+    Unknown,
+    /// Block is currently processing but not yet validated.
+    NotValidated(Arc<SignedBeaconBlock<E>>),
+    /// Block is fully valid, but not yet imported. It's cached in the da_checker while awaiting
+    /// missing block components.
+    ExecutionValidated(Arc<SignedBeaconBlock<E>>),
+}
+
+pub struct BeaconChainMetrics {
+    pub reqresp_pre_import_cache_len: usize,
+}
+
 pub type LightClientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -1235,6 +1249,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
     ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, Error> {
         Ok(self.store.get_blinded_block(block_root)?)
+    }
+
+    /// Return the status of a block as it progresses through the various caches of the beacon
+    /// chain. Used by sync to learn the status of a block and prevent repeated downloads /
+    /// processing attempts.
+    pub fn get_block_process_status(&self, block_root: &Hash256) -> BlockProcessStatus<T::EthSpec> {
+        if let Some(block) = self
+            .data_availability_checker
+            .get_execution_valid_block(block_root)
+        {
+            return BlockProcessStatus::ExecutionValidated(block);
+        }
+
+        if let Some(block) = self.reqresp_pre_import_cache.read().get(block_root) {
+            // A block is on the `reqresp_pre_import_cache` but NOT in the
+            // `data_availability_checker` only if it is actively processing. We can expect a future
+            // event with the result of processing
+            return BlockProcessStatus::NotValidated(block.clone());
+        }
+
+        BlockProcessStatus::Unknown
     }
 
     /// Returns the state at the given root, if any.
@@ -2787,6 +2822,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         signature_verified_block.block_root(),
                         signature_verified_block,
                         notify_execution_layer,
+                        BlockImportSource::RangeSync,
                         || Ok(()),
                     )
                     .await
@@ -2969,6 +3005,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         unverified_block: B,
+        block_source: BlockImportSource,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.reqresp_pre_import_cache
@@ -2976,9 +3013,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .insert(block_root, unverified_block.block_cloned());
 
         let r = self
-            .process_block(block_root, unverified_block, notify_execution_layer, || {
-                Ok(())
-            })
+            .process_block(
+                block_root,
+                unverified_block,
+                notify_execution_layer,
+                block_source,
+                || Ok(()),
+            )
             .await;
         self.remove_notified(&block_root, r)
     }
@@ -3001,6 +3042,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
+        block_source: BlockImportSource,
         publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
@@ -3061,6 +3103,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Beacon block imported";
                     "block_root" => ?block_root,
                     "block_slot" => block_slot,
+                    "source" => %block_source,
                 );
 
                 // Increment the Prometheus counter for block processing successes.
@@ -6390,9 +6433,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// account the current slot when accounting for skips.
     pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
         let cached_head = self.canonical_head.cached_head();
-        // Check if the merge has been finalized.
-        if let Some(finalized_hash) = cached_head.forkchoice_update_parameters().finalized_hash {
-            if ExecutionBlockHash::zero() == finalized_hash {
+        if let Some(head_hash) = cached_head.forkchoice_update_parameters().head_hash {
+            if ExecutionBlockHash::zero() == head_hash {
                 return Ok(ChainHealth::PreMerge);
             }
         } else {
@@ -6633,6 +6675,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map_err(Error::LightClientError)
             }
             ForkName::Base => Err(Error::UnsupportedFork),
+        }
+    }
+
+    pub fn metrics(&self) -> BeaconChainMetrics {
+        BeaconChainMetrics {
+            reqresp_pre_import_cache_len: self.reqresp_pre_import_cache.read().len(),
         }
     }
 }
