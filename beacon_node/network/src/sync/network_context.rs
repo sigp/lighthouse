@@ -342,7 +342,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             BlockProcessStatus::Unknown => {}
             // Block is known are currently processing, expect a future event with the result of
             // processing.
-            BlockProcessStatus::NotValidated { .. } => return Ok(LookupRequestResult::Pending("block in processing cache")),
+            BlockProcessStatus::NotValidated { .. } => {
+                return Ok(LookupRequestResult::Pending("block in processing cache"))
+            }
             // Block is fully validated. If it's not yet imported it's waiting for missing block
             // components. Consider this request completed and do nothing.
             BlockProcessStatus::ExecutionValidated { .. } => {
