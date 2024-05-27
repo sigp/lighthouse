@@ -16,7 +16,7 @@ the merge:
    be made to your `lighthouse vc` configuration, and are covered on the
    [Suggested fee recipient](./suggested-fee-recipient.md) page.
 
-Additionally, you _must_ update Lighthouse to v3.0.0 (or later), and must update your execution
+Additionally, you *must* update Lighthouse to v3.0.0 (or later), and must update your execution
 engine to a merge-ready version.
 
 ## When?
@@ -55,7 +55,7 @@ has the authority to control the execution engine.
 > needing to pass a jwt secret file.
 
 The execution engine connection must be **exclusive**, i.e. you must have one execution node
-per beacon node. The reason for this is that the beacon node _controls_ the execution node. Please
+per beacon node. The reason for this is that the beacon node *controls* the execution node. Please
 see the [FAQ](#faq) for further information about why many:1 and 1:many configurations are not
 supported.
 
@@ -173,7 +173,7 @@ client to be able to connect to the beacon node.
 ### Can I use `http://localhost:8545` for the execution endpoint?
 
 Most execution nodes use port `8545` for the Ethereum JSON-RPC API. Unless custom configuration is
-used, an execution node _will not_ provide the necessary engine API on port `8545`. You should
+used, an execution node *will not* provide the necessary engine API on port `8545`. You should
 not attempt to use `http://localhost:8545` as your engine URL and should instead use
 `http://localhost:8551`.
 

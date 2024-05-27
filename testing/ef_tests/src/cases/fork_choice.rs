@@ -24,9 +24,9 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
-    ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof, ProposerPreparationData,
-    SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList,
+    BlockImportSource, Checkpoint, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
+    ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -498,6 +498,7 @@ impl<E: EthSpec> Tester<E> {
                 block_root,
                 block.clone(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());

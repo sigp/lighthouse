@@ -5,7 +5,7 @@ Lighthouse is available on Linux and macOS via the [Homebrew package manager](ht
 Please note that this installation method is maintained by the Homebrew community.
 It is not officially supported by the Lighthouse team.
 
-### Installation
+## Installation
 
 Install the latest version of the [`lighthouse`][formula] formula with:
 
@@ -13,7 +13,7 @@ Install the latest version of the [`lighthouse`][formula] formula with:
 brew install lighthouse
 ```
 
-### Usage
+## Usage
 
 If Homebrew is installed to your `PATH` (default), simply run:
 
@@ -27,7 +27,7 @@ Alternatively, you can find the `lighthouse` binary at:
 "$(brew --prefix)/bin/lighthouse" --help
 ```
 
-### Maintenance
+## Maintenance
 
 The [formula][] is kept up-to-date by the Homebrew community and a bot that lists for new releases.
 
