@@ -2,12 +2,14 @@ use beacon_node::ClientConfig as Config;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+    DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
 };
+use beacon_node::beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_processor::BeaconProcessorConfig;
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
+use lighthouse_version;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -18,12 +20,13 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
-use types::{
-    Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
-    ProgressiveBalancesMode,
-};
+use types::non_zero_usize::new_non_zero_usize;
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
+use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
+
+// These dummy ports should ONLY be used for `enr-xxx-port` flags that do not bind.
 const DUMMY_ENR_TCP_PORT: u16 = 7777;
 const DUMMY_ENR_UDP_PORT: u16 = 8888;
 const DUMMY_ENR_QUIC_PORT: u16 = 9999;
@@ -54,6 +57,12 @@ impl CommandLineTest {
     }
 
     fn run_with_zero_port(&mut self) -> CompletedTest<Config> {
+        // Required since Deneb was enabled on mainnet.
+        self.cmd.arg("--allow-insecure-genesis-sync");
+        self.run_with_zero_port_and_no_genesis_sync()
+    }
+
+    fn run_with_zero_port_and_no_genesis_sync(&mut self) -> CompletedTest<Config> {
         self.cmd.arg("-z");
         self.run()
     }
@@ -88,6 +97,22 @@ fn staking_flag() {
                 config.eth1.endpoint.get_endpoint().to_string(),
                 DEFAULT_ETH1_ENDPOINT
             );
+        });
+}
+
+#[test]
+#[should_panic]
+fn allow_insecure_genesis_sync_default() {
+    CommandLineTest::new().run_with_zero_port_and_no_genesis_sync();
+}
+
+#[test]
+fn allow_insecure_genesis_sync_enabled() {
+    CommandLineTest::new()
+        .flag("allow-insecure-genesis-sync", None)
+        .run_with_zero_port_and_no_genesis_sync()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, true);
         });
 }
 
@@ -244,60 +269,6 @@ fn paranoid_block_proposal_on() {
 }
 
 #[test]
-fn count_unrealized_no_arg() {
-    CommandLineTest::new()
-        .flag("count-unrealized", None)
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_false() {
-    CommandLineTest::new()
-        .flag("count-unrealized", Some("false"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_true() {
-    CommandLineTest::new()
-        .flag("count-unrealized", Some("true"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_no_arg() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", None)
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_false() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", Some("false"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
-fn count_unrealized_full_true() {
-    CommandLineTest::new()
-        .flag("count-unrealized-full", Some("true"))
-        // This flag should be ignored, so there's nothing to test but that the
-        // client starts with the flag present.
-        .run_with_zero_port();
-}
-
-#[test]
 fn reset_payload_statuses_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -327,10 +298,33 @@ fn graffiti_flag() {
         .flag("graffiti", Some("nice-graffiti"))
         .run_with_zero_port()
         .with_config(|config| {
+            assert!(matches!(
+                config.beacon_graffiti,
+                GraffitiOrigin::UserSpecified(_)
+            ));
             assert_eq!(
-                config.graffiti.to_string(),
-                "0x6e6963652d677261666669746900000000000000000000000000000000000000"
+                config.beacon_graffiti.graffiti().to_string(),
+                "0x6e6963652d677261666669746900000000000000000000000000000000000000",
             );
+        });
+}
+
+#[test]
+fn default_graffiti() {
+    use types::GRAFFITI_BYTES_LEN;
+    // test default graffiti when no graffiti flags are provided
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(matches!(
+                config.beacon_graffiti,
+                GraffitiOrigin::Calculated(_)
+            ));
+            let version_bytes = lighthouse_version::VERSION.as_bytes();
+            let trimmed_len = std::cmp::min(version_bytes.len(), GRAFFITI_BYTES_LEN);
+            let mut bytes = [0u8; GRAFFITI_BYTES_LEN];
+            bytes[..trimmed_len].copy_from_slice(&version_bytes[..trimmed_len]);
+            assert_eq!(config.beacon_graffiti.graffiti().0, bytes);
         });
 }
 
@@ -388,23 +382,6 @@ fn eth1_flag() {
         .with_config(|config| assert!(config.sync_eth1_chain));
 }
 #[test]
-fn eth1_endpoints_flag() {
-    CommandLineTest::new()
-        .flag("eth1-endpoints", Some("http://localhost:9545"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().full.to_string(),
-                "http://localhost:9545/"
-            );
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().to_string(),
-                "http://localhost:9545/"
-            );
-            assert!(config.sync_eth1_chain);
-        });
-}
-#[test]
 fn eth1_blocks_per_log_query_flag() {
     CommandLineTest::new()
         .flag("eth1-blocks-per-log-query", Some("500"))
@@ -439,7 +416,7 @@ fn eth1_cache_follow_distance_manual() {
 }
 
 // Tests for Bellatrix flags.
-fn run_merge_execution_endpoints_flag_test(flag: &str) {
+fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
     use sensitive_url::SensitiveUrl;
     let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
     // we don't support redundancy for execution-endpoints
@@ -473,13 +450,16 @@ fn run_merge_execution_endpoints_flag_test(flag: &str) {
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.execution_endpoints.len(), 1);
+            assert_eq!(config.execution_endpoint.is_some(), true);
             assert_eq!(
-                config.execution_endpoints[0],
+                config.execution_endpoint.as_ref().unwrap().clone(),
                 SensitiveUrl::parse(&urls[0]).unwrap()
             );
             // Only the first secret file should be used.
-            assert_eq!(config.secret_files, vec![jwts[0].clone()]);
+            assert_eq!(
+                config.secret_file.as_ref().unwrap().clone(),
+                jwts[0].clone()
+            );
         });
 }
 #[test]
@@ -492,11 +472,11 @@ fn run_execution_jwt_secret_key_is_persisted() {
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoints[0].full.to_string(),
+                config.execution_endpoint.as_ref().unwrap().full.to_string(),
                 "http://localhost:8551/"
             );
             let mut file_jwt_secret_key = String::new();
-            File::open(config.secret_files[0].clone())
+            File::open(config.secret_file.as_ref().unwrap())
                 .expect("could not open jwt_secret_key file")
                 .read_to_string(&mut file_jwt_secret_key)
                 .expect("could not read from file");
@@ -520,58 +500,15 @@ fn execution_timeout_multiplier_flag() {
         });
 }
 #[test]
-fn merge_execution_endpoints_flag() {
-    run_merge_execution_endpoints_flag_test("execution-endpoints")
+fn bellatrix_execution_endpoints_flag() {
+    run_bellatrix_execution_endpoints_flag_test("execution-endpoints")
 }
 #[test]
-fn merge_execution_endpoint_flag() {
-    run_merge_execution_endpoints_flag_test("execution-endpoint")
-}
-fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execution_flag: &str) {
-    use sensitive_url::SensitiveUrl;
-
-    let eth1_endpoint = "http://bad.bad";
-    let execution_endpoint = "http://good.good";
-
-    assert!(eth1_endpoint != execution_endpoint);
-
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    let jwt_path = dir.path().join("jwt-file");
-
-    CommandLineTest::new()
-        .flag(eth1_flag, Some(&eth1_endpoint))
-        .flag(execution_flag, Some(&execution_endpoint))
-        .flag("execution-jwt", jwt_path.as_os_str().to_str())
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.execution_layer.as_ref().unwrap().execution_endpoints,
-                vec![SensitiveUrl::parse(execution_endpoint).unwrap()]
-            );
-
-            // The eth1 endpoint should have been set to the --execution-endpoint value in defiance
-            // of --eth1-endpoints.
-            assert_eq!(
-                config.eth1.endpoint,
-                Eth1Endpoint::Auth {
-                    endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
-                    jwt_path: jwt_path.clone(),
-                    jwt_id: None,
-                    jwt_version: None,
-                }
-            );
-        });
+fn bellatrix_execution_endpoint_flag() {
+    run_bellatrix_execution_endpoints_flag_test("execution-endpoint")
 }
 #[test]
-fn execution_endpoints_overrides_eth1_endpoints() {
-    run_execution_endpoints_overrides_eth1_endpoints_test("eth1-endpoints", "execution-endpoints");
-}
-#[test]
-fn execution_endpoint_overrides_eth1_endpoint() {
-    run_execution_endpoints_overrides_eth1_endpoints_test("eth1-endpoint", "execution-endpoint");
-}
-#[test]
-fn merge_jwt_secrets_flag() {
+fn bellatrix_jwt_secrets_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
     file.write_all(b"0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33")
@@ -586,14 +523,17 @@ fn merge_jwt_secrets_flag() {
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoints[0].full.to_string(),
+                config.execution_endpoint.as_ref().unwrap().full.to_string(),
                 "http://localhost:8551/"
             );
-            assert_eq!(config.secret_files[0], dir.path().join("jwt-file"));
+            assert_eq!(
+                config.secret_file.as_ref().unwrap().clone(),
+                dir.path().join("jwt-file")
+            );
         });
 }
 #[test]
-fn merge_fee_recipient_flag() {
+fn bellatrix_fee_recipient_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("execution-endpoint", Some("http://meow.cats"))
@@ -692,102 +632,6 @@ fn builder_fallback_flags() {
         None,
         |config| {
             assert_eq!(config.chain.builder_fallback_disable_checks, true);
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("builder-profit-threshold"),
-        Some("1000000000000000000000000"),
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .builder_profit_threshold,
-                1000000000000000000000000
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .builder_profit_threshold,
-                0
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("always-prefer-builder-payload"),
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .always_prefer_builder_payload,
-                true
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .always_prefer_builder_payload,
-                false
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("ignore-builder-override-suggestion-threshold"),
-        Some("53.4"),
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .ignore_builder_override_suggestion_threshold,
-                53.4f32
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        None,
-        None,
-        |config| {
-            assert_eq!(
-                config
-                    .execution_layer
-                    .as_ref()
-                    .unwrap()
-                    .ignore_builder_override_suggestion_threshold,
-                10.0f32
-            );
         },
     );
 }
@@ -1044,6 +888,7 @@ fn network_port_flag_over_ipv4() {
     let port = 0;
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1052,6 +897,24 @@ fn network_port_flag_over_ipv4() {
                     listen_addr.quic_port,
                     listen_addr.tcp_port
                 )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+        });
+
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
                 Some((port, port + 1, port))
             );
         });
@@ -1062,6 +925,7 @@ fn network_port_flag_over_ipv6() {
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1070,7 +934,88 @@ fn network_port_flag_over_ipv6() {
                     listen_addr.quic_port,
                     listen_addr.tcp_port
                 )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+        });
+
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
                 Some((port, port + 1, port))
+            );
+        });
+}
+#[test]
+fn network_port_flag_over_ipv4_and_ipv6() {
+    let port = 0;
+    let port6 = 0;
+    CommandLineTest::new()
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("port6", Some(port6.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port, 0, port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be 0 if tcp_port is given as 0.
+                Some((port6, 0, port6))
+            );
+        });
+
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
+    let port6 = unused_tcp6_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("listen-address", Some("127.0.0.1"))
+        .flag("listen-address", Some("::1"))
+        .flag("port", Some(port.to_string().as_str()))
+        .flag("port6", Some(port6.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
+                Some((port, port + 1, port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.disc_port,
+                    listen_addr.quic_port,
+                    listen_addr.tcp_port
+                )),
+                // quic_port should be (tcp_port + 1) if tcp_port is given as non-zero.
+                Some((port6, port6 + 1, port6))
             );
         });
 }
@@ -1081,6 +1026,7 @@ fn network_port_and_discovery_port_flags_over_ipv4() {
     CommandLineTest::new()
         .flag("port", Some(tcp4_port.to_string().as_str()))
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1101,6 +1047,7 @@ fn network_port_and_discovery_port_flags_over_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port", Some(disc6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1126,6 +1073,7 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
         .flag("discovery-port", Some(disc4_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1165,6 +1113,7 @@ fn network_port_discovery_quic_port_flags_over_ipv4_and_ipv6() {
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(disc6_port.to_string().as_str()))
         .flag("quic-port6", Some(quic6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1277,7 +1226,17 @@ fn private_flag() {
     CommandLineTest::new()
         .flag("private", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.network.private));
+        .with_config(|config| {
+            assert!(config.network.private);
+            assert!(matches!(
+                config.beacon_graffiti,
+                GraffitiOrigin::UserSpecified(_)
+            ));
+            assert_eq!(
+                config.beacon_graffiti.graffiti().to_string(),
+                "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            );
+        });
 }
 #[test]
 fn zero_ports_flag() {
@@ -1382,15 +1341,15 @@ fn enr_tcp6_port_flag() {
 fn enr_match_flag_over_ipv4() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
 
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp4_port = DUMMY_ENR_UDP_PORT;
-    let tcp4_port = DUMMY_ENR_TCP_PORT;
+    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
 
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some("127.0.0.2"))
         .flag("discovery-port", Some(udp4_port.to_string().as_str()))
         .flag("port", Some(tcp4_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1413,15 +1372,15 @@ fn enr_match_flag_over_ipv6() {
     const ADDR: &str = "::1";
     let addr = ADDR.parse::<Ipv6Addr>().unwrap();
 
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp6_port = DUMMY_ENR_UDP_PORT;
-    let tcp6_port = DUMMY_ENR_TCP_PORT;
+    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
 
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some(ADDR))
         .flag("discovery-port", Some(udp6_port.to_string().as_str()))
         .flag("port", Some(tcp6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1443,15 +1402,13 @@ fn enr_match_flag_over_ipv6() {
 fn enr_match_flag_over_ipv4_and_ipv6() {
     const IPV6_ADDR: &str = "::1";
 
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp6_port = DUMMY_ENR_UDP_PORT;
-    let tcp6_port = DUMMY_ENR_TCP_PORT;
+    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
     let ipv6_addr = IPV6_ADDR.parse::<Ipv6Addr>().unwrap();
 
     const IPV4_ADDR: &str = "127.0.0.1";
-    // the reason we use the ENR dummy values is because, due to the nature of the `--enr-match` flag, these will eventually become ENR ports (as well as listening ports).
-    let udp4_port = DUMMY_ENR_UDP_PORT;
-    let tcp4_port = DUMMY_ENR_TCP_PORT;
+    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
     let ipv4_addr = IPV4_ADDR.parse::<Ipv4Addr>().unwrap();
 
     CommandLineTest::new()
@@ -1462,6 +1419,7 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some(IPV6_ADDR))
         .flag("discovery-port6", Some(udp6_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1588,6 +1546,7 @@ fn http_port_flag() {
         .flag("http", None)
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
@@ -1645,14 +1604,15 @@ fn http_allow_origin_all_flag() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
+
 #[test]
 fn http_allow_sync_stalled_flag() {
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-allow-sync-stalled", None)
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.allow_sync_stalled, true));
+        .run_with_zero_port();
 }
+
 #[test]
 fn http_enable_beacon_processor() {
     CommandLineTest::new()
@@ -1704,8 +1664,7 @@ fn http_spec_fork_override() {
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-spec-fork", Some("altair"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, Some(ForkName::Altair)));
+        .run_with_zero_port();
 }
 
 // Tests for Metrics flags.
@@ -1745,6 +1704,7 @@ fn metrics_port_flag() {
         .flag("metrics", None)
         .flag("metrics-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
+        .flag("allow-insecure-genesis-sync", None)
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, port1));
 }
@@ -1772,11 +1732,17 @@ fn metrics_allow_origin_all_flag() {
 
 // Tests for Validator Monitor flags.
 #[test]
+fn validator_monitor_default_values() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.validator_monitor == <_>::default()));
+}
+#[test]
 fn validator_monitor_auto_flag() {
     CommandLineTest::new()
         .flag("validator-monitor-auto", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.validator_monitor_auto));
+        .with_config(|config| assert!(config.validator_monitor.auto_register));
 }
 #[test]
 fn validator_monitor_pubkeys_flag() {
@@ -1785,8 +1751,8 @@ fn validator_monitor_pubkeys_flag() {
                                                 0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.validator_monitor_pubkeys[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
-            assert_eq!(config.validator_monitor_pubkeys[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
         });
 }
 #[test]
@@ -1800,8 +1766,8 @@ fn validator_monitor_file_flag() {
         .flag("validator-monitor-file", dir.path().join("pubkeys.txt").as_os_str().to_str())
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.validator_monitor_pubkeys[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
-            assert_eq!(config.validator_monitor_pubkeys[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+            assert_eq!(config.validator_monitor.validators[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
         });
 }
 #[test]
@@ -1810,7 +1776,7 @@ fn validator_monitor_metrics_threshold_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.validator_monitor_individual_tracking_threshold,
+                config.validator_monitor.individual_tracking_threshold,
                 // If this value changes make sure to update the help text for
                 // the CLI command.
                 64
@@ -1826,7 +1792,7 @@ fn validator_monitor_metrics_threshold_custom() {
         )
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.validator_monitor_individual_tracking_threshold, 42)
+            assert_eq!(config.validator_monitor.individual_tracking_threshold, 42)
         });
 }
 
@@ -1877,14 +1843,32 @@ fn block_cache_size_flag() {
     CommandLineTest::new()
         .flag("block-cache-size", Some("4"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.block_cache_size, 4_usize));
+        .with_config(|config| assert_eq!(config.store.block_cache_size, new_non_zero_usize(4)));
+}
+#[test]
+fn state_cache_size_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(128)));
+}
+#[test]
+fn state_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("state-cache-size", Some("64"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(64)));
 }
 #[test]
 fn historic_state_cache_size_flag() {
     CommandLineTest::new()
         .flag("historic-state-cache-size", Some("4"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.historic_state_cache_size, 4_usize));
+        .with_config(|config| {
+            assert_eq!(
+                config.store.historic_state_cache_size,
+                new_non_zero_usize(4)
+            )
+        });
 }
 #[test]
 fn historic_state_cache_size_default() {
@@ -2109,7 +2093,10 @@ fn slasher_attestation_cache_size_flag() {
                 .slasher
                 .as_ref()
                 .expect("Unable to parse Slasher config");
-            assert_eq!(slasher_config.attestation_root_cache_size, 10000);
+            assert_eq!(
+                slasher_config.attestation_root_cache_size,
+                new_non_zero_usize(10000)
+            );
         });
 }
 #[test]
@@ -2247,8 +2234,8 @@ fn enable_proposer_re_orgs_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.chain.re_org_threshold,
-                Some(DEFAULT_RE_ORG_THRESHOLD)
+                config.chain.re_org_head_threshold,
+                Some(DEFAULT_RE_ORG_HEAD_THRESHOLD)
             );
             assert_eq!(
                 config.chain.re_org_max_epochs_since_finalization,
@@ -2266,15 +2253,26 @@ fn disable_proposer_re_orgs() {
     CommandLineTest::new()
         .flag("disable-proposer-reorgs", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_threshold, None));
+        .with_config(|config| {
+            assert_eq!(config.chain.re_org_head_threshold, None);
+            assert_eq!(config.chain.re_org_parent_threshold, None)
+        });
 }
 
 #[test]
-fn proposer_re_org_threshold() {
+fn proposer_re_org_parent_threshold() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-parent-threshold", Some("90"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.re_org_parent_threshold.unwrap().0, 90));
+}
+
+#[test]
+fn proposer_re_org_head_threshold() {
     CommandLineTest::new()
         .flag("proposer-reorg-threshold", Some("90"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_threshold.unwrap().0, 90));
+        .with_config(|config| assert_eq!(config.chain.re_org_head_threshold.unwrap().0, 90));
 }
 
 #[test]
@@ -2454,7 +2452,11 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
 fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enable_light_client_server, false));
+        .with_config(|config| {
+            assert_eq!(config.network.enable_light_client_server, false);
+            assert_eq!(config.chain.enable_light_client_server, false);
+            assert_eq!(config.http_api.enable_light_client_server, false);
+        });
 }
 
 #[test]
@@ -2462,7 +2464,21 @@ fn light_client_server_enabled() {
     CommandLineTest::new()
         .flag("light-client-server", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enable_light_client_server, true));
+        .with_config(|config| {
+            assert_eq!(config.network.enable_light_client_server, true);
+            assert_eq!(config.chain.enable_light_client_server, true);
+        });
+}
+
+#[test]
+fn light_client_http_server_enabled() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.http_api.enable_light_client_server, true);
+        });
 }
 
 #[test]
@@ -2472,7 +2488,7 @@ fn gui_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.http_api.enabled);
-            assert!(config.validator_monitor_auto);
+            assert!(config.validator_monitor.auto_register);
         });
 }
 
@@ -2529,28 +2545,11 @@ fn invalid_gossip_verified_blocks_path() {
 }
 
 #[test]
-fn progressive_balances_default() {
+fn progressive_balances_checked() {
+    // Flag is deprecated but supplying it should not crash until we remove it completely.
     CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Checked
-            )
-        });
-}
-
-#[test]
-fn progressive_balances_fast() {
-    CommandLineTest::new()
-        .flag("progressive-balances", Some("fast"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Fast
-            )
-        });
+        .flag("progressive-balances", Some("checked"))
+        .run_with_zero_port();
 }
 
 #[test]

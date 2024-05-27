@@ -59,11 +59,6 @@ lazy_static::lazy_static! {
         "Total count of attempted block signings",
         &["status"]
     );
-    pub static ref SIGNED_BLOBS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
-        "vc_signed_beacon_blobs_total",
-        "Total count of attempted blob signings",
-        &["status"]
-    );
     pub static ref SIGNED_ATTESTATIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "vc_signed_attestations_total",
         "Total count of attempted Attestation signings",
@@ -208,8 +203,8 @@ lazy_static::lazy_static! {
     );
 }
 
-pub fn gather_prometheus_metrics<T: EthSpec>(
-    ctx: &Context<T>,
+pub fn gather_prometheus_metrics<E: EthSpec>(
+    ctx: &Context<E>,
 ) -> std::result::Result<String, String> {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
@@ -226,7 +221,7 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
 
         if let Some(duties_service) = &shared.duties_service {
             if let Some(slot) = duties_service.slot_clock.now() {
-                let current_epoch = slot.epoch(T::slots_per_epoch());
+                let current_epoch = slot.epoch(E::slots_per_epoch());
                 let next_epoch = current_epoch + 1;
 
                 set_int_gauge(

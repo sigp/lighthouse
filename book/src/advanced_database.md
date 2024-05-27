@@ -23,15 +23,13 @@ states to slow down dramatically. A lower _slots per restore point_ value (SPRP)
 frequent restore points, while a higher SPRP corresponds to less frequent. The table below shows
 some example values.
 
-| Use Case                   | SPRP | Yearly Disk Usage* | Load Historical State |
+| Use Case                   | SPRP | Yearly Disk Usage*| Load Historical State |
 |----------------------------|------|-------------------|-----------------------|
-| Research                   | 32   | 3.4 TB            | 155 ms                |
-| Block explorer/analysis    | 128  | 851 GB            | 620 ms                |
-| Enthusiast (prev. default) | 2048 | 53.6 GB           | 10.2 s                |
-| Hobbyist                   | 4096 | 26.8 GB           | 20.5 s                |
-| Validator only (default)   | 8192 | 12.7 GB           | 41 s                  |
+| Research                   | 32   | more than 10 TB   | 155 ms                |
+| Enthusiast (prev. default) | 2048 | hundreds of GB    | 10.2 s                |
+| Validator only (default)   | 8192 | tens of GB        | 41 s                  |
 
-*Last update: May 2023. 
+*Last update: Dec 2023.
 
 As we can see, it's a high-stakes trade-off! The relationships to disk usage and historical state
 load time are both linear – doubling SPRP halves disk usage and doubles load time. The minimum SPRP
@@ -41,12 +39,12 @@ The default value is 8192 for databases synced from scratch using Lighthouse v2.
 2048 for prior versions. Please see the section on [Defaults](#defaults) below.
 
 The values shown in the table are approximate, calculated using a simple heuristic: each
-`BeaconState` consumes around 18MB of disk space, and each block replayed takes around 5ms.  The
-**Yearly Disk Usage** column shows the approximate size of the freezer DB _alone_ (hot DB not included), calculated proportionally using the total freezer database disk usage. 
+`BeaconState` consumes around 145MB of disk space, and each block replayed takes around 5ms.  The
+**Yearly Disk Usage** column shows the approximate size of the freezer DB _alone_ (hot DB not included), calculated proportionally using the total freezer database disk usage.
 The **Load Historical State** time is the worst-case load time for a state in the last slot
-before a restore point. 
+before a restore point.
 
-As an example, we use an SPRP of 4096 to calculate the total size of the freezer database until May 2023. It has been about 900 days since the genesis, the total disk usage by the freezer database is therefore: 900/365*26.8 GB = 66 GB. 
+To run a full archival node with fast access to beacon states and a SPRP of 32, the disk usage will be more than 10 TB per year, which is impractical for many users. As such, users may consider running the [tree-states](https://github.com/sigp/lighthouse/releases/tag/v5.0.111-exp) release, which only uses less than 200 GB for a full archival node. The caveat is that it is currently experimental and in alpha release (as of Dec 2023), thus not recommended for running mainnet validators. Nevertheless, it is suitable to be used for analysis purposes, and if you encounter any issues in tree-states, we do appreciate any feedback. We plan to have a stable release of tree-states in 1H 2024.  
 
 ### Defaults
 

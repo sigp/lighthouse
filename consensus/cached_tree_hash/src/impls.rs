@@ -26,13 +26,11 @@ pub fn u64_leaf_count(len: usize) -> usize {
 
 pub fn hash256_iter(
     values: &[Hash256],
-) -> impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator + '_ {
+) -> impl ExactSizeIterator<Item = [u8; BYTES_PER_CHUNK]> + '_ {
     values.iter().copied().map(Hash256::to_fixed_bytes)
 }
 
-pub fn u64_iter(
-    values: &[u64],
-) -> impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator + '_ {
+pub fn u64_iter(values: &[u64]) -> impl ExactSizeIterator<Item = [u8; BYTES_PER_CHUNK]> + '_ {
     let type_size = size_of::<u64>();
     let vals_per_chunk = BYTES_PER_CHUNK / type_size;
     values.chunks(vals_per_chunk).map(move |xs| {

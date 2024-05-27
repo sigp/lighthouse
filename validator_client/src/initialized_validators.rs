@@ -34,6 +34,7 @@ use validator_dir::Builder as ValidatorDirBuilder;
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
+use crate::Config;
 
 /// Default timeout for a request to a remote signer for a signature.
 ///
@@ -131,6 +132,8 @@ pub struct InitializedValidator {
     suggested_fee_recipient: Option<Address>,
     gas_limit: Option<u64>,
     builder_proposals: Option<bool>,
+    builder_boost_factor: Option<u64>,
+    prefer_builder_proposals: Option<bool>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
@@ -157,6 +160,14 @@ impl InitializedValidator {
 
     pub fn get_gas_limit(&self) -> Option<u64> {
         self.gas_limit
+    }
+
+    pub fn get_builder_boost_factor(&self) -> Option<u64> {
+        self.builder_boost_factor
+    }
+
+    pub fn get_prefer_builder_proposals(&self) -> Option<bool> {
+        self.prefer_builder_proposals
     }
 
     pub fn get_builder_proposals(&self) -> Option<bool> {
@@ -198,6 +209,7 @@ impl InitializedValidator {
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
         web3_signer_client_map: &mut Option<HashMap<Web3SignerDefinition, Client>>,
+        config: &Config,
     ) -> Result<Self, Error> {
         if !def.enabled {
             return Err(Error::UnableToInitializeDisabledValidator);
@@ -301,6 +313,8 @@ impl InitializedValidator {
                                 web3_signer.client_identity_path.clone(),
                                 web3_signer.client_identity_password.clone(),
                                 request_timeout,
+                                config.web3_signer_keep_alive_timeout,
+                                config.web3_signer_max_idle_connections,
                             )?;
                             client_map.insert(web3_signer, client.clone());
                             client
@@ -315,6 +329,8 @@ impl InitializedValidator {
                         web3_signer.client_identity_path.clone(),
                         web3_signer.client_identity_password.clone(),
                         request_timeout,
+                        config.web3_signer_keep_alive_timeout,
+                        config.web3_signer_max_idle_connections,
                     )?;
                     new_web3_signer_client_map.insert(web3_signer, client.clone());
                     *web3_signer_client_map = Some(new_web3_signer_client_map);
@@ -335,6 +351,8 @@ impl InitializedValidator {
             suggested_fee_recipient: def.suggested_fee_recipient,
             gas_limit: def.gas_limit,
             builder_proposals: def.builder_proposals,
+            builder_boost_factor: def.builder_boost_factor,
+            prefer_builder_proposals: def.prefer_builder_proposals,
             index: None,
         })
     }
@@ -381,8 +399,13 @@ fn build_web3_signer_client(
     client_identity_path: Option<PathBuf>,
     client_identity_password: Option<String>,
     request_timeout: Duration,
+    keep_alive_timeout: Option<Duration>,
+    max_idle_connections: Option<usize>,
 ) -> Result<Client, Error> {
-    let builder = Client::builder().timeout(request_timeout);
+    let builder = Client::builder()
+        .timeout(request_timeout)
+        .pool_idle_timeout(keep_alive_timeout)
+        .pool_max_idle_per_host(max_idle_connections.unwrap_or(usize::MAX));
 
     let builder = if let Some(path) = root_certificate_path {
         let certificate = load_pem_certificate(path)?;
@@ -463,6 +486,7 @@ pub struct InitializedValidators {
     web3_signer_client_map: Option<HashMap<Web3SignerDefinition, Client>>,
     /// For logging via `slog`.
     log: Logger,
+    config: Config,
 }
 
 impl InitializedValidators {
@@ -470,6 +494,7 @@ impl InitializedValidators {
     pub async fn from_definitions(
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
+        config: Config,
         log: Logger,
     ) -> Result<Self, Error> {
         let mut this = Self {
@@ -477,6 +502,7 @@ impl InitializedValidators {
             definitions,
             validators: HashMap::default(),
             web3_signer_client_map: None,
+            config,
             log,
         };
         this.update_validators().await?;
@@ -716,6 +742,74 @@ impl InitializedValidators {
         self.validators.get(public_key).and_then(|v| v.graffiti)
     }
 
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `graffiti` values.
+    ///
+    /// ## Notes
+    ///
+    /// Setting a validator `graffiti` will cause `self.definitions` to be updated and saved to
+    /// disk.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn set_graffiti(
+        &mut self,
+        voting_public_key: &PublicKey,
+        graffiti: GraffitiString,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.graffiti = Some(graffiti.clone());
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.graffiti = Some(graffiti.into());
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+        Ok(())
+    }
+
+    /// Removes the `InitializedValidator` and `ValidatorDefinition` `graffiti` values.
+    ///
+    /// ## Notes
+    ///
+    /// Removing a validator `graffiti` will cause `self.definitions` to be updated and saved to
+    /// disk. The graffiti for the validator will then fall back to the process level default if
+    /// it is set.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn delete_graffiti(&mut self, voting_public_key: &PublicKey) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.graffiti = None;
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.graffiti = None;
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
     /// Returns a `HashMap` of `public_key` -> `graffiti` for all initialized validators.
     pub fn get_all_validators_graffiti(&self) -> HashMap<&PublicKeyBytes, Option<Graffiti>> {
         let mut result = HashMap::new();
@@ -747,6 +841,22 @@ impl InitializedValidators {
             .and_then(|v| v.builder_proposals)
     }
 
+    /// Returns the `builder_boost_factor` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn builder_boost_factor(&self, public_key: &PublicKeyBytes) -> Option<u64> {
+        self.validators
+            .get(public_key)
+            .and_then(|v| v.builder_boost_factor)
+    }
+
+    /// Returns the `prefer_builder_proposals` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn prefer_builder_proposals(&self, public_key: &PublicKeyBytes) -> Option<bool> {
+        self.validators
+            .get(public_key)
+            .and_then(|v| v.prefer_builder_proposals)
+    }
+
     /// Returns an `Option` of a reference to an `InitializedValidator` for a given public key specified in the
     /// `ValidatorDefinitions`.
     pub fn validator(&self, public_key: &PublicKeyBytes) -> Option<&InitializedValidator> {
@@ -767,12 +877,15 @@ impl InitializedValidators {
     /// or `InitializedValidator`. The same logic applies to `builder_proposals` and `graffiti`.
     ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    #[allow(clippy::too_many_arguments)]
     pub async fn set_validator_definition_fields(
         &mut self,
         voting_public_key: &PublicKey,
         enabled: Option<bool>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_boost_factor: Option<u64>,
+        prefer_builder_proposals: Option<bool>,
         graffiti: Option<GraffitiString>,
     ) -> Result<(), Error> {
         if let Some(def) = self
@@ -794,6 +907,12 @@ impl InitializedValidators {
             if let Some(graffiti) = graffiti.clone() {
                 def.graffiti = Some(graffiti);
             }
+            if let Some(builder_boost_factor) = builder_boost_factor {
+                def.builder_boost_factor = Some(builder_boost_factor);
+            }
+            if let Some(prefer_builder_proposals) = prefer_builder_proposals {
+                def.prefer_builder_proposals = Some(prefer_builder_proposals);
+            }
         }
 
         self.update_validators().await?;
@@ -811,6 +930,12 @@ impl InitializedValidators {
             }
             if let Some(graffiti) = graffiti {
                 val.graffiti = Some(graffiti.into());
+            }
+            if let Some(builder_boost_factor) = builder_boost_factor {
+                val.builder_boost_factor = Some(builder_boost_factor);
+            }
+            if let Some(prefer_builder_proposals) = prefer_builder_proposals {
+                val.prefer_builder_proposals = Some(prefer_builder_proposals);
             }
         }
 
@@ -1123,6 +1248,7 @@ impl InitializedValidators {
                             &mut key_cache,
                             &mut key_stores,
                             &mut None,
+                            &self.config,
                         )
                         .await
                         {
@@ -1173,6 +1299,7 @@ impl InitializedValidators {
                             &mut key_cache,
                             &mut key_stores,
                             &mut self.web3_signer_client_map,
+                            &self.config,
                         )
                         .await
                         {

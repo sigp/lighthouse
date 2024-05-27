@@ -1,11 +1,12 @@
 use eth2::types::builder_bid::SignedBuilderBid;
-use eth2::types::FullPayloadContents;
 use eth2::types::{
-    BlindedPayload, EthSpec, ExecutionBlockHash, ForkVersionedResponse, PublicKeyBytes,
-    SignedBlockContents, SignedValidatorRegistrationData, Slot,
+    EthSpec, ExecutionBlockHash, ForkVersionedResponse, PublicKeyBytes,
+    SignedValidatorRegistrationData, Slot,
 };
+use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 pub use eth2::Error;
-use eth2::{ok_or_error, StatusCode};
+use eth2::{ok_or_error, StatusCode, CONSENSUS_VERSION_HEADER};
+use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
@@ -108,13 +109,20 @@ impl BuilderHttpClient {
         &self,
         url: U,
         body: &T,
+        headers: HeaderMap,
         timeout: Option<Duration>,
     ) -> Result<Response, Error> {
         let mut builder = self.client.post(url);
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder.json(body).send().await.map_err(Error::from)?;
+
+        let response = builder
+            .headers(headers)
+            .json(body)
+            .send()
+            .await
+            .map_err(Error::from)?;
         ok_or_error(response).await
     }
 
@@ -140,7 +148,7 @@ impl BuilderHttpClient {
     /// `POST /eth/v1/builder/blinded_blocks`
     pub async fn post_builder_blinded_blocks<E: EthSpec>(
         &self,
-        blinded_block: &SignedBlockContents<E, BlindedPayload<E>>,
+        blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<ForkVersionedResponse<FullPayloadContents<E>>, Error> {
         let mut path = self.server.full.clone();
 
@@ -151,10 +159,16 @@ impl BuilderHttpClient {
             .push("builder")
             .push("blinded_blocks");
 
+        let mut headers = HeaderMap::new();
+        if let Ok(value) = HeaderValue::from_str(&blinded_block.fork_name_unchecked().to_string()) {
+            headers.insert(CONSENSUS_VERSION_HEADER, value);
+        }
+
         Ok(self
             .post_with_raw_response(
                 path,
                 &blinded_block,
+                headers,
                 Some(self.timeouts.post_blinded_blocks),
             )
             .await?

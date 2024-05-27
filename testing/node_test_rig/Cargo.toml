@@ -11,7 +11,7 @@ types = { workspace = true }
 tempfile = { workspace = true }
 eth2 = { workspace = true }
 validator_client = { workspace = true }
-validator_dir = { workspace = true }
+validator_dir = { workspace = true, features = ["insecure_keys"] }
 sensitive_url = { workspace = true }
 execution_layer = { workspace = true }
 tokio = { workspace = true }

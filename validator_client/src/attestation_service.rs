@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced};
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
     http_metrics::metrics,
@@ -430,12 +430,18 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .flatten()
             .unzip();
 
+        if attestations.is_empty() {
+            warn!(log, "No attestations were published");
+            return Ok(None);
+        }
+
         // Post the attestations to the BN.
         match self
             .beacon_nodes
-            .first_success(
+            .request(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
+                ApiTopic::Attestations,
                 |beacon_node| async move {
                     let _timer = metrics::start_timer_vec(
                         &metrics::ATTESTATION_SERVICE_TIMES,

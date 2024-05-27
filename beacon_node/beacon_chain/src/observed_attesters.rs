@@ -24,18 +24,16 @@ use types::{Epoch, EthSpec, Hash256, Slot, Unsigned};
 
 /// The maximum capacity of the `AutoPruningEpochContainer`.
 ///
-/// Fits the next, current and previous epochs. We require the next epoch due to the
-/// `MAXIMUM_GOSSIP_CLOCK_DISPARITY`. We require the previous epoch since the specification
-/// declares:
+/// If the current epoch is N, this fits epoch N + 1, N, N - 1, and N - 2. We require the next epoch due
+/// to the `MAXIMUM_GOSSIP_CLOCK_DISPARITY`. We require the N - 2 epoch since the specification declares:
 ///
 /// ```ignore
-/// aggregate.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE
-///      >= current_slot >= aggregate.data.slot
+/// the epoch of `aggregate.data.slot` is either the current or previous epoch
 /// ```
 ///
-/// This means that during the current epoch we will always accept an attestation
-/// from at least one slot in the previous epoch.
-pub const MAX_CACHED_EPOCHS: u64 = 3;
+/// This means that during the current epoch we will always accept an attestation from
+/// at least one slot in the epoch prior to the previous epoch.
+pub const MAX_CACHED_EPOCHS: u64 = 4;
 
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
 pub type ObservedSyncContributors<E> =

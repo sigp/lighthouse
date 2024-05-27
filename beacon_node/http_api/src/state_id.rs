@@ -178,10 +178,7 @@ impl StateId {
                     .head_and_execution_status()
                     .map_err(warp_utils::reject::beacon_chain_error)?;
                 return Ok((
-                    cached_head
-                        .snapshot
-                        .beacon_state
-                        .clone_with_only_committee_caches(),
+                    cached_head.snapshot.beacon_state.clone(),
                     execution_status.is_optimistic_or_invalid(),
                     false,
                 ));

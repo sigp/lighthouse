@@ -1,53 +1,43 @@
-use crate::blob_verification::{verify_kzg_for_blob, verify_kzg_for_blob_list, GossipVerifiedBlob};
+use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlobList};
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
-pub use crate::data_availability_checker::availability_view::{
-    AvailabilityView, GetCommitment, GetCommitments,
-};
-pub use crate::data_availability_checker::child_components::ChildComponents;
 use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
-use crate::data_availability_checker::processing_cache::ProcessingCache;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
-use parking_lot::RwLock;
-pub use processing_cache::ProcessingComponents;
-use slasher::test_utils::E;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::Duration;
 use task_executor::TaskExecutor;
-use types::beacon_block_body::{KzgCommitmentOpts, KzgCommitments};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
-use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
-mod availability_view;
-mod child_components;
 mod error;
 mod overflow_lru_cache;
-mod processing_cache;
 mod state_lru_cache;
 
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
+use types::non_zero_usize::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
 /// `MAX_BLOBS_PER_BLOCK = 6` blobs each. A `BlobSidecar` is 0.131256 MB. So
 /// the maximum size of a `PendingComponents` is ~ 0.787536 MB. Setting this
 /// to 1024 means the maximum size of the cache is ~ 0.8 GB. But the cache
 /// will target a size of less than 75% of capacity.
-pub const OVERFLOW_LRU_CAPACITY: usize = 1024;
+pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(1024);
 /// Until tree-states is implemented, we can't store very many states in memory :(
-pub const STATE_LRU_CAPACITY: usize = 2;
+pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(2);
+pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
 /// This includes a cache for any blocks or blobs that have been received over gossip or RPC
 /// and are awaiting more components before they can be imported. Additionally the
 /// `DataAvailabilityChecker` is responsible for KZG verification of block components as well as
 /// checking whether a "availability check" is required at all.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
-    processing_cache: RwLock<ProcessingCache<T::EthSpec>>,
     availability_cache: Arc<OverflowLRUCache<T>>,
     slot_clock: T::SlotClock,
     kzg: Option<Arc<Kzg>>,
@@ -60,12 +50,12 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
 /// Indicates if the block is fully `Available` or if we need blobs or blocks
 ///  to "complete" the requirements for an `AvailableBlock`.
 #[derive(PartialEq)]
-pub enum Availability<T: EthSpec> {
+pub enum Availability<E: EthSpec> {
     MissingComponents(Hash256),
-    Available(Box<AvailableExecutedBlock<T>>),
+    Available(Box<AvailableExecutedBlock<E>>),
 }
 
-impl<T: EthSpec> Debug for Availability<T> {
+impl<E: EthSpec> Debug for Availability<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::MissingComponents(block_root) => {
@@ -86,7 +76,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<Self, AvailabilityCheckError> {
         let overflow_cache = OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
         Ok(Self {
-            processing_cache: <_>::default(),
             availability_cache: Arc::new(overflow_cache),
             slot_clock,
             log: log.clone(),
@@ -95,91 +84,29 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
-    /// Checks if the given block root is cached.
-    pub fn has_block(&self, block_root: &Hash256) -> bool {
-        self.processing_cache.read().has_block(block_root)
+    /// Checks if the block root is currenlty in the availability cache awaiting import because
+    /// of missing components.
+    pub fn get_execution_valid_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+        self.availability_cache
+            .get_execution_valid_block(block_root)
     }
 
-    /// Get the processing info for a block.
-    pub fn get_processing_components(
-        &self,
-        block_root: Hash256,
-    ) -> Option<ProcessingComponents<T::EthSpec>> {
-        self.processing_cache.read().get(&block_root).cloned()
-    }
-
-    /// A `None` indicates blobs are not required.
-    ///
-    /// If there's no block, all possible ids will be returned that don't exist in the given blobs.
-    /// If there no blobs, all possible ids will be returned.
-    pub fn get_missing_blob_ids<V: AvailabilityView<T::EthSpec>>(
-        &self,
-        block_root: Hash256,
-        availability_view: &V,
-    ) -> MissingBlobs {
-        let Some(current_slot) = self.slot_clock.now_or_genesis() else {
-            error!(
-                self.log,
-                "Failed to read slot clock when checking for missing blob ids"
-            );
-            return MissingBlobs::BlobsNotRequired;
-        };
-
-        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-
-        if self.da_check_required_for_epoch(current_epoch) {
-            match availability_view.get_cached_block() {
-                Some(cached_block) => {
-                    let block_commitments = cached_block.get_commitments();
-                    let blob_commitments = availability_view.get_cached_blobs();
-
-                    let num_blobs_expected = block_commitments.len();
-                    let mut blob_ids = Vec::with_capacity(num_blobs_expected);
-
-                    // Zip here will always limit the number of iterations to the size of
-                    // `block_commitment` because `blob_commitments` will always be populated
-                    // with `Option` values up to `MAX_BLOBS_PER_BLOCK`.
-                    for (index, (block_commitment, blob_commitment_opt)) in block_commitments
-                        .into_iter()
-                        .zip(blob_commitments.iter())
-                        .enumerate()
-                    {
-                        // Always add a missing blob.
-                        let Some(blob_commitment) = blob_commitment_opt else {
-                            blob_ids.push(BlobIdentifier {
-                                block_root,
-                                index: index as u64,
-                            });
-                            continue;
-                        };
-
-                        let blob_commitment = *blob_commitment.get_commitment();
-
-                        // Check for consistency, but this shouldn't happen, an availability view
-                        // should guaruntee consistency.
-                        if blob_commitment != block_commitment {
-                            error!(self.log,
-                                "Inconsistent availability view";
-                                "block_root" => ?block_root,
-                                "block_commitment" => ?block_commitment,
-                                "blob_commitment" => ?blob_commitment,
-                                "index" => index
-                            );
-                            blob_ids.push(BlobIdentifier {
-                                block_root,
-                                index: index as u64,
-                            });
-                        }
-                    }
-                    MissingBlobs::KnownMissing(blob_ids)
-                }
-                None => {
-                    MissingBlobs::PossibleMissing(BlobIdentifier::get_all_blob_ids::<E>(block_root))
-                }
-            }
-        } else {
-            MissingBlobs::BlobsNotRequired
-        }
+    /// Return the set of imported blob indexes for `block_root`. Returns None if there is no block
+    /// component for `block_root`.
+    pub fn imported_blob_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
+        self.availability_cache
+            .peek_pending_components(block_root, |components| {
+                components.map(|components| {
+                    components
+                        .get_cached_blobs()
+                        .iter()
+                        .filter_map(|blob| blob.as_ref().map(|blob| blob.blob_index()))
+                        .collect::<Vec<_>>()
+                })
+            })
     }
 
     /// Get a blob from the availability cache.
@@ -197,19 +124,23 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut verified_blobs = vec![];
-        if let Some(kzg) = self.kzg.as_ref() {
-            for blob in blobs.iter().flatten() {
-                verified_blobs.push(verify_kzg_for_blob(blob.clone(), kzg)?)
-            }
-        } else {
+        let Some(kzg) = self.kzg.as_ref() else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
+
+        let seen_timestamp = self
+            .slot_clock
+            .now_duration()
+            .ok_or(AvailabilityCheckError::SlotClockError)?;
+
+        let verified_blobs =
+            KzgVerifiedBlobList::new(Vec::from(blobs).into_iter().flatten(), kzg, seen_timestamp)
+                .map_err(AvailabilityCheckError::Kzg)?;
+
         self.availability_cache
             .put_kzg_verified_blobs(block_root, verified_blobs)
     }
 
-    /// This first validates the KZG commitments included in the blob sidecar.
     /// Check if we've cached other blobs for this block. If it completes a set and we also
     /// have a block cached, return the `Availability` variant triggering block import.
     /// Otherwise cache the blob sidecar.
@@ -219,15 +150,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        // Verify the KZG commitments.
-        let kzg_verified_blob = if let Some(kzg) = self.kzg.as_ref() {
-            verify_kzg_for_blob(gossip_blob.to_blob(), kzg)?
-        } else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
-
         self.availability_cache
-            .put_kzg_verified_blobs(kzg_verified_blob.block_root(), vec![kzg_verified_blob])
+            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -240,9 +164,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_pending_executed_block(executed_block)
     }
 
-    /// Checks if a block is available, returns a `MaybeAvailableBlock` that may include the fully
-    /// available block.
-    pub fn check_rpc_block_availability(
+    /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
+    /// include the fully available block.
+    ///
+    /// WARNING: This function assumes all required blobs are already present, it does NOT
+    ///          check if there are any missing blobs.
+    pub fn verify_kzg_for_rpc_block(
         &self,
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
@@ -256,6 +183,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block_root,
                         block,
                         blobs: None,
+                        blobs_available_timestamp: None,
                     }))
                 }
             }
@@ -265,7 +193,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .kzg
                         .as_ref()
                         .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                    verify_kzg_for_blob_list(&blob_list, kzg)?;
+                    verify_kzg_for_blob_list(blob_list.iter(), kzg)
+                        .map_err(AvailabilityCheckError::Kzg)?;
                     Some(blob_list)
                 } else {
                     None
@@ -274,109 +203,80 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     block_root,
                     block,
                     blobs: verified_blobs,
+                    blobs_available_timestamp: None,
                 }))
             }
         }
+    }
+
+    /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
+    /// This is more efficient than calling `verify_kzg_for_rpc_block` in a loop as it does
+    /// all kzg verification at once
+    ///
+    /// WARNING: This function assumes all required blobs are already present, it does NOT
+    ///          check if there are any missing blobs.
+    pub fn verify_kzg_for_rpc_blocks(
+        &self,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
+    ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
+        let mut results = Vec::with_capacity(blocks.len());
+        let all_blobs: BlobSidecarList<T::EthSpec> = blocks
+            .iter()
+            .filter(|block| self.blobs_required_for_block(block.as_block()))
+            // this clone is cheap as it's cloning an Arc
+            .filter_map(|block| block.blobs().cloned())
+            .flatten()
+            .collect::<Vec<_>>()
+            .into();
+
+        // verify kzg for all blobs at once
+        if !all_blobs.is_empty() {
+            let kzg = self
+                .kzg
+                .as_ref()
+                .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
+            verify_kzg_for_blob_list(all_blobs.iter(), kzg)?;
+        }
+
+        for block in blocks {
+            let (block_root, block, blobs) = block.deconstruct();
+            match blobs {
+                None => {
+                    if self.blobs_required_for_block(&block) {
+                        results.push(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+                    } else {
+                        results.push(MaybeAvailableBlock::Available(AvailableBlock {
+                            block_root,
+                            block,
+                            blobs: None,
+                            blobs_available_timestamp: None,
+                        }))
+                    }
+                }
+                Some(blob_list) => {
+                    let verified_blobs = if self.blobs_required_for_block(&block) {
+                        Some(blob_list)
+                    } else {
+                        None
+                    };
+                    // already verified kzg for all blobs
+                    results.push(MaybeAvailableBlock::Available(AvailableBlock {
+                        block_root,
+                        block,
+                        blobs: verified_blobs,
+                        blobs_available_timestamp: None,
+                    }))
+                }
+            }
+        }
+
+        Ok(results)
     }
 
     /// Determines the blob requirements for a block. If the block is pre-deneb, no blobs are required.
     /// If the block's epoch is from prior to the data availability boundary, no blobs are required.
     fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
         block.num_expected_blobs() > 0 && self.da_check_required_for_epoch(block.epoch())
-    }
-
-    /// Adds block commitments to the processing cache. These commitments are unverified but caching
-    /// them here is useful to avoid duplicate downloads of blocks, as well as understanding
-    /// our blob download requirements.
-    pub fn notify_block_commitments(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        commitments: KzgCommitments<T::EthSpec>,
-    ) {
-        self.processing_cache
-            .write()
-            .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
-            .merge_block(commitments);
-    }
-
-    /// Add a single blob commitment to the processing cache. This commitment is unverified but caching
-    /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
-    /// our block and blob download requirements.
-    pub fn notify_gossip_blob(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        blob: &GossipVerifiedBlob<T>,
-    ) {
-        let index = blob.as_blob().index;
-        let commitment = blob.as_blob().kzg_commitment;
-        self.processing_cache
-            .write()
-            .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
-            .merge_single_blob(index as usize, commitment);
-    }
-
-    /// Adds blob commitments to the processing cache. These commitments are unverified but caching
-    /// them here is useful to avoid duplicate downloads of blobs, as well as understanding
-    /// our block and blob download requirements.
-    pub fn notify_rpc_blobs(
-        &self,
-        slot: Slot,
-        block_root: Hash256,
-        blobs: &FixedBlobSidecarList<T::EthSpec>,
-    ) {
-        let mut commitments = KzgCommitmentOpts::<T::EthSpec>::default();
-        for blob in blobs.iter().flatten() {
-            if let Some(commitment) = commitments.get_mut(blob.index as usize) {
-                *commitment = Some(blob.kzg_commitment);
-            }
-        }
-        self.processing_cache
-            .write()
-            .entry(block_root)
-            .or_insert_with(|| ProcessingComponents::new(slot))
-            .merge_blobs(commitments);
-    }
-
-    /// Clears the block and all blobs from the processing cache for a give root if they exist.
-    pub fn remove_notified(&self, block_root: &Hash256) {
-        self.processing_cache.write().remove(block_root)
-    }
-
-    /// Gather all block roots for which we are not currently processing all components for the
-    /// given slot.
-    pub fn incomplete_processing_components(&self, slot: Slot) -> Vec<Hash256> {
-        self.processing_cache
-            .read()
-            .incomplete_processing_components(slot)
-    }
-
-    /// Determines whether we are at least the `single_lookup_delay` duration into the given slot.
-    /// If we are not currently in the Deneb fork, this delay is not considered.
-    ///
-    /// The `single_lookup_delay` is the duration we wait for a blocks or blobs to arrive over
-    /// gossip before making single block or blob requests. This is to minimize the number of
-    /// single lookup requests we end up making.
-    pub fn should_delay_lookup(&self, slot: Slot) -> bool {
-        if !self.is_deneb() {
-            return false;
-        }
-
-        let current_or_future_slot = self
-            .slot_clock
-            .now()
-            .map_or(false, |current_slot| current_slot <= slot);
-
-        let delay_threshold_unmet = self
-            .slot_clock
-            .millis_from_current_slot_start()
-            .map_or(false, |millis_into_slot| {
-                millis_into_slot < self.slot_clock.single_lookup_delay()
-            });
-        current_or_future_slot && delay_threshold_unmet
     }
 
     /// The epoch at which we require a data availability check in block processing.
@@ -389,7 +289,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 .map(|current_epoch| {
                     std::cmp::max(
                         fork_epoch,
-                        current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+                        current_epoch
+                            .saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
                     )
                 })
         })
@@ -399,6 +300,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn da_check_required_for_epoch(&self, block_epoch: Epoch) -> bool {
         self.data_availability_boundary()
             .map_or(false, |da_epoch| block_epoch >= da_epoch)
+    }
+
+    pub fn da_check_required_for_current_epoch(&self) -> bool {
+        let Some(current_slot) = self.slot_clock.now_or_genesis() else {
+            error!(
+                self.log,
+                "Failed to read slot clock when checking for missing blob ids"
+            );
+            return false;
+        };
+
+        self.da_check_required_for_epoch(current_slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
     /// Returns `true` if the current epoch is greater than or equal to the `Deneb` epoch.
@@ -415,6 +328,22 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn persist_all(&self) -> Result<(), AvailabilityCheckError> {
         self.availability_cache.write_all_to_disk()
     }
+
+    /// Collects metrics from the data availability checker.
+    pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
+        DataAvailabilityCheckerMetrics {
+            num_store_entries: self.availability_cache.num_store_entries(),
+            state_cache_size: self.availability_cache.state_cache_size(),
+            block_cache_size: self.availability_cache.block_cache_size(),
+        }
+    }
+}
+
+/// Helper struct to group data availability checker metrics.
+pub struct DataAvailabilityCheckerMetrics {
+    pub num_store_entries: usize,
+    pub state_cache_size: usize,
+    pub block_cache_size: usize,
 }
 
 pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
@@ -451,23 +380,21 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 let additional_delay = (epoch_duration * 3) / 4;
                 tokio::time::sleep(duration + additional_delay).await;
 
-                let deneb_fork_epoch = match chain.spec.deneb_fork_epoch {
-                    Some(epoch) => epoch,
-                    None => break, // shutdown service if deneb fork epoch not set
+                let Some(deneb_fork_epoch) = chain.spec.deneb_fork_epoch else {
+                    // shutdown service if deneb fork epoch not set
+                    break;
                 };
 
                 debug!(
                     chain.log,
                     "Availability cache maintenance service firing";
                 );
-
-                let current_epoch = match chain
+                let Some(current_epoch) = chain
                     .slot_clock
                     .now()
                     .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
-                {
-                    Some(epoch) => epoch,
-                    None => continue, // we'll have to try again next time I suppose..
+                else {
+                    continue;
                 };
 
                 if current_epoch < deneb_fork_epoch {
@@ -484,7 +411,8 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 let cutoff_epoch = std::cmp::max(
                     finalized_epoch + 1,
                     std::cmp::max(
-                        current_epoch.saturating_sub(MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
+                        current_epoch
+                            .saturating_sub(chain.spec.min_epochs_for_blob_sidecars_requests),
                         deneb_fork_epoch,
                     ),
                 );
@@ -508,9 +436,24 @@ pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
+    /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
+    blobs_available_timestamp: Option<Duration>,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
+    pub fn __new_for_testing(
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: Option<BlobSidecarList<E>>,
+    ) -> Self {
+        Self {
+            block_root,
+            block,
+            blobs,
+            blobs_available_timestamp: None,
+        }
+    }
+
     pub fn block(&self) -> &SignedBeaconBlock<E> {
         &self.block
     }
@@ -520,6 +463,10 @@ impl<E: EthSpec> AvailableBlock<E> {
 
     pub fn blobs(&self) -> Option<&BlobSidecarList<E>> {
         self.blobs.as_ref()
+    }
+
+    pub fn blobs_available_timestamp(&self) -> Option<Duration> {
+        self.blobs_available_timestamp
     }
 
     pub fn deconstruct(
@@ -533,6 +480,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             block_root,
             block,
             blobs,
+            blobs_available_timestamp: _,
         } = self;
         (block_root, block, blobs)
     }
@@ -551,60 +499,11 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
     },
 }
 
-#[derive(Debug, Clone)]
-pub enum MissingBlobs {
-    /// We know for certain these blobs are missing.
-    KnownMissing(Vec<BlobIdentifier>),
-    /// We think these blobs might be missing.
-    PossibleMissing(Vec<BlobIdentifier>),
-    /// Blobs are not required.
-    BlobsNotRequired,
-}
-
-impl MissingBlobs {
-    pub fn new_without_block(block_root: Hash256, is_deneb: bool) -> Self {
-        if is_deneb {
-            MissingBlobs::PossibleMissing(BlobIdentifier::get_all_blob_ids::<E>(block_root))
-        } else {
-            MissingBlobs::BlobsNotRequired
-        }
-    }
-    pub fn is_empty(&self) -> bool {
+impl<E: EthSpec> MaybeAvailableBlock<E> {
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match self {
-            MissingBlobs::KnownMissing(v) => v.is_empty(),
-            MissingBlobs::PossibleMissing(v) => v.is_empty(),
-            MissingBlobs::BlobsNotRequired => true,
-        }
-    }
-    pub fn contains(&self, blob_id: &BlobIdentifier) -> bool {
-        match self {
-            MissingBlobs::KnownMissing(v) => v.contains(blob_id),
-            MissingBlobs::PossibleMissing(v) => v.contains(blob_id),
-            MissingBlobs::BlobsNotRequired => false,
-        }
-    }
-    pub fn remove(&mut self, blob_id: &BlobIdentifier) {
-        match self {
-            MissingBlobs::KnownMissing(v) => v.retain(|id| id != blob_id),
-            MissingBlobs::PossibleMissing(v) => v.retain(|id| id != blob_id),
-            MissingBlobs::BlobsNotRequired => {}
-        }
-    }
-    pub fn indices(&self) -> Vec<u64> {
-        match self {
-            MissingBlobs::KnownMissing(v) => v.iter().map(|id| id.index).collect(),
-            MissingBlobs::PossibleMissing(v) => v.iter().map(|id| id.index).collect(),
-            MissingBlobs::BlobsNotRequired => vec![],
-        }
-    }
-}
-
-impl Into<Vec<BlobIdentifier>> for MissingBlobs {
-    fn into(self) -> Vec<BlobIdentifier> {
-        match self {
-            MissingBlobs::KnownMissing(v) => v,
-            MissingBlobs::PossibleMissing(v) => v,
-            MissingBlobs::BlobsNotRequired => vec![],
+            Self::Available(block) => block.block_cloned(),
+            Self::AvailabilityPending { block, .. } => block.clone(),
         }
     }
 }

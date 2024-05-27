@@ -89,7 +89,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .disk_store(
                 &db_path,
                 &freezer_db_path,
-                blobs_db_path,
+                &blobs_db_path,
                 store_config,
                 log.clone(),
             )?;
@@ -99,7 +99,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 DatabaseBackendOverride::Success(old_backend) => {
                     info!(
                         log,
-                        "Slasher backend overriden";
+                        "Slasher backend overridden";
                         "reason" => "database exists",
                         "configured_backend" => %old_backend,
                         "override_backend" => %slasher_config.backend,

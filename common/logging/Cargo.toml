@@ -8,15 +8,20 @@ edition = { workspace = true }
 test_logger = [] # Print log output to stderr when running tests instead of dropping it
 
 [dependencies]
-slog = { workspace = true }
-slog-term = { workspace = true }
-tokio = { workspace = true }
-lighthouse_metrics = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 lazy_static = { workspace = true }
-sloggers = { workspace = true }
-slog-async = { workspace = true }
-take_mut = "0.2.2"
+lighthouse_metrics = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+slog = { workspace = true }
+slog-async = { workspace = true }
+slog-term = { workspace = true }
+sloggers = { workspace = true }
+take_mut = "0.2.2"
+tokio = { workspace = true, features = [ "time" ] }
+tracing = "0.1"
+tracing-core = { workspace = true }
+tracing-log = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }

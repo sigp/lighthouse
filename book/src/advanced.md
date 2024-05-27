@@ -15,9 +15,10 @@ tips about how things work under the hood.
 * [Key Management](./key-management.md): explore how to generate wallet with Lighthouse.
 * [Key Recovery](./key-recovery.md): explore how to recover wallet and validator with Lighthouse.
 * [Advanced Networking](./advanced_networking.md): open your ports to have a diverse and healthy set of peers.
-* [Running a Slasher](./slasher.md): contribute to the health of the network by running a slasher. 
+* [Running a Slasher](./slasher.md): contribute to the health of the network by running a slasher.
 * [Redundancy](./redundancy.md): want to have more than one beacon node as backup? This is for you.
 * [Release Candidates](./advanced-release-candidates.md): latest release of Lighthouse to get feedback from users.
 * [Maximal Extractable Value](./builders.md): use external builders for a potential higher rewards during block proposals
 * [Merge Migration](./merge-migration.md): look at what you need to do during a significant network upgrade: The Merge
 * [Late Block Re-orgs](./late-block-re-orgs.md): read information about Lighthouse late block re-orgs.
+* [Blobs](./advanced-blobs.md): information about blobs in Deneb upgrade

@@ -8,9 +8,8 @@ You should be finished with one [Installation](./installation.md) method of your
 1. Set up a [beacon node](#step-3-set-up-a-beacon-node-using-lighthouse);
 1. [Check logs for sync status](#step-4-check-logs-for-sync-status);
 
-
-
 ## Step 1: Create a JWT secret file
+
 A JWT secret file is used to secure the communication between the execution client and the consensus client. In this step, we will create a JWT secret file which will be used in later steps.
 
 ```bash
@@ -21,17 +20,14 @@ openssl rand -hex 32 | tr -d "\n" | sudo tee /secrets/jwt.hex
 ## Step 2: Set up an execution node
 
 The Lighthouse beacon node *must* connect to an execution engine in order to validate the transactions present in blocks. The execution engine connection must be *exclusive*, i.e. you must have one execution node
-per beacon node. The reason for this is that the beacon node _controls_ the execution node. Select an execution client from the list below and run it:
-
+per beacon node. The reason for this is that the beacon node *controls* the execution node. Select an execution client from the list below and run it:
 
 - [Nethermind](https://docs.nethermind.io/nethermind/first-steps-with-nethermind/running-nethermind-post-merge)
 - [Besu](https://besu.hyperledger.org/en/stable/public-networks/get-started/connect/mainnet/)
 - [Erigon](https://github.com/ledgerwatch/erigon#beacon-chain-consensus-layer)
 - [Geth](https://geth.ethereum.org/docs/getting-started/consensus-clients)
 
-
 > Note: Each execution engine has its own flags for configuring the engine API and JWT secret to connect to a beacon node. Please consult the relevant page of your execution engine as above for the required flags.
-
 
 Once the execution client is up, just let it continue running. The execution client will start syncing when it connects to a beacon node. Depending on the execution client and computer hardware specifications, syncing can take from a few hours to a few days. You can safely proceed to Step 3 to set up a beacon node while the execution client is still syncing.
 
@@ -50,13 +46,14 @@ lighthouse bn \
   --http
 ```
 
-> Note: If you download the binary file, you need to navigate to the directory of the binary file to run the above command. 
+> Note: If you download the binary file, you need to navigate to the directory of the binary file to run the above command.
 
-Notable flags: 
+Notable flags:
+
 - `--network` flag, which selects a network:
   - `lighthouse` (no flag): Mainnet.
   - `lighthouse --network mainnet`: Mainnet.
-  - `lighthouse --network goerli`: Goerli (testnet).
+  - `lighthouse --network holesky`: Holesky (testnet).
   - `lighthouse --network sepolia`: Sepolia (testnet).
   - `lighthouse --network chiado`: Chiado (testnet).
   - `lighthouse --network gnosis`: Gnosis chain.
@@ -71,14 +68,11 @@ provide a `--network` flag instead of relying on the default.
 - `--checkpoint-sync-url`: Lighthouse supports fast sync from a recent finalized checkpoint. Checkpoint sync is *optional*; however, we **highly recommend** it since it is substantially faster than syncing from genesis while still providing the same functionality. The checkpoint sync is done using [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) provided by the Ethereum community. For example, in the above command, we use the URL for Sigma Prime's checkpoint sync server for mainnet `https://mainnet.checkpoint.sigp.io`.
 - `--http`: to expose an HTTP server of the beacon chain. The default listening address is `http://localhost:5052`. The HTTP API is required for the beacon node to accept connections from the *validator client*, which manages keys.
 
-
-
 If you intend to run the beacon node without running the validator client (e.g., for non-staking purposes such as supporting the network), you can modify the above command so that the beacon node is configured for non-staking purposes:
-
 
 ### Non-staking
 
-``` 
+```
 lighthouse bn \
   --network mainnet \
   --execution-endpoint http://localhost:8551 \
@@ -89,16 +83,14 @@ lighthouse bn \
 
 Since we are not staking, we can use the `--disable-deposit-contract-sync` flag to disable syncing of deposit logs from the execution node.
 
-
-
 Once Lighthouse runs, we can monitor the logs to see if it is syncing correctly.
 
-
-
 ## Step 4: Check logs for sync status
-Several logs help you identify if Lighthouse is running correctly. 
+
+Several logs help you identify if Lighthouse is running correctly.
 
 ### Logs - Checkpoint sync
+
 If you run Lighthouse with the flag `--checkpoint-sync-url`, Lighthouse will print a message to indicate that checkpoint sync is being used:
 
 ```
@@ -147,11 +139,11 @@ as `verified` indicating that they have been processed successfully by the execu
 INFO Synced, slot: 3690668, block: 0x1244…cb92, epoch: 115333, finalized_epoch: 115331, finalized_root: 0x0764…2a3d, exec_hash: 0x929c…1ff6 (verified), peers: 78
 ```
 
-Once you see the above message - congratulations! This means that your node is synced and you have contributed to the decentralization and security of the Ethereum network. 
+Once you see the above message - congratulations! This means that your node is synced and you have contributed to the decentralization and security of the Ethereum network.
 
 ## Further readings
 
-Several other resources are the next logical step to explore after running your beacon node: 
+Several other resources are the next logical step to explore after running your beacon node:
 
 - If you intend to run a validator, proceed to [become a validator](./mainnet-validator.md);
 - Explore how to [manage your keys](./key-management.md);

@@ -1,10 +1,9 @@
 use super::*;
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use state_processing::{
     per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError,
-    BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
 };
-use types::{BeaconBlock, BeaconState, Epoch, EthSpec, SignedBeaconBlock};
+use types::{BeaconBlock, Epoch};
 
 // Default validator index to exit.
 pub const VALIDATOR_INDEX: u64 = 0;
@@ -57,7 +56,7 @@ impl ExitTest {
                 block_modifier(&harness, block);
             })
             .await;
-        (signed_block.0, state)
+        ((*signed_block.0).clone(), state)
     }
 
     fn process(
@@ -69,7 +68,6 @@ impl ExitTest {
             state,
             block,
             BlockSignatureStrategy::VerifyIndividual,
-            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut ctxt,
             &E::default_spec(),
@@ -127,7 +125,7 @@ vectors_and_tests!(
     ExitTest {
         block_modifier: Box::new(|_, block| {
             // Duplicate the exit
-            let exit = block.body().voluntary_exits().get(0).unwrap().clone();
+            let exit = block.body().voluntary_exits().first().unwrap().clone();
             block.body_mut().voluntary_exits_mut().push(exit).unwrap();
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
@@ -333,7 +331,7 @@ mod custom_tests {
     fn assert_exited(state: &BeaconState<E>, validator_index: usize) {
         let spec = E::default_spec();
 
-        let validator = &state.validators()[validator_index];
+        let validator = &state.validators().get(validator_index).unwrap();
         assert_eq!(
             validator.exit_epoch,
             // This is correct until we exceed the churn limit. If that happens, we

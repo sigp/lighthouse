@@ -14,10 +14,8 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::env;
-use std::net::SocketAddr;
 use std::time::Duration;
 use testcontainers::{clients::Cli, core::WaitFor, Image, RunnableImage};
-use tokio::sync::oneshot;
 use tokio::{runtime, task::JoinHandle};
 use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
 use types::{Hash256, MainnetEthSpec, Slot};
@@ -155,7 +153,7 @@ impl TesterBuilder {
          * Create a watch configuration
          */
         let database_port = unused_tcp4_port().expect("Unable to find unused port.");
-        let server_port = unused_tcp4_port().expect("Unable to find unused port.");
+        let server_port = 0;
         let config = Config {
             database: DatabaseConfig {
                 dbname: random_dbname(),
@@ -188,17 +186,8 @@ impl TesterBuilder {
         /*
          * Spawn a Watch HTTP API.
          */
-        let (_watch_shutdown_tx, watch_shutdown_rx) = oneshot::channel();
-        let watch_server = start_server(&self.config, SLOTS_PER_EPOCH, pool, async {
-            let _ = watch_shutdown_rx.await;
-        })
-        .unwrap();
+        let (addr, watch_server) = start_server(&self.config, SLOTS_PER_EPOCH, pool).unwrap();
         tokio::spawn(watch_server);
-
-        let addr = SocketAddr::new(
-            self.config.server.listen_addr,
-            self.config.server.listen_port,
-        );
 
         /*
          * Create a HTTP client to talk to the watch HTTP API.
@@ -228,7 +217,6 @@ impl TesterBuilder {
             config: self.config,
             updater,
             _bn_network_rx: self._bn_network_rx,
-            _watch_shutdown_tx,
         }
     }
     async fn initialize_database(&self) -> PgPool {
@@ -245,7 +233,6 @@ struct Tester {
     pub config: Config,
     pub updater: UpdateHandler<E>,
     _bn_network_rx: NetworkReceivers<E>,
-    _watch_shutdown_tx: oneshot::Sender<()>,
 }
 
 impl Tester {

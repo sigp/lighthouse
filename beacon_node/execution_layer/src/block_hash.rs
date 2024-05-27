@@ -1,92 +1,61 @@
 use crate::{
     json_structures::JsonWithdrawal,
     keccak::{keccak256, KeccakHasher},
-    metrics, Error, ExecutionLayer,
 };
 use ethers_core::utils::rlp::RlpStream;
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
-    map_execution_block_header_fields_base, Address, BeaconBlockRef, EthSpec, ExecutionBlockHash,
+    map_execution_block_header_fields_base, Address, EthSpec, ExecutionBlockHash,
     ExecutionBlockHeader, ExecutionPayloadRef, Hash256, Hash64, Uint256,
 };
 
-impl<T: EthSpec> ExecutionLayer<T> {
-    /// Calculate the block hash of an execution block.
-    ///
-    /// Return `(block_hash, transactions_root)`, where `transactions_root` is the root of the RLP
-    /// transactions.
-    pub fn calculate_execution_block_hash(
-        payload: ExecutionPayloadRef<T>,
-        parent_beacon_block_root: Hash256,
-    ) -> (ExecutionBlockHash, Hash256) {
-        // Calculate the transactions root.
-        // We're currently using a deprecated Parity library for this. We should move to a
-        // better alternative when one appears, possibly following Reth.
-        let rlp_transactions_root = ordered_trie_root::<KeccakHasher, _>(
-            payload.transactions().iter().map(|txn_bytes| &**txn_bytes),
-        );
+/// Calculate the block hash of an execution block.
+///
+/// Return `(block_hash, transactions_root)`, where `transactions_root` is the root of the RLP
+/// transactions.
+pub fn calculate_execution_block_hash<E: EthSpec>(
+    payload: ExecutionPayloadRef<E>,
+    parent_beacon_block_root: Option<Hash256>,
+) -> (ExecutionBlockHash, Hash256) {
+    // Calculate the transactions root.
+    // We're currently using a deprecated Parity library for this. We should move to a
+    // better alternative when one appears, possibly following Reth.
+    let rlp_transactions_root = ordered_trie_root::<KeccakHasher, _>(
+        payload.transactions().iter().map(|txn_bytes| &**txn_bytes),
+    );
 
-        // Calculate withdrawals root (post-Capella).
-        let rlp_withdrawals_root = if let Ok(withdrawals) = payload.withdrawals() {
-            Some(ordered_trie_root::<KeccakHasher, _>(
-                withdrawals.iter().map(|withdrawal| {
-                    rlp_encode_withdrawal(&JsonWithdrawal::from(withdrawal.clone()))
-                }),
-            ))
-        } else {
-            None
-        };
+    // Calculate withdrawals root (post-Capella).
+    let rlp_withdrawals_root = if let Ok(withdrawals) = payload.withdrawals() {
+        Some(ordered_trie_root::<KeccakHasher, _>(
+            withdrawals
+                .iter()
+                .map(|withdrawal| rlp_encode_withdrawal(&JsonWithdrawal::from(withdrawal.clone()))),
+        ))
+    } else {
+        None
+    };
 
-        let rlp_blob_gas_used = payload.blob_gas_used().ok();
-        let rlp_excess_blob_gas = payload.excess_blob_gas().ok();
+    let rlp_blob_gas_used = payload.blob_gas_used().ok();
+    let rlp_excess_blob_gas = payload.excess_blob_gas().ok();
 
-        // Calculate parent beacon block root (post-Deneb).
-        let rlp_parent_beacon_block_root = rlp_excess_blob_gas
-            .as_ref()
-            .map(|_| parent_beacon_block_root);
+    // Construct the block header.
+    let exec_block_header = ExecutionBlockHeader::from_payload(
+        payload,
+        KECCAK_EMPTY_LIST_RLP.as_fixed_bytes().into(),
+        rlp_transactions_root,
+        rlp_withdrawals_root,
+        rlp_blob_gas_used,
+        rlp_excess_blob_gas,
+        parent_beacon_block_root,
+    );
 
-        // Construct the block header.
-        let exec_block_header = ExecutionBlockHeader::from_payload(
-            payload,
-            KECCAK_EMPTY_LIST_RLP.as_fixed_bytes().into(),
-            rlp_transactions_root,
-            rlp_withdrawals_root,
-            rlp_blob_gas_used,
-            rlp_excess_blob_gas,
-            rlp_parent_beacon_block_root,
-        );
-
-        // Hash the RLP encoding of the block header.
-        let rlp_block_header = rlp_encode_block_header(&exec_block_header);
-        (
-            ExecutionBlockHash::from_root(keccak256(&rlp_block_header)),
-            rlp_transactions_root,
-        )
-    }
-
-    /// Verify `payload.block_hash` locally within Lighthouse.
-    ///
-    /// No remote calls to the execution client will be made, so this is quite a cheap check.
-    pub fn verify_payload_block_hash(&self, block: BeaconBlockRef<T>) -> Result<(), Error> {
-        let payload = block.execution_payload()?.execution_payload_ref();
-        let parent_beacon_block_root = block.parent_root();
-
-        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_VERIFY_BLOCK_HASH);
-
-        let (header_hash, rlp_transactions_root) =
-            Self::calculate_execution_block_hash(payload, parent_beacon_block_root);
-
-        if header_hash != payload.block_hash() {
-            return Err(Error::BlockHashMismatch {
-                computed: header_hash,
-                payload: payload.block_hash(),
-                transactions_root: rlp_transactions_root,
-            });
-        }
-
-        Ok(())
-    }
+    // Hash the RLP encoding of the block header.
+    let rlp_block_header = rlp_encode_block_header(&exec_block_header);
+    (
+        ExecutionBlockHash::from_root(keccak256(&rlp_block_header)),
+        rlp_transactions_root,
+    )
 }
 
 /// RLP encode a withdrawal.
@@ -177,7 +146,7 @@ mod test {
     }
 
     #[test]
-    fn test_rlp_encode_merge_block() {
+    fn test_rlp_encode_bellatrix_block() {
         let header = ExecutionBlockHeader {
             parent_hash: Hash256::from_str("927ca537f06c783a3a2635b8805eef1c8c2124f7444ad4a3389898dd832f2dbe").unwrap(),
             ommers_hash: Hash256::from_str("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347").unwrap(),
@@ -240,6 +209,36 @@ mod test {
 
     #[test]
     fn test_rlp_encode_block_deneb() {
+        let header = ExecutionBlockHeader {
+            parent_hash: Hash256::from_str("172864416698b842f4c92f7b476be294b4ef720202779df194cd225f531053ab").unwrap(),
+            ommers_hash: Hash256::from_str("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347").unwrap(),
+            beneficiary: Address::from_str("878705ba3f8bc32fcf7f4caa1a35e72af65cf766").unwrap(),
+            state_root: Hash256::from_str("c6457d0df85c84c62d1c68f68138b6e796e8a44fb44de221386fb2d5611c41e0").unwrap(),
+            transactions_root: Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+            receipts_root: Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+            logs_bloom:<[u8; 256]>::from_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").unwrap().into(),
+            difficulty: 0.into(),
+            number: 97.into(),
+            gas_limit: 27482534.into(),
+            gas_used: 0.into(),
+            timestamp: 1692132829u64,
+            extra_data: hex::decode("d883010d00846765746888676f312e32302e37856c696e7578").unwrap(),
+            mix_hash: Hash256::from_str("0b493c22d2ad4ca76c77ae6ad916af429b42b1dc98fdcb8e5ddbd049bbc5d623").unwrap(),
+            nonce: Hash64::zero(),
+            base_fee_per_gas: 2374u64.into(),
+            withdrawals_root: Some(Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap()),
+            blob_gas_used: Some(0x0u64),
+            excess_blob_gas: Some(0x0u64),
+            parent_beacon_block_root: Some(Hash256::from_str("f7d327d2c04e4f12e9cdd492e53d39a1d390f8b1571e3b2a22ac6e1e170e5b1a").unwrap()),
+        };
+        let expected_hash =
+            Hash256::from_str("a7448e600ead0a23d16f96aa46e8dea9eef8a7c5669a5f0a5ff32709afe9c408")
+                .unwrap();
+        test_rlp_encoding(&header, None, expected_hash);
+    }
+
+    #[test]
+    fn test_rlp_encode_block_electra() {
         let header = ExecutionBlockHeader {
             parent_hash: Hash256::from_str("172864416698b842f4c92f7b476be294b4ef720202779df194cd225f531053ab").unwrap(),
             ommers_hash: Hash256::from_str("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347").unwrap(),

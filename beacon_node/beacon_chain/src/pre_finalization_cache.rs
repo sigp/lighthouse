@@ -3,11 +3,13 @@ use itertools::process_results;
 use lru::LruCache;
 use parking_lot::Mutex;
 use slog::debug;
+use std::num::NonZeroUsize;
 use std::time::Duration;
+use types::non_zero_usize::new_non_zero_usize;
 use types::Hash256;
 
-const BLOCK_ROOT_CACHE_LIMIT: usize = 512;
-const LOOKUP_LIMIT: usize = 8;
+const BLOCK_ROOT_CACHE_LIMIT: NonZeroUsize = new_non_zero_usize(512);
+const LOOKUP_LIMIT: NonZeroUsize = new_non_zero_usize(8);
 const METRICS_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// Cache for rejecting attestations to blocks from before finalization.
@@ -78,7 +80,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // 3. Check the network with a single block lookup.
         cache.in_progress_lookups.put(block_root, ());
-        if cache.in_progress_lookups.len() == LOOKUP_LIMIT {
+        if cache.in_progress_lookups.len() == LOOKUP_LIMIT.get() {
             // NOTE: we expect this to occur sometimes if a lot of blocks that we look up fail to be
             // imported for reasons other than being pre-finalization. The cache will eventually
             // self-repair in this case by replacing old entries with new ones until all the failed

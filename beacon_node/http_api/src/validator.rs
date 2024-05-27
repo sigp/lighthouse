@@ -1,5 +1,5 @@
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use types::*;
+use types::{BeaconState, PublicKeyBytes};
 
 /// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
 /// index and then ensures that the validator exists in the given `state`.

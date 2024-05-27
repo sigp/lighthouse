@@ -25,6 +25,7 @@ serde = { workspace = true }
 error-chain = { workspace = true }
 slog = { workspace = true }
 tokio = { workspace = true }
+futures = { workspace = true }
 dirs = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
@@ -44,3 +45,5 @@ monitoring_api = { workspace = true }
 execution_layer = { workspace = true }
 beacon_processor = { workspace = true }
 num_cpus = { workspace = true }
+ethereum_ssz = { workspace = true }
+tree_hash = { workspace = true }

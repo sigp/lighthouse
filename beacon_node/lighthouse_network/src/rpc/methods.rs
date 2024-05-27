@@ -5,35 +5,23 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{
-    typenum::{U1024, U128, U256, U768},
-    VariableList,
-};
+use ssz_types::{typenum::U256, VariableList};
+use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
-use types::consts::deneb::MAX_BLOBS_PER_BLOCK;
 use types::{
-    blob_sidecar::BlobSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
-    Hash256, SignedBeaconBlock, Slot,
+    blob_sidecar::BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock,
+    Slot,
 };
-
-/// Maximum number of blocks in a single request.
-pub type MaxRequestBlocks = U1024;
-pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
 pub const MAX_ERROR_LEN: u64 = 256;
-
-pub type MaxRequestBlocksDeneb = U128;
-pub const MAX_REQUEST_BLOCKS_DENEB: u64 = 128;
-
-pub type MaxRequestBlobSidecars = U768;
-pub const MAX_REQUEST_BLOB_SIDECARS: u64 = MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
@@ -58,11 +46,13 @@ impl Deref for ErrorType {
     }
 }
 
-impl ToString for ErrorType {
-    fn to_string(&self) -> String {
+impl Display for ErrorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         #[allow(clippy::invalid_regex)]
         let re = Regex::new("\\p{C}").expect("Regex is valid");
-        String::from_utf8_lossy(&re.replace_all(self.0.deref(), &b""[..])).to_string()
+        let error_type_str =
+            String::from_utf8_lossy(&re.replace_all(self.0.deref(), &b""[..])).to_string();
+        write!(f, "{}", error_type_str)
     }
 }
 
@@ -102,11 +92,11 @@ pub struct Ping {
     variant_attributes(derive(Clone, Debug, PartialEq, Serialize),)
 )]
 #[derive(Clone, Debug, PartialEq)]
-pub struct MetadataRequest<T: EthSpec> {
-    _phantom_data: PhantomData<T>,
+pub struct MetadataRequest<E: EthSpec> {
+    _phantom_data: PhantomData<E>,
 }
 
-impl<T: EthSpec> MetadataRequest<T> {
+impl<E: EthSpec> MetadataRequest<E> {
     pub fn new_v1() -> Self {
         Self::V1(MetadataRequestV1 {
             _phantom_data: PhantomData,
@@ -125,22 +115,22 @@ impl<T: EthSpec> MetadataRequest<T> {
     variants(V1, V2),
     variant_attributes(
         derive(Encode, Decode, Clone, Debug, PartialEq, Serialize),
-        serde(bound = "T: EthSpec", deny_unknown_fields),
+        serde(bound = "E: EthSpec", deny_unknown_fields),
     )
 )]
 #[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(bound = "T: EthSpec")]
-pub struct MetaData<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+pub struct MetaData<E: EthSpec> {
     /// A sequential counter indicating when data gets modified.
     pub seq_number: u64,
     /// The persistent attestation subnet bitfield.
-    pub attnets: EnrAttestationBitfield<T>,
+    pub attnets: EnrAttestationBitfield<E>,
     /// The persistent sync committee bitfield.
     #[superstruct(only(V2))]
-    pub syncnets: EnrSyncCommitteeBitfield<T>,
+    pub syncnets: EnrSyncCommitteeBitfield<E>,
 }
 
-impl<T: EthSpec> MetaData<T> {
+impl<E: EthSpec> MetaData<E> {
     /// Returns a V1 MetaData response from self.
     pub fn metadata_v1(&self) -> Self {
         match self {
@@ -344,22 +334,23 @@ impl OldBlocksByRangeRequest {
 }
 
 /// Request a number of beacon block bodies from a peer.
-#[superstruct(
-    variants(V1, V2),
-    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
-)]
+#[superstruct(variants(V1, V2), variant_attributes(derive(Clone, Debug, PartialEq)))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
-    pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
+    pub block_roots: RuntimeVariableList<Hash256>,
 }
 
 impl BlocksByRootRequest {
-    pub fn new(block_roots: VariableList<Hash256, MaxRequestBlocks>) -> Self {
+    pub fn new(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
+        let block_roots =
+            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
         Self::V2(BlocksByRootRequestV2 { block_roots })
     }
 
-    pub fn new_v1(block_roots: VariableList<Hash256, MaxRequestBlocks>) -> Self {
+    pub fn new_v1(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
+        let block_roots =
+            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
         Self::V1(BlocksByRootRequestV1 { block_roots })
     }
 }
@@ -368,38 +359,52 @@ impl BlocksByRootRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlobsByRootRequest {
     /// The list of beacon block roots being requested.
-    pub blob_ids: VariableList<BlobIdentifier, MaxRequestBlobSidecars>,
+    pub blob_ids: RuntimeVariableList<BlobIdentifier>,
+}
+
+impl BlobsByRootRequest {
+    pub fn new(blob_ids: Vec<BlobIdentifier>, spec: &ChainSpec) -> Self {
+        let blob_ids =
+            RuntimeVariableList::from_vec(blob_ids, spec.max_request_blob_sidecars as usize);
+        Self { blob_ids }
+    }
 }
 
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RPCResponse<T: EthSpec> {
+pub enum RPCResponse<E: EthSpec> {
     /// A HELLO message.
     Status(StatusMessage),
 
     /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
     /// batch.
-    BlocksByRange(Arc<SignedBeaconBlock<T>>),
+    BlocksByRange(Arc<SignedBeaconBlock<E>>),
 
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Arc<SignedBeaconBlock<T>>),
+    BlocksByRoot(Arc<SignedBeaconBlock<E>>),
 
     /// A response to a get BLOBS_BY_RANGE request
-    BlobsByRange(Arc<BlobSidecar<T>>),
+    BlobsByRange(Arc<BlobSidecar<E>>),
 
-    /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
-    LightClientBootstrap(LightClientBootstrap<T>),
+    /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
+    LightClientBootstrap(Arc<LightClientBootstrap<E>>),
+
+    /// A response to a get LIGHT_CLIENT_OPTIMISTIC_UPDATE request.
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
+
+    /// A response to a get LIGHT_CLIENT_FINALITY_UPDATE request.
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
 
     /// A response to a get BLOBS_BY_ROOT request.
-    BlobsByRoot(Arc<BlobSidecar<T>>),
+    BlobsByRoot(Arc<BlobSidecar<E>>),
 
     /// A PONG response to a PING request.
     Pong(Ping),
 
     /// A response to a META_DATA request.
-    MetaData(MetaData<T>),
+    MetaData(MetaData<E>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
@@ -421,9 +426,9 @@ pub enum ResponseTermination {
 /// The structured response containing a result/code indicating success or failure
 /// and the contents of the response
 #[derive(Debug, Clone)]
-pub enum RPCCodedResponse<T: EthSpec> {
+pub enum RPCCodedResponse<E: EthSpec> {
     /// The response is a successful.
-    Success(RPCResponse<T>),
+    Success(RPCResponse<E>),
 
     Error(RPCResponseErrorCode, ErrorType),
 
@@ -431,7 +436,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
     StreamTermination(ResponseTermination),
 }
 
-/// Request a light_client_bootstrap for lightclients peers.
+/// Request a light_client_bootstrap for light_clients peers.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct LightClientBootstrapRequest {
     pub root: Hash256,
@@ -450,7 +455,7 @@ pub enum RPCResponseErrorCode {
     Unknown,
 }
 
-impl<T: EthSpec> RPCCodedResponse<T> {
+impl<E: EthSpec> RPCCodedResponse<E> {
     /// Used to encode the response in the codec.
     pub fn as_u8(&self) -> Option<u8> {
         match self {
@@ -478,25 +483,6 @@ impl<T: EthSpec> RPCCodedResponse<T> {
         RPCCodedResponse::Error(code, err)
     }
 
-    /// Specifies which response allows for multiple chunks for the stream handler.
-    pub fn multiple_responses(&self) -> bool {
-        match self {
-            RPCCodedResponse::Success(resp) => match resp {
-                RPCResponse::Status(_) => false,
-                RPCResponse::BlocksByRange(_) => true,
-                RPCResponse::BlocksByRoot(_) => true,
-                RPCResponse::BlobsByRange(_) => true,
-                RPCResponse::BlobsByRoot(_) => true,
-                RPCResponse::Pong(_) => false,
-                RPCResponse::MetaData(_) => false,
-                RPCResponse::LightClientBootstrap(_) => false,
-            },
-            RPCCodedResponse::Error(_, _) => true,
-            // Stream terminations are part of responses that have chunks
-            RPCCodedResponse::StreamTermination(_) => true,
-        }
-    }
-
     /// Returns true if this response always terminates the stream.
     pub fn close_after(&self) -> bool {
         !matches!(self, RPCCodedResponse::Success(_))
@@ -517,7 +503,7 @@ impl RPCResponseErrorCode {
 }
 
 use super::Protocol;
-impl<T: EthSpec> RPCResponse<T> {
+impl<E: EthSpec> RPCResponse<E> {
     pub fn protocol(&self) -> Protocol {
         match self {
             RPCResponse::Status(_) => Protocol::Status,
@@ -528,6 +514,8 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            RPCResponse::LightClientOptimisticUpdate(_) => Protocol::LightClientOptimisticUpdate,
+            RPCResponse::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
         }
     }
 }
@@ -552,7 +540,7 @@ impl std::fmt::Display for StatusMessage {
     }
 }
 
-impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
+impl<E: EthSpec> std::fmt::Display for RPCResponse<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCResponse::Status(status) => write!(f, "{}", status),
@@ -563,25 +551,39 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
             RPCResponse::BlobsByRange(blob) => {
-                write!(f, "BlobsByRange: Blob slot: {}", blob.slot)
+                write!(f, "BlobsByRange: Blob slot: {}", blob.slot())
             }
             RPCResponse::BlobsByRoot(sidecar) => {
-                write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot)
+                write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot())
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
             RPCResponse::LightClientBootstrap(bootstrap) => {
-                write!(f, "LightClientBootstrap Slot: {}", bootstrap.header.slot)
+                write!(f, "LightClientBootstrap Slot: {}", bootstrap.get_slot())
+            }
+            RPCResponse::LightClientOptimisticUpdate(update) => {
+                write!(
+                    f,
+                    "LightClientOptimisticUpdate Slot: {}",
+                    update.signature_slot()
+                )
+            }
+            RPCResponse::LightClientFinalityUpdate(update) => {
+                write!(
+                    f,
+                    "LightClientFinalityUpdate Slot: {}",
+                    update.signature_slot()
+                )
             }
         }
     }
 }
 
-impl<T: EthSpec> std::fmt::Display for RPCCodedResponse<T> {
+impl<E: EthSpec> std::fmt::Display for RPCCodedResponse<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCCodedResponse::Success(res) => write!(f, "{}", res),
-            RPCCodedResponse::Error(code, err) => write!(f, "{}: {}", code, err.to_string()),
+            RPCCodedResponse::Error(code, err) => write!(f, "{}: {}", code, err),
             RPCCodedResponse::StreamTermination(_) => write!(f, "Stream Termination"),
         }
     }

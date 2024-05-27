@@ -36,7 +36,15 @@ impl From<KzgCommitment> for c_kzg::Bytes48 {
 
 impl Display for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", serde_utils::hex::encode(self.0))
+        write!(f, "0x")?;
+        for i in &self.0[0..2] {
+            write!(f, "{:02x}", i)?;
+        }
+        write!(f, "…")?;
+        for i in &self.0[BYTES_PER_COMMITMENT - 2..BYTES_PER_COMMITMENT] {
+            write!(f, "{:02x}", i)?;
+        }
+        Ok(())
     }
 }
 
@@ -63,7 +71,7 @@ impl Serialize for KzgCommitment {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        serializer.serialize_str(&format!("{:?}", self))
     }
 }
 
@@ -112,4 +120,25 @@ impl arbitrary::Arbitrary<'_> for KzgCommitment {
         u.fill_buffer(&mut bytes)?;
         Ok(KzgCommitment(bytes))
     }
+}
+
+#[test]
+fn kzg_commitment_display() {
+    let display_commitment_str = "0x53fa…adac";
+    let display_commitment = KzgCommitment::from_str(
+        "0x53fa09af35d1d1a9e76f65e16112a9064ce30d1e4e2df98583f0f5dc2e7dd13a4f421a9c89f518fafd952df76f23adac",
+    )
+    .unwrap()
+    .to_string();
+
+    assert_eq!(display_commitment, display_commitment_str);
+}
+
+#[test]
+fn kzg_commitment_debug() {
+    let debug_commitment_str =
+        "0x53fa09af35d1d1a9e76f65e16112a9064ce30d1e4e2df98583f0f5dc2e7dd13a4f421a9c89f518fafd952df76f23adac";
+    let debug_commitment = KzgCommitment::from_str(debug_commitment_str).unwrap();
+
+    assert_eq!(format!("{debug_commitment:?}"), debug_commitment_str);
 }

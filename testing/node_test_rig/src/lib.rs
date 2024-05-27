@@ -21,7 +21,7 @@ pub use eth2;
 pub use execution_layer::test_utils::{
     Config as MockServerConfig, MockExecutionConfig, MockServer,
 };
-pub use validator_client::Config as ValidatorConfig;
+pub use validator_client::{ApiTopic, Config as ValidatorConfig};
 
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(8);
@@ -181,8 +181,8 @@ impl ValidatorFiles {
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
-pub struct LocalValidatorClient<T: EthSpec> {
-    pub client: ProductionValidatorClient<T>,
+pub struct LocalValidatorClient<E: EthSpec> {
+    pub client: ProductionValidatorClient<E>,
     pub files: ValidatorFiles,
 }
 

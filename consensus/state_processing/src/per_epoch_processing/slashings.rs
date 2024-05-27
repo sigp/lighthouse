@@ -1,10 +1,14 @@
-use crate::per_epoch_processing::Error;
+use crate::common::decrease_balance;
+use crate::per_epoch_processing::{
+    single_pass::{process_epoch_single_pass, SinglePassConfig},
+    Error,
+};
 use safe_arith::{SafeArith, SafeArithIter};
-use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec, Unsigned};
+use types::{BeaconState, ChainSpec, EthSpec, Unsigned};
 
 /// Process slashings.
-pub fn process_slashings<T: EthSpec>(
-    state: &mut BeaconState<T>,
+pub fn process_slashings<E: EthSpec>(
+    state: &mut BeaconState<E>,
     total_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -16,28 +20,44 @@ pub fn process_slashings<T: EthSpec>(
         total_balance,
     );
 
-    let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
-    for (index, validator) in validators.iter().enumerate() {
-        if validator.slashed
-            && epoch.safe_add(T::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?
-                == validator.withdrawable_epoch
-        {
-            let increment = spec.effective_balance_increment;
-            let penalty_numerator = validator
-                .effective_balance
-                .safe_div(increment)?
-                .safe_mul(adjusted_total_slashing_balance)?;
-            let penalty = penalty_numerator
-                .safe_div(total_balance)?
-                .safe_mul(increment)?;
+    let target_withdrawable_epoch =
+        epoch.safe_add(E::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?;
+    let indices = state
+        .validators()
+        .iter()
+        .enumerate()
+        .filter(|(_, validator)| {
+            validator.slashed && target_withdrawable_epoch == validator.withdrawable_epoch
+        })
+        .map(|(index, validator)| (index, validator.effective_balance))
+        .collect::<Vec<(usize, u64)>>();
 
-            // Equivalent to `decrease_balance(state, index, penalty)`, but avoids borrowing `state`.
-            let balance = balances
-                .get_mut(index)
-                .ok_or(BeaconStateError::BalancesOutOfBounds(index))?;
-            *balance = balance.saturating_sub(penalty);
-        }
+    for (index, validator_effective_balance) in indices {
+        let increment = spec.effective_balance_increment;
+        let penalty_numerator = validator_effective_balance
+            .safe_div(increment)?
+            .safe_mul(adjusted_total_slashing_balance)?;
+        let penalty = penalty_numerator
+            .safe_div(total_balance)?
+            .safe_mul(increment)?;
+
+        decrease_balance(state, index, penalty)?;
     }
 
+    Ok(())
+}
+
+pub fn process_slashings_slow<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    process_epoch_single_pass(
+        state,
+        spec,
+        SinglePassConfig {
+            slashings: true,
+            ..SinglePassConfig::disable_all()
+        },
+    )?;
     Ok(())
 }

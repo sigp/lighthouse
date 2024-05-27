@@ -8,6 +8,7 @@ extra income for your validators. However it is currently only recommended for e
 of the immaturity of the slasher UX and the extra resources required.
 
 ## Minimum System Requirements
+
 * Quad-core CPU
 * 16 GB RAM
 * 256 GB solid state storage (in addition to the space requirement for the beacon node DB)
@@ -17,7 +18,7 @@ of the immaturity of the slasher UX and the extra resources required.
 The slasher runs inside the same process as the beacon node, when enabled via the `--slasher` flag:
 
 ```
-lighthouse bn --slasher --debug-level debug
+lighthouse bn --slasher
 ```
 
 The slasher hooks into Lighthouse's block and attestation processing, and pushes messages into an
@@ -25,9 +26,6 @@ in-memory queue for regular processing. It will increase the CPU usage of the be
 verifies the signatures of otherwise invalid messages. When a slasher batch update runs, the
 messages are filtered for relevancy, and all relevant messages are checked for slashings and written
 to the slasher database.
-
-You **should** run with debug logs, so that you can see the slasher's internal machinations, and
-provide logs to the developers should you encounter any bugs.
 
 ## Configuration
 
@@ -50,8 +48,8 @@ directory.
 
 It is possible to use one of several database backends with the slasher:
 
-- LMDB (default)
-- MDBX
+* LMDB (default)
+* MDBX
 
 The advantage of MDBX is that it performs compaction, resulting in less disk usage over time. The
 disadvantage is that upstream MDBX is unstable, so Lighthouse is pinned to a specific version.
@@ -71,7 +69,7 @@ If an MDBX database is already found on disk, then Lighthouse will try to use it
 in a log at start-up:
 
 ```
-INFO Slasher backend overriden    reason: database exists, configured_backend: lmdb, overriden_backend: mdbx
+INFO Slasher backend overridden    reason: database exists, configured_backend: lmdb, overridden_backend: mdbx
 ```
 
 If the running Lighthouse binary doesn't have the MDBX backend enabled but an existing database is

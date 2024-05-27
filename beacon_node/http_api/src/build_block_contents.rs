@@ -1,62 +1,43 @@
-use beacon_chain::BlockProductionError;
-use eth2::types::{BeaconBlockAndBlobSidecars, BlindedBeaconBlockAndBlobSidecars, BlockContents};
-use types::{
-    BeaconBlock, BlindedBlobSidecarList, BlindedPayload, BlobSidecarList, EthSpec, ForkName,
-    FullPayload,
-};
-
+use beacon_chain::{BeaconBlockResponse, BeaconBlockResponseWrapper, BlockProductionError};
+use eth2::types::{BlockContents, FullBlockContents, ProduceBlockV3Response};
+use types::{EthSpec, ForkName};
 type Error = warp::reject::Rejection;
-type FullBlockContents<E> = BlockContents<E, FullPayload<E>>;
-type BlindedBlockContents<E> = BlockContents<E, BlindedPayload<E>>;
 
 pub fn build_block_contents<E: EthSpec>(
     fork_name: ForkName,
-    block: BeaconBlock<E, FullPayload<E>>,
-    maybe_blobs: Option<BlobSidecarList<E>>,
-) -> Result<FullBlockContents<E>, Error> {
-    match fork_name {
-        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-            Ok(BlockContents::Block(block))
+    block_response: BeaconBlockResponseWrapper<E>,
+) -> Result<ProduceBlockV3Response<E>, Error> {
+    match block_response {
+        BeaconBlockResponseWrapper::Blinded(block) => {
+            Ok(ProduceBlockV3Response::Blinded(block.block))
         }
-        ForkName::Deneb => {
-            if let Some(blob_sidecars) = maybe_blobs {
-                let block_and_blobs = BeaconBlockAndBlobSidecars {
+        BeaconBlockResponseWrapper::Full(block) => match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => Ok(
+                ProduceBlockV3Response::Full(FullBlockContents::Block(block.block)),
+            ),
+            ForkName::Deneb | ForkName::Electra => {
+                let BeaconBlockResponse {
                     block,
-                    blob_sidecars,
+                    state: _,
+                    blob_items,
+                    execution_payload_value: _,
+                    consensus_block_value: _,
+                } = block;
+
+                let Some((kzg_proofs, blobs)) = blob_items else {
+                    return Err(warp_utils::reject::block_production_error(
+                        BlockProductionError::MissingBlobs,
+                    ));
                 };
 
-                Ok(BlockContents::BlockAndBlobSidecars(block_and_blobs))
-            } else {
-                Err(warp_utils::reject::block_production_error(
-                    BlockProductionError::MissingBlobs,
+                Ok(ProduceBlockV3Response::Full(
+                    FullBlockContents::BlockContents(BlockContents {
+                        block,
+                        kzg_proofs,
+                        blobs,
+                    }),
                 ))
             }
-        }
-    }
-}
-
-pub fn build_blinded_block_contents<E: EthSpec>(
-    fork_name: ForkName,
-    block: BeaconBlock<E, BlindedPayload<E>>,
-    maybe_blobs: Option<BlindedBlobSidecarList<E>>,
-) -> Result<BlindedBlockContents<E>, Error> {
-    match fork_name {
-        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-            Ok(BlockContents::Block(block))
-        }
-        ForkName::Deneb => {
-            if let Some(blinded_blob_sidecars) = maybe_blobs {
-                let block_and_blobs = BlindedBeaconBlockAndBlobSidecars {
-                    blinded_block: block,
-                    blinded_blob_sidecars,
-                };
-
-                Ok(BlockContents::BlindedBlockAndBlobSidecars(block_and_blobs))
-            } else {
-                Err(warp_utils::reject::block_production_error(
-                    BlockProductionError::MissingBlobs,
-                ))
-            }
-        }
+        },
     }
 }

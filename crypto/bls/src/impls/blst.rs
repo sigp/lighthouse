@@ -9,7 +9,6 @@ use crate::{
 pub use blst::min_pk as blst_core;
 use blst::{blst_scalar, BLST_ERROR};
 use rand::Rng;
-use std::iter::ExactSizeIterator;
 
 pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 pub const RAND_BITS: usize = 64;
@@ -99,9 +98,8 @@ pub fn verify_signature_sets<'a>(
 
         // Aggregate all the public keys.
         // Public keys have already been checked for subgroup and infinity
-        let agg_pk = match blst_core::AggregatePublicKey::aggregate(&signing_keys, false) {
-            Ok(agg_pk) => agg_pk,
-            Err(_) => return false,
+        let Ok(agg_pk) = blst_core::AggregatePublicKey::aggregate(&signing_keys, false) else {
+            return false;
         };
         pks.push(agg_pk.to_public_key());
     }

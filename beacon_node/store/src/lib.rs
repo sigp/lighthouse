@@ -14,6 +14,7 @@ mod chunk_writer;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
+pub mod consensus_context;
 pub mod errors;
 mod forwards_iter;
 mod garbage_collection;
@@ -25,11 +26,13 @@ pub mod metadata;
 pub mod metrics;
 mod partial_beacon_state;
 pub mod reconstruct;
+pub mod state_cache;
 
 pub mod iter;
 
 pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
+pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
@@ -44,8 +47,8 @@ use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
 pub use types::*;
 
-pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
-pub type ColumnKeyIter<'a> = Box<dyn Iterator<Item = Result<Hash256, Error>> + 'a>;
+pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
+pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
 
 pub type RawEntryIter<'a> = Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>;
 pub type RawKeyIter<'a> = Box<dyn Iterator<Item = Result<Vec<u8>, Error>> + 'a>;
@@ -80,14 +83,30 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// this method. In future we may implement a safer mandatory locking scheme.
     fn begin_rw_transaction(&self) -> MutexGuard<()>;
 
-    /// Compact the database, freeing space used by deleted items.
-    fn compact(&self) -> Result<(), Error>;
+    /// Compact a single column in the database, freeing space used by deleted items.
+    fn compact_column(&self, column: DBColumn) -> Result<(), Error>;
+
+    /// Compact a default set of columns that are likely to free substantial space.
+    fn compact(&self) -> Result<(), Error> {
+        // Compact state and block related columns as they are likely to have the most churn,
+        // i.e. entries being created and deleted.
+        for column in [
+            DBColumn::BeaconState,
+            DBColumn::BeaconStateSummary,
+            DBColumn::BeaconBlock,
+        ] {
+            self.compact_column(column)?;
+        }
+        Ok(())
+    }
 
     /// Iterate through all keys and values in a particular column.
-    fn iter_column(&self, _column: DBColumn) -> ColumnIter {
-        // Default impl for non LevelDB databases
-        Box::new(std::iter::empty())
+    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+        self.iter_column_from(column, &vec![0; column.key_size()])
     }
+
+    /// Iterate through all keys and values in a column from a given starting point.
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
 
     fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
         Box::new(std::iter::empty())
@@ -98,9 +117,26 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Iterate through all keys in a particular column.
-    fn iter_column_keys(&self, _column: DBColumn) -> ColumnKeyIter {
-        // Default impl for non LevelDB databases
-        Box::new(std::iter::empty())
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
+}
+
+pub trait Key: Sized + 'static {
+    fn from_bytes(key: &[u8]) -> Result<Self, Error>;
+}
+
+impl Key for Hash256 {
+    fn from_bytes(key: &[u8]) -> Result<Self, Error> {
+        if key.len() == 32 {
+            Ok(Hash256::from_slice(key))
+        } else {
+            Err(Error::InvalidKey)
+        }
+    }
+}
+
+impl Key for Vec<u8> {
+    fn from_bytes(key: &[u8]) -> Result<Self, Error> {
+        Ok(key.to_vec())
     }
 }
 
@@ -249,6 +285,35 @@ impl DBColumn {
 
     pub fn as_bytes(self) -> &'static [u8] {
         self.as_str().as_bytes()
+    }
+
+    /// Most database keys are 32 bytes, but some freezer DB keys are 8 bytes.
+    ///
+    /// This function returns the number of bytes used by keys in a given column.
+    pub fn key_size(self) -> usize {
+        match self {
+            Self::OverflowLRUCache => 33, // See `OverflowKey` encode impl.
+            Self::BeaconMeta
+            | Self::BeaconBlock
+            | Self::BeaconState
+            | Self::BeaconBlob
+            | Self::BeaconStateSummary
+            | Self::BeaconStateTemporary
+            | Self::ExecPayload
+            | Self::BeaconChain
+            | Self::OpPool
+            | Self::Eth1Cache
+            | Self::ForkChoice
+            | Self::PubkeyCache
+            | Self::BeaconRestorePoint
+            | Self::DhtEnrs
+            | Self::OptimisticTransitionBlock => 32,
+            Self::BeaconBlockRoots
+            | Self::BeaconStateRoots
+            | Self::BeaconHistoricalRoots
+            | Self::BeaconHistoricalSummaries
+            | Self::BeaconRandaoMixes => 8,
+        }
     }
 }
 

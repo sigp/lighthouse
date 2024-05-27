@@ -14,6 +14,10 @@ lazy_static::lazy_static! {
         "process_virtual_memory_bytes",
         "Virtual memory used by the current process"
     );
+    pub static ref PROCESS_SHR_MEM: Result<IntGauge> = try_create_int_gauge(
+        "process_shared_memory_bytes",
+        "Shared memory used by the current process"
+    );
     pub static ref PROCESS_SECONDS: Result<IntGauge> = try_create_int_gauge(
         "process_cpu_seconds_total",
         "Total cpu time taken by the current process"
@@ -90,6 +94,7 @@ pub fn scrape_process_health_metrics() {
         set_gauge(&PROCESS_NUM_THREADS, health.pid_num_threads);
         set_gauge(&PROCESS_RES_MEM, health.pid_mem_resident_set_size as i64);
         set_gauge(&PROCESS_VIRT_MEM, health.pid_mem_virtual_memory_size as i64);
+        set_gauge(&PROCESS_SHR_MEM, health.pid_mem_shared_memory_size as i64);
         set_gauge(&PROCESS_SECONDS, health.pid_process_seconds_total as i64);
     }
 }

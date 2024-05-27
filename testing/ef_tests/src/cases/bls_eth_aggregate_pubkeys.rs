@@ -31,10 +31,6 @@ impl Case for BlsEthAggregatePubkeys {
             {
                 return Ok(());
             }
-            #[cfg(feature = "milagro")]
-            Err(bls::Error::MilagroError(_)) if self.output.is_none() => {
-                return Ok(());
-            }
             Err(e) => return Err(Error::FailedToParseTest(format!("{:?}", e))),
         };
 

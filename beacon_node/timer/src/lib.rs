@@ -16,12 +16,10 @@ pub fn spawn_timer<T: BeaconChainTypes>(
     let log = executor.log().clone();
     let timer_future = async move {
         loop {
-            let duration_to_next_slot = match beacon_chain.slot_clock.duration_to_next_slot() {
-                Some(duration) => duration,
-                None => {
-                    warn!(log, "Unable to determine duration to next slot");
-                    return;
-                }
+            let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot()
+            else {
+                warn!(log, "Unable to determine duration to next slot");
+                return;
             };
 
             sleep(duration_to_next_slot).await;

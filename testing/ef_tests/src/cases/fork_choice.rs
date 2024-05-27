@@ -1,6 +1,12 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use ::fork_choice::PayloadVerificationStatus;
+use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
+use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
+use beacon_chain::blob_verification::GossipBlobError;
+use beacon_chain::chain_config::{
+    DisallowedReOrgOffsets, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
+};
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     attestation_verification::{
@@ -18,9 +24,9 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
-    EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
-    ProgressiveBalancesMode, Signature, SignedBeaconBlock, SignedBlobSidecar, Slot, Uint256,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList,
+    BlockImportSource, Checkpoint, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
+    ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -38,6 +44,13 @@ pub struct Head {
     root: Hash256,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShouldOverrideFcu {
+    validator_is_connected: bool,
+    result: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Checks {
@@ -50,6 +63,8 @@ pub struct Checks {
     u_justified_checkpoint: Option<Checkpoint>,
     u_finalized_checkpoint: Option<Checkpoint>,
     proposer_boost_root: Option<Hash256>,
+    get_proposer_head: Option<Hash256>,
+    should_override_forkchoice_update: Option<ShouldOverrideFcu>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -256,6 +271,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         u_justified_checkpoint,
                         u_finalized_checkpoint,
                         proposer_boost_root,
+                        get_proposer_head,
+                        should_override_forkchoice_update: should_override_fcu,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -294,6 +311,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     if let Some(expected_proposer_boost_root) = proposer_boost_root {
                         tester.check_expected_proposer_boost_root(*expected_proposer_boost_root)?;
                     }
+
+                    if let Some(should_override_fcu) = should_override_fcu {
+                        tester.check_should_override_fcu(*should_override_fcu)?;
+                    }
+
+                    if let Some(expected_proposer_head) = get_proposer_head {
+                        tester.check_expected_proposer_head(*expected_proposer_head)?;
+                    }
                 }
             }
         }
@@ -325,6 +350,7 @@ impl<E: EthSpec> Tester<E> {
         }
 
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            .logger(logging::test_logger())
             .spec(spec.clone())
             .keypairs(vec![])
             .chain_config(ChainConfig {
@@ -413,6 +439,8 @@ impl<E: EthSpec> Tester<E> {
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
 
+        let mut blob_success = true;
+
         // Convert blobs and kzg_proofs into sidecars, then plumb them into the availability tracker
         if let Some(blobs) = blobs.clone() {
             let proofs = kzg_proofs.unwrap();
@@ -432,25 +460,32 @@ impl<E: EthSpec> Tester<E> {
                 .zip(commitments.into_iter())
                 .enumerate()
             {
-                let signed_sidecar = SignedBlobSidecar {
-                    message: Arc::new(BlobSidecar {
-                        block_root,
-                        index: i as u64,
-                        slot: block.slot(),
-                        block_parent_root: block.parent_root(),
-                        proposer_index: block.message().proposer_index(),
-                        blob,
-                        kzg_commitment,
-                        kzg_proof,
-                    }),
-                    signature: Signature::empty(),
-                    _phantom: Default::default(),
-                };
-                let result = self.block_on_dangerous(
-                    self.harness
-                        .chain
-                        .process_gossip_blob(GossipVerifiedBlob::__assumed_valid(signed_sidecar)),
-                )?;
+                let blob_sidecar = Arc::new(BlobSidecar {
+                    index: i as u64,
+                    blob,
+                    kzg_commitment,
+                    kzg_proof,
+                    signed_block_header: block.signed_block_header(),
+                    kzg_commitment_inclusion_proof: block
+                        .message()
+                        .body()
+                        .kzg_commitment_merkle_proof(i)
+                        .unwrap(),
+                });
+
+                let chain = self.harness.chain.clone();
+                let blob =
+                    match GossipVerifiedBlob::new(blob_sidecar.clone(), blob_sidecar.index, &chain)
+                    {
+                        Ok(gossip_verified_blob) => gossip_verified_blob,
+                        Err(GossipBlobError::KzgError(_)) => {
+                            blob_success = false;
+                            GossipVerifiedBlob::__assumed_valid(blob_sidecar)
+                        }
+                        Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
+                    };
+                let result =
+                    self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
                 if valid {
                     assert!(result.is_ok());
                 }
@@ -463,10 +498,11 @@ impl<E: EthSpec> Tester<E> {
                 block_root,
                 block.clone(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
-        let success = result.as_ref().map_or(false, |inner| inner.is_ok());
+        let success = blob_success && result.as_ref().map_or(false, |inner| inner.is_ok());
         if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
@@ -523,9 +559,7 @@ impl<E: EthSpec> Tester<E> {
                         block_delay,
                         &state,
                         PayloadVerificationStatus::Irrelevant,
-                        ProgressiveBalancesMode::Strict,
                         &self.harness.chain.spec,
-                        self.harness.logger(),
                     );
 
                 if result.is_ok() {
@@ -701,6 +735,83 @@ impl<E: EthSpec> Tester<E> {
             "proposer_boost_root",
             proposer_boost_root,
             expected_proposer_boost_root,
+        )
+    }
+
+    pub fn check_expected_proposer_head(
+        &self,
+        expected_proposer_head: Hash256,
+    ) -> Result<(), Error> {
+        let mut fc = self.harness.chain.canonical_head.fork_choice_write_lock();
+        let slot = self.harness.chain.slot().unwrap();
+        let canonical_head = fc.get_head(slot, &self.harness.spec).unwrap();
+        let proposer_head_result = fc.get_proposer_head(
+            slot,
+            canonical_head,
+            DEFAULT_RE_ORG_HEAD_THRESHOLD,
+            DEFAULT_RE_ORG_PARENT_THRESHOLD,
+            &DisallowedReOrgOffsets::default(),
+            DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+        );
+        let proposer_head = match proposer_head_result {
+            Ok(head) => head.parent_node.root,
+            Err(ProposerHeadError::DoNotReOrg(_)) => canonical_head,
+            _ => panic!("Unexpected error in get proposer head"),
+        };
+
+        check_equal("proposer_head", proposer_head, expected_proposer_head)
+    }
+
+    pub fn check_should_override_fcu(
+        &self,
+        expected_should_override_fcu: ShouldOverrideFcu,
+    ) -> Result<(), Error> {
+        // Determine proposer.
+        let cached_head = self.harness.chain.canonical_head.cached_head();
+        let next_slot = cached_head.snapshot.beacon_block.slot() + 1;
+        let next_slot_epoch = next_slot.epoch(E::slots_per_epoch());
+        let (proposer_indices, decision_root, _, fork) =
+            compute_proposer_duties_from_head(next_slot_epoch, &self.harness.chain).unwrap();
+        let proposer_index = proposer_indices[next_slot.as_usize() % E::slots_per_epoch() as usize];
+
+        // Ensure the proposer index cache is primed.
+        self.harness
+            .chain
+            .beacon_proposer_cache
+            .lock()
+            .insert(next_slot_epoch, decision_root, proposer_indices, fork)
+            .unwrap();
+
+        // Update the execution layer proposer preparation to match the test config.
+        let el = self.harness.chain.execution_layer.clone().unwrap();
+        self.block_on_dangerous(async {
+            if expected_should_override_fcu.validator_is_connected {
+                el.update_proposer_preparation(
+                    next_slot_epoch,
+                    &[ProposerPreparationData {
+                        validator_index: dbg!(proposer_index) as u64,
+                        fee_recipient: Default::default(),
+                    }],
+                )
+                .await;
+            } else {
+                el.clear_proposer_preparation(proposer_index as u64).await;
+            }
+        })
+        .unwrap();
+
+        // Check forkchoice override.
+        let canonical_fcu_params = cached_head.forkchoice_update_parameters();
+        let fcu_params = self
+            .harness
+            .chain
+            .overridden_forkchoice_update_params(canonical_fcu_params)
+            .unwrap();
+
+        check_equal(
+            "should_override_forkchoice_update",
+            fcu_params != canonical_fcu_params,
+            expected_should_override_fcu.result,
         )
     }
 }

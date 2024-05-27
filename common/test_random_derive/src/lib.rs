@@ -20,9 +20,8 @@ pub fn test_random_derive(input: TokenStream) -> TokenStream {
     let name = &derived_input.ident;
     let (impl_generics, ty_generics, where_clause) = &derived_input.generics.split_for_impl();
 
-    let struct_data = match &derived_input.data {
-        syn::Data::Struct(s) => s,
-        _ => panic!("test_random_derive only supports structs."),
+    let syn::Data::Struct(struct_data) = &derived_input.data else {
+        panic!("test_random_derive only supports structs.");
     };
 
     // Build quotes for fields that should be generated and those that should be built from

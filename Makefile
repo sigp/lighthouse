@@ -14,7 +14,7 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
-# List of features to use when building natively. Can be overriden via the environment.
+# List of features to use when building natively. Can be overridden via the environment.
 # No jemalloc on Windows
 ifeq ($(OS),Windows_NT)
     FEATURES?=
@@ -39,7 +39,7 @@ PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair merge capella deneb
+FORKS=phase0 altair bellatrix capella deneb electra
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
@@ -81,6 +81,11 @@ build-aarch64:
 	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64-portable:
 	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
+
+build-lcli-x86_64:
+	cross build --bin lcli --target x86_64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+build-lcli-aarch64:
+	cross build --bin lcli --target aarch64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
@@ -143,7 +148,6 @@ run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
-	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Runs EF test vectors with nextest
@@ -151,7 +155,6 @@ nextest-run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
-	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
@@ -175,7 +178,7 @@ test-network-%:
 	env FORK_NAME=$* cargo nextest run --release \
 		--features "fork_from_env,$(TEST_FEATURES)" \
 		-p network
-		
+
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
 	cargo nextest run --release -p slasher --features "lmdb,$(TEST_FEATURES)"
@@ -200,6 +203,21 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
+# Updates the CLI help text pages in the Lighthouse book, building with Docker.
+cli:
+	docker run --rm --user=root \
+	-v ${PWD}:/home/runner/actions-runner/lighthouse sigmaprime/github-runner \
+	bash -c 'cd lighthouse && make && ./scripts/cli.sh'
+
+# Updates the CLI help text pages in the Lighthouse book, building using local
+# `cargo`.
+cli-local:
+	make && ./scripts/cli.sh
+
+# Check for markdown files
+mdlint:
+	./scripts/mdlint.sh
+
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
@@ -208,13 +226,15 @@ test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 lint:
 	cargo clippy --workspace --tests $(EXTRA_CLIPPY_OPTS) --features "$(TEST_FEATURES)" -- \
 		-D clippy::fn_to_numeric_cast_any \
+		-D clippy::manual_let_else \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
 		-A clippy::question-mark \
-		-A clippy::uninlined-format-args
+		-A clippy::uninlined-format-args \
+		-A clippy::enum_variant_names
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:

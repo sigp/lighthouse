@@ -16,8 +16,8 @@ use types::{AttestationData, BeaconState, ChainSpec, EthSpec};
 ///
 /// This function will return an error if the source of the attestation doesn't match the
 /// state's relevant justified checkpoint.
-pub fn get_attestation_participation_flag_indices<T: EthSpec>(
-    state: &BeaconState<T>,
+pub fn get_attestation_participation_flag_indices<E: EthSpec>(
+    state: &BeaconState<E>,
     data: &AttestationData,
     inclusion_delay: u64,
     spec: &ChainSpec,
@@ -41,19 +41,19 @@ pub fn get_attestation_participation_flag_indices<T: EthSpec>(
 
     // Participation flag indices
     let mut participation_flag_indices = SmallVec::new();
-    if is_matching_source && inclusion_delay <= T::slots_per_epoch().integer_sqrt() {
+    if is_matching_source && inclusion_delay <= E::slots_per_epoch().integer_sqrt() {
         participation_flag_indices.push(TIMELY_SOURCE_FLAG_INDEX);
     }
     match state {
         &BeaconState::Base(_)
         | &BeaconState::Altair(_)
-        | &BeaconState::Merge(_)
+        | &BeaconState::Bellatrix(_)
         | &BeaconState::Capella(_) => {
-            if is_matching_target && inclusion_delay <= T::slots_per_epoch() {
+            if is_matching_target && inclusion_delay <= E::slots_per_epoch() {
                 participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
             }
         }
-        &BeaconState::Deneb(_) => {
+        &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
             if is_matching_target {
                 // [Modified in Deneb:EIP7045]
                 participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);

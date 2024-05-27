@@ -1,17 +1,15 @@
 use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::test_utils::BeaconChainHarness;
-use bls::Signature;
 use eth2::types::{EventKind, SseBlobSidecar};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlobSidecar, EthSpec, ForkName, MinimalEthSpec, SignedBlobSidecar};
+use types::{BlobSidecar, EthSpec, ForkName, MinimalEthSpec};
 
 type E = MinimalEthSpec;
 
-/// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.  
+/// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_gossip_blob() {
     let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
@@ -29,14 +27,10 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
     // build and process a gossip verified blob
     let kzg = harness.chain.kzg.as_ref().unwrap();
     let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
-    let signed_sidecar = SignedBlobSidecar {
-        message: BlobSidecar::random_valid(&mut rng, kzg)
-            .map(Arc::new)
-            .unwrap(),
-        signature: Signature::empty(),
-        _phantom: PhantomData,
-    };
-    let gossip_verified_blob = GossipVerifiedBlob::__assumed_valid(signed_sidecar);
+    let sidecar = BlobSidecar::random_valid(&mut rng, kzg)
+        .map(Arc::new)
+        .unwrap();
+    let gossip_verified_blob = GossipVerifiedBlob::__assumed_valid(sidecar);
     let expected_sse_blobs = SseBlobSidecar::from_blob_sidecar(gossip_verified_blob.as_blob());
 
     let _ = harness
@@ -49,7 +43,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
     assert_eq!(sidecar_event, EventKind::BlobSidecar(expected_sse_blobs));
 }
 
-/// Verifies that a blob event is emitted when blobs are received via RPC.  
+/// Verifies that a blob event is emitted when blobs are received via RPC.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_rpc_blobs() {
     let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
@@ -83,7 +77,7 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
 
     let _ = harness
         .chain
-        .process_rpc_blobs(blob_1.slot, blob_1.block_root, blobs)
+        .process_rpc_blobs(blob_1.slot(), blob_1.block_root(), blobs)
         .await
         .unwrap();
 

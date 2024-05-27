@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use tree_hash::TreeHash;
 use types::{BeaconState, DepositData, EthSpec, Hash256, SignatureBytes, DEPOSIT_TREE_DEPTH};
 
-pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
+pub fn run<E: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let path = matches
         .value_of("ssz-state")
         .ok_or("ssz-state not specified")?
@@ -23,9 +23,9 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
         .ok_or("mnemonic not specified")?;
 
     let eth2_network_config = Eth2NetworkConfig::load(testnet_dir)?;
-    let spec = &eth2_network_config.chain_spec::<T>()?;
+    let spec = &eth2_network_config.chain_spec::<E>()?;
 
-    let mut state: BeaconState<T> = {
+    let mut state: BeaconState<E> = {
         let mut file = File::open(&path).map_err(|e| format!("Unable to open file: {}", e))?;
 
         let mut ssz = vec![];
@@ -42,7 +42,8 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
 
     let mut deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
     let mut deposit_root = Hash256::zero();
-    for (index, validator) in state.validators_mut().iter_mut().enumerate() {
+    let validators = state.validators_mut();
+    for index in 0..validators.len() {
         let (secret, _) =
             recover_validator_secret_from_mnemonic(seed.as_bytes(), index as u32, KeyType::Voting)
                 .map_err(|e| format!("Unable to generate validator key: {:?}", e))?;
@@ -52,11 +53,11 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
 
         eprintln!("{}: {}", index, keypair.pk);
 
-        validator.pubkey = keypair.pk.into();
+        validators.get_mut(index).unwrap().pubkey = keypair.pk.into();
 
         // Update the deposit tree.
         let mut deposit_data = DepositData {
-            pubkey: validator.pubkey,
+            pubkey: validators.get(index).unwrap().pubkey,
             // Set this to a junk value since it's very time consuming to generate the withdrawal
             // keys and it's not useful for the time being.
             withdrawal_credentials: Hash256::zero(),

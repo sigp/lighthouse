@@ -3,12 +3,14 @@ use axum::Error as AxumError;
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use hyper::Error as HyperError;
 use serde_json::json;
+use std::io::Error as IoError;
 
 #[derive(Debug)]
 pub enum Error {
     Axum(AxumError),
     Hyper(HyperError),
     Database(DbError),
+    IoError(IoError),
     BadRequest,
     NotFound,
     Other(String),
@@ -40,6 +42,12 @@ impl From<AxumError> for Error {
 impl From<DbError> for Error {
     fn from(e: DbError) -> Self {
         Error::Database(e)
+    }
+}
+
+impl From<IoError> for Error {
+    fn from(e: IoError) -> Self {
+        Error::IoError(e)
     }
 }
 
