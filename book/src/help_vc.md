@@ -175,8 +175,8 @@ OPTIONS:
             Defines how many seconds to wait between each message sent to the monitoring-endpoint. Default: 60s
 
         --network <network>
-            Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
-            chiado, sepolia, holesky]
+            Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, gnosis, chiado, sepolia,
+            holesky]
         --proposer-nodes <NETWORK_ADDRESSES>
             Comma-separated addresses to one or more beacon node HTTP APIs. These specify nodes that are used to send
             beacon block proposals. A failure will revert back to the standard beacon nodes specified in --beacon-nodes.
