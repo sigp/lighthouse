@@ -57,8 +57,8 @@ OPTIONS:
             The maximum size (in MB) each log file can grow to before rotating. If set to 0, background file logging is
             disabled. [default: 200]
         --network <network>
-            Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, prater, goerli, gnosis,
-            chiado, sepolia, holesky]
+            Name of the Eth2 chain Lighthouse will sync and follow. [possible values: mainnet, gnosis, chiado, sepolia,
+            holesky]
         --safe-slots-to-import-optimistically <INTEGER>
             Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should
             only be used if the user has a clear understanding that the broad Ethereum community has elected to override

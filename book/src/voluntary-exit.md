@@ -32,7 +32,7 @@ Below is an example for initiating a voluntary exit on the Holesky testnet.
 ```
 $ lighthouse --network holesky account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
 
-Running account manager for Prater network
+Running account manager for Holesky network
 validator-dir path: ~/.lighthouse/holesky/validators
 
 Enter the keystore password for validator in 0xabcd
@@ -82,7 +82,7 @@ There are two types of withdrawal credentials, `0x00` and `0x01`. To check which
    If your withdrawal credentials is of type `0x01`, it means you have set your withdrawal address previously, and you will not be able to change the withdrawal address.
 
 ### 3. When will my BTEC request (update withdrawal credentials to type `0x01`) be processed ?
-  
+
    Your BTEC request will be included very quickly as soon as a new block is proposed. This should be the case most (if not all) of the time, given that the peak BTEC request time has now past (right after the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>th</sup> April 2023 and lasted for ~ 2 days) .
 
 ### 4. When will I get my staked fund after voluntary exit if my validator is of type `0x01`?
