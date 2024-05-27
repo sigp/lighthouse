@@ -8,9 +8,7 @@ edition = { workspace = true }
 [dependencies]
 types = { workspace = true }
 tokio = { workspace = true }
-async-trait = "0.1.51"
 slog = { workspace = true }
-futures = { workspace = true }
 sensitive_url = { workspace = true }
 reqwest = { workspace = true }
 ethereum_serde_utils = { workspace = true }
