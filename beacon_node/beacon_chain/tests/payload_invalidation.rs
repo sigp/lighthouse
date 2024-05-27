@@ -1221,13 +1221,13 @@ async fn attesting_to_optimistic_head() {
     let get_aggregated = || {
         rig.harness
             .chain
-            .get_aggregated_attestation(&attestation.to_ref())
+            .get_aggregated_attestation(attestation.to_ref())
     };
 
     let get_aggregated_by_slot_and_root = || {
         rig.harness
             .chain
-            .get_aggregated_attestation(&attestation.to_ref())
+            .get_aggregated_attestation(attestation.to_ref())
     };
 
     /*

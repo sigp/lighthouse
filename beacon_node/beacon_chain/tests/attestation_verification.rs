@@ -153,7 +153,7 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
         .expect("should sign attestation");
 
     let subnet_id = SubnetId::compute_subnet_for_attestation::<T::EthSpec>(
-        &valid_attestation.to_ref(),
+        valid_attestation.to_ref(),
         head.beacon_state
             .get_committee_count_at_slot(current_slot)
             .expect("should get committee count"),
@@ -227,7 +227,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
 /// attestation.
 fn get_non_aggregator<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    aggregate: &AttestationRef<T::EthSpec>,
+    aggregate: AttestationRef<T::EthSpec>,
 ) -> (usize, SecretKey) {
     let head = chain.head_snapshot();
     let state = &head.beacon_state;
@@ -387,7 +387,7 @@ impl GossipTester {
     pub fn non_aggregator(&self) -> (usize, SecretKey) {
         get_non_aggregator(
             &self.harness.chain,
-            &self.valid_aggregate.message().aggregate(),
+            self.valid_aggregate.message().aggregate(),
         )
     }
 

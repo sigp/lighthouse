@@ -40,7 +40,7 @@ impl SubnetId {
     /// Compute the subnet for an attestation where each slot in the
     /// attestation epoch contains `committee_count_per_slot` committees.
     pub fn compute_subnet_for_attestation<E: EthSpec>(
-        attestation: &AttestationRef<E>,
+        attestation: AttestationRef<E>,
         committee_count_per_slot: u64,
         spec: &ChainSpec,
     ) -> Result<SubnetId, ArithError> {

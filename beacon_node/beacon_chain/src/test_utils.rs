@@ -1169,7 +1169,7 @@ where
                         };
 
                         let subnet_id = SubnetId::compute_subnet_for_attestation::<E>(
-                            &attestation.to_ref(),
+                            attestation.to_ref(),
                             committee_count,
                             &self.chain.spec,
                         )
