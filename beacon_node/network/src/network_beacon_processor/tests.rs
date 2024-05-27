@@ -59,7 +59,6 @@ struct TestRig {
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
-    bls_to_execution_change: SignedBlsToExecutionChange,
     beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
     _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
@@ -177,7 +176,6 @@ impl TestRig {
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
-        let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
 
         let chain = harness.chain.clone();
 
@@ -260,7 +258,6 @@ impl TestRig {
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
-            bls_to_execution_change,
             beacon_processor_tx,
             work_journal_rx,
             _network_rx,
