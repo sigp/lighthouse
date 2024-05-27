@@ -902,7 +902,7 @@ mod tests {
 
     #[tokio::test]
     async fn mainnet_bellatrix_types() {
-        test_base_types("mainnet", 4244).await
+        test_bellatrix_types("mainnet", 4244).await
     }
 
     #[tokio::test]
