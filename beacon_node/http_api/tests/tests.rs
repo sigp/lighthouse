@@ -1728,8 +1728,7 @@ impl ApiTester {
             )
             .unwrap();
 
-        // assert_eq!(result, expected);
-
+        assert_eq!(result.clone().unwrap().len(), expected.len());
         self
     }
 
