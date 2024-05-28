@@ -10,7 +10,6 @@ edition = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ssz_types = { workspace = true }
-tree_hash = { workspace = true }
 types = { workspace = true }
 reqwest = { workspace = true }
 lighthouse_network = { workspace = true }
@@ -29,7 +28,6 @@ futures = { workspace = true }
 store = { workspace = true }
 slashing_protection = { workspace = true }
 mediatype = "0.19.13"
-mime = "0.3.16"
 pretty_reqwest_error = { workspace = true }
 
 [dev-dependencies]

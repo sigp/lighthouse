@@ -210,9 +210,9 @@ jobs:
 
                   ## Testing Checklist (DELETE ME)
 
-                  - [ ] Run on synced Prater Sigma Prime nodes.
+                  - [ ] Run on synced Holesky Sigma Prime nodes.
                   - [ ] Run on synced Canary (mainnet) Sigma Prime nodes.
-                  - [ ] Resync a Prater node.
+                  - [ ] Resync a Holesky node.
                   - [ ] Resync a mainnet node.
 
                   ## Release Checklist (DELETE ME)
