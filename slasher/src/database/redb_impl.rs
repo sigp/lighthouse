@@ -253,8 +253,8 @@ impl<'env> Cursor<'env> {
     pub fn delete_while(
         &self,
         f: impl Fn(&[u8]) -> Result<bool, Error>,
-    ) -> Result<Vec<Vec<u8>>, Error> {
-        let mut deleted_values: Vec<Vec<u8>> = vec![];
+    ) -> Result<Vec<Cow<'_, [u8]>>, Error>{
+        let mut deleted_values = vec![];
         if let Some(current_key) = &self.current_key {
             let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                 TableDefinition::new(&self.db.table_name);
@@ -265,9 +265,10 @@ impl<'env> Cursor<'env> {
                 table.extract_from_if(current_key.as_ref().., |key, _| f(&key).unwrap_or(false))?;
 
             deleted.for_each(|result| {
-                let item = result.unwrap();
-                let value = item.1.value().to_vec();
-                deleted_values.push(value);
+                if let Ok(item) = result {
+                    let value = item.1.value().to_vec();
+                    deleted_values.push(Cow::from(value));
+                }
             })
         };
         Ok(deleted_values)

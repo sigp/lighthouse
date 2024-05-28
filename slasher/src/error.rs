@@ -68,6 +68,7 @@ pub enum Error {
     MissingIndexedAttestationId,
     MissingIndexedAttestationIdKey,
     InconsistentAttestationDataRoot,
+    MissingKey,
 }
 
 #[cfg(feature = "mdbx")]

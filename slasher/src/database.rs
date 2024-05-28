@@ -460,7 +460,7 @@ impl<E: EthSpec> SlasherDB<E> {
         let data = indexed_attestation.as_ssz_bytes();
 
         cursor.put(attestation_key.as_ref(), &data)?;
-
+        drop(cursor);
         // Update the (epoch, hash) to ID mapping.
         self.put_indexed_attestation_id(txn, &id_key, attestation_key)?;
 
@@ -750,6 +750,7 @@ impl<E: EthSpec> SlasherDB<E> {
                 )
             })
             .collect();
+        drop(cursor);
 
         // Delete the indexed attestations.
         // Optimisation potential: use a cursor here.

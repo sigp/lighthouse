@@ -259,12 +259,12 @@ impl<'env> Cursor<'env> {
     pub fn delete_while(
         &mut self,
         f: impl Fn(&[u8]) -> Result<bool, Error>,
-    ) -> Result<Vec<Vec<u8>>, Error> {
+    ) -> Result<Vec<Cow<'_, [u8]>>, Error> {
         match (self) {
             #[cfg(feature = "mdbx")]
-            (Self::Mdbx(txn), Database::Mdbx(db)) => txn.del(db, key),
+            Self::Mdbx(txn) => txn.delete_while(f),
             #[cfg(feature = "lmdb")]
-            (Self::Lmdb(txn), Database::Lmdb(db)) => txn.del(db, key),
+            Self::Lmdb(txn) => txn.delete_while(f),
             #[cfg(feature = "redb")]
             Self::Redb(txn) => txn.delete_while(f),
             _ => Err(Error::MismatchedDatabaseVariant),
