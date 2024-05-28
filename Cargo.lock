@@ -9090,7 +9090,7 @@ name = "validator_manager"
 version = "0.1.0"
 dependencies = [
  "account_utils",
- "clap",
+ "clap 4.5.4",
  "clap_utils",
  "environment",
  "eth2",
@@ -9329,7 +9329,8 @@ dependencies = [
  "beacon_chain",
  "beacon_node",
  "bls",
- "clap",
+ "clap 4.5.4",
+ "clap_utils",
  "diesel",
  "diesel_migrations",
  "env_logger 0.9.3",
