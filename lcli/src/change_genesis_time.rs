@@ -8,13 +8,13 @@ use types::{BeaconState, EthSpec};
 
 pub fn run<E: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let path = matches
-        .value_of("ssz-state")
+        .get_one::<String>("ssz-state")
         .ok_or("ssz-state not specified")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Unable to parse ssz-state: {}", e))?;
 
     let genesis_time = matches
-        .value_of("genesis-time")
+        .get_one::<String>("genesis-time")
         .ok_or("genesis-time not specified")?
         .parse::<u64>()
         .map_err(|e| format!("Unable to parse genesis-time: {}", e))?;

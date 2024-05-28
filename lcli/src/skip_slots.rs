@@ -75,7 +75,7 @@ pub fn run<E: EthSpec>(
     let runs: usize = parse_required(matches, "runs")?;
     let slots: u64 = parse_required(matches, "slots")?;
     let cli_state_root: Option<Hash256> = parse_optional(matches, "state-root")?;
-    let partial: bool = matches.is_present("partial-state-advance");
+    let partial: bool = matches.get_flag("partial-state-advance");
 
     info!("Using {} spec", E::spec_name());
     info!("Advancing {} slots", slots);
