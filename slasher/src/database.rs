@@ -742,9 +742,7 @@ impl<E: EthSpec> SlasherDB<E> {
             .delete_while(should_delete)?
             .into_iter()
             .map(|value| {
-                IndexedAttestationId::new(
-                    IndexedAttestationId::parse(value).unwrap_or_default(),
-                )
+                IndexedAttestationId::new(IndexedAttestationId::parse(value).unwrap_or_default())
             })
             .collect();
         drop(cursor);
