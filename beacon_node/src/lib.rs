@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate clap;
 
 mod cli;
@@ -44,7 +43,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// configurations hosted remotely.
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        matches: ArgMatches<'static>,
+        matches: ArgMatches,
     ) -> Result<Self, String> {
         let client_config = get_config::<E>(&matches, &context)?;
         Self::new(context, client_config).await

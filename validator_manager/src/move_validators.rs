@@ -1,7 +1,8 @@
 use super::common::*;
 use crate::DumpConfig;
 use account_utils::{read_password_from_user, ZeroizeString};
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use eth2::{
     lighthouse_vc::{
         std_types::{
@@ -66,8 +67,8 @@ impl PasswordSource {
     }
 }
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
         .about(
             "Uploads validators to a validator client using the HTTP API. The validators \
                 are defined in a JSON file which can be generated using the \"create-validators\" \
@@ -75,7 +76,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 file system (i.e., not Web3Signer validators).",
         )
         .arg(
-            Arg::with_name(SRC_VC_URL_FLAG)
+            Arg::new("help")
+                .long("help")
+                .short('h')
+                .help("Prints help information")
+                .action(ArgAction::HelpLong)
+                .display_order(0)
+                .help_heading(FLAG_HEADER),
+        )
+        .arg(
+            Arg::new(SRC_VC_URL_FLAG)
                 .long(SRC_VC_URL_FLAG)
                 .value_name("HTTP_ADDRESS")
                 .help(
@@ -85,17 +95,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .required(true)
                 .requires(SRC_VC_TOKEN_FLAG)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(SRC_VC_TOKEN_FLAG)
+            Arg::new(SRC_VC_TOKEN_FLAG)
                 .long(SRC_VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the source validator client.")
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(DEST_VC_URL_FLAG)
+            Arg::new(DEST_VC_URL_FLAG)
                 .long(DEST_VC_URL_FLAG)
                 .value_name("HTTP_ADDRESS")
                 .help(
@@ -105,35 +117,39 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .required(true)
                 .requires(DEST_VC_TOKEN_FLAG)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(DEST_VC_TOKEN_FLAG)
+            Arg::new(DEST_VC_TOKEN_FLAG)
                 .long(DEST_VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the destination validator client.")
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(VALIDATORS_FLAG)
+            Arg::new(VALIDATORS_FLAG)
                 .long(VALIDATORS_FLAG)
                 .value_name("STRING")
                 .help(
                     "The validators to be moved. Either a list of 0x-prefixed \
                     validator pubkeys or the keyword \"all\".",
                 )
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(COUNT_FLAG)
+            Arg::new(COUNT_FLAG)
                 .long(COUNT_FLAG)
                 .value_name("VALIDATOR_COUNT")
                 .help("The number of validators to move.")
                 .conflicts_with(VALIDATORS_FLAG)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(GAS_LIMIT_FLAG)
+            Arg::new(GAS_LIMIT_FLAG)
                 .long(GAS_LIMIT_FLAG)
                 .value_name("UINT64")
                 .help(
@@ -141,10 +157,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     to leave this as the default value by not specifying this flag.",
                 )
                 .required(false)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(FEE_RECIPIENT_FLAG)
+            Arg::new(FEE_RECIPIENT_FLAG)
                 .long(FEE_RECIPIENT_FLAG)
                 .value_name("ETH1_ADDRESS")
                 .help(
@@ -152,30 +169,33 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     fee recipient. Omit this flag to use the default value from the VC.",
                 )
                 .required(false)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(BUILDER_PROPOSALS_FLAG)
+            Arg::new(BUILDER_PROPOSALS_FLAG)
                 .long(BUILDER_PROPOSALS_FLAG)
                 .help(
                     "When provided, all created validators will attempt to create \
                     blocks via builder rather than the local EL.",
                 )
                 .required(false)
-                .possible_values(&["true", "false"])
-                .takes_value(true),
+                .value_parser(["true", "false"])
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
+            Arg::new(STDIN_INPUTS_FLAG)
+                .action(ArgAction::SetTrue)
+                .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(BUILDER_BOOST_FACTOR_FLAG)
+            Arg::new(BUILDER_BOOST_FACTOR_FLAG)
                 .long(BUILDER_BOOST_FACTOR_FLAG)
-                .takes_value(true)
+                .action(ArgAction::Set)
                 .value_name("UINT64")
                 .required(false)
                 .help(
@@ -183,18 +203,20 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     a percentage multiplier to apply to the builder's payload value \
                     when choosing between a builder payload header and payload from \
                     the local execution node.",
-                ),
+                )
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(PREFER_BUILDER_PROPOSALS_FLAG)
+            Arg::new(PREFER_BUILDER_PROPOSALS_FLAG)
                 .long(PREFER_BUILDER_PROPOSALS_FLAG)
                 .help(
                     "If this flag is set, Lighthouse will always prefer blocks \
                     constructed by builders, regardless of payload value.",
                 )
                 .required(false)
-                .possible_values(&["true", "false"])
-                .takes_value(true),
+                .value_parser(["true", "false"])
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 
@@ -223,10 +245,10 @@ pub struct MoveConfig {
 impl MoveConfig {
     fn from_cli(matches: &ArgMatches) -> Result<Self, String> {
         let count_flag = clap_utils::parse_optional(matches, COUNT_FLAG)?;
-        let validators_flag = matches.value_of(VALIDATORS_FLAG);
+        let validators_flag = matches.get_one::<String>(VALIDATORS_FLAG);
         let validators = match (count_flag, validators_flag) {
             (Some(count), None) => Validators::Count(count),
-            (None, Some(string)) => match string {
+            (None, Some(string)) => match string.as_str() {
                 "all" => Validators::All,
                 pubkeys => pubkeys
                     .split(',')
@@ -257,16 +279,13 @@ impl MoveConfig {
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
             password_source: PasswordSource::Interactive {
-                stdin_inputs: cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG),
+                stdin_inputs: cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG),
             },
         })
     }
 }
 
-pub async fn cli_run<'a>(
-    matches: &'a ArgMatches<'a>,
-    dump_config: DumpConfig,
-) -> Result<(), String> {
+pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<(), String> {
     let config = MoveConfig::from_cli(matches)?;
     if dump_config.should_exit_early(&config)? {
         Ok(())
