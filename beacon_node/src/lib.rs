@@ -81,11 +81,13 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             TimeoutRwLock::disable_timeouts()
         }
 
-        if let Err(invalid_forks_and_epochs) = check_spec_fork_epochs(&spec) {
+        if let Err(misaligned_forks) = validator_fork_epochs(&spec) {
             warn!(
                 log,
-                "Fork epoch(s) is not a multiple of 256";
-                "invalid_forks_and_epochs" => ?invalid_forks_and_epochs,
+                "Fork boundaries are not well aligned / multiples of 256";
+                "info" => "This may cause issues as fork boundaries do not align with the \
+                    start of sync committee period.",
+                "misaligned_forks" => ?misaligned_forks,
             );
         }
 
@@ -190,26 +192,25 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     }
 }
 
-fn check_spec_fork_epochs(spec: &ChainSpec) -> Result<(), Vec<(ForkName, Epoch)>> {
-    let is_invalid_fork_epoch = |epoch: Epoch| epoch % 256 != 0;
+fn validator_fork_epochs(spec: &ChainSpec) -> Result<(), Vec<(ForkName, Epoch)>> {
+    // @dapplion: "We try to schedule forks such that the fork epoch is a multiple of 256, to keep
+    // historical vectors in the same fork. Indirectly that makes light client periods align with
+    // fork boundaries."
+    let sync_committee_period = spec.epochs_per_sync_committee_period; // 256
+    let is_fork_boundary_misaligned = |epoch: Epoch| epoch % sync_committee_period != 0;
 
-    let forks_with_invalid_epoch = [
-        (ForkName::Altair, spec.altair_fork_epoch),
-        (ForkName::Bellatrix, spec.bellatrix_fork_epoch),
-        (ForkName::Capella, spec.capella_fork_epoch),
-        (ForkName::Deneb, spec.deneb_fork_epoch),
-        (ForkName::Electra, spec.electra_fork_epoch),
-    ]
-    .iter()
-    .filter_map(|(fork, fork_epoch_opt)| {
-        fork_epoch_opt.and_then(|epoch| is_invalid_fork_epoch(epoch).then_some((*fork, epoch)))
-    })
-    .collect::<Vec<_>>();
+    let forks_with_misaligned_epochs = ForkName::list_all_fork_epochs(spec)
+        .iter()
+        .filter_map(|(fork, fork_epoch_opt)| {
+            fork_epoch_opt
+                .and_then(|epoch| is_fork_boundary_misaligned(epoch).then_some((*fork, epoch)))
+        })
+        .collect::<Vec<_>>();
 
-    if forks_with_invalid_epoch.is_empty() {
+    if forks_with_misaligned_epochs.is_empty() {
         Ok(())
     } else {
-        Err(forks_with_invalid_epoch)
+        Err(forks_with_misaligned_epochs)
     }
 }
 
@@ -240,16 +241,16 @@ impl lighthouse_network::discv5::Executor for Discv5Executor {
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::MinimalEthSpec;
+    use types::MainnetEthSpec;
 
     #[test]
-    fn test_check_spec_fork_epochs_256_multiples() {
-        let mut spec = MinimalEthSpec::default_spec();
+    fn test_validator_fork_epoch_alignments() {
+        let mut spec = MainnetEthSpec::default_spec();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(256));
         spec.deneb_fork_epoch = Some(Epoch::new(257));
         spec.electra_fork_epoch = None;
-        let result = check_spec_fork_epochs(&spec);
+        let result = validator_fork_epochs(&spec);
         assert_eq!(
             result,
             Err(vec![(ForkName::Deneb, spec.deneb_fork_epoch.unwrap())])
