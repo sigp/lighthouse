@@ -855,6 +855,17 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .display_order(0)
         )
+        .arg(
+            Arg::new("builder-header-timeout")
+                .long("builder-header-timeout")
+                .value_name("UINT64")
+                .help("Defines a timeout value (in milliseconds) to use when \
+                    fetching a block header from the builder api.")
+                .default_value("1000")
+                .requires("builder")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
         /* Deneb settings */
         .arg(
             Arg::new("trusted-setup-file-override")
