@@ -396,6 +396,65 @@ impl<'a, E: EthSpec> SlotData for AttestationRef<'a, E> {
     }
 }
 
+#[derive(Debug, Clone, Encode, Decode, PartialEq)]
+#[ssz(enum_behaviour = "union")]
+pub enum AttestationOnDisk<E: EthSpec> {
+    Base(AttestationBase<E>),
+    Electra(AttestationElectra<E>),
+}
+
+impl<E: EthSpec> AttestationOnDisk<E> {
+    pub fn to_ref(&self) -> AttestationRefOnDisk<E> {
+        match self {
+            AttestationOnDisk::Base(att) => AttestationRefOnDisk::Base(att),
+            AttestationOnDisk::Electra(att) => AttestationRefOnDisk::Electra(att),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode)]
+#[ssz(enum_behaviour = "union")]
+pub enum AttestationRefOnDisk<'a, E: EthSpec> {
+    Base(&'a AttestationBase<E>),
+    Electra(&'a AttestationElectra<E>),
+}
+
+impl<E: EthSpec> From<Attestation<E>> for AttestationOnDisk<E> {
+    fn from(attestation: Attestation<E>) -> Self {
+        match attestation {
+            Attestation::Base(attestation) => Self::Base(attestation),
+            Attestation::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
+impl<E: EthSpec> From<AttestationOnDisk<E>> for Attestation<E> {
+    fn from(attestation: AttestationOnDisk<E>) -> Self {
+        match attestation {
+            AttestationOnDisk::Base(attestation) => Self::Base(attestation),
+            AttestationOnDisk::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
+impl<'a, E: EthSpec> From<AttestationRef<'a, E>> for AttestationRefOnDisk<'a, E> {
+    fn from(attestation: AttestationRef<'a, E>) -> Self {
+        match attestation {
+            AttestationRef::Base(attestation) => Self::Base(attestation),
+            AttestationRef::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
+impl<'a, E: EthSpec> From<AttestationRefOnDisk<'a, E>> for AttestationRef<'a, E> {
+    fn from(attestation: AttestationRefOnDisk<'a, E>) -> Self {
+        match attestation {
+            AttestationRefOnDisk::Base(attestation) => Self::Base(attestation),
+            AttestationRefOnDisk::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

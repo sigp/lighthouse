@@ -366,6 +366,20 @@ impl<E: EthSpec> TransformPersist for AttesterSlashing<E> {
     }
 }
 
+// TODO: Remove this once we no longer support DB schema version 17
+impl<E: EthSpec> TransformPersist for types::AttesterSlashingBase<E> {
+    type Persistable = Self;
+    type PersistableRef<'a> = &'a Self;
+
+    fn as_persistable_ref(&self) -> Self::PersistableRef<'_> {
+        self
+    }
+
+    fn from_persistable(persistable: Self::Persistable) -> Self {
+        persistable
+    }
+}
+
 impl TransformPersist for ProposerSlashing {
     type Persistable = Self;
     type PersistableRef<'a> = &'a Self;
