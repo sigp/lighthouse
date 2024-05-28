@@ -34,15 +34,36 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
-    let vc_count = value_t!(matches, "vc-count", usize).expect("Missing validator-count default");
-    let validators_per_vc =
-        value_t!(matches, "validators-per-vc", usize).expect("Missing validators-per-vc default");
-    let bns_per_vc = value_t!(matches, "bns-per-vc", usize).expect("Missing bns-per-vc default");
+    let vc_count = matches
+        .get_one::<String>("vc-count")
+        .expect("missing vc-count default")
+        .parse::<usize>()
+        .expect("missing vc-count default");
+
+    let validators_per_vc = matches
+        .get_one::<String>("validators-per-vc")
+        .expect("missing validators-per-vc default")
+        .parse::<usize>()
+        .expect("missing validators-per-vc default");
+
+    let bns_per_vc = matches
+        .get_one::<String>("bns-per-vc")
+        .expect("missing bns-per-vc default")
+        .parse::<usize>()
+        .expect("missing bns-per-vc default");
+
     assert!(bns_per_vc > 1);
-    let speed_up_factor =
-        value_t!(matches, "speed-up-factor", u64).expect("Missing speed-up-factor default");
-    let log_level = value_t!(matches, "debug-level", String).expect("Missing default log-level");
-    let continue_after_checks = matches.is_present("continue-after-checks");
+    let speed_up_factor = matches
+        .get_one::<String>("speed-up-factor")
+        .expect("missing speed-up-factor default")
+        .parse::<u64>()
+        .expect("missing speed-up-factor default");
+
+    let log_level = matches
+        .get_one::<String>("debug-level")
+        .expect("missing debug-level default");
+
+    let continue_after_checks = matches.get_flag("continue-after-checks");
 
     println!("Fallback Simulator:");
     println!(" vc-count: {}", vc_count);
@@ -70,7 +91,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         .initialize_logger(LoggerConfig {
             path: None,
             debug_level: log_level.clone(),
-            logfile_debug_level: log_level,
+            logfile_debug_level: log_level.clone(),
             log_format: None,
             logfile_format: None,
             log_color: false,

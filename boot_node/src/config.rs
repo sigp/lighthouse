@@ -25,11 +25,10 @@ pub struct BootNodeConfig<E: EthSpec> {
 
 impl<E: EthSpec> BootNodeConfig<E> {
     pub async fn new(
-        matches: &ArgMatches<'_>,
+        matches: &ArgMatches,
         eth2_network_config: &Eth2NetworkConfig,
     ) -> Result<Self, String> {
         let data_dir = get_data_dir(matches);
-
         // Try and obtain bootnodes
 
         let boot_nodes = {
@@ -39,7 +38,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
                 boot_nodes.extend_from_slice(enr);
             }
 
-            if let Some(nodes) = matches.value_of("boot-nodes") {
+            if let Some(nodes) = matches.get_one::<String>("boot-nodes") {
                 boot_nodes.extend_from_slice(
                     &nodes
                         .split(',')
@@ -81,14 +80,14 @@ impl<E: EthSpec> BootNodeConfig<E> {
         };
 
         // By default this is enabled. If it is not set, revert to false.
-        if !matches.is_present("enable-enr-auto-update") {
+        if !matches.get_flag("enable-enr-auto-update") {
             network_config.discv5_config.enr_update = false;
         }
 
         let private_key = load_private_key(&network_config, &logger);
         let local_key = CombinedKey::from_libp2p(private_key)?;
 
-        let local_enr = if let Some(dir) = matches.value_of("network-dir") {
+        let local_enr = if let Some(dir) = matches.get_one::<String>("network-dir") {
             let network_dir: PathBuf = dir.into();
             load_enr_from_disk(&network_dir)?
         } else {
