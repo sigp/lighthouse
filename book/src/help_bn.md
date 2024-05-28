@@ -43,6 +43,9 @@ Options:
           slots on the canonical chain in the past `SLOTS_PER_EPOCH`, it will
           NOT query any connected builders, and will use the local execution
           engine for payload construction. [default: 8]
+      --builder-header-timeout <UINT64>
+          Defines a timeout value (in milliseconds) to use when fetching a block
+          header from the builder api. [default: 1000]
       --builder-profit-threshold <WEI_VALUE>
           This flag is deprecated and has no effect.
       --builder-user-agent <STRING>
