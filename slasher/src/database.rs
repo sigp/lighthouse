@@ -448,9 +448,9 @@ impl<E: EthSpec> SlasherDB<E> {
         }
 
         // Store the new indexed attestation at the end of the current table.
-        let db = &self.databases.indexed_attestation_db;
+        let mut cursor = txn.cursor(&self.databases.indexed_attestation_db)?;
 
-        let indexed_att_id = match txn.last_key(db)? {
+        let indexed_att_id = match cursor.last_key()? {
             // First ID is 1 so that 0 can be used to represent `null` in `CompactAttesterRecord`.
             None => 1,
             Some(key_bytes) => IndexedAttestationId::parse(key_bytes)? + 1,
@@ -459,7 +459,7 @@ impl<E: EthSpec> SlasherDB<E> {
         let attestation_key = IndexedAttestationId::new(indexed_att_id);
         let data = indexed_attestation.as_ssz_bytes();
 
-        txn.put(db, attestation_key.as_ref(), &data)?;
+        cursor.put(attestation_key.as_ref(), &data)?;
 
         // Update the (epoch, hash) to ID mapping.
         self.put_indexed_attestation_id(txn, &id_key, attestation_key)?;
@@ -691,8 +691,10 @@ impl<E: EthSpec> SlasherDB<E> {
             .saturating_sub(self.config.history_length)
             .start_slot(E::slots_per_epoch());
 
+        let mut cursor = txn.cursor(&self.databases.proposers_db)?;
+
         // Position cursor at first key, bailing out if the database is empty.
-        if txn.first_key(&self.databases.proposers_db)?.is_none() {
+        if cursor.first_key()?.is_none() {
             return Ok(());
         }
 
@@ -706,7 +708,7 @@ impl<E: EthSpec> SlasherDB<E> {
             Ok(should_delete)
         };
 
-        txn.delete_while(&self.databases.proposers_db, should_delete)?;
+        cursor.delete_while(should_delete)?;
 
         Ok(())
     }
@@ -720,9 +722,11 @@ impl<E: EthSpec> SlasherDB<E> {
             .saturating_add(1u64)
             .saturating_sub(self.config.history_length as u64);
 
+        let mut cursor = txn.cursor(&self.databases.indexed_attestation_id_db)?;
+
         // Position cursor at first key, bailing out if the database is empty.
-        if txn
-            .first_key(&self.databases.indexed_attestation_id_db)?
+        if cursor
+            .first_key()?
             .is_none()
         {
             return Ok(());
@@ -737,8 +741,8 @@ impl<E: EthSpec> SlasherDB<E> {
             Ok(false)
         };
 
-        let indexed_attestation_ids: Vec<IndexedAttestationId> = txn
-            .delete_while(&self.databases.proposers_db, should_delete)?
+        let indexed_attestation_ids: Vec<IndexedAttestationId> = cursor
+            .delete_while(should_delete)?
             .into_iter()
             .map(|value| {
                 IndexedAttestationId::new(

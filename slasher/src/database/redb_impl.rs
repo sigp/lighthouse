@@ -32,8 +32,18 @@ pub struct Database<'env> {
 pub struct RwTransaction<'env> {
     #[derivative(Debug = "ignore")]
     txn: redb::WriteTransaction,
+    _phantom: PhantomData<&'env ()>,
+}
+
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub struct Cursor<'env> {
+    #[derivative(Debug = "ignore")]
+    txn: &'env redb::WriteTransaction,
+    db: &'env Database<'env>,
     current_key: Option<Cow<'env, [u8]>>,
 }
+
 
 impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
@@ -98,7 +108,7 @@ impl Environment {
         txn.set_durability(redb::Durability::Eventual);
         Ok(RwTransaction {
             txn,
-            current_key: None,
+            _phantom: PhantomData,
         })
     }
 }
@@ -144,9 +154,24 @@ impl<'env> RwTransaction<'env> {
         Ok(())
     }
 
-    pub fn first_key(&mut self, db: &Database) -> Result<Option<Key>, Error> {
+    pub fn commit(self) -> Result<(), Error> {
+        self.txn.commit()?;
+        Ok(())
+    }
+
+    pub fn cursor<'a>(&'a mut self, db: &'a Database) -> Result<Cursor<'a>, Error> {
+        Ok(Cursor {
+            txn: &self.txn,
+            db: db,
+            current_key: None,
+        })
+    }
+}
+
+impl<'env> Cursor<'env> {
+    pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&db.table_name);
+            TableDefinition::new(&self.db.table_name);
         let table = self.txn.open_table(table_definition)?;
         let first = table
             .iter()?
@@ -162,9 +187,9 @@ impl<'env> RwTransaction<'env> {
         }
     }
 
-    pub fn last_key(&mut self, db: &Database) -> Result<Option<Key<'env>>, Error> {
+    pub fn last_key(&mut self) -> Result<Option<Key<'env>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&db.table_name);
+            TableDefinition::new(&self.db.table_name);
         let table = self.txn.open_table(table_definition)?;
         let last = table
             .iter()?
@@ -179,9 +204,9 @@ impl<'env> RwTransaction<'env> {
         Ok(None)
     }
 
-    pub fn get_current(&self, db: &Database) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
+    pub fn get_current(&self) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&db.table_name);
+            TableDefinition::new(&self.db.table_name);
         let table = self.txn.open_table(table_definition)?;
         if let Some(key) = &self.current_key {
             let result = table.get(key.as_ref())?;
@@ -194,9 +219,9 @@ impl<'env> RwTransaction<'env> {
         Ok(None)
     }
 
-    pub fn next_key(&mut self, db: &Database) -> Result<Option<Key<'env>>, Error> {
+    pub fn next_key(&mut self) -> Result<Option<Key<'env>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&db.table_name);
+            TableDefinition::new(&self.db.table_name);
         let table = self.txn.open_table(table_definition)?;
         if let Some(current_key) = &self.current_key {
             let range: std::ops::RangeFrom<&[u8]> = current_key..;
@@ -215,9 +240,9 @@ impl<'env> RwTransaction<'env> {
         Ok(None)
     }
 
-    pub fn delete_current(&self, db: &Database) -> Result<(), Error> {
+    pub fn delete_current(&self) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-            TableDefinition::new(&db.table_name);
+            TableDefinition::new(&self.db.table_name);
         let mut table = self.txn.open_table(table_definition)?;
         if let Some(key) = &self.current_key {
             table.remove(key.as_ref())?;
@@ -227,13 +252,12 @@ impl<'env> RwTransaction<'env> {
 
     pub fn delete_while(
         &self,
-        db: &Database,
         f: impl Fn(&[u8]) -> Result<bool, Error>,
     ) -> Result<Vec<Vec<u8>>, Error> {
         let mut deleted_values: Vec<Vec<u8>> = vec![];
         if let Some(current_key) = &self.current_key {
             let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-                TableDefinition::new(&db.table_name);
+                TableDefinition::new(&self.db.table_name);
 
             let mut table = self.txn.open_table(table_definition)?;
             
@@ -248,9 +272,17 @@ impl<'env> RwTransaction<'env> {
         };
         Ok(deleted_values)
     }
+    
+    pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+        &mut self,
+        key: K,
+        value: V,
+    ) -> Result<(), Error> {
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+            TableDefinition::new(&self.db.table_name);
+        let mut table = self.txn.open_table(table_definition)?;
+        table.insert(key.as_ref(), value.as_ref())?;
 
-    pub fn commit(self) -> Result<(), Error> {
-        self.txn.commit()?;
         Ok(())
     }
 }
