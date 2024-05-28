@@ -124,7 +124,19 @@ impl<E: EthSpec> PersistedOperationPool<E> {
 
     /// Reconstruct an `OperationPool`.
     pub fn into_operation_pool(mut self) -> Result<OperationPool<E>, OpPoolError> {
-        let attester_slashings = RwLock::new(self.attester_slashings()?.iter().cloned().collect());
+        let attester_slashings = match &self {
+            PersistedOperationPool::V15(pool_v15) => RwLock::new(
+                pool_v15
+                    .attester_slashings_v15
+                    .iter()
+                    .map(|slashing| slashing.clone().into())
+                    .collect(),
+            ),
+            PersistedOperationPool::V20(pool_v20) => {
+                RwLock::new(pool_v20.attester_slashings.iter().cloned().collect())
+            }
+        };
+
         let proposer_slashings = RwLock::new(
             self.proposer_slashings()
                 .iter()
@@ -217,6 +229,20 @@ impl<E: EthSpec> StoreItem for PersistedOperationPoolV15<E> {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
         PersistedOperationPoolV15::from_ssz_bytes(bytes).map_err(Into::into)
+    }
+}
+
+impl<E: EthSpec> StoreItem for PersistedOperationPoolV20<E> {
+    fn db_column() -> DBColumn {
+        DBColumn::OpPool
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        PersistedOperationPoolV20::from_ssz_bytes(bytes).map_err(Into::into)
     }
 }
 

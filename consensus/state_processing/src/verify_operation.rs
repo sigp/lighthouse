@@ -12,7 +12,9 @@ use smallvec::{smallvec, SmallVec};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
-use types::{AttesterSlashing, AttesterSlashingOnDisk, AttesterSlashingRefOnDisk};
+use types::{
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingOnDisk, AttesterSlashingRefOnDisk,
+};
 use types::{
     BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
     SignedBlsToExecutionChange, SignedVoluntaryExit,
@@ -377,6 +379,35 @@ impl<E: EthSpec> TransformPersist for types::AttesterSlashingBase<E> {
 
     fn from_persistable(persistable: Self::Persistable) -> Self {
         persistable
+    }
+}
+// TODO: Remove this once we no longer support DB schema version 17
+impl<E: EthSpec> From<SigVerifiedOp<AttesterSlashingBase<E>, E>>
+    for SigVerifiedOp<AttesterSlashing<E>, E>
+{
+    fn from(base: SigVerifiedOp<AttesterSlashingBase<E>, E>) -> Self {
+        SigVerifiedOp {
+            op: AttesterSlashing::Base(base.op),
+            verified_against: base.verified_against,
+            _phantom: PhantomData,
+        }
+    }
+}
+// TODO: Remove this once we no longer support DB schema version 17
+impl<E: EthSpec> TryFrom<SigVerifiedOp<AttesterSlashing<E>, E>>
+    for SigVerifiedOp<AttesterSlashingBase<E>, E>
+{
+    type Error = String;
+
+    fn try_from(slashing: SigVerifiedOp<AttesterSlashing<E>, E>) -> Result<Self, Self::Error> {
+        match slashing.op {
+            AttesterSlashing::Base(base) => Ok(SigVerifiedOp {
+                op: base,
+                verified_against: slashing.verified_against,
+                _phantom: PhantomData,
+            }),
+            AttesterSlashing::Electra(_) => Err("non-base attester slashing".to_string()),
+        }
     }
 }
 
