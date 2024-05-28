@@ -191,18 +191,16 @@ impl<'env> Cursor<'env> {
         let mut result = vec![];
 
         loop {
-            let (key_bytes, value) = self
-                .get_current()?
-                .ok_or(Error::MissingKey)?;
+            let (key_bytes, value) = self.get_current()?.ok_or(Error::MissingKey)?;
 
             if f(&key_bytes)? {
                 result.push(value.to_vec());
                 self.delete_current()?;
                 if self.next_key()?.is_none() {
-                    break
+                    break;
                 }
             } else {
-                break
+                break;
             }
         }
 

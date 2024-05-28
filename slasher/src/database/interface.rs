@@ -179,7 +179,6 @@ impl<'env> RwTransaction<'env> {
         }
     }
 
-
     pub fn cursor<'a>(&'a mut self, db: &'a Database) -> Result<Cursor<'a>, Error> {
         match (self, db) {
             #[cfg(feature = "mdbx")]
@@ -260,7 +259,7 @@ impl<'env> Cursor<'env> {
         &mut self,
         f: impl Fn(&[u8]) -> Result<bool, Error>,
     ) -> Result<Vec<Cow<'_, [u8]>>, Error> {
-        match (self) {
+        match self {
             #[cfg(feature = "mdbx")]
             Self::Mdbx(txn) => txn.delete_while(f),
             #[cfg(feature = "lmdb")]

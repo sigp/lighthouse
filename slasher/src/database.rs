@@ -725,10 +725,7 @@ impl<E: EthSpec> SlasherDB<E> {
         let mut cursor = txn.cursor(&self.databases.indexed_attestation_id_db)?;
 
         // Position cursor at first key, bailing out if the database is empty.
-        if cursor
-            .first_key()?
-            .is_none()
-        {
+        if cursor.first_key()?.is_none() {
             return Ok(());
         }
 
@@ -746,7 +743,7 @@ impl<E: EthSpec> SlasherDB<E> {
             .into_iter()
             .map(|value| {
                 IndexedAttestationId::new(
-                    IndexedAttestationId::parse(Cow::from(value)).unwrap_or_default(),
+                    IndexedAttestationId::parse(value).unwrap_or_default(),
                 )
             })
             .collect();

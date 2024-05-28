@@ -8,10 +8,7 @@ use crate::{
 };
 use derivative::Derivative;
 use redb::{ReadableTable, TableDefinition};
-use std::{
-    borrow::Cow,
-    path::PathBuf,
-};
+use std::{borrow::Cow, path::PathBuf};
 
 const BASE_DB: &str = "slasher_db";
 
@@ -43,7 +40,6 @@ pub struct Cursor<'env> {
     db: &'env Database<'env>,
     current_key: Option<Cow<'env, [u8]>>,
 }
-
 
 impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
@@ -162,7 +158,7 @@ impl<'env> RwTransaction<'env> {
     pub fn cursor<'a>(&'a mut self, db: &'a Database) -> Result<Cursor<'a>, Error> {
         Ok(Cursor {
             txn: &self.txn,
-            db: db,
+            db,
             current_key: None,
         })
     }
@@ -253,16 +249,16 @@ impl<'env> Cursor<'env> {
     pub fn delete_while(
         &self,
         f: impl Fn(&[u8]) -> Result<bool, Error>,
-    ) -> Result<Vec<Cow<'_, [u8]>>, Error>{
+    ) -> Result<Vec<Cow<'_, [u8]>>, Error> {
         let mut deleted_values = vec![];
         if let Some(current_key) = &self.current_key {
             let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                 TableDefinition::new(&self.db.table_name);
 
             let mut table = self.txn.open_table(table_definition)?;
-            
+
             let deleted =
-                table.extract_from_if(current_key.as_ref().., |key, _| f(&key).unwrap_or(false))?;
+                table.extract_from_if(current_key.as_ref().., |key, _| f(key).unwrap_or(false))?;
 
             deleted.for_each(|result| {
                 if let Ok(item) = result {
@@ -273,12 +269,8 @@ impl<'env> Cursor<'env> {
         };
         Ok(deleted_values)
     }
-    
-    pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(
-        &mut self,
-        key: K,
-        value: V,
-    ) -> Result<(), Error> {
+
+    pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&self.db.table_name);
         let mut table = self.txn.open_table(table_definition)?;
