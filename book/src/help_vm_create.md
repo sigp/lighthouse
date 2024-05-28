@@ -82,7 +82,7 @@ Options:
           If present, the mnemonic will be read in from this file.
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, prater, goerli, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky]
       --output-path <DIRECTORY>
           The path to a directory where the validator and (optionally) deposits
           files will be created. The directory will be created if it does not

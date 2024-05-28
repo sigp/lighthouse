@@ -69,7 +69,7 @@ Options:
           set to 0, background file logging is disabled. [default: 200]
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, prater, goerli, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky]
       --prefer-builder-proposals <prefer-builder-proposals>
           If this flag is set, Lighthouse will always prefer blocks constructed
           by builders, regardless of payload value. [possible values: true,

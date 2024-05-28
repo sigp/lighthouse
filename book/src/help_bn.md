@@ -269,7 +269,7 @@ Options:
           monitoring-endpoint. Default: 60s
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, prater, goerli, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky]
       --network-dir <DIR>
           Data directory for network keys. Defaults to network/ inside the
           beacon node dir.
