@@ -210,7 +210,7 @@ impl TestRig {
         self.sync_manager.handle_message(sync_message);
     }
 
-    fn active_single_lookups(&self) -> Vec<(Id, Hash256, Option<Hash256>)> {
+    fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.sync_manager.active_single_lookups()
     }
 
@@ -252,6 +252,21 @@ impl TestRig {
         }
     }
 
+    fn assert_lookup_peers(&self, block_root: Hash256, mut expected_peers: Vec<PeerId>) {
+        let mut lookup = self
+            .sync_manager
+            .active_single_lookups()
+            .into_iter()
+            .find(|l| l.1 == block_root)
+            .expect(&format!("no lookup for {block_root}"));
+        lookup.3.sort();
+        expected_peers.sort();
+        assert_eq!(
+            lookup.3, expected_peers,
+            "unexpected peers on lookup {block_root}"
+        );
+    }
+
     fn insert_failed_chain(&mut self, block_root: Hash256) {
         self.sync_manager.insert_failed_chain(block_root);
     }
@@ -270,7 +285,7 @@ impl TestRig {
     fn find_single_lookup_for(&self, block_root: Hash256) -> Id {
         self.active_single_lookups()
             .iter()
-            .find(|(_, b, _)| b == &block_root)
+            .find(|l| l.1 == block_root)
             .unwrap_or_else(|| panic!("no single block lookup found for {block_root}"))
             .0
     }
@@ -1303,6 +1318,26 @@ fn test_lookup_disconnection_peer_left() {
     rig.peer_disconnected(disconnecting_peer);
     rig.rpc_error_all_active_requests(disconnecting_peer);
     rig.assert_single_lookups_count(1);
+}
+
+#[test]
+fn test_lookup_add_peers_to_parent() {
+    let mut r = TestRig::test_setup();
+    let peer_id_1 = r.new_connected_peer();
+    let peer_id_2 = r.new_connected_peer();
+    let blocks = r.rand_blockchain(5);
+    let last_block_root = blocks.last().unwrap().canonical_root();
+    // Create a chain of lookups
+    for block in &blocks {
+        r.trigger_unknown_parent_block(peer_id_1, block.clone());
+    }
+    r.trigger_unknown_block_from_attestation(last_block_root, peer_id_2);
+    for block in blocks.iter().take(blocks.len() - 1) {
+        // Parent has the original unknown parent event peer + new peer
+        r.assert_lookup_peers(block.canonical_root(), vec![peer_id_1, peer_id_2]);
+    }
+    // Child lookup only has the unknown attestation peer
+    r.assert_lookup_peers(last_block_root, vec![peer_id_2]);
 }
 
 #[test]

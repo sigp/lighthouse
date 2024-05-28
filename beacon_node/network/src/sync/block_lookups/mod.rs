@@ -85,6 +85,9 @@ pub struct BlockLookups<T: BeaconChainTypes> {
     log: Logger,
 }
 
+#[cfg(test)]
+pub(crate) type BlockLookupSummary = (Id, Hash256, Option<Hash256>, Vec<PeerId>);
+
 impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new(log: Logger) -> Self {
         Self {
@@ -107,10 +110,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn active_single_lookups(&self) -> Vec<(Id, Hash256, Option<Hash256>)> {
+    pub(crate) fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.single_block_lookups
             .iter()
-            .map(|(id, e)| (*id, e.block_root(), e.awaiting_parent()))
+            .map(|(id, l)| {
+                (
+                    *id,
+                    l.block_root(),
+                    l.awaiting_parent(),
+                    l.all_peers().copied().collect(),
+                )
+            })
             .collect()
     }
 
