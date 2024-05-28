@@ -66,10 +66,11 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub block_request_state: BlockRequestState<T::EthSpec>,
     pub blob_request_state: BlobRequestState<T::EthSpec>,
     pub custody_request_state: CustodyRequestState<T::EthSpec>,
+    /// Peers that claim to have imported this set of block components
+    #[derivative(Debug(format_with = "fmt_peer_set_as_len"))]
+    peers: HashSet<PeerId>,
     block_root: Hash256,
     awaiting_parent: Option<Hash256>,
-    /// Peers that claim to have imported this block
-    peers: HashSet<PeerId>,
     created: Instant,
 }
 
@@ -85,9 +86,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             block_request_state: BlockRequestState::new(requested_block_root),
             blob_request_state: BlobRequestState::new(requested_block_root),
             custody_request_state: CustodyRequestState::new(requested_block_root),
+            peers: HashSet::from_iter(peers.iter().copied()),
             block_root: requested_block_root,
             awaiting_parent,
-            peers: peers.iter().copied().collect(),
             created: Instant::now(),
         }
     }
@@ -140,9 +141,18 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_root() == block_root
     }
 
-    /// Get all unique peers across block and blob requests.
-    pub fn all_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
-        self.peers.iter()
+    /// Returns true if the block has already been downloaded.
+    pub fn both_components_processed(&self) -> bool {
+        self.block_request_state.state.is_processed()
+            && self.blob_request_state.state.is_processed()
+            && self.custody_request_state.state.is_processed()
+    }
+
+    /// Returns true if this request is expecting some event to make progress
+    pub fn is_awaiting_event(&self) -> bool {
+        self.awaiting_parent.is_some()
+            || self.block_request_state.state.is_awaiting_event()
+            || self.blob_request_state.state.is_awaiting_event()
     }
 
     /// Makes progress on all requests of this lookup. Any error is not recoverable and must result
@@ -176,29 +186,16 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     ) -> Result<(), LookupRequestError> {
         let id = self.id;
         let awaiting_parent = self.awaiting_parent.is_some();
+        let downloaded_block_expected_blobs = self
+            .block_request_state
+            .state
+            .peek_downloaded_data()
+            .map(|block| block.num_expected_blobs());
         let block_is_processed = self.block_request_state.state.is_processed();
         let request = R::request_state_mut(self);
 
         // Attempt to progress awaiting downloads
         if request.get_state().is_awaiting_download() {
-            let downloaded_block_expected_blobs = self
-                .block_request_state
-                .state
-                .peek_downloaded_data()
-                .map(|block| block.num_expected_blobs());
-
-            let Some(peer_id) = self.get_rand_available_peer() else {
-                if awaiting_parent {
-                    // Allow lookups awaiting for a parent to have zero peers. If when the parent
-                    // resolve they still have zero peers the lookup will fail gracefully.
-                    return Ok(());
-                } else {
-                    return Err(LookupRequestError::NoPeers);
-                }
-            };
-
-            let request = R::request_state_mut(self);
-
             // Verify the current request has not exceeded the maximum number of attempts.
             let request_state = request.get_state();
             if request_state.failed_attempts() >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
@@ -206,6 +203,13 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 return Err(LookupRequestError::TooManyAttempts { cannot_process });
             }
 
+            let Some(peer_id) = self.use_rand_available_peer() else {
+                // Allow lookup to not have any peers. In that case do nothing. If the lookup does
+                // not have peers for some time, it will be dropped.
+                return Ok(());
+            };
+
+            let request = R::request_state_mut(self);
             match request.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
                 LookupRequestResult::RequestSent(req_id) => {
                     request.get_state_mut().on_download_start(req_id)?
@@ -233,32 +237,30 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         Ok(())
     }
 
+    /// Get all unique peers that claim to have imported this set of block components
+    pub fn all_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
+        self.peers.iter()
+    }
+
     /// Add peer to all request states. The peer must be able to serve this request.
     /// Returns true if the peer was newly inserted into some request state.
     pub fn add_peer(&mut self, peer_id: PeerId) -> bool {
         self.peers.insert(peer_id)
     }
 
-    /// Returns true if the block has already been downloaded.
-    pub fn both_components_processed(&self) -> bool {
-        self.block_request_state.state.is_processed()
-            && self.blob_request_state.state.is_processed()
-            && self.custody_request_state.state.is_processed()
-    }
-
     /// Remove peer from available peers. Return true if there are no more available peers and all
     /// requests are not expecting any future event (AwaitingDownload).
     pub fn remove_peer(&mut self, peer_id: &PeerId) -> bool {
-        self.peers.remove(peer_id);
-
-        self.peers.is_empty()
-            && self.block_request_state.state.is_awaiting_download()
-            && self.blob_request_state.state.is_awaiting_download()
-            && self.custody_request_state.state.is_awaiting_download()
+        self.peers.remove(peer_id)
     }
 
-    /// Selects a random peer from available peers if any, inserts it in used peers and returns it.
-    pub fn get_rand_available_peer(&mut self) -> Option<PeerId> {
+    /// Returns true if this lookup has zero peers
+    pub fn has_no_peers(&self) -> bool {
+        self.peers.is_empty()
+    }
+
+    /// Selects a random peer from available peers if any
+    fn use_rand_available_peer(&mut self) -> Option<PeerId> {
         self.peers.iter().choose(&mut rand::thread_rng()).copied()
     }
 }
@@ -373,6 +375,24 @@ impl<T: Clone> SingleLookupRequestState<T> {
             | State::AwaitingProcess { .. }
             | State::Processing { .. } => false,
             State::Processed { .. } => true,
+        }
+    }
+
+    /// Returns true if we can expect some future event to progress this block component request
+    /// specifically.
+    pub fn is_awaiting_event(&self) -> bool {
+        match self.state {
+            // No event will progress this request specifically, but the request may be put on hold
+            // due to some external event
+            State::AwaitingDownload { .. } => false,
+            // Network will emit a download success / error event
+            State::Downloading { .. } => true,
+            // Not awaiting any external event
+            State::AwaitingProcess { .. } => false,
+            // Beacon processor will emit a processing result event
+            State::Processing { .. } => true,
+            // Request complete, no future event left
+            State::Processed { .. } => false,
         }
     }
 
@@ -549,4 +569,11 @@ impl<T: Clone> std::fmt::Debug for State<T> {
             Self::Processed { .. } => write!(f, "Processed"),
         }
     }
+}
+
+fn fmt_peer_set_as_len(
+    peer_set: &HashSet<PeerId>,
+    f: &mut std::fmt::Formatter,
+) -> Result<(), std::fmt::Error> {
+    write!(f, "{}", peer_set.len())
 }

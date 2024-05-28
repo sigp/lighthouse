@@ -50,7 +50,7 @@ use types::blob_sidecar::BlobIdentifier;
 use types::data_column_sidecar::DataColumnIdentifier;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256,
-    RuntimeVariableList,
+    RuntimeVariableList, SignedBeaconBlock,
 };
 
 pub type DataColumnsToPublish<E> = Option<Vec<Arc<DataColumnSidecar<E>>>>;
@@ -771,12 +771,19 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     }
 
     /// Returns true if the block root is known, without altering the LRU ordering
-    pub fn has_execution_valid_block(&self, block_root: &Hash256) -> bool {
-        if let Some(pending_components) = self.critical.read().peek_pending_components(block_root) {
-            pending_components.executed_block.is_some()
-        } else {
-            false
-        }
+    pub fn get_execution_valid_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+        self.critical
+            .read()
+            .peek_pending_components(block_root)
+            .and_then(|pending_components| {
+                pending_components
+                    .executed_block
+                    .as_ref()
+                    .map(|block| block.block_cloned())
+            })
     }
 
     /// Fetch a blob from the cache without affecting the LRU ordering

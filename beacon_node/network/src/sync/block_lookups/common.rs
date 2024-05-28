@@ -2,7 +2,7 @@ use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, SingleBlockLookup, SingleLookupRequestState,
 };
 use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, PeerId};
-use crate::sync::manager::{BlockProcessType, Id, SLOT_IMPORT_TOLERANCE};
+use crate::sync::manager::{BlockProcessType, Id};
 use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::CustodyDataColumn;
@@ -22,11 +22,6 @@ pub enum ResponseType {
     Blob,
     CustodyColumn,
 }
-
-/// The maximum depth we will search for a parent block. In principle we should have sync'd any
-/// canonical chain to its head once the peer connects. A chain should not appear where it's depth
-/// is further back than the most recent head slot.
-pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 
 /// This trait unifies common single block lookup functionality across blocks and blobs. This
 /// includes making requests, verifying responses, and handling processing results. A

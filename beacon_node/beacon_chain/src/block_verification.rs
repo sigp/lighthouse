@@ -1481,18 +1481,20 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
         // Stage a batch of operations to be completed atomically if this block is imported
-        // successfully. We include the state root of the pre-state, which may be an advanced state
-        // that was stored in the DB with a `temporary` flag.
+        // successfully. If there is a skipped slot, we include the state root of the pre-state,
+        // which may be an advanced state that was stored in the DB with a `temporary` flag.
         let mut state = parent.pre_state;
 
-        let mut confirmed_state_roots = if state.slot() > parent.beacon_block.slot() {
-            // Advanced pre-state. Delete its temporary flag.
-            let pre_state_root = state.update_tree_hash_cache()?;
-            vec![pre_state_root]
-        } else {
-            // Pre state is parent state. It is already stored in the DB without temporary status.
-            vec![]
-        };
+        let mut confirmed_state_roots =
+            if block.slot() > state.slot() && state.slot() > parent.beacon_block.slot() {
+                // Advanced pre-state. Delete its temporary flag.
+                let pre_state_root = state.update_tree_hash_cache()?;
+                vec![pre_state_root]
+            } else {
+                // Pre state is either unadvanced, or should not be stored long-term because there
+                // is no skipped slot between `parent` and `block`.
+                vec![]
+            };
 
         // The block must have a higher slot than its parent.
         if block.slot() <= parent.beacon_block.slot() {
