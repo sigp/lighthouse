@@ -258,7 +258,7 @@ impl TestRig {
             .active_single_lookups()
             .into_iter()
             .find(|l| l.1 == block_root)
-            .expect(&format!("no lookup for {block_root}"));
+            .unwrap_or_else(|| panic!("no lookup for {block_root}"));
         lookup.3.sort();
         expected_peers.sort();
         assert_eq!(

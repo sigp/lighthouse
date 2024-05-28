@@ -833,8 +833,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// be able to make progress, but we add peers to them anyway for completeness.
     /// Note: Takes a `lookup_id` as argument to allow recursion on mutable lookups, without having
     /// to duplicate the code to add peers to a lookup
-    fn add_peers_to_lookup_and_ancestors<'a>(
-        &'a mut self,
+    fn add_peers_to_lookup_and_ancestors(
+        &mut self,
         lookup_id: SingleLookupId,
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
