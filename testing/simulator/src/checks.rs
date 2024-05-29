@@ -343,7 +343,8 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
 
         if light_client_updates.len() != 1 {
             return Err(format!(
-                "{} light client update(s) was returned when only one was expected.", light_client_updates.len()
+                "{} light client update(s) was returned when only one was expected.",
+                light_client_updates.len()
             ));
         }
 
@@ -356,7 +357,9 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             }
         };
     }
-
+    return Err(format!(
+        "we succeeded in returning light client data :)"
+    ));
     Ok(())
 }
 

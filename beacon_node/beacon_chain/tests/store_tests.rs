@@ -106,6 +106,138 @@ fn get_harness_generic(
     harness
 }
 
+#[tokio::test]
+async fn light_client_test() {
+    let num_blocks_produced = E::slots_per_epoch() * 20;
+    let db_path = tempdir().unwrap();
+    let log = test_logger();
+    let spec = test_spec::<E>();
+    let seconds_per_slot = spec.seconds_per_slot;
+    let store = get_store_generic(
+        &db_path,
+        StoreConfig {
+            slots_per_restore_point: 2 * E::slots_per_epoch(),
+            ..Default::default()
+        },
+        test_spec::<E>(),
+    );
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 2);
+    let num_initial_slots = E::slots_per_epoch() * 11;
+    let slots: Vec<Slot> = (1..num_initial_slots).map(Slot::new).collect();
+
+    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    harness
+        .add_attested_blocks_at_slots(
+            genesis_state.clone(),
+            genesis_state_root,
+            &slots,
+            &all_validators,
+        )
+        .await;
+
+    let wss_block_root = harness
+        .chain
+        .block_root_at_slot(Slot::new(0), WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let wss_state_root = harness
+        .chain
+        .state_root_at_slot(checkpoint_slot)
+        .unwrap()
+        .unwrap();
+
+    let wss_block = harness
+        .chain
+        .store
+        .get_full_block(&wss_block_root)
+        .unwrap()
+        .unwrap();
+    let wss_blobs_opt = harness.chain.store.get_blobs(&wss_block_root).unwrap();
+    let wss_state = store
+        .get_state(&wss_state_root, Some(checkpoint_slot))
+        .unwrap()
+        .unwrap();
+
+    let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
+
+    let mock =
+    mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    // Initialise a new beacon chain from the finalized checkpoint.
+    // The slot clock must be set to a time ahead of the checkpoint state.
+    let slot_clock = TestingSlotClock::new(
+        Slot::new(0),
+        Duration::from_secs(harness.chain.genesis_time),
+        Duration::from_secs(seconds_per_slot),
+    );
+    slot_clock.set_slot(harness.get_current_slot().as_u64());
+
+    let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
+
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
+        .store(store.clone())
+        .custom_spec(test_spec::<E>())
+        .task_executor(harness.chain.task_executor.clone())
+        .logger(log.clone())
+        .weak_subjectivity_state(
+            wss_state,
+            wss_block.clone(),
+            wss_blobs_opt.clone(),
+            genesis_state,
+        )
+        .unwrap()
+        .store_migrator_config(MigratorConfig::default().blocking())
+        .dummy_eth1_backend()
+        .expect("should build dummy backend")
+        .slot_clock(slot_clock)
+        .shutdown_sender(shutdown_tx)
+        .chain_config(ChainConfig::default())
+        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
+            log.clone(),
+            1,
+        )))
+        .execution_layer(Some(mock.el))
+        .kzg(kzg)
+        .build()
+        .expect("should build");
+
+    let beacon_chain = Arc::new(beacon_chain);
+
+    let current_state = harness.get_current_state();
+
+    let sync_aggregate = beacon_chain
+        .op_pool
+        .get_sync_aggregate(&current_state)
+        .unwrap()
+        .unwrap();
+
+    let block_root = harness
+        .chain
+        .block_root_at_slot(Slot::new(0), WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+
+    beacon_chain
+        .light_client_server_cache
+        .recompute_and_cache_updates(
+            store,
+            Slot::new(1),
+            &block_root,
+            &sync_aggregate,
+            &log,
+            &spec
+    ).unwrap();
+}
+
 /// Tests that `store.heal_freezer_block_roots_at_split` inserts block roots between last restore point
 /// slot and the split slot.
 #[tokio::test]
