@@ -954,6 +954,12 @@ pub struct SseHead {
     pub execution_optimistic: bool,
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+
+pub struct BlockGossip {
+    pub slot: Slot,
+    pub block: Hash256,
+}
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseChainReorg {
     pub slot: Slot,
@@ -1083,7 +1089,7 @@ pub enum EventKind<E: EthSpec> {
     ProposerSlashing(Box<ProposerSlashing>),
     AttesterSlashing(Box<AttesterSlashing<E>>),
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
-    BlockGossip(BlockGossip),
+    BlockGossip(Box<BlockGossip>),
 }
 
 impl<E: EthSpec> EventKind<E> {
