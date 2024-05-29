@@ -31,11 +31,8 @@ pub struct Timeouts {
 
 impl Timeouts {
     fn new(get_header_timeout: Option<Duration>) -> Self {
-        let get_header = if let Some(get_header_timeout) = get_header_timeout {
-            get_header_timeout
-        } else {
-            Duration::from_millis(DEFAULT_GET_HEADER_TIMEOUT_MILLIS)
-        };
+        let get_header =
+            get_header_timeout.unwrap_or(Duration::from_millis(DEFAULT_GET_HEADER_TIMEOUT_MILLIS));
 
         Self {
             get_header,

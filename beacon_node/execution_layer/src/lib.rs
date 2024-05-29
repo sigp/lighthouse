@@ -371,7 +371,7 @@ pub struct Config {
     /// Endpoint urls for services providing the builder api.
     pub builder_url: Option<SensitiveUrl>,
     /// The timeout value used when making a request to fetch a block header
-    /// from the builder api
+    /// from the builder api.
     pub builder_header_timeout: Option<Duration>,
     /// User agent to send with requests to the builder API.
     pub builder_user_agent: Option<String>,
