@@ -13,12 +13,11 @@ eth2_config = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true }
+ethereum_ssz = { workspace = true }
 
 [dependencies]
 serde_yaml = { workspace = true }
-serde_json = { workspace = true }
 types = { workspace = true }
-ethereum_ssz = { workspace = true }
 eth2_config = { workspace = true }
 discv5 = { workspace = true }
 reqwest = { workspace = true }

@@ -11,12 +11,9 @@ sloggers = { workspace = true }
 environment = { workspace = true }
 
 [dependencies]
-reqwest = { workspace = true }
 execution_layer = { workspace = true }
 futures = { workspace = true }
-serde_json = { workspace = true }
 serde = { workspace = true }
-hex = { workspace = true }
 types = { workspace = true }
 merkle_proof = { workspace = true }
 ethereum_ssz = { workspace = true }

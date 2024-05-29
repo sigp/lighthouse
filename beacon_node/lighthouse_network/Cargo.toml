@@ -13,8 +13,6 @@ types = { workspace = true }
 serde = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
-tree_hash = { workspace = true }
-tree_hash_derive = { workspace = true }
 slog = { workspace = true }
 lighthouse_version = { workspace = true }
 tokio = { workspace = true }
@@ -43,17 +41,11 @@ superstruct = { workspace = true }
 prometheus-client = "0.22.0"
 unused_port = { workspace = true }
 delay_map = { workspace = true }
-tracing = { workspace = true }
-byteorder = { workspace = true }
 bytes = { workspace = true }
 either = { workspace = true }
 
 # Local dependencies
-futures-ticker = "0.0.3"
-getrandom = "0.2.11"
-hex_fmt = "0.3.0"
 void = "1.0.2"
-base64 = "0.21.5"
 libp2p-mplex = "0.41"
 
 [dependencies.libp2p]

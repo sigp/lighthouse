@@ -12,10 +12,10 @@ In order to apply these APIs, you need to have historical states information in 
 
 ## Endpoints
 
-HTTP Path | Description |
+| HTTP Path | Description |
 | --- | -- |
-[`/lighthouse/validator_inclusion/{epoch}/global`](#global) | A global vote count for a given epoch.
-[`/lighthouse/validator_inclusion/{epoch}/{validator_id}`](#individual) | A per-validator breakdown of votes in a given epoch.
+| [`/lighthouse/validator_inclusion/{epoch}/global`](#global) | A global vote count for a given epoch. |
+| [`/lighthouse/validator_inclusion/{epoch}/{validator_id}`](#individual) | A per-validator breakdown of votes in a given epoch. |
 
 ## Global
 
@@ -53,16 +53,17 @@ vote (that is why it is _effective_ `Gwei`).
 The following fields are returned:
 
 - `current_epoch_active_gwei`: the total staked gwei that was active (i.e.,
-	able to vote) during the current epoch.
+ able to vote) during the current epoch.
 - `current_epoch_target_attesting_gwei`: the total staked gwei that attested to
-	the majority-elected Casper FFG target epoch during the current epoch.
+ the majority-elected Casper FFG target epoch during the current epoch.
+- `previous_epoch_active_gwei`: as per `current_epoch_active_gwei`, but during the previous epoch.
 - `previous_epoch_target_attesting_gwei`: see `current_epoch_target_attesting_gwei`.
 - `previous_epoch_head_attesting_gwei`: the total staked gwei that attested to a
-	head beacon block that is in the canonical chain.
+ head beacon block that is in the canonical chain.
 
 From this data you can calculate:
 
-#### Justification/Finalization Rate
+### Justification/Finalization Rate
 
 `previous_epoch_target_attesting_gwei / current_epoch_active_gwei`
 
@@ -94,7 +95,6 @@ current epoch.
 The [Global Votes](#global) endpoint is the summation of all of these
 individual values, please see it for definitions of terms like "current_epoch",
 "previous_epoch" and "target_attester".
-
 
 ### HTTP Example
 
