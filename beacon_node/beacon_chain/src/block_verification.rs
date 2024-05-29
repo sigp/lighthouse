@@ -977,7 +977,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         // block gossip events for beacon API
         if let Some(event_handler) = self.block_gossip.as_ref() {
-            if event_handler.has_bls_to_execution_change_subscribers() {
+            if event_handler.has_block_gossip_subscribers() {
                 event_handler.register(EventKind::BlockGossip(Box::new(
                     BlockGossip.clone().into_inner(),
                 )));
