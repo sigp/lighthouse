@@ -20,7 +20,9 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     );
     let base_fee_per_gas = parse_required(matches, "base-fee-per-gas")?;
     let gas_limit = parse_required(matches, "gas-limit")?;
-    let file_name = matches.value_of("file").ok_or("No file supplied")?;
+    let file_name = matches
+        .get_one::<String>("file")
+        .ok_or("No file supplied")?;
     let fork_name: ForkName = parse_optional(matches, "fork")?.unwrap_or(ForkName::Bellatrix);
 
     let execution_payload_header: ExecutionPayloadHeader<E> = match fork_name {
