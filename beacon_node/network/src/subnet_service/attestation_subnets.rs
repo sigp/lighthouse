@@ -477,8 +477,16 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             time_to_subscription_slot.saturating_sub(advance_subscription_duration)
         };
 
+        let mut time_to_subscription_slot = self
+            .beacon_chain
+            .slot_clock
+            .duration_to_slot(slot)
+            .unwrap_or_default(); // If this is a past slot we will just get a 0 duration.
+
+        time_to_subscription_slot += slot_duration * 2;
+
         if let Some(tracked_vals) = self.aggregate_validators_on_subnet.as_mut() {
-            tracked_vals.insert(ExactSubnet { subnet_id, slot });
+            tracked_vals.insert_at(ExactSubnet { subnet_id, slot }, time_to_subscription_slot);
         }
 
         // If the subscription should be done in the future, schedule it. Otherwise subscribe
