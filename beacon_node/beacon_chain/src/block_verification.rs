@@ -975,6 +975,15 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Validate the block's execution_payload (if any).
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
+        // block gossip events for beacon API
+        if let Some(event_handler) = self.block_gossip.as_ref() {
+            if event_handler.has_bls_to_execution_change_subscribers() {
+                event_handler.register(EventKind::BlockGossip(Box::new(
+                    BlockGossip.clone().into_inner(),
+                )));
+            }
+        }
+
         // Having checked the proposer index and the block root we can cache them.
         let consensus_context = ConsensusContext::new(block.slot())
             .set_current_block_root(block_root)
