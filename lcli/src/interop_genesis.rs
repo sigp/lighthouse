@@ -9,12 +9,12 @@ use types::{test_utils::generate_deterministic_keypairs, EthSpec, Hash256};
 
 pub fn run<E: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let validator_count = matches
-        .value_of("validator-count")
+        .get_one::<String>("validator-count")
         .ok_or("validator-count not specified")?
         .parse::<usize>()
         .map_err(|e| format!("Unable to parse validator-count: {}", e))?;
 
-    let genesis_time = if let Some(genesis_time) = matches.value_of("genesis-time") {
+    let genesis_time = if let Some(genesis_time) = matches.get_one::<String>("genesis-time") {
         genesis_time
             .parse::<u64>()
             .map_err(|e| format!("Unable to parse genesis-time: {}", e))?

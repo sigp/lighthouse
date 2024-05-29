@@ -311,9 +311,7 @@ impl TestRig {
                 block_root,
                 RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
                 std::time::Duration::default(),
-                BlockProcessType::ParentLookup {
-                    chain_hash: Hash256::random(),
-                },
+                BlockProcessType::SingleBlock { id: 0 },
             )
             .unwrap();
     }

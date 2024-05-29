@@ -1023,7 +1023,7 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Merge => serde_json::from_value(value)
+            ForkName::Bellatrix => serde_json::from_value(value)
                 .map(Self::V1)
                 .map_err(serde::de::Error::custom),
             ForkName::Capella => serde_json::from_value(value)
@@ -1080,6 +1080,8 @@ pub enum EventKind<E: EthSpec> {
     #[cfg(feature = "lighthouse")]
     BlockReward(BlockReward),
     PayloadAttributes(VersionedSsePayloadAttributes),
+    ProposerSlashing(Box<ProposerSlashing>),
+    AttesterSlashing(Box<AttesterSlashing<E>>),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1099,6 +1101,8 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::LightClientOptimisticUpdate(_) => "light_client_optimistic_update",
             #[cfg(feature = "lighthouse")]
             EventKind::BlockReward(_) => "block_reward",
+            EventKind::ProposerSlashing(_) => "proposer_slashing",
+            EventKind::AttesterSlashing(_) => "attester_slashing",
         }
     }
 
@@ -1179,6 +1183,16 @@ impl<E: EthSpec> EventKind<E> {
             "block_reward" => Ok(EventKind::BlockReward(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block Reward: {:?}", e)),
             )?)),
+            "attester_slashing" => Ok(EventKind::AttesterSlashing(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Attester Slashing: {:?}", e))
+                })?,
+            )),
+            "proposer_slashing" => Ok(EventKind::ProposerSlashing(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Proposer Slashing: {:?}", e))
+                })?,
+            )),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1210,6 +1224,8 @@ pub enum EventTopic {
     LightClientOptimisticUpdate,
     #[cfg(feature = "lighthouse")]
     BlockReward,
+    AttesterSlashing,
+    ProposerSlashing,
 }
 
 impl FromStr for EventTopic {
@@ -1231,6 +1247,8 @@ impl FromStr for EventTopic {
             "light_client_optimistic_update" => Ok(EventTopic::LightClientOptimisticUpdate),
             #[cfg(feature = "lighthouse")]
             "block_reward" => Ok(EventTopic::BlockReward),
+            "attester_slashing" => Ok(EventTopic::AttesterSlashing),
+            "proposer_slashing" => Ok(EventTopic::ProposerSlashing),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1253,6 +1271,8 @@ impl fmt::Display for EventTopic {
             EventTopic::LightClientOptimisticUpdate => write!(f, "light_client_optimistic_update"),
             #[cfg(feature = "lighthouse")]
             EventTopic::BlockReward => write!(f, "block_reward"),
+            EventTopic::AttesterSlashing => write!(f, "attester_slashing"),
+            EventTopic::ProposerSlashing => write!(f, "proposer_slashing"),
         }
     }
 }
@@ -1598,7 +1618,7 @@ impl<E: EthSpec> FullBlockContents<E> {
         fork_name: ForkName,
     ) -> Result<Self, ssz::DecodeError> {
         match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
                     .map(|block| FullBlockContents::Block(block))
             }
@@ -1658,7 +1678,7 @@ impl<E: EthSpec> ForkVersionDeserialize for FullBlockContents<E> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 Ok(FullBlockContents::Block(
                     BeaconBlock::deserialize_by_fork::<'de, D>(value, fork_name)?,
                 ))
@@ -1758,7 +1778,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
     /// SSZ decode with fork variant determined by `fork_name`.
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
                     .map(|block| PublishBlockRequest::Block(Arc::new(block)))
             }
@@ -1844,7 +1864,7 @@ impl<E: EthSpec> TryFrom<Arc<SignedBeaconBlock<E>>> for PublishBlockRequest<E> {
         match *block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => Ok(PublishBlockRequest::Block(block)),
             SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => Err(
                 "post-Deneb block contents cannot be fully constructed from just the signed block",
@@ -1953,7 +1973,7 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Merge | ForkName::Capella => serde_json::from_value(value)
+            ForkName::Bellatrix | ForkName::Capella => serde_json::from_value(value)
                 .map(Self::Payload)
                 .map_err(serde::de::Error::custom),
             ForkName::Deneb | ForkName::Electra => serde_json::from_value(value)

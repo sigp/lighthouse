@@ -1,4 +1,4 @@
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
 use slog::{crit, debug, error, Logger};
 use std::collections::HashMap;
@@ -14,8 +14,8 @@ use types::{
     SignedBlindedBeaconBlock, Slot,
 };
 use types::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadHeader,
-    ExecutionPayloadMerge,
+    ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
+    ExecutionPayloadHeader,
 };
 
 #[derive(PartialEq)]
@@ -95,7 +95,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
         .map_err(BeaconChainError::InconsistentFork)?;
 
     let payload: ExecutionPayload<E> = match fork {
-        ForkName::Merge => ExecutionPayloadMerge::default().into(),
+        ForkName::Bellatrix => ExecutionPayloadBellatrix::default().into(),
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
@@ -410,15 +410,14 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
 
     fn check_caches(&self, root: Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
         if self.check_caches == CheckCaches::Yes {
-            self.beacon_chain
-                .reqresp_pre_import_cache
-                .read()
-                .get(&root)
-                .map(|block| {
+            match self.beacon_chain.get_block_process_status(&root) {
+                BlockProcessStatus::Unknown => None,
+                BlockProcessStatus::NotValidated(block)
+                | BlockProcessStatus::ExecutionValidated(block) => {
                     metrics::inc_counter(&metrics::BEACON_REQRESP_PRE_IMPORT_CACHE_HITS);
-                    block.clone()
-                })
-                .or(self.beacon_chain.early_attester_cache.get_block(root))
+                    Some(block)
+                }
+            }
         } else {
             None
         }

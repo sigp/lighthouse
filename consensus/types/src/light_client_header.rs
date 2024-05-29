@@ -75,7 +75,7 @@ impl<E: EthSpec> LightClientHeader<E> {
             .map_err(|_| Error::InconsistentFork)?
         {
             ForkName::Base => return Err(Error::AltairForkNotActive),
-            ForkName::Altair | ForkName::Merge => LightClientHeader::Altair(
+            ForkName::Altair | ForkName::Bellatrix => LightClientHeader::Altair(
                 LightClientHeaderAltair::block_to_light_client_header(block)?,
             ),
             ForkName::Capella => LightClientHeader::Capella(
@@ -90,7 +90,7 @@ impl<E: EthSpec> LightClientHeader<E> {
 
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let header = match fork_name {
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 LightClientHeader::Altair(LightClientHeaderAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => {
@@ -119,7 +119,7 @@ impl<E: EthSpec> LightClientHeader<E> {
 
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge => 0,
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix => 0,
             ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                 ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
@@ -198,7 +198,7 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientHeader<E> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair | ForkName::Merge => serde_json::from_value(value)
+            ForkName::Altair | ForkName::Bellatrix => serde_json::from_value(value)
                 .map(|light_client_header| Self::Altair(light_client_header))
                 .map_err(serde::de::Error::custom),
             ForkName::Capella => serde_json::from_value(value)

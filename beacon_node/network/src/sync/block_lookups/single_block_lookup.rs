@@ -1,25 +1,30 @@
-use super::PeerId;
-use crate::sync::block_lookups::common::{Lookup, RequestState};
+use super::common::ResponseType;
+use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
+use crate::sync::block_lookups::common::RequestState;
 use crate::sync::block_lookups::Id;
-use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_availability_checker::ChildComponents;
-use beacon_chain::data_availability_checker::{
-    AvailabilityCheckError, DataAvailabilityChecker, MissingBlobs,
+use crate::sync::network_context::{
+    LookupRequestResult, ReqId, RpcRequestSendError, SendErrorProcessor, SyncNetworkContext,
 };
 use beacon_chain::BeaconChainTypes;
-use itertools::Itertools;
-use lighthouse_network::PeerAction;
+use derivative::Derivative;
 use rand::seq::IteratorRandom;
-use slog::{debug, Logger};
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::EthSpec;
+use types::{EthSpec, SignedBeaconBlock};
+
+// Dedicated enum for LookupResult to force its usage
+#[must_use = "LookupResult must be handled with on_lookup_result"]
+pub enum LookupResult {
+    /// Lookup completed successfully
+    Completed,
+    /// Lookup is expecting some future event from the network
+    Pending,
+}
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
@@ -28,168 +33,108 @@ pub enum LookupRequestError {
         /// The failed attempts were primarily due to processing failures.
         cannot_process: bool,
     },
+    /// No peers left to serve this lookup
     NoPeers,
-    SendFailed(&'static str),
+    /// Error sending event to network
+    SendFailedNetwork(RpcRequestSendError),
+    /// Error sending event to processor
+    SendFailedProcessor(SendErrorProcessor),
+    /// Inconsistent lookup request state
     BadState(String),
+    /// Lookup failed for some other reason and should be dropped
+    Failed,
+    /// Received MissingComponents when all components have been processed. This should never
+    /// happen, and indicates some internal bug
+    MissingComponentsAfterAllProcessed,
+    /// Attempted to retrieve a not known lookup id
+    UnknownLookup,
+    /// Received a download result for a different request id than the in-flight request.
+    /// There should only exist a single request at a time. Having multiple requests is a bug and
+    /// can result in undefined state, so it's treated as a hard error and the lookup is dropped.
+    UnexpectedRequestId {
+        expected_req_id: ReqId,
+        req_id: ReqId,
+    },
 }
 
-pub struct SingleBlockLookup<L: Lookup, T: BeaconChainTypes> {
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
+pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
-    pub block_request_state: BlockRequestState<L>,
-    pub blob_request_state: BlobRequestState<L, T::EthSpec>,
-    pub da_checker: Arc<DataAvailabilityChecker<T>>,
-    /// Only necessary for requests triggered by an `UnknownBlockParent` or `UnknownBlockParent`
-    /// because any blocks or blobs without parents won't hit the data availability cache.
-    pub child_components: Option<ChildComponents<T::EthSpec>>,
+    pub block_request_state: BlockRequestState<T::EthSpec>,
+    pub blob_request_state: BlobRequestState<T::EthSpec>,
+    /// Peers that claim to have imported this set of block components
+    #[derivative(Debug(format_with = "fmt_peer_set_as_len"))]
+    peers: HashSet<PeerId>,
+    block_root: Hash256,
+    awaiting_parent: Option<Hash256>,
+    created: Instant,
 }
 
-impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
+impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn new(
         requested_block_root: Hash256,
-        child_components: Option<ChildComponents<T::EthSpec>>,
         peers: &[PeerId],
-        da_checker: Arc<DataAvailabilityChecker<T>>,
         id: Id,
+        awaiting_parent: Option<Hash256>,
     ) -> Self {
-        let is_deneb = da_checker.is_deneb();
         Self {
             id,
-            block_request_state: BlockRequestState::new(requested_block_root, peers),
-            blob_request_state: BlobRequestState::new(requested_block_root, peers, is_deneb),
-            da_checker,
-            child_components,
+            block_request_state: BlockRequestState::new(requested_block_root),
+            blob_request_state: BlobRequestState::new(requested_block_root),
+            peers: HashSet::from_iter(peers.iter().copied()),
+            block_root: requested_block_root,
+            awaiting_parent,
+            created: Instant::now(),
         }
     }
 
     /// Get the block root that is being requested.
     pub fn block_root(&self) -> Hash256 {
-        self.block_request_state.requested_block_root
+        self.block_root
+    }
+
+    pub fn awaiting_parent(&self) -> Option<Hash256> {
+        self.awaiting_parent
+    }
+
+    /// Mark this lookup as awaiting a parent lookup from being processed. Meanwhile don't send
+    /// components for processing.
+    pub fn set_awaiting_parent(&mut self, parent_root: Hash256) {
+        self.awaiting_parent = Some(parent_root)
+    }
+
+    /// Mark this lookup as no longer awaiting a parent lookup. Components can be sent for
+    /// processing.
+    pub fn resolve_awaiting_parent(&mut self) {
+        self.awaiting_parent = None;
+    }
+
+    /// Returns the time elapsed since this lookup was created
+    pub fn elapsed_since_created(&self) -> Duration {
+        self.created.elapsed()
+    }
+
+    /// Maybe insert a verified response into this lookup. Returns true if imported
+    pub fn add_child_components(&mut self, block_component: BlockComponent<T::EthSpec>) -> bool {
+        match block_component {
+            BlockComponent::Block(block) => self
+                .block_request_state
+                .state
+                .insert_verified_response(block),
+            BlockComponent::Blob(_) => {
+                // For now ignore single blobs, as the blob request state assumes all blobs are
+                // attributed to the same peer = the peer serving the remaining blobs. Ignoring this
+                // block component has a minor effect, causing the node to re-request this blob
+                // once the parent chain is successfully resolved
+                false
+            }
+        }
     }
 
     /// Check the block root matches the requested block root.
     pub fn is_for_block(&self, block_root: Hash256) -> bool {
         self.block_root() == block_root
-    }
-
-    /// Update the requested block, this should only be used in a chain of parent lookups to request
-    /// the next parent.
-    pub fn update_requested_parent_block(&mut self, block_root: Hash256) {
-        self.block_request_state.requested_block_root = block_root;
-        self.blob_request_state.block_root = block_root;
-        self.block_request_state.state.state = State::AwaitingDownload;
-        self.blob_request_state.state.state = State::AwaitingDownload;
-        self.child_components = Some(ChildComponents::empty(block_root));
-    }
-
-    /// Get all unique used peers across block and blob requests.
-    pub fn all_used_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
-        self.block_request_state
-            .state
-            .get_used_peers()
-            .chain(self.blob_request_state.state.get_used_peers())
-            .unique()
-    }
-
-    /// Send the necessary requests for blocks and/or blobs. This will check whether we have
-    /// downloaded the block and/or blobs already and will not send requests if so. It will also
-    /// inspect the request state or blocks and blobs to ensure we are not already processing or
-    /// downloading the block and/or blobs.
-    pub fn request_block_and_blobs(
-        &mut self,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
-        let block_already_downloaded = self.block_already_downloaded();
-        let blobs_already_downloaded = self.blobs_already_downloaded();
-
-        if !block_already_downloaded {
-            self.block_request_state
-                .build_request_and_send(self.id, cx)?;
-        }
-        if !blobs_already_downloaded {
-            self.blob_request_state
-                .build_request_and_send(self.id, cx)?;
-        }
-        Ok(())
-    }
-
-    /// Returns a `CachedChild`, which is a wrapper around a `RpcBlock` that is either:
-    ///
-    /// 1. `NotRequired`: there is no child caching required for this lookup.
-    /// 2. `DownloadIncomplete`: Child caching is required, but all components are not yet downloaded.
-    /// 3. `Ok`: The child is required and we have downloaded it.
-    /// 4. `Err`: The child is required, but has failed consistency checks.
-    pub fn get_cached_child_block(&self) -> CachedChild<T::EthSpec> {
-        if let Some(components) = self.child_components.as_ref() {
-            let Some(block) = components.downloaded_block.as_ref() else {
-                return CachedChild::DownloadIncomplete;
-            };
-
-            if !self.missing_blob_ids().is_empty() {
-                return CachedChild::DownloadIncomplete;
-            }
-
-            match RpcBlock::new_from_fixed(
-                self.block_request_state.requested_block_root,
-                block.clone(),
-                components.downloaded_blobs.clone(),
-            ) {
-                Ok(rpc_block) => CachedChild::Ok(rpc_block),
-                Err(e) => CachedChild::Err(e),
-            }
-        } else {
-            CachedChild::NotRequired
-        }
-    }
-
-    /// Accepts a verified response, and adds it to the child components if required. This method
-    /// returns a `CachedChild` which provides a completed block + blob response if all components have been
-    /// received, or information about whether the child is required and if it has been downloaded.
-    pub fn add_response<R: RequestState<L, T>>(
-        &mut self,
-        verified_response: R::VerifiedResponseType,
-    ) -> CachedChild<T::EthSpec> {
-        if let Some(child_components) = self.child_components.as_mut() {
-            R::add_to_child_components(verified_response, child_components);
-            self.get_cached_child_block()
-        } else {
-            CachedChild::NotRequired
-        }
-    }
-
-    /// Add a child component to the lookup request. Merges with any existing child components.
-    pub fn add_child_components(&mut self, components: ChildComponents<T::EthSpec>) {
-        if let Some(ref mut existing_components) = self.child_components {
-            let ChildComponents {
-                block_root: _,
-                downloaded_block,
-                downloaded_blobs,
-            } = components;
-            if let Some(block) = downloaded_block {
-                existing_components.merge_block(block);
-            }
-            existing_components.merge_blobs(downloaded_blobs);
-        } else {
-            self.child_components = Some(components);
-        }
-    }
-
-    /// Add all given peers to both block and blob request states.
-    pub fn add_peer(&mut self, peer_id: PeerId) {
-        self.block_request_state.state.add_peer(&peer_id);
-        self.blob_request_state.state.add_peer(&peer_id);
-    }
-
-    /// Add all given peers to both block and blob request states.
-    pub fn add_peers(&mut self, peers: &[PeerId]) {
-        for peer in peers {
-            self.add_peer(*peer);
-        }
-    }
-
-    /// Returns true if the block has already been downloaded.
-    pub fn both_components_downloaded(&self) -> bool {
-        self.block_request_state.state.is_downloaded()
-            && self.blob_request_state.state.is_downloaded()
     }
 
     /// Returns true if the block has already been downloaded.
@@ -198,278 +143,389 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
             && self.blob_request_state.state.is_processed()
     }
 
-    /// Checks both the block and blob request states to see if the peer is disconnected.
-    ///
-    /// Returns true if the lookup should be dropped.
-    pub fn should_drop_lookup_on_disconnected_peer(
+    /// Returns true if this request is expecting some event to make progress
+    pub fn is_awaiting_event(&self) -> bool {
+        self.awaiting_parent.is_some()
+            || self.block_request_state.state.is_awaiting_event()
+            || self.blob_request_state.state.is_awaiting_event()
+    }
+
+    /// Makes progress on all requests of this lookup. Any error is not recoverable and must result
+    /// in dropping the lookup. May mark the lookup as completed.
+    pub fn continue_requests(
         &mut self,
-        peer_id: &PeerId,
         cx: &mut SyncNetworkContext<T>,
-        log: &Logger,
-    ) -> bool {
-        let block_root = self.block_root();
-        let block_peer_disconnected = self
+    ) -> Result<LookupResult, LookupRequestError> {
+        // TODO: Check what's necessary to download, specially for blobs
+        self.continue_request::<BlockRequestState<T::EthSpec>>(cx)?;
+        self.continue_request::<BlobRequestState<T::EthSpec>>(cx)?;
+
+        // If all components of this lookup are already processed, there will be no future events
+        // that can make progress so it must be dropped. Consider the lookup completed.
+        // This case can happen if we receive the components from gossip during a retry.
+        if self.block_request_state.state.is_processed()
+            && self.blob_request_state.state.is_processed()
+        {
+            Ok(LookupResult::Completed)
+        } else {
+            Ok(LookupResult::Pending)
+        }
+    }
+
+    /// Potentially makes progress on this request if it's in a progress-able state
+    fn continue_request<R: RequestState<T>>(
+        &mut self,
+        cx: &mut SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        let id = self.id;
+        let awaiting_parent = self.awaiting_parent.is_some();
+        let downloaded_block_expected_blobs = self
             .block_request_state
             .state
-            .check_peer_disconnected(peer_id)
-            .is_err();
-        let blob_peer_disconnected = self
-            .blob_request_state
-            .state
-            .check_peer_disconnected(peer_id)
-            .is_err();
+            .peek_downloaded_data()
+            .map(|block| block.num_expected_blobs());
+        let block_is_processed = self.block_request_state.state.is_processed();
+        let request = R::request_state_mut(self);
 
-        if block_peer_disconnected || blob_peer_disconnected {
-            if let Err(e) = self.request_block_and_blobs(cx) {
-                debug!(log, "Single lookup failed on peer disconnection"; "block_root" => ?block_root, "error" => ?e);
-                return true;
+        // Attempt to progress awaiting downloads
+        if request.get_state().is_awaiting_download() {
+            // Verify the current request has not exceeded the maximum number of attempts.
+            let request_state = request.get_state();
+            if request_state.failed_attempts() >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
+                let cannot_process = request_state.more_failed_processing_attempts();
+                return Err(LookupRequestError::TooManyAttempts { cannot_process });
+            }
+
+            let Some(peer_id) = self.use_rand_available_peer() else {
+                // Allow lookup to not have any peers. In that case do nothing. If the lookup does
+                // not have peers for some time, it will be dropped.
+                return Ok(());
+            };
+
+            let request = R::request_state_mut(self);
+            match request.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
+                LookupRequestResult::RequestSent(req_id) => {
+                    request.get_state_mut().on_download_start(req_id)?
+                }
+                LookupRequestResult::NoRequestNeeded => {
+                    request.get_state_mut().on_completed_request()?
+                }
+                // Sync will receive a future event to make progress on the request, do nothing now
+                LookupRequestResult::Pending(reason) => {
+                    request
+                        .get_state_mut()
+                        .update_awaiting_download_status(reason);
+                    return Ok(());
+                }
+            }
+
+        // Otherwise, attempt to progress awaiting processing
+        // If this request is awaiting a parent lookup to be processed, do not send for processing.
+        // The request will be rejected with unknown parent error.
+        } else if !awaiting_parent
+            && (block_is_processed || matches!(R::response_type(), ResponseType::Block))
+        {
+            // maybe_start_processing returns Some if state == AwaitingProcess. This pattern is
+            // useful to conditionally access the result data.
+            if let Some(result) = request.get_state_mut().maybe_start_processing() {
+                return R::send_for_processing(id, result, cx);
             }
         }
-        false
+
+        Ok(())
     }
 
-    /// Returns `true` if the block has already been downloaded.
-    pub(crate) fn block_already_downloaded(&self) -> bool {
-        if let Some(components) = self.child_components.as_ref() {
-            components.downloaded_block.is_some()
-        } else {
-            self.da_checker.has_block(&self.block_root())
-        }
+    /// Get all unique peers that claim to have imported this set of block components
+    pub fn all_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
+        self.peers.iter()
     }
 
-    /// Updates the `requested_ids` field of the `BlockRequestState` with the most recent picture
-    /// of which blobs still need to be requested. Returns `true` if there are no more blobs to
-    /// request.
-    pub(crate) fn blobs_already_downloaded(&mut self) -> bool {
-        if matches!(self.blob_request_state.state.state, State::AwaitingDownload) {
-            self.update_blobs_request();
-        }
-        self.blob_request_state.requested_ids.is_empty()
+    /// Add peer to all request states. The peer must be able to serve this request.
+    /// Returns true if the peer was newly inserted into some request state.
+    pub fn add_peer(&mut self, peer_id: PeerId) -> bool {
+        self.peers.insert(peer_id)
     }
 
-    /// Updates this request with the most recent picture of which blobs still need to be requested.
-    pub fn update_blobs_request(&mut self) {
-        self.blob_request_state.requested_ids = self.missing_blob_ids();
+    /// Remove peer from available peers. Return true if there are no more available peers and all
+    /// requests are not expecting any future event (AwaitingDownload).
+    pub fn remove_peer(&mut self, peer_id: &PeerId) -> bool {
+        self.peers.remove(peer_id)
     }
 
-    /// If `child_components` is `Some`, we know block components won't hit the data
-    /// availability cache, so we don't check its processing cache unless `child_components`
-    /// is `None`.
-    pub(crate) fn missing_blob_ids(&self) -> MissingBlobs {
-        let block_root = self.block_root();
-        if let Some(components) = self.child_components.as_ref() {
-            self.da_checker.get_missing_blob_ids(
-                block_root,
-                components.downloaded_block.as_ref().map(|b| b.as_ref()),
-                &components.downloaded_blobs,
-            )
-        } else {
-            self.da_checker.get_missing_blob_ids_with(block_root)
-        }
+    /// Returns true if this lookup has zero peers
+    pub fn has_no_peers(&self) -> bool {
+        self.peers.is_empty()
     }
 
-    /// Penalizes a blob peer if it should have blobs but didn't return them to us.
-    pub fn penalize_blob_peer(&mut self, cx: &SyncNetworkContext<T>) {
-        if let Ok(blob_peer) = self.blob_request_state.state.processing_peer() {
-            cx.report_peer(
-                blob_peer,
-                PeerAction::MidToleranceError,
-                "single_blob_failure",
-            );
-        }
-    }
-
-    /// This failure occurs on download, so register a failure downloading, penalize the peer
-    /// and clear the blob cache.
-    pub fn handle_consistency_failure(&mut self, cx: &SyncNetworkContext<T>) {
-        self.penalize_blob_peer(cx);
-        if let Some(cached_child) = self.child_components.as_mut() {
-            cached_child.clear_blobs();
-        }
-        self.blob_request_state.state.on_download_failure()
-    }
-
-    /// This failure occurs after processing, so register a failure processing, penalize the peer
-    /// and clear the blob cache.
-    pub fn handle_availability_check_failure(&mut self, cx: &SyncNetworkContext<T>) {
-        self.penalize_blob_peer(cx);
-        if let Some(cached_child) = self.child_components.as_mut() {
-            cached_child.clear_blobs();
-        }
-        self.blob_request_state.state.on_processing_failure()
+    /// Selects a random peer from available peers if any
+    fn use_rand_available_peer(&mut self) -> Option<PeerId> {
+        self.peers.iter().choose(&mut rand::thread_rng()).copied()
     }
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.
-pub struct BlobRequestState<L: Lookup, E: EthSpec> {
-    /// The latest picture of which blobs still need to be requested. This includes information
-    /// from both block/blobs downloaded in the network layer and any blocks/blobs that exist in
-    /// the data availability checker.
-    pub requested_ids: MissingBlobs,
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub struct BlobRequestState<E: EthSpec> {
+    #[derivative(Debug = "ignore")]
     pub block_root: Hash256,
-    /// Where we store blobs until we receive the stream terminator.
-    pub blob_download_queue: FixedBlobSidecarList<E>,
-    pub state: SingleLookupRequestState,
-    _phantom: PhantomData<L>,
+    pub state: SingleLookupRequestState<FixedBlobSidecarList<E>>,
 }
 
-impl<L: Lookup, E: EthSpec> BlobRequestState<L, E> {
-    pub fn new(block_root: Hash256, peer_source: &[PeerId], is_deneb: bool) -> Self {
-        let default_ids = MissingBlobs::new_without_block(block_root, is_deneb);
+impl<E: EthSpec> BlobRequestState<E> {
+    pub fn new(block_root: Hash256) -> Self {
         Self {
             block_root,
-            requested_ids: default_ids,
-            blob_download_queue: <_>::default(),
-            state: SingleLookupRequestState::new(peer_source),
-            _phantom: PhantomData,
+            state: SingleLookupRequestState::new(),
         }
     }
 }
 
 /// The state of the block request component of a `SingleBlockLookup`.
-pub struct BlockRequestState<L: Lookup> {
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub struct BlockRequestState<E: EthSpec> {
+    #[derivative(Debug = "ignore")]
     pub requested_block_root: Hash256,
-    pub state: SingleLookupRequestState,
-    _phantom: PhantomData<L>,
+    pub state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
 }
 
-impl<L: Lookup> BlockRequestState<L> {
-    pub fn new(block_root: Hash256, peers: &[PeerId]) -> Self {
+impl<E: EthSpec> BlockRequestState<E> {
+    pub fn new(block_root: Hash256) -> Self {
         Self {
             requested_block_root: block_root,
-            state: SingleLookupRequestState::new(peers),
-            _phantom: PhantomData,
+            state: SingleLookupRequestState::new(),
         }
     }
 }
 
-/// This is the status of cached components for a lookup if they are required. It provides information
-/// about whether we should send a responses immediately for processing, whether we require more
-/// responses, or whether all cached components have been received and the reconstructed block
-/// should be sent for processing.
-pub enum CachedChild<E: EthSpec> {
-    /// All child components have been received, this is the reconstructed block, including all.
-    /// It has been checked for consistency between blobs and block, but no consensus checks have
-    /// been performed and no kzg verification has been performed.
-    Ok(RpcBlock<E>),
-    /// All child components have not yet been received.
-    DownloadIncomplete,
-    /// Child components should not be cached, send this directly for processing.
-    NotRequired,
-    /// There was an error during consistency checks between block and blobs.
-    Err(AvailabilityCheckError),
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct DownloadResult<T: Clone> {
+    pub value: T,
+    pub block_root: Hash256,
+    pub seen_timestamp: Duration,
+    pub peer_id: PeerId,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum State {
-    AwaitingDownload,
-    Downloading { peer_id: PeerId },
-    Processing { peer_id: PeerId },
-    Processed { peer_id: PeerId },
+#[derive(PartialEq, Eq, IntoStaticStr)]
+pub enum State<T: Clone> {
+    AwaitingDownload(&'static str),
+    Downloading(ReqId),
+    AwaitingProcess(DownloadResult<T>),
+    /// Request is processing, sent by lookup sync
+    Processing(DownloadResult<T>),
+    /// Request is processed
+    Processed,
 }
 
 /// Object representing the state of a single block or blob lookup request.
-#[derive(PartialEq, Eq, Debug)]
-pub struct SingleLookupRequestState {
+#[derive(PartialEq, Eq, Derivative)]
+#[derivative(Debug)]
+pub struct SingleLookupRequestState<T: Clone> {
     /// State of this request.
-    state: State,
-    /// Peers that should have this block or blob.
-    available_peers: HashSet<PeerId>,
-    /// Peers from which we have requested this block.
-    used_peers: HashSet<PeerId>,
+    state: State<T>,
     /// How many times have we attempted to process this block or blob.
     failed_processing: u8,
     /// How many times have we attempted to download this block or blob.
     failed_downloading: u8,
-    /// Should be incremented everytime this request is retried. The purpose of this is to
-    /// differentiate retries of the same block/blob request within a lookup. We currently penalize
-    /// peers and retry requests prior to receiving the stream terminator. This means responses
-    /// from a prior request may arrive after a new request has been sent, this counter allows
-    /// us to differentiate these two responses.
-    req_counter: u32,
 }
 
-impl SingleLookupRequestState {
-    pub fn new(peers: &[PeerId]) -> Self {
-        let mut available_peers = HashSet::default();
-        for peer in peers.iter().copied() {
-            available_peers.insert(peer);
-        }
-
+impl<T: Clone> SingleLookupRequestState<T> {
+    pub fn new() -> Self {
         Self {
-            state: State::AwaitingDownload,
-            available_peers,
-            used_peers: HashSet::default(),
+            state: State::AwaitingDownload("not started"),
             failed_processing: 0,
             failed_downloading: 0,
-            req_counter: 0,
         }
-    }
-
-    pub fn is_current_req_counter(&self, req_counter: u32) -> bool {
-        self.req_counter == req_counter
     }
 
     pub fn is_awaiting_download(&self) -> bool {
-        matches!(self.state, State::AwaitingDownload)
-    }
-
-    pub fn is_downloaded(&self) -> bool {
         match self.state {
-            State::AwaitingDownload => false,
-            State::Downloading { .. } => false,
-            State::Processing { .. } => true,
-            State::Processed { .. } => true,
+            State::AwaitingDownload { .. } => true,
+            State::Downloading { .. }
+            | State::AwaitingProcess { .. }
+            | State::Processing { .. }
+            | State::Processed { .. } => false,
         }
     }
 
     pub fn is_processed(&self) -> bool {
         match self.state {
-            State::AwaitingDownload => false,
-            State::Downloading { .. } => false,
-            State::Processing { .. } => false,
+            State::AwaitingDownload { .. }
+            | State::Downloading { .. }
+            | State::AwaitingProcess { .. }
+            | State::Processing { .. } => false,
             State::Processed { .. } => true,
         }
     }
 
-    pub fn on_download_start(&mut self, peer_id: PeerId) -> u32 {
-        self.state = State::Downloading { peer_id };
-        self.req_counter += 1;
-        self.req_counter
+    /// Returns true if we can expect some future event to progress this block component request
+    /// specifically.
+    pub fn is_awaiting_event(&self) -> bool {
+        match self.state {
+            // No event will progress this request specifically, but the request may be put on hold
+            // due to some external event
+            State::AwaitingDownload { .. } => false,
+            // Network will emit a download success / error event
+            State::Downloading { .. } => true,
+            // Not awaiting any external event
+            State::AwaitingProcess { .. } => false,
+            // Beacon processor will emit a processing result event
+            State::Processing { .. } => true,
+            // Request complete, no future event left
+            State::Processed { .. } => false,
+        }
+    }
+
+    pub fn peek_downloaded_data(&self) -> Option<&T> {
+        match &self.state {
+            State::AwaitingDownload { .. } => None,
+            State::Downloading { .. } => None,
+            State::AwaitingProcess(result) => Some(&result.value),
+            State::Processing(result) => Some(&result.value),
+            State::Processed { .. } => None,
+        }
+    }
+
+    /// Switch to `AwaitingProcessing` if the request is in `AwaitingDownload` state, otherwise
+    /// ignore.
+    pub fn insert_verified_response(&mut self, result: DownloadResult<T>) -> bool {
+        if let State::AwaitingDownload { .. } = &self.state {
+            self.state = State::AwaitingProcess(result);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Append metadata on why this request is in AwaitingDownload status. Very helpful to debug
+    /// stuck lookups. Not fallible as it's purely informational.
+    pub fn update_awaiting_download_status(&mut self, new_status: &'static str) {
+        if let State::AwaitingDownload(status) = &mut self.state {
+            *status = new_status
+        }
+    }
+
+    /// Switch to `Downloading` if the request is in `AwaitingDownload` state, otherwise returns None.
+    pub fn on_download_start(&mut self, req_id: ReqId) -> Result<(), LookupRequestError> {
+        match &self.state {
+            State::AwaitingDownload { .. } => {
+                self.state = State::Downloading(req_id);
+                Ok(())
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on_download_start expected AwaitingDownload got {other}"
+            ))),
+        }
     }
 
     /// Registers a failure in downloading a block. This might be a peer disconnection or a wrong
     /// block.
-    pub fn on_download_failure(&mut self) {
-        self.failed_downloading = self.failed_downloading.saturating_add(1);
-        self.state = State::AwaitingDownload;
-    }
-
-    pub fn on_download_success(&mut self) -> Result<(), String> {
+    pub fn on_download_failure(&mut self, req_id: ReqId) -> Result<(), LookupRequestError> {
         match &self.state {
-            State::Downloading { peer_id } => {
-                self.state = State::Processing { peer_id: *peer_id };
+            State::Downloading(expected_req_id) => {
+                if req_id != *expected_req_id {
+                    return Err(LookupRequestError::UnexpectedRequestId {
+                        expected_req_id: *expected_req_id,
+                        req_id,
+                    });
+                }
+                self.failed_downloading = self.failed_downloading.saturating_add(1);
+                self.state = State::AwaitingDownload("not started");
                 Ok(())
             }
-            other => Err(format!(
-                "request bad state, expected downloading got {other}"
-            )),
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on_download_failure expected Downloading got {other}"
+            ))),
+        }
+    }
+
+    pub fn on_download_success(
+        &mut self,
+        req_id: ReqId,
+        result: DownloadResult<T>,
+    ) -> Result<(), LookupRequestError> {
+        match &self.state {
+            State::Downloading(expected_req_id) => {
+                if req_id != *expected_req_id {
+                    return Err(LookupRequestError::UnexpectedRequestId {
+                        expected_req_id: *expected_req_id,
+                        req_id,
+                    });
+                }
+                self.state = State::AwaitingProcess(result);
+                Ok(())
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on_download_success expected Downloading got {other}"
+            ))),
+        }
+    }
+
+    /// Switch to `Processing` if the request is in `AwaitingProcess` state, otherwise returns None.
+    pub fn maybe_start_processing(&mut self) -> Option<DownloadResult<T>> {
+        // For 2 lines replace state with placeholder to gain ownership of `result`
+        match &self.state {
+            State::AwaitingProcess(result) => {
+                let result = result.clone();
+                self.state = State::Processing(result.clone());
+                Some(result)
+            }
+            _ => None,
+        }
+    }
+
+    /// Revert into `AwaitingProcessing`, if the payload if not invalid and can be submitted for
+    /// processing latter.
+    pub fn revert_to_awaiting_processing(&mut self) -> Result<(), LookupRequestError> {
+        match &self.state {
+            State::Processing(result) => {
+                self.state = State::AwaitingProcess(result.clone());
+                Ok(())
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on revert_to_awaiting_processing expected Processing got {other}"
+            ))),
         }
     }
 
     /// Registers a failure in processing a block.
-    pub fn on_processing_failure(&mut self) {
-        self.failed_processing = self.failed_processing.saturating_add(1);
-        self.state = State::AwaitingDownload;
+    pub fn on_processing_failure(&mut self) -> Result<PeerId, LookupRequestError> {
+        match &self.state {
+            State::Processing(result) => {
+                let peer_id = result.peer_id;
+                self.failed_processing = self.failed_processing.saturating_add(1);
+                self.state = State::AwaitingDownload("not started");
+                Ok(peer_id)
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on_processing_failure expected Processing got {other}"
+            ))),
+        }
     }
 
-    pub fn on_processing_success(&mut self) -> Result<(), String> {
+    pub fn on_processing_success(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
-            State::Processing { peer_id } => {
-                self.state = State::Processed { peer_id: *peer_id };
+            State::Processing(_) => {
+                self.state = State::Processed;
                 Ok(())
             }
-            other => Err(format!("not in processing state: {}", other).to_string()),
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on_processing_success expected Processing got {other}"
+            ))),
+        }
+    }
+
+    /// Mark a request as complete without any download or processing
+    pub fn on_completed_request(&mut self) -> Result<(), LookupRequestError> {
+        match &self.state {
+            State::AwaitingDownload { .. } => {
+                self.state = State::Processed;
+                Ok(())
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state on_completed_request expected AwaitingDownload got {other}"
+            ))),
         }
     }
 
@@ -481,244 +537,32 @@ impl SingleLookupRequestState {
     pub fn more_failed_processing_attempts(&self) -> bool {
         self.failed_processing >= self.failed_downloading
     }
+}
 
-    /// This method should be used for peers wrapped in `PeerId::BlockAndBlobs`.
-    pub fn add_peer(&mut self, peer_id: &PeerId) {
-        self.available_peers.insert(*peer_id);
-    }
-
-    /// If a peer disconnects, this request could be failed. If so, an error is returned
-    pub fn check_peer_disconnected(&mut self, dc_peer_id: &PeerId) -> Result<(), ()> {
-        self.available_peers.remove(dc_peer_id);
-        if let State::Downloading { peer_id } = &self.state {
-            if peer_id == dc_peer_id {
-                // Peer disconnected before providing a block
-                self.on_download_failure();
-                return Err(());
-            }
-        }
-        Ok(())
-    }
-
-    /// Returns the id peer we downloaded from if we have downloaded a verified block, otherwise
-    /// returns an error.
-    pub fn processing_peer(&self) -> Result<PeerId, String> {
-        match &self.state {
-            State::Processing { peer_id } | State::Processed { peer_id } => Ok(*peer_id),
-            other => Err(format!("not in processing state: {}", other).to_string()),
-        }
-    }
-
-    pub fn get_used_peers(&self) -> impl Iterator<Item = &PeerId> {
-        self.used_peers.iter()
-    }
-
-    /// Selects a random peer from available peers if any, inserts it in used peers and returns it.
-    pub fn use_rand_available_peer(&mut self) -> Option<PeerId> {
-        let peer_id = self
-            .available_peers
-            .iter()
-            .choose(&mut rand::thread_rng())
-            .copied()?;
-        self.used_peers.insert(peer_id);
-        Some(peer_id)
+// Display is used in the BadState assertions above
+impl<T: Clone> std::fmt::Display for State<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Into::<&'static str>::into(self))
     }
 }
 
-impl<L: Lookup, T: BeaconChainTypes> slog::Value for SingleBlockLookup<L, T> {
-    fn serialize(
-        &self,
-        _record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        serializer.emit_str("request", key)?;
-        serializer.emit_arguments("lookup_type", &format_args!("{:?}", L::lookup_type()))?;
-        serializer.emit_arguments("hash", &format_args!("{}", self.block_root()))?;
-        serializer.emit_arguments(
-            "blob_ids",
-            &format_args!("{:?}", self.blob_request_state.requested_ids.indices()),
-        )?;
-        serializer.emit_arguments(
-            "block_request_state.state",
-            &format_args!("{:?}", self.block_request_state.state),
-        )?;
-        serializer.emit_arguments(
-            "blob_request_state.state",
-            &format_args!("{:?}", self.blob_request_state.state),
-        )?;
-        slog::Result::Ok(())
-    }
-}
-
-impl slog::Value for SingleLookupRequestState {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        serializer.emit_str("request_state", key)?;
-        match &self.state {
-            State::AwaitingDownload => {
-                "awaiting_download".serialize(record, "state", serializer)?
-            }
-            State::Downloading { peer_id } => {
-                serializer.emit_arguments("downloading_peer", &format_args!("{}", peer_id))?
-            }
-            State::Processing { peer_id } => {
-                serializer.emit_arguments("processing_peer", &format_args!("{}", peer_id))?
-            }
-            State::Processed { .. } => "processed".serialize(record, "state", serializer)?,
-        }
-        serializer.emit_u8("failed_downloads", self.failed_downloading)?;
-        serializer.emit_u8("failed_processing", self.failed_processing)?;
-        slog::Result::Ok(())
-    }
-}
-
-impl std::fmt::Display for State {
+// Debug is used in the log_stuck_lookups print to include some more info. Implements custom Debug
+// to not dump an entire block or blob to terminal which don't add valuable data.
+impl<T: Clone> std::fmt::Debug for State<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            State::AwaitingDownload => write!(f, "AwaitingDownload"),
-            State::Downloading { .. } => write!(f, "Downloading"),
-            State::Processing { .. } => write!(f, "Processing"),
-            State::Processed { .. } => write!(f, "Processed"),
+            Self::AwaitingDownload(status) => write!(f, "AwaitingDownload({:?})", status),
+            Self::Downloading(req_id) => write!(f, "Downloading({:?})", req_id),
+            Self::AwaitingProcess(d) => write!(f, "AwaitingProcess({:?})", d.peer_id),
+            Self::Processing(d) => write!(f, "Processing({:?})", d.peer_id),
+            Self::Processed { .. } => write!(f, "Processed"),
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::sync::block_lookups::common::LookupType;
-    use beacon_chain::builder::Witness;
-    use beacon_chain::eth1_chain::CachingEth1Backend;
-    use sloggers::null::NullLoggerBuilder;
-    use sloggers::Build;
-    use slot_clock::{SlotClock, TestingSlotClock};
-    use std::time::Duration;
-    use store::{HotColdDB, MemoryStore, StoreConfig};
-    use types::{
-        test_utils::{SeedableRng, TestRandom, XorShiftRng},
-        ChainSpec, MinimalEthSpec as E, SignedBeaconBlock, Slot,
-    };
-
-    fn rand_block() -> SignedBeaconBlock<E> {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        SignedBeaconBlock::from_block(
-            types::BeaconBlock::Base(types::BeaconBlockBase {
-                ..<_>::random_for_test(&mut rng)
-            }),
-            types::Signature::random_for_test(&mut rng),
-        )
-    }
-    type T = Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
-
-    struct TestLookup1;
-
-    impl Lookup for TestLookup1 {
-        const MAX_ATTEMPTS: u8 = 3;
-
-        fn lookup_type() -> LookupType {
-            panic!()
-        }
-    }
-
-    struct TestLookup2;
-
-    impl Lookup for TestLookup2 {
-        const MAX_ATTEMPTS: u8 = 4;
-
-        fn lookup_type() -> LookupType {
-            panic!()
-        }
-    }
-
-    #[test]
-    fn test_happy_path() {
-        let peer_id = PeerId::random();
-        let block = rand_block();
-        let spec = E::default_spec();
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            Duration::from_secs(spec.seconds_per_slot),
-        );
-        let log = NullLoggerBuilder.build().expect("logger should build");
-        let store =
-            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
-                .expect("store");
-        let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
-                .expect("data availability checker"),
-        );
-        let mut sl = SingleBlockLookup::<TestLookup1, T>::new(
-            block.canonical_root(),
-            None,
-            &[peer_id],
-            da_checker,
-            1,
-        );
-        <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::build_request(
-            &mut sl.block_request_state,
-        )
-        .unwrap();
-        sl.block_request_state.state.state = State::Downloading { peer_id };
-    }
-
-    #[test]
-    fn test_block_lookup_failures() {
-        let peer_id = PeerId::random();
-        let block = rand_block();
-        let spec = E::default_spec();
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            Duration::from_secs(spec.seconds_per_slot),
-        );
-        let log = NullLoggerBuilder.build().expect("logger should build");
-        let store =
-            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
-                .expect("store");
-
-        let da_checker = Arc::new(
-            DataAvailabilityChecker::new(slot_clock, None, store.into(), &log, spec.clone())
-                .expect("data availability checker"),
-        );
-
-        let mut sl = SingleBlockLookup::<TestLookup2, T>::new(
-            block.canonical_root(),
-            None,
-            &[peer_id],
-            da_checker,
-            1,
-        );
-        for _ in 1..TestLookup2::MAX_ATTEMPTS {
-            <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
-                &mut sl.block_request_state,
-            )
-            .unwrap();
-            sl.block_request_state.state.on_download_failure();
-        }
-
-        // Now we receive the block and send it for processing
-        <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
-            &mut sl.block_request_state,
-        )
-        .unwrap();
-        sl.block_request_state.state.state = State::Downloading { peer_id };
-
-        // One processing failure maxes the available attempts
-        sl.block_request_state.state.on_processing_failure();
-        assert_eq!(
-            <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
-                &mut sl.block_request_state,
-            )
-            .unwrap_err(),
-            LookupRequestError::TooManyAttempts {
-                cannot_process: false
-            }
-        )
-    }
+fn fmt_peer_set_as_len(
+    peer_set: &HashSet<PeerId>,
+    f: &mut std::fmt::Formatter,
+) -> Result<(), std::fmt::Error> {
+    write!(f, "{}", peer_set.len())
 }

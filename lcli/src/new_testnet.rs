@@ -21,8 +21,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
-    Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderMerge,
+    Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix,
+    ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
     ForkName, Hash256, Keypair, PublicKey, Validator,
 };
 
@@ -30,7 +30,7 @@ pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
     let deposit_contract_deploy_block = parse_required(matches, "deposit-contract-deploy-block")?;
 
-    let overwrite_files = matches.is_present("force");
+    let overwrite_files = matches.get_flag("force");
 
     if testnet_dir_path.exists() && !overwrite_files {
         return Err(format!(
@@ -114,9 +114,9 @@ pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                     ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(
                         "genesis fork must be post-merge".to_string(),
                     )),
-                    ForkName::Merge => {
-                        ExecutionPayloadHeaderMerge::<E>::from_ssz_bytes(bytes.as_slice())
-                            .map(ExecutionPayloadHeader::Merge)
+                    ForkName::Bellatrix => {
+                        ExecutionPayloadHeaderBellatrix::<E>::from_ssz_bytes(bytes.as_slice())
+                            .map(ExecutionPayloadHeader::Bellatrix)
                     }
                     ForkName::Capella => {
                         ExecutionPayloadHeaderCapella::<E>::from_ssz_bytes(bytes.as_slice())
@@ -154,7 +154,7 @@ pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         (eth1_block_hash, genesis_time)
     };
 
-    let genesis_state_bytes = if matches.is_present("interop-genesis-state") {
+    let genesis_state_bytes = if matches.get_flag("interop-genesis-state") {
         let keypairs = generate_deterministic_keypairs(validator_count);
         let keypairs: Vec<_> = keypairs.into_iter().map(|kp| (kp.clone(), kp)).collect();
 
@@ -167,7 +167,7 @@ pub fn run<E: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         )?;
 
         Some(genesis_state.as_ssz_bytes())
-    } else if matches.is_present("derived-genesis-state") {
+    } else if matches.get_flag("derived-genesis-state") {
         let mnemonic_phrase: String = clap_utils::parse_required(matches, "mnemonic-phrase")?;
         let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).map_err(|e| {
             format!(
@@ -246,10 +246,10 @@ fn initialize_state_with_validators<E: EthSpec>(
 ) -> Result<BeaconState<E>, String> {
     // If no header is provided, then start from a Bellatrix state by default
     let default_header: ExecutionPayloadHeader<E> =
-        ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
+        ExecutionPayloadHeader::Bellatrix(ExecutionPayloadHeaderBellatrix {
             block_hash: ExecutionBlockHash::from_root(eth1_block_hash),
             parent_hash: ExecutionBlockHash::zero(),
-            ..ExecutionPayloadHeaderMerge::default()
+            ..ExecutionPayloadHeaderBellatrix::default()
         });
     let execution_payload_header = execution_payload_header.unwrap_or(default_header);
     // Empty eth1 data
@@ -314,9 +314,9 @@ fn initialize_state_with_validators<E: EthSpec>(
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/bellatrix/beacon-chain.md#testing
-        if let ExecutionPayloadHeader::Merge(ref header) = execution_payload_header {
+        if let ExecutionPayloadHeader::Bellatrix(ref header) = execution_payload_header {
             *state
-                .latest_execution_payload_header_merge_mut()
+                .latest_execution_payload_header_bellatrix_mut()
                 .or(Err("mismatched fork".to_string()))? = header.clone();
         }
     }

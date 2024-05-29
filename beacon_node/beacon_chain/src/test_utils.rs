@@ -880,7 +880,7 @@ where
         let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
                 (signed_block, block_response.blob_items)
@@ -944,7 +944,7 @@ where
         let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
                 (signed_block, block_response.blob_items)
@@ -1881,6 +1881,7 @@ where
                 block_root,
                 RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
                 || Ok(()),
             )
             .await?
@@ -1907,6 +1908,7 @@ where
                 block_root,
                 RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
                 || Ok(()),
             )
             .await?

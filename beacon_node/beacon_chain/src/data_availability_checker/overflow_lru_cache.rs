@@ -44,7 +44,7 @@ use ssz_types::{FixedVector, VariableList};
 use std::num::NonZeroUsize;
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256};
+use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// This represents the components of a partially available block
 ///
@@ -432,11 +432,6 @@ impl<T: BeaconChainTypes> Critical<T> {
         Ok(())
     }
 
-    /// Returns true if the block root is known, without altering the LRU ordering
-    pub fn has_block(&self, block_root: &Hash256) -> bool {
-        self.in_memory.peek(block_root).is_some() || self.store_keys.contains(block_root)
-    }
-
     /// This only checks for the blobs in memory
     pub fn peek_blob(
         &self,
@@ -549,8 +544,19 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     }
 
     /// Returns true if the block root is known, without altering the LRU ordering
-    pub fn has_block(&self, block_root: &Hash256) -> bool {
-        self.critical.read().has_block(block_root)
+    pub fn get_execution_valid_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+        self.critical
+            .read()
+            .peek_pending_components(block_root)
+            .and_then(|pending_components| {
+                pending_components
+                    .executed_block
+                    .as_ref()
+                    .map(|block| block.block_cloned())
+            })
     }
 
     /// Fetch a blob from the cache without affecting the LRU ordering
@@ -569,7 +575,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         }
     }
 
-    pub fn with_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
+    pub fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
         &self,
         block_root: &Hash256,
         f: F,
@@ -989,17 +995,17 @@ mod test {
 
         // go to bellatrix slot
         harness.extend_to_slot(bellatrix_fork_slot).await;
-        let merge_head = &harness.chain.head_snapshot().beacon_block;
-        assert!(merge_head.as_merge().is_ok());
-        assert_eq!(merge_head.slot(), bellatrix_fork_slot);
+        let bellatrix_head = &harness.chain.head_snapshot().beacon_block;
+        assert!(bellatrix_head.as_bellatrix().is_ok());
+        assert_eq!(bellatrix_head.slot(), bellatrix_fork_slot);
         assert!(
-            merge_head
+            bellatrix_head
                 .message()
                 .body()
                 .execution_payload()
                 .unwrap()
                 .is_default_with_empty_roots(),
-            "Merge head is default payload"
+            "Bellatrix head is default payload"
         );
         // Trigger the terminal PoW block.
         harness

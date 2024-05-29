@@ -8,6 +8,7 @@ mod beacon_chain;
 mod beacon_fork_choice_store;
 pub mod beacon_proposer_cache;
 mod beacon_snapshot;
+pub mod bellatrix_readiness;
 pub mod blob_verification;
 pub mod block_reward;
 mod block_times_cache;
@@ -28,13 +29,13 @@ pub mod events;
 pub mod execution_payload;
 pub mod fork_choice_signal;
 pub mod fork_revert;
+pub mod graffiti_calculator;
 mod head_tracker;
 pub mod historical_blocks;
 pub mod kzg_utils;
 pub mod light_client_finality_update_verification;
 pub mod light_client_optimistic_update_verification;
 mod light_client_server_cache;
-pub mod merge_readiness;
 pub mod metrics;
 pub mod migrate;
 mod naive_aggregation_pool;
@@ -61,9 +62,10 @@ pub mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, AvailabilityProcessingStatus, BeaconBlockResponse,
-    BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
-    ForkChoiceError, LightClientProducerEvent, OverrideForkchoiceUpdate, ProduceBlockVerification,
-    StateSkipConfig, WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus,
+    ChainSegmentResult, ForkChoiceError, LightClientProducerEvent, OverrideForkchoiceUpdate,
+    ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
+    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;

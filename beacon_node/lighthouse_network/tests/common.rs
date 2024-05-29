@@ -21,13 +21,13 @@ use tempfile::Builder as TempBuilder;
 pub fn fork_context(fork_name: ForkName) -> ForkContext {
     let mut chain_spec = E::default_spec();
     let altair_fork_epoch = Epoch::new(1);
-    let merge_fork_epoch = Epoch::new(2);
+    let bellatrix_fork_epoch = Epoch::new(2);
     let capella_fork_epoch = Epoch::new(3);
     let deneb_fork_epoch = Epoch::new(4);
     let electra_fork_epoch = Epoch::new(5);
 
     chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
-    chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
+    chain_spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
     chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
     chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
     chain_spec.electra_fork_epoch = Some(electra_fork_epoch);
@@ -35,7 +35,7 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
     let current_slot = match fork_name {
         ForkName::Base => Slot::new(0),
         ForkName::Altair => altair_fork_epoch.start_slot(E::slots_per_epoch()),
-        ForkName::Merge => merge_fork_epoch.start_slot(E::slots_per_epoch()),
+        ForkName::Bellatrix => bellatrix_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Capella => capella_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Deneb => deneb_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Electra => electra_fork_epoch.start_slot(E::slots_per_epoch()),
