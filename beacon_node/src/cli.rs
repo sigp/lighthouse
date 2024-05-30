@@ -862,7 +862,7 @@ pub fn cli_app() -> Command {
                 .long("builder-header-timeout")
                 .value_name("MILLISECONDS")
                 .help("Defines a timeout value (in milliseconds) to use when \
-                    fetching a block header from the builder api.")
+                    fetching a block header from the builder API.")
                 .default_value("1000")
                 .value_parser(|timeout: &str| {
                     match timeout

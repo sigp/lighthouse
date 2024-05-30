@@ -45,7 +45,7 @@ Options:
           engine for payload construction. [default: 8]
       --builder-header-timeout <MILLISECONDS>
           Defines a timeout value (in milliseconds) to use when fetching a block
-          header from the builder api. [default: 1000]
+          header from the builder API. [default: 1000]
       --builder-profit-threshold <WEI_VALUE>
           This flag is deprecated and has no effect.
       --builder-user-agent <STRING>
@@ -605,6 +605,4 @@ Flags:
   -z, --zero-ports
           Sets all listening TCP/UDP ports to 0, allowing the OS to choose some
           arbitrary free ports.
-```
-
-<style> .content main {max-width:88%;} </style>
+```n<style> .content main {max-width:88%;} </style>
