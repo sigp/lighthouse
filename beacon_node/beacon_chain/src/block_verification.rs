@@ -975,12 +975,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Validate the block's execution_payload (if any).
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
-        // block gossip events for beacon API
-        if let Some(event_handler) = self.block_gossip.as_ref() {
+        // Beacon API block_gossip events
+        if let Some(event_handler) = &self.block_gossip.as_ref() {
             if event_handler.has_block_gossip_subscribers() {
-                event_handler.register(EventKind::BlockGossip(Box::new(
-                    BlockGossip.clone().into_inner(),
-                )));
+                event_handler.register(EventKind::BlockGossip(block: Arc<SignedBeaconBlock<E>>),
+                );
             }
         }
 

@@ -71,6 +71,7 @@ struct ApiTester {
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
     bls_to_execution_change: SignedBlsToExecutionChange,
+    block_gossip: BlockGossip,
     network_rx: NetworkReceivers<E>,
     local_enr: Enr,
     external_peer_id: PeerId,
@@ -226,6 +227,7 @@ impl ApiTester {
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
         let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
+        let block_gossip = harness.block_gossip(5);
 
         let chain = harness.chain.clone();
 
@@ -293,6 +295,7 @@ impl ApiTester {
             proposer_slashing,
             voluntary_exit,
             bls_to_execution_change,
+            block_gossip,
             network_rx,
             local_enr,
             external_peer_id,
@@ -342,6 +345,7 @@ impl ApiTester {
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
         let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
+        let block_gossip = harness.block_gossip(5);
 
         let chain = harness.chain.clone();
 
@@ -5224,6 +5228,7 @@ impl ApiTester {
             EventTopic::AttesterSlashing,
             EventTopic::ProposerSlashing,
             EventTopic::BlsToExecutionChange,
+            EventTopic::BlockGossip,
         ];
         let mut events_future = self
             .client
