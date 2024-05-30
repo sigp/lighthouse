@@ -21,6 +21,7 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),
     SubnetCountIsZero(ArithError),
+    IncorrectStateVariant,
 }
 
 #[superstruct(
@@ -42,7 +43,9 @@ pub enum Error {
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
     ),
-    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent"))
+    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(
     Debug,
@@ -74,14 +77,14 @@ pub struct Attestation<E: EthSpec> {
 // TODO(electra): think about how to handle fork variants here
 impl<E: EthSpec> TestRandom for Attestation<E> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let aggregation_bits: BitList<E::MaxValidatorsPerCommittee> = BitList::random_for_test(rng);
-        // let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
+        let aggregation_bits = BitList::random_for_test(rng);
         let data = AttestationData::random_for_test(rng);
         let signature = AggregateSignature::random_for_test(rng);
+        let committee_bits = BitVector::random_for_test(rng);
 
-        Self::Base(AttestationBase {
+        Self::Electra(AttestationElectra {
             aggregation_bits,
-            // committee_bits,
+            committee_bits,
             data,
             signature,
         })
@@ -166,9 +169,9 @@ impl<E: EthSpec> Attestation<E> {
         }
     }
 
-    pub fn committee_index(&self) -> u64 {
+    pub fn committee_index(&self) -> Option<u64> {
         match self {
-            Attestation::Base(att) => att.data.index,
+            Attestation::Base(att) => Some(att.data.index),
             Attestation::Electra(att) => att.committee_index(),
         }
     }
@@ -217,10 +220,29 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
         }
     }
 
-    pub fn committee_index(&self) -> u64 {
+    pub fn committee_index(&self) -> Option<u64> {
         match self {
-            AttestationRef::Base(att) => att.data.index,
+            AttestationRef::Base(att) => Some(att.data.index),
             AttestationRef::Electra(att) => att.committee_index(),
+        }
+    }
+
+    pub fn set_aggregation_bits(&self) -> Vec<usize> {
+        match self {
+            Self::Base(att) => att
+                .aggregation_bits
+                .iter()
+                .enumerate()
+                .filter(|(_i, bit)| *bit)
+                .map(|(i, _bit)| i)
+                .collect::<Vec<_>>(),
+            Self::Electra(att) => att
+                .aggregation_bits
+                .iter()
+                .enumerate()
+                .filter(|(_i, bit)| *bit)
+                .map(|(i, _bit)| i)
+                .collect::<Vec<_>>(),
         }
     }
 }
@@ -236,8 +258,8 @@ impl<E: EthSpec> AttestationElectra<E> {
             .is_zero()
     }
 
-    pub fn committee_index(&self) -> u64 {
-        *self.get_committee_indices().first().unwrap_or(&0u64)
+    pub fn committee_index(&self) -> Option<u64> {
+        self.get_committee_indices().first().cloned()
     }
 
     pub fn get_committee_indices(&self) -> Vec<u64> {

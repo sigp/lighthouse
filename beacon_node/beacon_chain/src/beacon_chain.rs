@@ -85,7 +85,9 @@ use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
 use kzg::Kzg;
-use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella};
+use operation_pool::{
+    CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
+};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
@@ -1609,6 +1611,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((duties, dependent_root, execution_status))
     }
 
+    pub fn get_aggregated_attestation(
+        &self,
+        attestation: AttestationRef<T::EthSpec>,
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        match attestation {
+            AttestationRef::Base(att) => self.get_aggregated_attestation_base(&att.data),
+            AttestationRef::Electra(att) => self.get_aggregated_attestation_electra(
+                att.data.slot,
+                &att.data.tree_hash_root(),
+                att.committee_index()
+                    .ok_or(Error::AttestationCommitteeIndexNotSet)?,
+            ),
+        }
+    }
+
     /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.
     ///
     /// The attestation will be obtained from `self.naive_aggregation_pool`.
@@ -2185,7 +2202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.log,
                 "Stored unaggregated attestation";
                 "outcome" => ?outcome,
-                "index" => attestation.data().index,
+                "index" => attestation.committee_index(),
                 "slot" => attestation.data().slot.as_u64(),
             ),
             Err(NaiveAggregationError::SlotTooLow {
@@ -2204,7 +2221,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to store unaggregated attestation";
                         "error" => ?e,
-                        "index" => attestation.data().index,
+                        "index" => attestation.committee_index(),
                         "slot" => attestation.data().slot.as_u64(),
                 );
                 return Err(Error::from(e).into());
@@ -2329,7 +2346,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn filter_op_pool_attestation(
         &self,
         filter_cache: &mut HashMap<(Hash256, Epoch), bool>,
-        att: &AttestationRef<T::EthSpec>,
+        att: &CompactAttestationRef<T::EthSpec>,
         state: &BeaconState<T::EthSpec>,
     ) -> bool {
         *filter_cache
@@ -4948,11 +4965,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         initialize_epoch_cache(&mut state, &self.spec)?;
 
         let mut prev_filter_cache = HashMap::new();
-        let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+        let prev_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
             self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
         };
         let mut curr_filter_cache = HashMap::new();
-        let curr_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+        let curr_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
             self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
         };
 
