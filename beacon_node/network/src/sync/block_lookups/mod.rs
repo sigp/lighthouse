@@ -273,10 +273,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 warn!(self.log, "Error adding peers to ancestor lookup"; "error" => ?e);
             }
 
-            // When attempting to continue lookups in `add_peers_to_lookup_and_ancestors`, this
-            // lookup may be dropped due to any error in the chain of ancestor lookups. Explictly
-            // check if this lookup still exists.
-            return self.single_block_lookups.contains_key(&lookup_id);
+            return true;
         }
 
         // Ensure that awaiting parent exists, otherwise this lookup won't be able to make progress
