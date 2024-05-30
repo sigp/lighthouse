@@ -224,7 +224,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.bls_to_execution_change_tx.subscribe()
     }
 
-    pub fn block_gossip(&self) -> Receiver<EventKind<E>> {
+    pub fn subscribe_block_gossip(&self) -> Receiver<EventKind<E>> {
         self.block_gossip_tx.subscribe()
     }
 
@@ -284,7 +284,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.bls_to_execution_change_tx.receiver_count() > 0
     }
 
-    pub fn has_block_gossip(&self) -> bool {
+    pub fn has_block_gossip_subscribers(&self) -> bool {
         self.block_gossip_tx.receiver_count() > 0
     }
 }

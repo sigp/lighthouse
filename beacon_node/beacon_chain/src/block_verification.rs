@@ -67,7 +67,7 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
-use eth2::types::{EventKind, PublishBlockRequest};
+use eth2::types::{BlockGossip, EventKind, PublishBlockRequest};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
@@ -976,10 +976,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
         // Beacon API block_gossip events
-        if let Some(event_handler) = &self.block_gossip.as_ref() {
+        if let Some(event_handler) = chain.event_handler.as_ref() {
             if event_handler.has_block_gossip_subscribers() {
-                event_handler.register(EventKind::BlockGossip(block: Arc<SignedBeaconBlock<E>>),
-                );
+                event_handler.register(EventKind::BlockGossip(Box::new(BlockGossip {
+                    slot: block.slot(),
+                    block: block_root,
+                })));
             }
         }
 
