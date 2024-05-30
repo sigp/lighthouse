@@ -5285,30 +5285,17 @@ impl ApiTester {
             ))]
         );
 
-        // Produce a voluntary exit event
+        // Produce a block gossip event
         self.client
-            .post_beacon_pool_voluntary_exits(&self.voluntary_exit)
+            .post_block_gossip(&[self.block_gossip.clone()])
             .await
             .unwrap();
 
-        let exit_events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+        let block_gossip_events =
+            poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
         assert_eq!(
-            exit_events.as_slice(),
-            &[EventKind::VoluntaryExit(self.voluntary_exit.clone())]
-        );
-
-        // Produce a BLS to execution change event
-        self.client
-            .post_beacon_pool_bls_to_execution_changes(&[self.bls_to_execution_change.clone()])
-            .await
-            .unwrap();
-
-        let bls_events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
-        assert_eq!(
-            bls_events.as_slice(),
-            &[EventKind::BlsToExecutionChange(Box::new(
-                self.bls_to_execution_change.clone()
-            ))]
+            block_gossip_events.as_slice(),
+            &[EventKind::BlockGossip(self.block_gossip.clone())]
         );
 
         // Submit the next block, which is on an epoch boundary, so this will produce a finalized
