@@ -19,7 +19,6 @@ use types::{
     attestation::AttestationBase, AggregateSignature, Attestation, AttestationData,
     AttestationElectra, BitList, BitVector, ChainSpec, CommitteeIndex, EthSpec, Slot,
 };
-use types::{AttestationElectra, BitVector, ForkName};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
