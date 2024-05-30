@@ -414,53 +414,44 @@ where
         }
 
         // purge expired inbound substreams and send an error
-        loop {
-            match self.inbound_substreams_delay.poll_expired(cx) {
-                Poll::Ready(Some(inbound_id)) => {
-                    // handle a stream timeout for various states
-                    if let Some(info) = self.inbound_substreams.get_mut(inbound_id.get_ref()) {
-                        // the delay has been removed
-                        info.delay_key = None;
-                        self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
-                            error: RPCError::StreamTimeout,
-                            proto: info.protocol,
-                            id: *inbound_id.get_ref(),
-                        }));
 
-                        if info.pending_items.back().map(|l| l.close_after()) == Some(false) {
-                            // if the last chunk does not close the stream, append an error
-                            info.pending_items.push_back(RPCCodedResponse::Error(
-                                RPCResponseErrorCode::ServerError,
-                                "Request timed out".into(),
-                            ));
-                        }
-                    }
+        while let Poll::Ready(Some(inbound_id)) = self.inbound_substreams_delay.poll_expired(cx) {
+            // handle a stream timeout for various states
+            if let Some(info) = self.inbound_substreams.get_mut(inbound_id.get_ref()) {
+                // the delay has been removed
+                info.delay_key = None;
+                self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                    error: RPCError::StreamTimeout,
+                    proto: info.protocol,
+                    id: *inbound_id.get_ref(),
+                }));
+
+                if info.pending_items.back().map(|l| l.close_after()) == Some(false) {
+                    // if the last chunk does not close the stream, append an error
+                    info.pending_items.push_back(RPCCodedResponse::Error(
+                        RPCResponseErrorCode::ServerError,
+                        "Request timed out".into(),
+                    ));
                 }
-                Poll::Pending | Poll::Ready(None) => break,
             }
         }
 
         // purge expired outbound substreams
-        loop {
-            match self.outbound_substreams_delay.poll_expired(cx) {
-                Poll::Ready(Some(outbound_id)) => {
-                    if let Some(OutboundInfo { proto, req_id, .. }) =
-                        self.outbound_substreams.remove(outbound_id.get_ref())
-                    {
-                        let outbound_err = HandlerErr::Outbound {
-                            id: req_id,
-                            proto,
-                            error: RPCError::StreamTimeout,
-                        };
-                        // notify the user
-                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                            HandlerEvent::Err(outbound_err),
-                        ));
-                    } else {
-                        crit!(self.log, "timed out substream not in the books"; "stream_id" => outbound_id.get_ref());
-                    }
-                }
-                Poll::Pending | Poll::Ready(None) => break,
+        while let Poll::Ready(Some(outbound_id)) = self.outbound_substreams_delay.poll_expired(cx) {
+            if let Some(OutboundInfo { proto, req_id, .. }) =
+                self.outbound_substreams.remove(outbound_id.get_ref())
+            {
+                let outbound_err = HandlerErr::Outbound {
+                    id: req_id,
+                    proto,
+                    error: RPCError::StreamTimeout,
+                };
+                // notify the user
+                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(HandlerEvent::Err(
+                    outbound_err,
+                )));
+            } else {
+                crit!(self.log, "timed out substream not in the books"; "stream_id" => outbound_id.get_ref());
             }
         }
 
