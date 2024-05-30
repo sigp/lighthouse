@@ -14,8 +14,7 @@ pub use attestation::{earliest_attestation_validators, AttMaxCover};
 pub use attestation_storage::{CompactAttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
-    PersistedOperationPool, PersistedOperationPoolV12, PersistedOperationPoolV14,
-    PersistedOperationPoolV15, PersistedOperationPoolV5,
+    PersistedOperationPool, PersistedOperationPoolV15, PersistedOperationPoolV20,
 };
 pub use reward_cache::RewardCache;
 use state_processing::epoch_cache::is_epoch_cache_initialized;

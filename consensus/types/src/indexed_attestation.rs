@@ -115,6 +115,22 @@ impl<E: EthSpec> IndexedAttestation<E> {
             IndexedAttestation::Electra(att) => att.attesting_indices.first(),
         }
     }
+
+    pub fn to_electra(self) -> Result<IndexedAttestationElectra<E>, ssz_types::Error> {
+        Ok(match self {
+            Self::Base(att) => {
+                let extended_attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot> =
+                    VariableList::new(att.attesting_indices.to_vec())?;
+
+                IndexedAttestationElectra {
+                    attesting_indices: extended_attesting_indices,
+                    data: att.data,
+                    signature: att.signature,
+                }
+            }
+            Self::Electra(att) => att,
+        })
+    }
 }
 
 impl<'a, E: EthSpec> IndexedAttestationRef<'a, E> {

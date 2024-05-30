@@ -7,13 +7,14 @@ use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    Attestation, AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
-    EthSpec, ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
-    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttestationBase, AttestationElectra, AttesterSlashing, AttesterSlashingBase,
+    AttesterSlashingElectra, BlobSidecar, EthSpec, ForkContext, ForkName,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
+    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -182,7 +183,26 @@ impl<E: EthSpec> PubsubMessage<E> {
                     }
                     GossipKind::Attestation(subnet_id) => {
                         let attestation =
-                            Attestation::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?;
+                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                                Some(ForkName::Base)
+                                | Some(ForkName::Altair)
+                                | Some(ForkName::Bellatrix)
+                                | Some(ForkName::Capella)
+                                | Some(ForkName::Deneb) => Attestation::Base(
+                                    AttestationBase::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Electra) => Attestation::Electra(
+                                    AttestationElectra::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                None => {
+                                    return Err(format!(
+                                        "Unknown gossipsub fork digest: {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
+                            };
                         Ok(PubsubMessage::Attestation(Box::new((
                             *subnet_id,
                             attestation,

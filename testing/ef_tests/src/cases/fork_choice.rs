@@ -25,8 +25,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
-    BlobSidecar, BlobsList, Checkpoint, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
-    ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
+    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, ExecutionBlockHash, Hash256,
+    IndexedAttestation, KzgProof, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -180,10 +180,24 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
-                Step::Attestation { attestation } => {
-                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation)))
-                        .map(|attestation| Step::Attestation { attestation })
-                }
+                Step::Attestation { attestation } => match fork_name {
+                    ForkName::Base
+                    | ForkName::Altair
+                    | ForkName::Bellatrix
+                    | ForkName::Capella
+                    | ForkName::Deneb => ssz_decode_file(
+                        &path.join(format!("{}.ssz_snappy", attestation)),
+                    )
+                    .map(|attestation| Step::Attestation {
+                        attestation: Attestation::Base(attestation),
+                    }),
+                    ForkName::Electra => ssz_decode_file(
+                        &path.join(format!("{}.ssz_snappy", attestation)),
+                    )
+                    .map(|attestation| Step::Attestation {
+                        attestation: Attestation::Electra(attestation),
+                    }),
+                },
                 Step::AttesterSlashing { attester_slashing } => match fork_name {
                     ForkName::Base
                     | ForkName::Altair
@@ -513,6 +527,7 @@ impl<E: EthSpec> Tester<E> {
                 block_root,
                 block.clone(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
