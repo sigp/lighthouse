@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Stop all processes that were started with start_local_testnet.sh
-
 set -Eeuo pipefail
 
-source ./vars.env
+ENCLAVE_NAME=local-testnet
+LOGS_PATH=logs
 
-PID_FILE=$TESTNET_DIR/PIDS.pid
-./kill_processes.sh $PID_FILE
-rm -f $PID_FILE
+rm -rf $LOGS_PATH
+
+kurtosis enclave dump $ENCLAVE_NAME $LOGS_PATH
+echo "Local testnet logs stored to $LOGS_PATH."
+
+kurtosis enclave rm -f $ENCLAVE_NAME
+echo "Local testnet stopped."

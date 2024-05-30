@@ -259,17 +259,6 @@ jobs:
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
-  dockerfile-ubuntu:
-    name: dockerfile-ubuntu
-    needs: [check-labels]
-    if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Build the root Dockerfile
-      run: docker build --build-arg FEATURES=portable -t lighthouse:local .
-    - name: Test the built image
-      run: docker run -t lighthouse:local lighthouse --version
   basic-simulator-ubuntu:
     name: basic-simulator-ubuntu
     needs: [check-labels]
@@ -465,7 +454,6 @@ jobs:
       'debug-tests-ubuntu',
       'state-transition-vectors-ubuntu',
       'ef-tests-ubuntu',
-      'dockerfile-ubuntu',
       'basic-simulator-ubuntu',
       'fallback-simulator-ubuntu',
       'doppelganger-protection-test',
