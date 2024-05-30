@@ -4,7 +4,6 @@ use derivative::Derivative;
 use rand::RngCore;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
 use std::hash::{Hash, Hasher};
@@ -70,26 +69,6 @@ pub struct Attestation<E: EthSpec> {
     #[superstruct(only(Electra))]
     pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
     pub signature: AggregateSignature,
-}
-
-impl<E: EthSpec> Decode for Attestation<E> {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        if let Ok(result) = AttestationBase::from_ssz_bytes(bytes) {
-            return Ok(Attestation::Base(result));
-        }
-
-        if let Ok(result) = AttestationElectra::from_ssz_bytes(bytes) {
-            return Ok(Attestation::Electra(result));
-        }
-
-        Err(ssz::DecodeError::BytesInvalid(String::from(
-            "bytes not valid for any fork variant",
-        )))
-    }
 }
 
 // TODO(electra): think about how to handle fork variants here
@@ -414,6 +393,65 @@ impl<E: EthSpec> SlotData for Attestation<E> {
 impl<'a, E: EthSpec> SlotData for AttestationRef<'a, E> {
     fn get_slot(&self) -> Slot {
         self.data().slot
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode, PartialEq)]
+#[ssz(enum_behaviour = "union")]
+pub enum AttestationOnDisk<E: EthSpec> {
+    Base(AttestationBase<E>),
+    Electra(AttestationElectra<E>),
+}
+
+impl<E: EthSpec> AttestationOnDisk<E> {
+    pub fn to_ref(&self) -> AttestationRefOnDisk<E> {
+        match self {
+            AttestationOnDisk::Base(att) => AttestationRefOnDisk::Base(att),
+            AttestationOnDisk::Electra(att) => AttestationRefOnDisk::Electra(att),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode)]
+#[ssz(enum_behaviour = "union")]
+pub enum AttestationRefOnDisk<'a, E: EthSpec> {
+    Base(&'a AttestationBase<E>),
+    Electra(&'a AttestationElectra<E>),
+}
+
+impl<E: EthSpec> From<Attestation<E>> for AttestationOnDisk<E> {
+    fn from(attestation: Attestation<E>) -> Self {
+        match attestation {
+            Attestation::Base(attestation) => Self::Base(attestation),
+            Attestation::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
+impl<E: EthSpec> From<AttestationOnDisk<E>> for Attestation<E> {
+    fn from(attestation: AttestationOnDisk<E>) -> Self {
+        match attestation {
+            AttestationOnDisk::Base(attestation) => Self::Base(attestation),
+            AttestationOnDisk::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
+impl<'a, E: EthSpec> From<AttestationRef<'a, E>> for AttestationRefOnDisk<'a, E> {
+    fn from(attestation: AttestationRef<'a, E>) -> Self {
+        match attestation {
+            AttestationRef::Base(attestation) => Self::Base(attestation),
+            AttestationRef::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
+impl<'a, E: EthSpec> From<AttestationRefOnDisk<'a, E>> for AttestationRef<'a, E> {
+    fn from(attestation: AttestationRefOnDisk<'a, E>) -> Self {
+        match attestation {
+            AttestationRefOnDisk::Base(attestation) => Self::Base(attestation),
+            AttestationRefOnDisk::Electra(attestation) => Self::Electra(attestation),
+        }
     }
 }
 
