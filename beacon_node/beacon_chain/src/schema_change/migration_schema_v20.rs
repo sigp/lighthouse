@@ -11,7 +11,7 @@ pub fn upgrade_to_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    // Load a V14 op pool and transform it to V15.
+    // Load a V15 op pool and transform it to V20.
     let Some(PersistedOperationPoolV15::<T::EthSpec> {
         attestations_v15,
         sync_contributions,
