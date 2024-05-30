@@ -3376,7 +3376,6 @@ dependencies = [
  "futures-timer",
  "getrandom",
  "hex_fmt",
- "instant",
  "libp2p",
  "prometheus-client",
  "quick-protobuf",
@@ -3388,6 +3387,7 @@ dependencies = [
  "sha2 0.10.8",
  "tracing",
  "void",
+ "web-time",
 ]
 
 [[package]]
@@ -4956,7 +4956,6 @@ dependencies = [
  "futures",
  "gossipsub",
  "hex",
- "instant",
  "lazy_static",
  "libp2p",
  "libp2p-mplex",
@@ -9360,6 +9359,16 @@ name = "web-sys"
 version = "0.3.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77afa9a11836342370f4817622a2f0f418b134426d91a82dfb48f532d2ec13ef"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",

@@ -24,11 +24,11 @@
 use super::metrics::{Metrics, Penalty};
 use super::time_cache::TimeCache;
 use super::{MessageId, TopicHash};
-use instant::Instant;
 use libp2p::identity::PeerId;
 use std::collections::{hash_map, HashMap, HashSet};
 use std::net::IpAddr;
 use std::time::Duration;
+use web_time::Instant;
 
 mod params;
 use super::ValidationError;
