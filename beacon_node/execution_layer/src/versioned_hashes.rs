@@ -60,8 +60,8 @@ pub fn extract_versioned_hashes_from_transactions<E: EthSpec>(
 
 #[derive(Deserialize, Serialize)]
 pub struct BlobTransactionId {
-    tx_hash: Hash256,
-    versioned_hashes: Vec<VersionedHash>,
+    pub tx_hash: Hash256,
+    pub versioned_hashes: Vec<VersionedHash>,
 }
 
 pub fn extract_blob_transaction_ids<E: EthSpec>(

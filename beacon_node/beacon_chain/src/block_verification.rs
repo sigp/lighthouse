@@ -1342,6 +1342,15 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 "Blobs from EL - start request";
                 "num_blob_tx" => num_blob_tx,
             );
+            let mut blob_index = 0;
+            let blob_start_indices = blob_ids
+                .iter()
+                .map(|blob_id| {
+                    let i = blob_index;
+                    blob_index += blob_id.versioned_hashes.len();
+                    i
+                })
+                .collect::<Vec<_>>();
             let response = execution_layer.get_blobs(blob_ids).await.map_err(|e| {
                 BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(e))
             })?;
@@ -1364,12 +1373,17 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 );
             }
             let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
-            for (i, (blob, kzg_proof)) in response
-                .blobs
+            for (i, (blob, kzg_proof)) in blob_start_indices
                 .into_iter()
-                .flatten()
-                .flat_map(|blob| blob.blobs.into_iter().zip(blob.proofs))
-                .enumerate()
+                .zip(response.blobs)
+                .filter_map(|(start_index, blobs)| blobs.map(|blobs| (start_index, blobs)))
+                .flat_map(|(start_index, blob)| {
+                    blob.blobs
+                        .into_iter()
+                        .zip(blob.proofs)
+                        .enumerate()
+                        .map(move |(i, v)| (start_index + i, v))
+                })
             {
                 match BlobSidecar::new(i, blob, &block, kzg_proof) {
                     Ok(blob) => {
