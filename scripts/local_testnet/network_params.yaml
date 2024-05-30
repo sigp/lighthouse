@@ -8,7 +8,7 @@ participants:
       - --target-peers=3
     vc_type: lighthouse
     vc_image: lighthouse:local
-    vc_count: 4
+    count: 4
 network_params:
   deneb_fork_epoch: 0
   seconds_per_slot: 3

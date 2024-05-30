@@ -1,18 +1,14 @@
 #[macro_use]
 extern crate log;
 mod block_root;
-mod change_genesis_time;
 mod check_deposit_data;
-mod create_payload_header;
 mod deploy_deposit_contract;
 mod eth1_genesis;
 mod generate_bootnode_enr;
 mod indexed_attestations;
-mod insecure_validators;
 mod interop_genesis;
 mod mnemonic_validators;
 mod mock_el;
-mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
 mod skip_slots;
@@ -368,30 +364,6 @@ fn main() {
                 ),
         )
         .subcommand(
-            Command::new("change-genesis-time")
-                .about(
-                    "Loads a file with an SSZ-encoded BeaconState and modifies the genesis time.",
-                )
-                .arg(
-                    Arg::new("ssz-state")
-                        .index(1)
-                        .value_name("PATH")
-                        .action(ArgAction::Set)
-                        .required(true)
-                        .help("The path to the SSZ file")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("genesis-time")
-                        .index(2)
-                        .value_name("UNIX_EPOCH")
-                        .action(ArgAction::Set)
-                        .required(true)
-                        .help("The value for state.genesis_time.")
-                        .display_order(0)
-                ),
-        )
-        .subcommand(
             Command::new("replace-state-pubkeys")
                 .about(
                     "Loads a file with an SSZ-encoded BeaconState and replaces \
@@ -420,340 +392,6 @@ fn main() {
                         .help("The mnemonic for key derivation.")
                         .display_order(0)
                 ),
-        )
-        .subcommand(
-            Command::new("create-payload-header")
-                .about("Generates an SSZ file containing bytes for an `ExecutionPayloadHeader`. \
-                Useful as input for `lcli new-testnet --execution-payload-header FILE`. If `--fork` \
-                is not provided, a payload header for the `Bellatrix` fork will be created.")
-                .arg(
-                    Arg::new("execution-block-hash")
-                        .long("execution-block-hash")
-                        .value_name("BLOCK_HASH")
-                        .action(ArgAction::Set)
-                        .help("The block hash used when generating an execution payload. This \
-                            value is used for `execution_payload_header.block_hash` as well as \
-                            `execution_payload_header.random`")
-                        .default_value(
-                            "0x0000000000000000000000000000000000000000000000000000000000000000",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("genesis-time")
-                        .long("genesis-time")
-                        .value_name("INTEGER")
-                        .action(ArgAction::Set)
-                        .help("The genesis time when generating an execution payload.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("base-fee-per-gas")
-                        .long("base-fee-per-gas")
-                        .value_name("INTEGER")
-                        .action(ArgAction::Set)
-                        .help("The base fee per gas field in the execution payload generated.")
-                        .default_value("1000000000")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("gas-limit")
-                        .long("gas-limit")
-                        .value_name("INTEGER")
-                        .action(ArgAction::Set)
-                        .help("The gas limit field in the execution payload generated.")
-                        .default_value("30000000")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("file")
-                        .long("file")
-                        .value_name("FILE")
-                        .action(ArgAction::Set)
-                        .required(true)
-                        .help("Output file")
-                        .display_order(0)
-                ).arg(
-                Arg::new("fork")
-                    .long("fork")
-                    .value_name("FORK")
-                    .action(ArgAction::Set)
-                    .default_value("bellatrix")
-                    .help("The fork for which the execution payload header should be created.")
-                    .value_parser(["bellatrix", "capella", "deneb", "electra"])
-                    .display_order(0)
-            )
-        )
-        .subcommand(
-            Command::new("new-testnet")
-                .about(
-                    "Produce a new testnet directory. If any of the optional flags are not
-                    supplied the values will remain the default for the --spec flag",
-                )
-                .arg(
-                    Arg::new("force")
-                        .long("force")
-                        .short('f')
-                        .action(ArgAction::SetTrue)
-                        .help_heading(FLAG_HEADER)
-                        .help("Overwrites any previous testnet configurations")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("interop-genesis-state")
-                        .long("interop-genesis-state")
-                        .action(ArgAction::SetTrue)
-                        .help_heading(FLAG_HEADER)
-                        .help(
-                            "If present, a interop-style genesis.ssz file will be generated.",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("derived-genesis-state")
-                        .long("derived-genesis-state")
-                        .action(ArgAction::SetTrue)
-                        .help_heading(FLAG_HEADER)
-                        .help(
-                            "If present, a genesis.ssz file will be generated with keys generated from a given mnemonic.",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("mnemonic-phrase")
-                        .long("mnemonic-phrase")
-                        .value_name("MNEMONIC_PHRASE")
-                        .action(ArgAction::Set)
-                        .requires("derived-genesis-state")
-                        .help("The mnemonic with which we generate the validator keys for a derived genesis state")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("min-genesis-time")
-                        .long("min-genesis-time")
-                        .value_name("UNIX_SECONDS")
-                        .action(ArgAction::Set)
-                        .help(
-                            "The minimum permitted genesis time. For non-eth1 testnets will be
-                              the genesis time. Defaults to now.",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("min-genesis-active-validator-count")
-                        .long("min-genesis-active-validator-count")
-                        .value_name("INTEGER")
-                        .action(ArgAction::Set)
-                        .help("The number of validators required to trigger eth2 genesis.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("genesis-delay")
-                        .long("genesis-delay")
-                        .value_name("SECONDS")
-                        .action(ArgAction::Set)
-                        .help("The delay between sufficient eth1 deposits and eth2 genesis.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("min-deposit-amount")
-                        .long("min-deposit-amount")
-                        .value_name("GWEI")
-                        .action(ArgAction::Set)
-                        .help("The minimum permitted deposit amount.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("max-effective-balance")
-                        .long("max-effective-balance")
-                        .value_name("GWEI")
-                        .action(ArgAction::Set)
-                        .help("The amount required to become a validator.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("effective-balance-increment")
-                        .long("effective-balance-increment")
-                        .value_name("GWEI")
-                        .action(ArgAction::Set)
-                        .help("The steps in effective balance calculation.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("ejection-balance")
-                        .long("ejection-balance")
-                        .value_name("GWEI")
-                        .action(ArgAction::Set)
-                        .help("The balance at which a validator gets ejected.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("eth1-follow-distance")
-                        .long("eth1-follow-distance")
-                        .value_name("ETH1_BLOCKS")
-                        .action(ArgAction::Set)
-                        .help("The distance to follow behind the eth1 chain head.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("genesis-fork-version")
-                        .long("genesis-fork-version")
-                        .value_name("HEX")
-                        .action(ArgAction::Set)
-                        .help(
-                            "Used to avoid reply attacks between testnets. Recommended to set to
-                              non-default.",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("seconds-per-slot")
-                        .long("seconds-per-slot")
-                        .value_name("SECONDS")
-                        .action(ArgAction::Set)
-                        .help("Eth2 slot time")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("seconds-per-eth1-block")
-                        .long("seconds-per-eth1-block")
-                        .value_name("SECONDS")
-                        .action(ArgAction::Set)
-                        .help("Eth1 block time")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("eth1-id")
-                        .long("eth1-id")
-                        .value_name("ETH1_ID")
-                        .action(ArgAction::Set)
-                        .help("The chain id and network id for the eth1 testnet.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("deposit-contract-address")
-                        .long("deposit-contract-address")
-                        .value_name("ETH1_ADDRESS")
-                        .action(ArgAction::Set)
-                        .required(true)
-                        .help("The address of the deposit contract.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("deposit-contract-deploy-block")
-                        .long("deposit-contract-deploy-block")
-                        .value_name("ETH1_BLOCK_NUMBER")
-                        .action(ArgAction::Set)
-                        .default_value("0")
-                        .help(
-                            "The block the deposit contract was deployed. Setting this is a huge
-                              optimization for nodes, please do it.",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("altair-fork-epoch")
-                        .long("altair-fork-epoch")
-                        .value_name("EPOCH")
-                        .action(ArgAction::Set)
-                        .help(
-                            "The epoch at which to enable the Altair hard fork",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("bellatrix-fork-epoch")
-                        .long("bellatrix-fork-epoch")
-                        .value_name("EPOCH")
-                        .action(ArgAction::Set)
-                        .help(
-                            "The epoch at which to enable the Bellatrix hard fork",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("capella-fork-epoch")
-                        .long("capella-fork-epoch")
-                        .value_name("EPOCH")
-                        .action(ArgAction::Set)
-                        .help(
-                            "The epoch at which to enable the Capella hard fork",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("deneb-fork-epoch")
-                        .long("deneb-fork-epoch")
-                        .value_name("EPOCH")
-                        .action(ArgAction::Set)
-                        .help(
-                            "The epoch at which to enable the Deneb hard fork",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("electra-fork-epoch")
-                        .long("electra-fork-epoch")
-                        .value_name("EPOCH")
-                        .action(ArgAction::Set)
-                        .help(
-                            "The epoch at which to enable the Electra hard fork",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("ttd")
-                        .long("ttd")
-                        .value_name("TTD")
-                        .action(ArgAction::Set)
-                        .help(
-                            "The terminal total difficulty",
-                        )
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("eth1-block-hash")
-                        .long("eth1-block-hash")
-                        .value_name("BLOCK_HASH")
-                        .action(ArgAction::Set)
-                        .help("The eth1 block hash used when generating a genesis state.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("execution-payload-header")
-                        .long("execution-payload-header")
-                        .value_name("FILE")
-                        .action(ArgAction::Set)
-                        .required(false)
-                        .help("Path to file containing `ExecutionPayloadHeader` SSZ bytes to be \
-                            used in the genesis state.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("validator-count")
-                        .long("validator-count")
-                        .value_name("INTEGER")
-                        .action(ArgAction::Set)
-                        .help("The number of validators when generating a genesis state.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("genesis-time")
-                        .long("genesis-time")
-                        .value_name("INTEGER")
-                        .action(ArgAction::Set)
-                        .help("The genesis time when generating a genesis state.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("proposer-score-boost")
-                        .long("proposer-score-boost")
-                        .value_name("INTEGER")
-                        .action(ArgAction::Set)
-                        .help("The proposer score boost to apply as a percentage, e.g. 70 = 70%")
-                        .display_order(0)
-                )
-
         )
         .subcommand(
             Command::new("check-deposit-data")
@@ -833,36 +471,6 @@ fn main() {
                         )
                         .display_order(0)
                 ),
-        )
-        .subcommand(
-            Command::new("insecure-validators")
-                .about("Produces validator directories with INSECURE, deterministic keypairs.")
-                .arg(
-                    Arg::new("count")
-                        .long("count")
-                        .value_name("COUNT")
-                        .action(ArgAction::Set)
-                        .required(true)
-                        .help("Produces validators in the range of 0..count.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("base-dir")
-                        .long("base-dir")
-                        .value_name("BASE_DIR")
-                        .action(ArgAction::Set)
-                        .required(true)
-                        .help("The base directory where validator keypairs and secrets are stored")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("node-count")
-                        .long("node-count")
-                        .value_name("NODE_COUNT")
-                        .action(ArgAction::Set)
-                        .help("The number of nodes to divide the validator keys to")
-                        .display_order(0)
-                )
         )
         .subcommand(
             Command::new("mnemonic-validators")
@@ -1176,29 +784,15 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
             interop_genesis::run::<E>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run interop-genesis command: {}", e))
         }
-        Some(("change-genesis-time", matches)) => {
-            let testnet_dir = get_testnet_dir()?;
-            change_genesis_time::run::<E>(testnet_dir, matches)
-                .map_err(|e| format!("Failed to run change-genesis-time command: {}", e))
-        }
-        Some(("create-payload-header", matches)) => create_payload_header::run::<E>(matches)
-            .map_err(|e| format!("Failed to run create-payload-header command: {}", e)),
         Some(("replace-state-pubkeys", matches)) => {
             let testnet_dir = get_testnet_dir()?;
             replace_state_pubkeys::run::<E>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
         }
-        Some(("new-testnet", matches)) => {
-            let testnet_dir = get_testnet_dir()?;
-            new_testnet::run::<E>(testnet_dir, matches)
-                .map_err(|e| format!("Failed to run new_testnet command: {}", e))
-        }
         Some(("check-deposit-data", matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
         Some(("generate-bootnode-enr", matches)) => generate_bootnode_enr::run::<E>(matches)
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
-        Some(("insecure-validators", matches)) => insecure_validators::run(matches)
-            .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
         Some(("mnemonic-validators", matches)) => mnemonic_validators::run(matches)
             .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
         Some(("indexed-attestations", matches)) => indexed_attestations::run::<E>(matches)
