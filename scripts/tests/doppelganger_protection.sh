@@ -46,8 +46,18 @@ $SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b false -c
 # Immediately stop node 4 (as we only need the node 4 validator keys generated for later use)
 kurtosis service stop $ENCLAVE_NAME cl-4-lighthouse-geth el-4-geth-lighthouse vc-4-geth-lighthouse > /dev/null
 
-echo "Waiting an epoch before starting the next validator client"
-sleep $(( $SECONDS_PER_SLOT * 32 ))
+# Get the http port to get the config
+http_address=`kurtosis port print $ENCLAVE_NAME cl-1-lighthouse-geth http`
+
+# Get the genesis time and genesis delay
+MIN_GENESIS_TIME=`curl -s $http_address/eth/v1/config/spec | jq '.data.MIN_GENESIS_TIME|tonumber'`
+GENESIS_DELAY=`curl -s $http_address/eth/v1/config/spec | jq '.data.GENESIS_DELAY|tonumber'`
+
+CURRENT_TIME=`date +%s`
+# Note: doppelganger protection can only be started post epoch 0
+echo "Waiting until next epoch before starting the next validator client"
+DELAY=$(( $SECONDS_PER_SLOT * 32 + $GENESIS_DELAY + $MIN_GENESIS_TIME - $CURRENT_TIME))
+sleep $DELAY
 
 # Use BN2 for the next validator client
 bn_2_url=$(kurtosis service inspect $ENCLAVE_NAME cl-2-lighthouse-geth | grep 'enr-address' | cut -d'=' -f2)
