@@ -329,6 +329,10 @@ pub fn get_config<E: EthSpec>(
 
             el_config.builder_user_agent =
                 clap_utils::parse_optional(cli_args, "builder-user-agent")?;
+
+            el_config.builder_header_timeout =
+                clap_utils::parse_optional(cli_args, "builder-header-timeout")?
+                    .map(Duration::from_millis);
         }
 
         if parse_flag(cli_args, "builder-profit-threshold") {
