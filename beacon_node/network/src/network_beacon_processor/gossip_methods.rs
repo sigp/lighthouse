@@ -758,7 +758,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        match self.chain.process_gossip_blob(verified_blob).await {
+        let result = self.chain.process_gossip_blob(verified_blob).await;
+
+        match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 // Note: Reusing block imported metric here
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
@@ -806,6 +808,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "bad_gossip_blob_ssz",
                 );
             }
+        }
+
+        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
+        // imported. A block can become imported both after processing a block or blob. If a
+        // importing a block results in `Imported`, notify. Do not notify of blob errors.
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: true,
+            });
         }
     }
 
@@ -2049,6 +2061,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_val_index_too_high",
                 );
             }
+            AttnError::CommitteeIndexNonZero(index) => {
+                /*
+                 * The validator index is not set to zero after Electra.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                debug!(
+                    self.log,
+                    "Committee index non zero";
+                    "peer_id" => %peer_id,
+                    "block" => ?beacon_block_root,
+                    "type" => ?attestation_type,
+                    "committee_index" => index,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_comm_index_non_zero",
+                );
+            }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
                 trace!(
                     self.log,
@@ -2202,6 +2235,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     PeerAction::LowToleranceError,
                     "attn_too_many_agg_bits",
+                );
+            }
+            AttnError::NotExactlyOneCommitteeBitSet(_) => {
+                /*
+                 * The attestation doesn't have only one committee bit set.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_too_many_comm_bits",
                 );
             }
             AttnError::AttestsToFutureBlock { .. } => {

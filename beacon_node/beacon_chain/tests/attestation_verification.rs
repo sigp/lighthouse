@@ -2,6 +2,7 @@
 
 use beacon_chain::attestation_verification::{
     batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations, Error,
+    ObservedAttestationKey,
 };
 use beacon_chain::test_utils::{MakeAttestationOptions, HARNESS_GENESIS_TIME};
 use beacon_chain::{
@@ -128,7 +129,12 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     let validator_committee_index = 0;
     let validator_index = *head
         .beacon_state
-        .get_beacon_committee(current_slot, valid_attestation.data().index)
+        .get_beacon_committee(
+            current_slot,
+            valid_attestation
+                .committee_index()
+                .expect("should get committee index"),
+        )
         .expect("should get committees")
         .committee
         .get(validator_committee_index)
@@ -146,8 +152,8 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
         )
         .expect("should sign attestation");
 
-    let subnet_id = SubnetId::compute_subnet_for_attestation::<E>(
-        &valid_attestation.to_ref(),
+    let subnet_id = SubnetId::compute_subnet_for_attestation::<T::EthSpec>(
+        valid_attestation.to_ref(),
         head.beacon_state
             .get_committee_count_at_slot(current_slot)
             .expect("should get committee count"),
@@ -173,7 +179,12 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     let current_slot = chain.slot().expect("should get slot");
 
     let committee = state
-        .get_beacon_committee(current_slot, aggregate.data().index)
+        .get_beacon_committee(
+            current_slot,
+            aggregate
+                .committee_index()
+                .expect("should get committee index"),
+        )
         .expect("should get committees");
     let committee_len = committee.committee.len();
 
@@ -216,7 +227,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
 /// attestation.
 fn get_non_aggregator<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    aggregate: &AttestationRef<T::EthSpec>,
+    aggregate: AttestationRef<T::EthSpec>,
 ) -> (usize, SecretKey) {
     let head = chain.head_snapshot();
     let state = &head.beacon_state;
@@ -224,7 +235,12 @@ fn get_non_aggregator<T: BeaconChainTypes>(
 
     // TODO(electra) make fork-agnostic
     let committee = state
-        .get_beacon_committee(current_slot, aggregate.data().index)
+        .get_beacon_committee(
+            current_slot,
+            aggregate
+                .committee_index()
+                .expect("should get committee index"),
+        )
         .expect("should get committees");
     let committee_len = committee.committee.len();
 
@@ -371,7 +387,7 @@ impl GossipTester {
     pub fn non_aggregator(&self) -> (usize, SecretKey) {
         get_non_aggregator(
             &self.harness.chain,
-            &self.valid_aggregate.message().aggregate(),
+            self.valid_aggregate.message().aggregate(),
         )
     }
 
@@ -429,6 +445,7 @@ impl GossipTester {
                 vec![&self.invalid_aggregate, &aggregate].into_iter(),
             )
             .unwrap();
+
         assert_eq!(results.len(), 2);
         let batch_err = results.pop().unwrap().err().expect(&format!(
             "{} should error during batch_verify_aggregated_attestations_for_gossip",
@@ -662,7 +679,7 @@ async fn aggregated_gossip_verification() {
                     .chain
                     .head_snapshot()
                     .beacon_state
-                    .get_beacon_committee(tester.slot(), a.message().aggregate().data().index)
+                    .get_beacon_committee(tester.slot(), a.message().aggregate().committee_index().expect("should get committee index"))
                     .expect("should get committees")
                     .committee
                     .len();
@@ -778,12 +795,7 @@ async fn aggregated_gossip_verification() {
                     // However, the following error is triggered first:
                     AttnError::AggregatorNotInCommittee {
                         aggregator_index
-                    } |
-                    // unless were working with electra attestations
-                    // in which case this error is triggered instead:
-                    AttnError::AggregatorPubkeyUnknown(
-                        aggregator_index
-                    )
+                    }
                     if aggregator_index == VALIDATOR_COUNT as u64
                 ))
             },
@@ -792,7 +804,7 @@ async fn aggregated_gossip_verification() {
          * The following test ensures:
          *
          * aggregate_and_proof.selection_proof selects the validator as an aggregator for the slot --
-         * i.e. is_aggregator(state, aggregate.data.slot, aggregate.data.index,
+         * i.e. is_aggregator(state, aggregate.data.slot, aggregate.committee_index(),
          * aggregate_and_proof.selection_proof) returns True.
          */
         .inspect_aggregate_err(
@@ -812,6 +824,7 @@ async fn aggregated_gossip_verification() {
             },
             |tester, err| {
                 let (val_index, _) = tester.non_aggregator();
+
                 assert!(matches!(
                     err,
                     AttnError::InvalidSelectionProof {
@@ -838,7 +851,10 @@ async fn aggregated_gossip_verification() {
                 assert!(matches!(
                     err,
                     AttnError::AttestationSupersetKnown(hash)
-                    if hash == tester.valid_aggregate.message().aggregate().data().tree_hash_root()
+                    if hash == ObservedAttestationKey {
+                        committee_index: tester.valid_aggregate.message().aggregate().expect("should get committee index"),
+                        attestation_data: tester.valid_aggregate.message().aggregate().data().clone(),
+                    }.tree_hash_root()
                 ))
             },
         )

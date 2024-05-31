@@ -261,9 +261,9 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
         };
 
         let attestation_key = AttestationKey::from_attestation_ref(a)?;
-        let attestation_data_root = attestation_key.tree_hash_root();
+        let attestation_key_root = attestation_key.tree_hash_root();
 
-        if let Some(existing_attestation) = self.map.get_mut(&attestation_data_root) {
+        if let Some(existing_attestation) = self.map.get_mut(&attestation_key_root) {
             if existing_attestation
                 .get_aggregation_bit(aggregation_bit)
                 .map_err(|_| Error::InconsistentBitfieldLengths)?
@@ -285,7 +285,7 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
             }
 
             self.map
-                .insert(attestation_data_root, a.clone_as_attestation());
+                .insert(attestation_key_root, a.clone_as_attestation());
             Ok(InsertOutcome::NewItemInserted {
                 committee_index: aggregation_bit,
             })

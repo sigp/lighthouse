@@ -12,8 +12,8 @@ use slog::info;
 use types::EthSpec;
 
 pub async fn run<E: EthSpec>(
-    lh_matches: &ArgMatches<'_>,
-    bn_matches: &ArgMatches<'_>,
+    lh_matches: &ArgMatches,
+    bn_matches: &ArgMatches,
     eth2_network_config: &Eth2NetworkConfig,
     log: slog::Logger,
 ) -> Result<(), String> {
@@ -28,7 +28,7 @@ pub async fn run<E: EthSpec>(
         &eth2_network_config.chain_spec::<E>()?,
     )?;
 
-    if lh_matches.is_present("immediate-shutdown") {
+    if lh_matches.get_flag("immediate-shutdown") {
         return Ok(());
     }
 

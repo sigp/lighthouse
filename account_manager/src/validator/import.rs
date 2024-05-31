@@ -9,7 +9,8 @@ use account_utils::{
     },
     ZeroizeString,
 };
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::fs;
 use std::path::PathBuf;
@@ -25,8 +26,8 @@ pub const PASSWORD_PROMPT: &str = "Enter the keystore password, or press enter t
 pub const KEYSTORE_REUSE_WARNING: &str = "DO NOT USE THE ORIGINAL KEYSTORES TO VALIDATE WITH \
                                           ANOTHER CLIENT, OR YOU WILL GET SLASHED.";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
         .about(
             "Imports one or more EIP-2335 passwords into a Lighthouse VC directory, \
             requesting passwords interactively. The directory flag provides a convenient \
@@ -34,16 +35,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Python utility.",
         )
         .arg(
-            Arg::with_name(KEYSTORE_FLAG)
+            Arg::new(KEYSTORE_FLAG)
                 .long(KEYSTORE_FLAG)
                 .value_name("KEYSTORE_PATH")
                 .help("Path to a single keystore to be imported.")
                 .conflicts_with(DIR_FLAG)
-                .required_unless(DIR_FLAG)
-                .takes_value(true),
+                .required_unless_present(DIR_FLAG)
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(DIR_FLAG)
+            Arg::new(DIR_FLAG)
                 .long(DIR_FLAG)
                 .value_name("KEYSTORES_DIRECTORY")
                 .help(
@@ -53,23 +55,29 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     has the '.json' extension will be attempted to be imported.",
                 )
                 .conflicts_with(KEYSTORE_FLAG)
-                .required_unless(KEYSTORE_FLAG)
-                .takes_value(true),
+                .required_unless_present(KEYSTORE_FLAG)
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
+            Arg::new(STDIN_INPUTS_FLAG)
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(REUSE_PASSWORD_FLAG)
+            Arg::new(REUSE_PASSWORD_FLAG)
                 .long(REUSE_PASSWORD_FLAG)
-                .help("If present, the same password will be used for all imported keystores."),
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("If present, the same password will be used for all imported keystores.")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(PASSWORD_FLAG)
+            Arg::new(PASSWORD_FLAG)
                 .long(PASSWORD_FLAG)
                 .value_name("KEYSTORE_PASSWORD_PATH")
                 .requires(REUSE_PASSWORD_FLAG)
@@ -79,15 +87,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     The password will be copied to the `validator_definitions.yml` file, so after \
                     import we strongly recommend you delete the file at KEYSTORE_PASSWORD_PATH.",
                 )
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 
 pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {
     let keystore: Option<PathBuf> = clap_utils::parse_optional(matches, KEYSTORE_FLAG)?;
     let keystores_dir: Option<PathBuf> = clap_utils::parse_optional(matches, DIR_FLAG)?;
-    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
-    let reuse_password = matches.is_present(REUSE_PASSWORD_FLAG);
+    let stdin_inputs = cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG);
+    let reuse_password = matches.get_flag(REUSE_PASSWORD_FLAG);
     let keystore_password_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
 
