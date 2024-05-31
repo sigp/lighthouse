@@ -90,11 +90,11 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
     check_exit_cmd="until [ \$(get_service_status $service_name) != 'RUNNING' ]; do sleep 1; done"
     doppelganger_exit=$(run_command_without_exit "timeout $(( $SECONDS_PER_SLOT * 32 * 2 )) bash -c \"$check_exit_cmd\"")
 
-    # We expect to find a doppelganger, exit with success error code if doppelganger was found
-    # and failure if no doppelganger was found.
     if [[ $doppelganger_exit -eq 1 ]]; then
+        echo "Test failed: expected doppelganger but VC is still running. Check the logs for details."
         exit_and_dump_logs 0
     else
+        echo "Test passed: doppelganger found and VC process stopped successfully."
         exit_and_dump_logs 1
     fi
 
