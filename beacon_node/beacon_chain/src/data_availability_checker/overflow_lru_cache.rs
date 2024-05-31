@@ -475,18 +475,18 @@ impl<T: BeaconChainTypes> Critical<T> {
         Ok(())
     }
 
-    /// Returns the pending_components corresponding to  the `block_root` or `None` if it does not
-    /// exist
-    pub fn get_pending_components(
+    /// Removes and returns the pending_components corresponding to
+    /// the `block_root` or `None` if it does not exist
+    pub fn pop_pending_components(
         &mut self,
         block_root: Hash256,
         store: &OverflowStore<T>,
     ) -> Result<Option<PendingComponents<T::EthSpec>>, AvailabilityCheckError> {
-        match self.in_memory.get(&block_root) {
-            Some(pending_components) => Ok(Some(pending_components.clone())),
+        match self.in_memory.pop_entry(&block_root) {
+            Some((_, pending_components)) => Ok(Some(pending_components)),
             None => {
                 // not in memory, is it in the store?
-                if self.store_keys.contains(&block_root) {
+                if self.store_keys.remove(&block_root) {
                     // We don't need to remove the data from the store as we have removed it from
                     // `store_keys` so we won't go looking for it on disk. The maintenance thread
                     // will remove it from disk the next time it runs.
@@ -615,7 +615,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
-            .get_pending_components(block_root, &self.overflow_store)?
+            .pop_pending_components(block_root, &self.overflow_store)?
             .unwrap_or_else(|| PendingComponents::empty(block_root));
 
         // Merge in the blobs.
@@ -658,7 +658,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
-            .get_pending_components(block_root, &self.overflow_store)?
+            .pop_pending_components(block_root, &self.overflow_store)?
             .unwrap_or_else(|| PendingComponents::empty(block_root));
 
         // Merge in the block.
@@ -1226,8 +1226,15 @@ mod test {
             );
             assert_eq!(
                 cache.critical.read().in_memory.len(),
+                1,
+                "cache should still have block as it hasn't been imported yet"
+            );
+            // remove the blob to simulate successful import
+            cache.remove_pending_components(root);
+            assert_eq!(
+                cache.critical.read().in_memory.len(),
                 0,
-                "cache should be empty because we don't have blobs"
+                "cache should be empty now that block has been imported"
             );
         } else {
             assert!(
@@ -1292,6 +1299,12 @@ mod test {
             "block should be available: {:?}",
             availability
         );
+        assert!(
+            cache.critical.read().in_memory.len() == 1,
+            "cache should still have available block until import"
+        );
+        // remove the blob to simulate successful import
+        cache.remove_pending_components(root);
         assert!(
             cache.critical.read().in_memory.is_empty(),
             "cache should be empty now that all components available"
@@ -1407,6 +1420,8 @@ mod test {
                 .expect("should put blob");
             if blob_index == expected_blobs - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
+                // remove the block from the cache to simulate import
+                cache.remove_pending_components(roots[0]);
             } else {
                 // the first block should be brought back into memory
                 assert!(
