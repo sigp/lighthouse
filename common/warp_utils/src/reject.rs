@@ -179,6 +179,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     if err.is_not_found() {
         code = StatusCode::NOT_FOUND;
         message = "NOT_FOUND".to_string();
+    } else if err.find::<crate::reject::UnsupportedMediaType>().is_some() {
+        code = StatusCode::UNSUPPORTED_MEDIA_TYPE;
+        message = "UNSUPPORTED_MEDIA_TYPE".to_string();
     } else if let Some(e) = err.find::<crate::reject::CustomDeserializeError>() {
         message = format!("BAD_REQUEST: body deserialize error: {}", e.0);
         code = StatusCode::BAD_REQUEST;
@@ -239,9 +242,6 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if err.find::<warp::reject::MethodNotAllowed>().is_some() {
         code = StatusCode::METHOD_NOT_ALLOWED;
         message = "METHOD_NOT_ALLOWED".to_string();
-    } else if err.find::<warp::reject::UnsupportedMediaType>().is_some() {
-        code = StatusCode::UNSUPPORTED_MEDIA_TYPE;
-        message = "UNSUPPORTED_MEDIA_TYPE".to_string();
     } else {
         code = StatusCode::INTERNAL_SERVER_ERROR;
         message = "UNHANDLED_REJECTION".to_string();

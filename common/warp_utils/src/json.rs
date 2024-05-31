@@ -22,10 +22,9 @@ pub fn json<T: DeserializeOwned + Send>() -> impl Filter<Extract = (T,), Error =
         .and_then(|header: Option<String>, bytes: Bytes| async move {
             if let Some(header) = header {
                 if header == SSZ_CONTENT_TYPE_HEADER {
-                    return Err(reject::unsupported_media_type(format!(
-                        "Unsupported media type {}",
-                        header
-                    )));
+                    return Err(reject::unsupported_media_type(
+                        "The request's content-type is not supported".to_string(),
+                    ));
                 }
             }
             Json::decode(bytes)
