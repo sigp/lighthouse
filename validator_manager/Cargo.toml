@@ -6,14 +6,12 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bls = { workspace = true }
 clap = { workspace = true }
 types = { workspace = true }
 environment = { workspace = true }
 eth2_network_config = { workspace = true }
 clap_utils = { workspace = true }
 eth2_wallet = { workspace = true }
-eth2_keystore = { workspace = true }
 account_utils = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

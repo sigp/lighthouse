@@ -1,10 +1,13 @@
 # This script uses the `ethereum/staking-deposit-cli` tool to generate
 # deposit data files which are then used for testing by Lighthouse.
 #
-# To generate vectors, simply run this Python script:
+# To generate vectors, run this Python script:
 #
 # `python generate.py`
 #
+# This script was last run on Linux using Python v3.10.4. Python v3.11.0 was not working at time
+# of writing due to dependency issues in `staking-deposit-cli`. You should probably use `pyenv` and
+# `virtualenv`.
 import os
 import sys
 import shutil
@@ -89,8 +92,7 @@ def sdc_generate(network, first_index, count, eth1_withdrawal_address=None):
     os.mkdir(output_dir)
 
     command = [
-        '/bin/sh',
-        'deposit.sh',
+        './deposit.sh',
         '--language', 'english',
         '--non_interactive',
         'existing-mnemonic',
@@ -114,10 +116,10 @@ def test_network(network):
     sdc_generate(network, first_index=99, count=2)
     sdc_generate(network, first_index=1024, count=3)
     sdc_generate(network, first_index=0, count=2,
-                 eth1_withdrawal_address="0x0f51bb10119727a7e5ea3538074fb341f56b09ad")
+                 eth1_withdrawal_address="0x0f51bb10119727a7e5eA3538074fb341F56B09Ad")
 
 
 setup()
 test_network("mainnet")
-test_network("prater")
+test_network("holesky")
 cleanup()

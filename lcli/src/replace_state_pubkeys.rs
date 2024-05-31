@@ -13,13 +13,13 @@ use types::{BeaconState, DepositData, EthSpec, Hash256, SignatureBytes, DEPOSIT_
 
 pub fn run<E: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let path = matches
-        .value_of("ssz-state")
+        .get_one::<String>("ssz-state")
         .ok_or("ssz-state not specified")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Unable to parse ssz-state: {}", e))?;
 
     let mnemonic_phrase = matches
-        .value_of("mnemonic")
+        .get_one::<String>("mnemonic")
         .ok_or("mnemonic not specified")?;
 
     let eth2_network_config = Eth2NetworkConfig::load(testnet_dir)?;

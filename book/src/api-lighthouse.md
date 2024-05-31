@@ -686,7 +686,7 @@ The first few lines of the response would look like:
       "slot": "1",
       "parent_slot": "0",
       "proposer_index": 93,
-      "graffiti": "EF #vm-eth2-raw-iron-prater-101"
+      "graffiti": "EF #vm-eth2-raw-iron-101"
     },
     "attestation_rewards": {
       "total": 637260,
