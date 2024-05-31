@@ -2,7 +2,7 @@
 
 # Requires `docker`, `kurtosis`, `yq`, `curl`, `jq`
 
-set -Eeuo pipefail
+set -u
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 NETWORK_PARAMS_FILE=$SCRIPT_DIR/network_params.yaml
@@ -35,7 +35,7 @@ function check_service_exit_with_timeout() {
 function exit_and_dump_logs() {
   local exit_code=$1
   echo "Shutting down"
-  $SCRIPT_DIR/../local_testnet/stop_local_testnet.sh
+  $SCRIPT_DIR/../local_testnet/stop_local_testnet.sh $ENCLAVE_NAME
   echo "Done"
   exit $exit_code
 }
@@ -43,7 +43,7 @@ function exit_and_dump_logs() {
 # Start local testnet
 $SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b false -c -n $NETWORK_PARAMS_FILE
 
-# Immediately stop node 4
+# Immediately stop node 4 (as we only need the node 4 validator keys generated for later use)
 kurtosis service stop $ENCLAVE_NAME cl-4-lighthouse-geth el-4-geth-lighthouse vc-4-geth-lighthouse
 
 echo "Waiting an epoch before starting the next validator client"
@@ -97,10 +97,12 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     vc_4_range_start=$(($KEYS_PER_NODE * 3))
     vc_4_range_end=$(($KEYS_PER_NODE * 4 - 1))
     vc_4_keys_artifact_id="4-lighthouse-geth-$vc_4_range_start-$vc_4_range_end-0"
+    vc_port=5062
     service_name=vc-4
 
     kurtosis service add \
           --files /validator_keys:$vc_4_keys_artifact_id,/testnet:el_cl_genesis_data \
+          --ports http=:$vc_port/tcp \
           $ENCLAVE_NAME $service_name $LH_IMAGE_NAME -- lighthouse \
           vc \
           --debug-level debug \
@@ -110,7 +112,9 @@ if [[ "$BEHAVIOR" == "success" ]]; then
           --init-slashing-protection \
           --beacon-nodes=http://$bn_2_url:$bn_2_port \
           --enable-doppelganger-protection \
-          --suggested-fee-recipient 0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990
+          --suggested-fee-recipient 0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990 \
+          --http \
+          --http-port $vc_port
 
     doppelganger_failure=0
 
@@ -123,7 +127,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     # Get BN2 localhost URL
     bn2_2_local_url=$(kurtosis enclave inspect $ENCLAVE_NAME | grep 'cl-2-lighthouse-geth' | grep -oP 'http://[^ ]+')
-    echo "Performing checks using BN: $bn2_2_local_url"
+    echo "Performing checks using beacon node 2: $bn2_2_local_url"
 
     # Get VC4 validator keys
     keys_path=$SCRIPT_DIR/$ENCLAVE_NAME/node_4/validators
@@ -133,9 +137,8 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     for val in 0x*; do
         [[ -e $val ]] || continue
-        resp=$(curl -s $bn2_2_local_url/lighthouse/validator_inclusion/3/$val)
-        # TODO: error handling
-        is_attester=$(echo $resp | jq | grep -q '"is_previous_epoch_target_attester": false')
+        curl -s $bn2_2_local_url/lighthouse/validator_inclusion/3/$val | jq | grep -q '"is_previous_epoch_target_attester": false'
+        is_attester=$?
         if [[ $is_attester -eq 0 ]]; then
             echo "$val did not attest in epoch 2."
         else
@@ -143,6 +146,10 @@ if [[ "$BEHAVIOR" == "success" ]]; then
             doppelganger_failure=1
         fi
     done
+
+    if [[ $doppelganger_failure -eq 1 ]]; then
+        exit_and_dump_logs 1
+    fi
 
     # Sleep two epochs, then make sure all validators were active in epoch 4. Use
     # `is_previous_epoch_target_attester` from epoch 5 for a complete view of epoch 4 inclusion.
@@ -152,9 +159,8 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do
         [[ -e $val ]] || continue
-        resp=$(curl -s $bn2_2_host_url/lighthouse/validator_inclusion/5/$val)
-        # TODO: error handling
-        is_attester=$(echo $resp | jq | grep -q '"is_previous_epoch_target_attester": true')
+        curl -s $bn2_2_host_url/lighthouse/validator_inclusion/5/$val | jq | grep -q '"is_previous_epoch_target_attester": true'
+        is_attester=$?
         if [[ $is_attester -eq 0 ]]; then
             echo "$val attested in epoch 4."
         else

@@ -18,6 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: jpribyl/action-docker-layer-caching@v0.1.1
+        # Ignore the failure of a step and avoid terminating the job.
+        continue-on-error: true
+
       - name: Build Docker image
         run: |
           docker build --build-arg FEATURES=portable -t lighthouse:local .
@@ -44,6 +48,15 @@ jobs:
           sudo apt update
           sudo apt install -y kurtosis-cli yq
           kurtosis analytics disable
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lighthouse-docker
+          path: .
+
+      - name: Load Docker image
+        run: docker load -i lighthouse-docker.tar
 
       - name: Start local testnet
         run: ./start_local_testnet.sh -e local -c -b false && sleep 60
@@ -83,6 +96,15 @@ jobs:
           sudo apt update
           sudo apt install -y kurtosis-cli yq
           kurtosis analytics disable
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lighthouse-docker
+          path: .
+
+      - name: Load Docker image
+        run: docker load -i lighthouse-docker.tar
 
       - name: Run the doppelganger protection failure test script
         run: |
