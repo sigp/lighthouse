@@ -2,15 +2,11 @@
 extern crate log;
 mod block_root;
 mod check_deposit_data;
-mod deploy_deposit_contract;
-mod eth1_genesis;
 mod generate_bootnode_enr;
 mod indexed_attestations;
-mod interop_genesis;
 mod mnemonic_validators;
 mod mock_el;
 mod parse_ssz;
-mod replace_state_pubkeys;
 mod skip_slots;
 mod state_root;
 mod transition_blocks;
@@ -267,131 +263,6 @@ fn main() {
                         .help("Path to SSZ bytes")
                         .display_order(0)
                 )
-        )
-        .subcommand(
-            Command::new("deploy-deposit-contract")
-                .about(
-                    "Deploy a testing eth1 deposit contract.",
-                )
-                .arg(
-                    Arg::new("eth1-http")
-                        .long("eth1-http")
-                        .short('e')
-                        .value_name("ETH1_HTTP_PATH")
-                        .help("Path to an Eth1 JSON-RPC IPC endpoint")
-                        .action(ArgAction::Set)
-                        .required(true)
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("confirmations")
-                        .value_name("INTEGER")
-                        .long("confirmations")
-                        .action(ArgAction::Set)
-                        .default_value("3")
-                        .help("The number of block confirmations before declaring the contract deployed.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("validator-count")
-                        .value_name("VALIDATOR_COUNT")
-                        .long("validator-count")
-                        .action(ArgAction::Set)
-                        .help("If present, makes `validator_count` number of INSECURE deterministic deposits after \
-                                deploying the deposit contract."
-                        )
-                        .display_order(0)
-                )
-        )
-        .subcommand(
-            Command::new("eth1-genesis")
-                .about("Listens to the eth1 chain and finds the genesis beacon state")
-                .arg(
-                    Arg::new("eth1-endpoint")
-                        .short('e')
-                        .long("eth1-endpoint")
-                        .value_name("HTTP_SERVER")
-                        .action(ArgAction::Set)
-                        .help("Deprecated. Use --eth1-endpoints.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("eth1-endpoints")
-                        .long("eth1-endpoints")
-                        .value_name("HTTP_SERVER_LIST")
-                        .action(ArgAction::Set)
-                        .conflicts_with("eth1-endpoint")
-                        .help(
-                            "One or more comma-delimited URLs to eth1 JSON-RPC http APIs. \
-                                If multiple endpoints are given the endpoints are used as \
-                                fallback in the given order.",
-                        )
-                        .display_order(0)
-                ),
-        )
-        .subcommand(
-            Command::new("interop-genesis")
-                .about("Produces an interop-compatible genesis state using deterministic keypairs")
-                .arg(
-                    Arg::new("validator-count")
-                        .long("validator-count")
-                        .index(1)
-                        .value_name("INTEGER")
-                        .action(ArgAction::Set)
-                        .default_value("1024")
-                        .help("The number of validators in the genesis state.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("genesis-time")
-                        .long("genesis-time")
-                        .short('t')
-                        .value_name("UNIX_EPOCH")
-                        .action(ArgAction::Set)
-                        .help("The value for state.genesis_time. Defaults to now.")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("genesis-fork-version")
-                        .long("genesis-fork-version")
-                        .value_name("HEX")
-                        .action(ArgAction::Set)
-                        .help(
-                            "Used to avoid reply attacks between testnets. Recommended to set to
-                              non-default.",
-                        )
-                        .display_order(0)
-                ),
-        )
-        .subcommand(
-            Command::new("replace-state-pubkeys")
-                .about(
-                    "Loads a file with an SSZ-encoded BeaconState and replaces \
-                    all the validator pubkeys with ones derived from the mnemonic \
-                    such that validator indices correspond to EIP-2334 voting keypair \
-                    derivation paths.",
-                )
-                .arg(
-                    Arg::new("ssz-state")
-                        .index(1)
-                        .value_name("PATH")
-                        .action(ArgAction::Set)
-                        .required(true)
-                        .help("The path to the SSZ file")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new("mnemonic")
-                        .index(2)
-                        .value_name("BIP39_MNENMONIC")
-                        .action(ArgAction::Set)
-                        .default_value(
-                            "replace nephew blur decorate waste convince soup column \
-                            orient excite play baby",
-                        )
-                        .help("The mnemonic for key derivation.")
-                        .display_order(0)
-                ),
         )
         .subcommand(
             Command::new("check-deposit-data")
@@ -769,25 +640,6 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
             let network_config = get_network_config()?;
             run_parse_ssz::<E>(network_config, matches)
                 .map_err(|e| format!("Failed to pretty print hex: {}", e))
-        }
-        Some(("deploy-deposit-contract", matches)) => {
-            deploy_deposit_contract::run::<E>(env, matches)
-                .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
-        }
-        Some(("eth1-genesis", matches)) => {
-            let testnet_dir = get_testnet_dir()?;
-            eth1_genesis::run::<E>(env, testnet_dir, matches)
-                .map_err(|e| format!("Failed to run eth1-genesis command: {}", e))
-        }
-        Some(("interop-genesis", matches)) => {
-            let testnet_dir = get_testnet_dir()?;
-            interop_genesis::run::<E>(testnet_dir, matches)
-                .map_err(|e| format!("Failed to run interop-genesis command: {}", e))
-        }
-        Some(("replace-state-pubkeys", matches)) => {
-            let testnet_dir = get_testnet_dir()?;
-            replace_state_pubkeys::run::<E>(testnet_dir, matches)
-                .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
         }
         Some(("check-deposit-data", matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),

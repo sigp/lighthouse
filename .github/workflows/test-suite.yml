@@ -287,41 +287,6 @@ jobs:
           cache-target: release
     - name: Run a beacon chain sim which tests VC fallback behaviour
       run: cargo run --release --bin simulator fallback-sim
-  doppelganger-protection-test:
-    name: doppelganger-protection-test
-    needs: [check-labels]
-    if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
-    env:
-      # Enable portable to prevent issues with caching `blst` for the wrong CPU type
-      FEATURES: jemalloc,portable
-    steps:
-    - uses: actions/checkout@v4
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Install geth
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      run: |
-          sudo add-apt-repository -y ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install ethereum
-    - name: Install lighthouse
-      run: |
-          make
-    - name: Install lcli
-      run: make install-lcli
-    - name: Run the doppelganger protection failure test script
-      run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh failure genesis.json
-    - name: Run the doppelganger protection success test script
-      run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh success genesis.json
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     needs: [check-labels]
@@ -456,7 +421,6 @@ jobs:
       'ef-tests-ubuntu',
       'basic-simulator-ubuntu',
       'fallback-simulator-ubuntu',
-      'doppelganger-protection-test',
       'execution-engine-integration-ubuntu',
       'check-code',
       'check-msrv',

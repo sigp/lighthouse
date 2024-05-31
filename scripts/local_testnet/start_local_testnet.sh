@@ -4,15 +4,20 @@
 
 set -Eeuo pipefail
 
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 ENCLAVE_NAME=local-testnet
+NETWORK_PARAMS_FILE=$SCRIPT_DIR/network_params.yaml
+
 BUILD_IMAGE=true
 BUILDER_PROPOSALS=false
 CI=false
 
 # Get options
-while getopts "b:phc" flag; do
+while getopts "e:b:n:phc" flag; do
   case "${flag}" in
+    e) ENCLAVE_NAME=${OPTARG};;
     b) BUILD_IMAGE=${OPTARG};;
+    n) NETWORK_PARAMS_FILE=${OPTARG};;
     p) BUILDER_PROPOSALS=true;;
     c) CI=true;;
     h)
@@ -21,7 +26,9 @@ while getopts "b:phc" flag; do
         echo "usage: $0 <Options>"
         echo
         echo "Options:"
+        echo "   -e: enclave name                                default: $ENCLAVE_NAME"
         echo "   -b: whether to build Lighthouse docker image    default: $BUILD_IMAGE"
+        echo "   -n: kurtosis network params file path           default: $NETWORK_PARAMS_FILE"
         echo "   -p: enable builder proposals"
         echo "   -c: CI mode, run without other additional services like Grafana and Dora explorer"
         echo "   -h: this help"
@@ -29,6 +36,8 @@ while getopts "b:phc" flag; do
         ;;
   esac
 done
+
+LH_IMAGE_NAME=$(yq eval ".participants[0].cl_image" $NETWORK_PARAMS_FILE)
 
 if ! command -v docker &> /dev/null; then
     echo "Docker is not installed. Please install Docker and try again."
@@ -45,23 +54,23 @@ if ! command -v yq &> /dev/null; then
 fi
 
 if [ "$BUILDER_PROPOSALS" = true ]; then
-  yq eval '.participants[0].vc_extra_params = ["--builder-proposals"]' -i ./network_params.yaml
+  yq eval '.participants[0].vc_extra_params = ["--builder-proposals"]' -i $NETWORK_PARAMS_FILE
   echo "--builder-proposals VC flag added to network_params.yaml"
 fi
 
 if [ "$CI" = true ]; then
   # TODO: run assertoor tests
-  yq eval '.additional_services = []' -i ./network_params.yaml
+  yq eval '.additional_services = []' -i $NETWORK_PARAMS_FILE
   echo "Running without additional services (CI mode)."
 else
-  yq eval '.additional_services = ["dora", "prometheus_grafana"]' -i ./network_params.yaml
+  yq eval '.additional_services = ["dora", "prometheus_grafana"]' -i $NETWORK_PARAMS_FILE
   echo "Additional services dora and prometheus_grafana added to network_params.yaml"
 fi
 
 if [ "$BUILD_IMAGE" = true ]; then
     echo "Building Lighthouse Docker image."
-    ROOT_DIR='../..'
-    docker build --build-arg FEATURES=portable -f $ROOT_DIR/Dockerfile -t lighthouse:local $ROOT_DIR
+    ROOT_DIR="$SCRIPT_DIR/../.."
+    docker build --build-arg FEATURES=portable -f $ROOT_DIR/Dockerfile -t $LH_IMAGE_NAME $ROOT_DIR
 else
     echo "Not rebuilding Lighthouse Docker image."
 fi
@@ -69,6 +78,6 @@ fi
 # Stop local testnet
 kurtosis enclave rm -f $ENCLAVE_NAME 2>/dev/null || true
 
-kurtosis run --enclave $ENCLAVE_NAME github.com/kurtosis-tech/ethereum-package --args-file ./network_params.yaml
+kurtosis run --enclave $ENCLAVE_NAME github.com/kurtosis-tech/ethereum-package --args-file $NETWORK_PARAMS_FILE
 
 echo "Started!"
