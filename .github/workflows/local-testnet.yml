@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   dockerfile-ubuntu:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
       - uses: actions/checkout@v4
 

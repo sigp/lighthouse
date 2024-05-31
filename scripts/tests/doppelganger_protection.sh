@@ -20,9 +20,9 @@ fi
 
 function exit_and_dump_logs() {
     local exit_code=$1
-    echo "Shutting down"
+    echo "Shutting down..."
     $SCRIPT_DIR/../local_testnet/stop_local_testnet.sh $ENCLAVE_NAME
-    echo "Done"
+    echo "Test completed with exit code $exit_code."
     exit $exit_code
 }
 
@@ -55,7 +55,7 @@ GENESIS_DELAY=`curl -s $http_address/eth/v1/config/spec | jq '.data.GENESIS_DELA
 
 CURRENT_TIME=`date +%s`
 # Note: doppelganger protection can only be started post epoch 0
-echo "Waiting until next epoch before starting the next validator client"
+echo "Waiting until next epoch before starting the next validator client..."
 DELAY=$(( $SECONDS_PER_SLOT * 32 + $GENESIS_DELAY + $MIN_GENESIS_TIME - $CURRENT_TIME))
 sleep $DELAY
 
@@ -65,7 +65,7 @@ bn_2_port=4000
 
 if [[ "$BEHAVIOR" == "failure" ]]; then
 
-    echo "Starting the doppelganger validator client"
+    echo "Starting the doppelganger validator client."
 
     # Use same keys as keys from VC1 and connect to BN2
     # This process should not last longer than 2 epochs
@@ -91,10 +91,10 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
     doppelganger_exit=$(run_command_without_exit "timeout $(( $SECONDS_PER_SLOT * 32 * 2 )) bash -c \"$check_exit_cmd\"")
 
     if [[ $doppelganger_exit -eq 1 ]]; then
-        echo "Test failed: expected doppelganger but VC is still running. Check the logs for details."
+        echo "Test passed: doppelganger found and VC process stopped successfully."
         exit_and_dump_logs 0
     else
-        echo "Test passed: doppelganger found and VC process stopped successfully."
+        echo "Test failed: expected doppelganger but VC is still running. Check the logs for details."
         exit_and_dump_logs 1
     fi
 
@@ -102,7 +102,7 @@ fi
 
 if [[ "$BEHAVIOR" == "success" ]]; then
 
-    echo "Starting the last validator client"
+    echo "Starting the last validator client."
 
     vc_4_range_start=$(($KEYS_PER_NODE * 3))
     vc_4_range_end=$(($KEYS_PER_NODE * 4 - 1))
