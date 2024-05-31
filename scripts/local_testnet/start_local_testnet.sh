@@ -53,6 +53,7 @@ LOG_DIR=$TESTNET_DIR
 # user can "tail -f" right after starting this script
 # even before its done.
 ./clean.sh
+./clean_genesis.sh $genesis_file
 mkdir -p $LOG_DIR
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     touch $LOG_DIR/beacon_node_$bn.log
@@ -66,8 +67,17 @@ done
 
 # Sleep with a message
 sleeping() {
-   echo sleeping $1
-   sleep $1
+    local sleep_time=$1
+    local start_time=$(date +%s)
+    local end_time=$((start_time + sleep_time))
+
+    while [ $(date +%s) -lt $end_time ]; do
+        local current_time=$(date +%s)
+        local time_left=$((end_time - current_time))
+        echo -ne "Sleeping for $time_left more seconds...\r"
+        sleep 1
+    done
+    echo -ne "\n"
 }
 
 # Execute the command with logs saved to a file.
@@ -128,15 +138,10 @@ done
 
 sleeping 20
 
-# Reset the `genesis.json` config file fork times.
-sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' $genesis_file
-sed -i 's/"cancunTime".*$/"cancunTime": 0,/g' $genesis_file
-sed -i 's/"pragueTime".*$/"pragueTime": 0,/g' $genesis_file
-
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     secret=$DATADIR/geth_datadir$bn/geth/jwtsecret
     echo $secret
-    execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_udp_tcp_base + $bn + 100)) $((BN_http_port_base + $bn)) http://localhost:$((EL_base_auth_http + $bn)) $secret
+    execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_udp_tcp_base + $bn + 100)) $((BN_http_port_base + $bn)) http://localhost:$((EL_base_auth_http + $bn)) $secret $TESTNET_DIR
 done
 
 # Start requested number of validator clients
