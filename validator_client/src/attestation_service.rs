@@ -14,11 +14,11 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
+use types::ForkName;
 use types::{
-    attestation::AttestationBase, AggregateSignature, Attestation, AttestationData, BitList,
-    ChainSpec, CommitteeIndex, EthSpec, Slot,
+    attestation::AttestationBase, AggregateSignature, Attestation, AttestationData,
+    AttestationElectra, BitList, BitVector, ChainSpec, CommitteeIndex, EthSpec, Slot,
 };
-use types::{AttestationElectra, BitVector, ForkName};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
@@ -643,7 +643,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
                             "signatures" => attestation.num_set_aggregation_bits(),
                             "head_block" => format!("{:?}", attestation.data().beacon_block_root),
-                            "committee_index" => attestation.data().index,
+                            "committee_index" => attestation.committee_index(),
                             "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );
@@ -657,7 +657,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             "Failed to publish attestation";
                             "error" => %e,
                             "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
-                            "committee_index" => attestation.data().index,
+                            "committee_index" => attestation.committee_index(),
                             "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );

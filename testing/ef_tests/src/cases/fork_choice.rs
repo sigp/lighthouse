@@ -180,10 +180,24 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
-                Step::Attestation { attestation } => {
-                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation)))
-                        .map(|attestation| Step::Attestation { attestation })
-                }
+                Step::Attestation { attestation } => match fork_name {
+                    ForkName::Base
+                    | ForkName::Altair
+                    | ForkName::Bellatrix
+                    | ForkName::Capella
+                    | ForkName::Deneb => ssz_decode_file(
+                        &path.join(format!("{}.ssz_snappy", attestation)),
+                    )
+                    .map(|attestation| Step::Attestation {
+                        attestation: Attestation::Base(attestation),
+                    }),
+                    ForkName::Electra => ssz_decode_file(
+                        &path.join(format!("{}.ssz_snappy", attestation)),
+                    )
+                    .map(|attestation| Step::Attestation {
+                        attestation: Attestation::Electra(attestation),
+                    }),
+                },
                 Step::AttesterSlashing { attester_slashing } => match fork_name {
                     ForkName::Base
                     | ForkName::Altair

@@ -34,7 +34,6 @@ use futures_ticker::Ticker;
 use prometheus_client::registry::Registry;
 use rand::{seq::SliceRandom, thread_rng};
 
-use instant::Instant;
 use libp2p::core::{multiaddr::Protocol::Ip4, multiaddr::Protocol::Ip6, Endpoint, Multiaddr};
 use libp2p::identity::Keypair;
 use libp2p::identity::PeerId;
@@ -44,6 +43,7 @@ use libp2p::swarm::{
     ConnectionDenied, ConnectionId, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
     THandlerOutEvent, ToSwarm,
 };
+use web_time::{Instant, SystemTime};
 
 use super::gossip_promises::GossipPromises;
 use super::handler::{Handler, HandlerEvent, HandlerIn};
@@ -67,7 +67,6 @@ use super::{
     types::RpcOut,
 };
 use super::{PublishError, SubscriptionError, TopicScoreParams, ValidationError};
-use instant::SystemTime;
 use quick_protobuf::{MessageWrite, Writer};
 use std::{cmp::Ordering::Equal, fmt::Debug};
 
