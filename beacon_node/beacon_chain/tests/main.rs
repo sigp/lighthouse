@@ -11,3 +11,4 @@ mod store_tests;
 mod sync_committee_verification;
 mod tests;
 mod validator_monitor;
+mod light_client_tests;

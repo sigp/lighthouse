@@ -2,7 +2,9 @@ use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{
     beacon_state, test_utils::TestRandom, ChainSpec, ForkName, ForkVersionDeserialize,
     LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
+    Epoch,
 };
+use safe_arith::SafeArith;
 use derivative::Derivative;
 use safe_arith::ArithError;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -229,7 +231,131 @@ impl<E: EthSpec> LightClientUpdate<E> {
 
         Ok(update)
     }
+
+    // Implements spec prioritization rules:
+    // Full nodes SHOULD provide the best derivable LightClientUpdate for each sync committee period
+    // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_update
+    pub fn is_better_light_client_update(
+        &self,
+        new: &LightClientUpdate<E>,
+        chain_spec: &ChainSpec,
+    ) -> Result<bool, Error> {
+        // Compare super majority (> 2/3) sync committee participation
+        let max_active_participants = new.sync_aggregate().sync_committee_bits.len();
+        let new_active_participants = new.sync_aggregate().sync_committee_bits.num_set_bits();
+        let prev_active_participants = self.sync_aggregate().sync_committee_bits.num_set_bits();
+
+        let new_has_super_majority =
+            new_active_participants.safe_mul(3)? >= max_active_participants.safe_mul(2)?;
+        let prev_has_super_majority =
+            prev_active_participants.safe_mul(3)? >= max_active_participants.safe_mul(2)?;
+
+        if new_has_super_majority != prev_has_super_majority {
+            return Ok(new_has_super_majority & !prev_has_super_majority);
+        }
+
+        if !new_has_super_majority && new_active_participants != prev_active_participants {
+            return Ok(new_active_participants > prev_active_participants);
+        }
+
+        let new_attested_header_slot = match new {
+            LightClientUpdate::Altair(update) => update.attested_header.beacon.slot,
+            LightClientUpdate::Capella(update) => update.attested_header.beacon.slot,
+            LightClientUpdate::Deneb(update) => update.attested_header.beacon.slot,
+        };
+
+        let new_finalized_header_slot = match new {
+            LightClientUpdate::Altair(update) => update.finalized_header.beacon.slot,
+            LightClientUpdate::Capella(update) => update.finalized_header.beacon.slot,
+            LightClientUpdate::Deneb(update) => update.finalized_header.beacon.slot,
+        };
+
+        let prev_attested_header_slot = match self {
+            LightClientUpdate::Altair(update) => update.attested_header.beacon.slot,
+            LightClientUpdate::Capella(update) => update.attested_header.beacon.slot,
+            LightClientUpdate::Deneb(update) => update.attested_header.beacon.slot,
+        };
+
+        let prev_finalized_header_slot = match self {
+            LightClientUpdate::Altair(update) => update.finalized_header.beacon.slot,
+            LightClientUpdate::Capella(update) => update.finalized_header.beacon.slot,
+            LightClientUpdate::Deneb(update) => update.finalized_header.beacon.slot,
+        };
+
+        let new_attested_header_sync_committee_period =
+            compute_sync_committee_period_at_slot::<E>(new_attested_header_slot, chain_spec)?;
+
+        let new_signature_slot_sync_committee_period =
+            compute_sync_committee_period_at_slot::<E>(*new.signature_slot(), chain_spec)?;
+
+        let prev_attested_header_sync_committee_period =
+            compute_sync_committee_period_at_slot::<E>(prev_attested_header_slot, chain_spec)?;
+
+        let prev_signature_slot_sync_committee_period =
+            compute_sync_committee_period_at_slot::<E>(*self.signature_slot(), chain_spec)?;
+
+        // Compare presence of relevant sync committee
+        let new_has_relevant_sync_committee = new.next_sync_committee_branch().is_empty()
+            && (new_attested_header_sync_committee_period == new_signature_slot_sync_committee_period);
+
+        let prev_has_relevant_sync_committee = self.next_sync_committee_branch().is_empty()
+            && (prev_attested_header_sync_committee_period
+                == prev_signature_slot_sync_committee_period);
+
+        if new_has_relevant_sync_committee != prev_has_relevant_sync_committee {
+            return Ok(new_has_relevant_sync_committee);
+        }
+
+        // Compare indication of any finality
+        let new_has_finality = new.finality_branch().is_empty();
+        let prev_has_finality = self.finality_branch().is_empty();
+        if new_has_finality != prev_has_finality {
+            return Ok(new_has_finality);
+        }
+
+        // Compare sync committee finality
+        if new_has_finality {
+            let new_has_sync_committee_finality =
+                compute_sync_committee_period_at_slot::<E>(new_finalized_header_slot, chain_spec)?
+                    == compute_sync_committee_period_at_slot::<E>(
+                        new_attested_header_slot,
+                        chain_spec,
+                    )?;
+
+            let prev_has_sync_committee_finality =
+                compute_sync_committee_period_at_slot::<E>(prev_finalized_header_slot, chain_spec)?
+                    == compute_sync_committee_period_at_slot::<E>(
+                        prev_attested_header_slot,
+                        chain_spec,
+                    )?;
+
+            if new_has_sync_committee_finality != prev_has_sync_committee_finality {
+                return Ok(new_has_sync_committee_finality);
+            }
+        }
+
+        // Tiebreaker 1: Sync committee participation beyond super majority
+        if new_active_participants != prev_active_participants {
+            return Ok(new_active_participants > prev_active_participants);
+        }
+
+        // Tiebreaker 2: Prefer older data (fewer changes to best)
+        if new_attested_header_slot != prev_attested_header_slot {
+            return Ok(new_attested_header_slot < prev_attested_header_slot);
+        }
+
+        return Ok(new.signature_slot() < self.signature_slot());
+    }
 }
+
+fn compute_sync_committee_period_at_slot<E: EthSpec>(
+    slot: Slot,
+    chain_spec: &ChainSpec,
+) -> Result<Epoch, ArithError> {
+    slot.epoch(E::slots_per_epoch())
+        .safe_div(chain_spec.epochs_per_sync_committee_period)
+}
+
 
 #[cfg(test)]
 mod tests {

@@ -310,13 +310,13 @@ impl DBColumn {
             | Self::PubkeyCache
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
-            | Self::OptimisticTransitionBlock
-            | Self::LightClientUpdate => 32,
+            | Self::OptimisticTransitionBlock => 32,
             Self::BeaconBlockRoots
             | Self::BeaconStateRoots
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
-            | Self::BeaconRandaoMixes => 8,
+            | Self::BeaconRandaoMixes 
+            | Self::LightClientUpdate => 8,
         }
     }
 }
