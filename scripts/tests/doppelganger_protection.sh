@@ -2,7 +2,7 @@
 
 # Requires `docker`, `kurtosis`, `yq`, `curl`, `jq`
 
-set -u
+set -Eeuo pipefail
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 NETWORK_PARAMS_FILE=$SCRIPT_DIR/network_params.yaml
@@ -18,26 +18,26 @@ if [[ "$BEHAVIOR" != "success" ]] && [[ "$BEHAVIOR" != "failure" ]]; then
     exit 1
 fi
 
-function check_service_exit_with_timeout() {
-  local timeout_seconds=$1
-  local service_name=$2
-  local check_exit_cmd="until [ \$(kurtosis service inspect $ENCLAVE_NAME $service_name | grep Status | cut -d':' -f2 | xargs) != 'RUNNING' ]; do sleep 1; done"
-
-  if timeout $timeout_seconds bash -c "$check_exit_cmd"; then
-    echo "Service $service_name has exited."
-    return 0
-  else
-    echo "Service $service_name did not exit within $timeout_seconds seconds."
-    return 1
-  fi
+function exit_and_dump_logs() {
+    local exit_code=$1
+    echo "Shutting down"
+    $SCRIPT_DIR/../local_testnet/stop_local_testnet.sh $ENCLAVE_NAME
+    echo "Done"
+    exit $exit_code
 }
 
-function exit_and_dump_logs() {
-  local exit_code=$1
-  echo "Shutting down"
-  $SCRIPT_DIR/../local_testnet/stop_local_testnet.sh $ENCLAVE_NAME
-  echo "Done"
-  exit $exit_code
+function get_service_status() {
+    local service_name=$1
+    kurtosis service inspect $ENCLAVE_NAME $service_name | grep Status | cut -d':' -f2 | xargs
+}
+
+function run_command_without_exit() {
+    local command=$1
+    set +e
+    eval "$command"
+    local exit_code=$?
+    set -e
+    echo $exit_code
 }
 
 # Start local testnet
@@ -77,8 +77,8 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
       --enable-doppelganger-protection \
       --suggested-fee-recipient 0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990
 
-    check_service_exit_with_timeout $(( $SECONDS_PER_SLOT * 32 * 2 )) $service_name
-    doppelganger_exit=$?
+    check_exit_cmd="until [ \$(get_service_status $service_name) != 'RUNNING' ]; do sleep 1; done"
+    doppelganger_exit=$(run_command_without_exit "timeout $(( $SECONDS_PER_SLOT * 32 * 2 )) bash -c \"$check_exit_cmd\"")
 
     # We expect to find a doppelganger, exit with success error code if doppelganger was found
     # and failure if no doppelganger was found.
@@ -133,8 +133,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl -s $bn2_2_local_url/lighthouse/validator_inclusion/3/$val | jq | grep -q '"is_previous_epoch_target_attester": false'
-        is_attester=$?
+        is_attester=$(run_command_without_exit "curl -s $bn2_2_local_url/lighthouse/validator_inclusion/3/$val | jq | grep -q '"is_previous_epoch_target_attester": false'")
         if [[ $is_attester -eq 0 ]]; then
             echo "$val did not attest in epoch 2."
         else
@@ -155,8 +154,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl -s $bn2_2_local_url/lighthouse/validator_inclusion/5/$val | jq | grep -q '"is_previous_epoch_target_attester": true'
-        is_attester=$?
+        is_attester=$(run_command_without_exit "curl -s $bn2_2_local_url/lighthouse/validator_inclusion/5/$val | jq | grep -q '"is_previous_epoch_target_attester": true'")
         if [[ $is_attester -eq 0 ]]; then
             echo "$val attested in epoch 4."
         else

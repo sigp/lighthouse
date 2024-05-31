@@ -84,7 +84,9 @@ jobs:
 
   doppelganger-protection-test:
     needs: dockerfile-ubuntu
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
+    runs-on: ubuntu-22.04
+    # FIXME kurtosis crashes pretty badly on self hosted runner
+    # runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
       - uses: actions/checkout@v4
 
