@@ -40,7 +40,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # TODO: Add to self-hosted runner image
       - name: Install dependencies
         run: |
           sudo add-apt-repository ppa:rmescandon/yq
@@ -77,20 +76,53 @@ jobs:
       - name: Upload logs artifact
         uses: actions/upload-artifact@v4
         with:
-          name: local-testnet-logs
+          name: logs-local-testnet
           path: |
             scripts/local_testnet/logs
           retention-days: 3
 
-  doppelganger-protection-test:
+  doppelganger-protection-success-test:
     needs: dockerfile-ubuntu
     runs-on: ubuntu-22.04
-    # FIXME kurtosis crashes pretty badly on self hosted runner
-    # runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
       - uses: actions/checkout@v4
 
-      # TODO: Add to self-hosted runner image
+      - name: Install dependencies
+        run: |
+          sudo add-apt-repository ppa:rmescandon/yq
+          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          sudo apt update
+          sudo apt install -y kurtosis-cli yq
+          kurtosis analytics disable
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lighthouse-docker
+          path: .
+
+      - name: Load Docker image
+        run: docker load -i lighthouse-docker.tar
+
+      - name: Run the doppelganger protection success test script
+        run: |
+          ./doppelganger_protection.sh success
+        working-directory: scripts/tests
+
+      - name: Upload logs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-doppelganger-protection-success
+          path: |
+            scripts/local_testnet/logs
+          retention-days: 3
+
+  doppelganger-protection-failure-test:
+    needs: dockerfile-ubuntu
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Install dependencies
         run: |
           sudo add-apt-repository ppa:rmescandon/yq
@@ -113,18 +145,14 @@ jobs:
           ./doppelganger_protection.sh failure
         working-directory: scripts/tests
 
-      - name: Run the doppelganger protection success test script
-        run: |
-          ./doppelganger_protection.sh success
-        working-directory: scripts/tests
-
       - name: Upload logs artifact
         uses: actions/upload-artifact@v4
         with:
-          name: local-testnet-logs
+          name: logs-local-testnet
           path: |
             scripts/local_testnet/logs
           retention-days: 3
+
 
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
@@ -134,7 +162,8 @@ jobs:
     needs: [
       'dockerfile-ubuntu',
       'run-local-testnet',
-      'doppelganger-protection-test'
+      'doppelganger-protection-success-test',
+      'doppelganger-protection-failure-test',
     ]
     steps:
       - uses: actions/checkout@v4

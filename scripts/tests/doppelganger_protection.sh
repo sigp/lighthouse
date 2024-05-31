@@ -87,15 +87,16 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
       --enable-doppelganger-protection \
       --suggested-fee-recipient 0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990
 
+    # Check if doppelganger VC has stopped and exited. Exit code 1 means the check timed out and VC is still running.
     check_exit_cmd="until [ \$(get_service_status $service_name) != 'RUNNING' ]; do sleep 1; done"
     doppelganger_exit=$(run_command_without_exit "timeout $(( $SECONDS_PER_SLOT * 32 * 2 )) bash -c \"$check_exit_cmd\"")
 
     if [[ $doppelganger_exit -eq 1 ]]; then
-        echo "Test passed: doppelganger found and VC process stopped successfully."
-        exit_and_dump_logs 0
-    else
         echo "Test failed: expected doppelganger but VC is still running. Check the logs for details."
         exit_and_dump_logs 1
+    else
+        echo "Test passed: doppelganger found and VC process stopped successfully."
+        exit_and_dump_logs 0
     fi
 
 fi
@@ -144,6 +145,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     for val in 0x*; do
         [[ -e $val ]] || continue
         is_attester=$(run_command_without_exit "curl -s $bn2_2_local_url/lighthouse/validator_inclusion/3/$val | jq | grep -q '"is_previous_epoch_target_attester": false'")
+        echo $is_attester
         if [[ $is_attester -eq 0 ]]; then
             echo "$val did not attest in epoch 2."
         else
