@@ -44,7 +44,7 @@ function exit_and_dump_logs() {
 $SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b false -c -n $NETWORK_PARAMS_FILE
 
 # Immediately stop node 4 (as we only need the node 4 validator keys generated for later use)
-kurtosis service stop $ENCLAVE_NAME cl-4-lighthouse-geth el-4-geth-lighthouse vc-4-geth-lighthouse
+kurtosis service stop $ENCLAVE_NAME cl-4-lighthouse-geth el-4-geth-lighthouse vc-4-geth-lighthouse > /dev/null
 
 echo "Waiting an epoch before starting the next validator client"
 sleep $(( $SECONDS_PER_SLOT * 32 ))
@@ -97,12 +97,10 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     vc_4_range_start=$(($KEYS_PER_NODE * 3))
     vc_4_range_end=$(($KEYS_PER_NODE * 4 - 1))
     vc_4_keys_artifact_id="4-lighthouse-geth-$vc_4_range_start-$vc_4_range_end-0"
-    vc_port=5062
     service_name=vc-4
 
     kurtosis service add \
           --files /validator_keys:$vc_4_keys_artifact_id,/testnet:el_cl_genesis_data \
-          --ports http=:$vc_port/tcp \
           $ENCLAVE_NAME $service_name $LH_IMAGE_NAME -- lighthouse \
           vc \
           --debug-level debug \
@@ -112,9 +110,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
           --init-slashing-protection \
           --beacon-nodes=http://$bn_2_url:$bn_2_port \
           --enable-doppelganger-protection \
-          --suggested-fee-recipient 0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990 \
-          --http \
-          --http-port $vc_port
+          --suggested-fee-recipient 0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990
 
     doppelganger_failure=0
 
@@ -159,7 +155,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl -s $bn2_2_host_url/lighthouse/validator_inclusion/5/$val | jq | grep -q '"is_previous_epoch_target_attester": true'
+        curl -s $bn2_2_local_url/lighthouse/validator_inclusion/5/$val | jq | grep -q '"is_previous_epoch_target_attester": true'
         is_attester=$?
         if [[ $is_attester -eq 0 ]]; then
             echo "$val attested in epoch 4."
