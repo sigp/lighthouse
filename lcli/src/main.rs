@@ -607,9 +607,6 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
             (None, Some(network_name))
         };
 
-    // Lazily load either the testnet dir or the network config, as required.
-    // Some subcommands like new-testnet need the testnet dir but not the network config.
-    let get_testnet_dir = || testnet_dir.clone().ok_or("testnet-dir is required");
     let get_network_config = || {
         if let Some(testnet_dir) = &testnet_dir {
             Eth2NetworkConfig::load(testnet_dir.clone()).map_err(|e| {
