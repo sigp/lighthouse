@@ -251,6 +251,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
                     body.execution_payload.tree_hash_root(),
                     body.bls_to_execution_changes.tree_hash_root(),
                     body.blob_kzg_commitments.tree_hash_root(),
+                    body.consolidations.tree_hash_root(),
                 ];
                 let beacon_block_body_depth = leaves.len().next_power_of_two().ilog2() as usize;
                 let tree = MerkleTree::create(&leaves, beacon_block_body_depth);

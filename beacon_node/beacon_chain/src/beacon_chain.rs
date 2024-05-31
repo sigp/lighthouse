@@ -85,7 +85,9 @@ use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
 use kzg::Kzg;
-use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella};
+use operation_pool::{
+    CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
+};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
@@ -336,6 +338,20 @@ struct PartialBeaconBlock<E: EthSpec> {
     sync_aggregate: Option<SyncAggregate<E>>,
     prepare_payload_handle: Option<PreparePayloadHandle<E>>,
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
+}
+
+pub enum BlockProcessStatus<E: EthSpec> {
+    /// Block is not in any pre-import cache. Block may be in the data-base or in the fork-choice.
+    Unknown,
+    /// Block is currently processing but not yet validated.
+    NotValidated(Arc<SignedBeaconBlock<E>>),
+    /// Block is fully valid, but not yet imported. It's cached in the da_checker while awaiting
+    /// missing block components.
+    ExecutionValidated(Arc<SignedBeaconBlock<E>>),
+}
+
+pub struct BeaconChainMetrics {
+    pub reqresp_pre_import_cache_len: usize,
 }
 
 pub type LightClientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
@@ -1238,6 +1254,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get_blinded_block(block_root)?)
     }
 
+    /// Return the status of a block as it progresses through the various caches of the beacon
+    /// chain. Used by sync to learn the status of a block and prevent repeated downloads /
+    /// processing attempts.
+    pub fn get_block_process_status(&self, block_root: &Hash256) -> BlockProcessStatus<T::EthSpec> {
+        if let Some(block) = self
+            .data_availability_checker
+            .get_execution_valid_block(block_root)
+        {
+            return BlockProcessStatus::ExecutionValidated(block);
+        }
+
+        if let Some(block) = self.reqresp_pre_import_cache.read().get(block_root) {
+            // A block is on the `reqresp_pre_import_cache` but NOT in the
+            // `data_availability_checker` only if it is actively processing. We can expect a future
+            // event with the result of processing
+            return BlockProcessStatus::NotValidated(block.clone());
+        }
+
+        BlockProcessStatus::Unknown
+    }
+
     /// Returns the state at the given root, if any.
     ///
     /// ## Errors
@@ -1607,6 +1644,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
         )?;
         Ok((duties, dependent_root, execution_status))
+    }
+
+    pub fn get_aggregated_attestation(
+        &self,
+        attestation: AttestationRef<T::EthSpec>,
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        match attestation {
+            AttestationRef::Base(att) => self.get_aggregated_attestation_base(&att.data),
+            AttestationRef::Electra(att) => self.get_aggregated_attestation_electra(
+                att.data.slot,
+                &att.data.tree_hash_root(),
+                att.committee_index()
+                    .ok_or(Error::AttestationCommitteeIndexNotSet)?,
+            ),
+        }
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.
@@ -2185,7 +2237,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.log,
                 "Stored unaggregated attestation";
                 "outcome" => ?outcome,
-                "index" => attestation.data().index,
+                "index" => attestation.committee_index(),
                 "slot" => attestation.data().slot.as_u64(),
             ),
             Err(NaiveAggregationError::SlotTooLow {
@@ -2204,7 +2256,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to store unaggregated attestation";
                         "error" => ?e,
-                        "index" => attestation.data().index,
+                        "index" => attestation.committee_index(),
                         "slot" => attestation.data().slot.as_u64(),
                 );
                 return Err(Error::from(e).into());
@@ -2329,7 +2381,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn filter_op_pool_attestation(
         &self,
         filter_cache: &mut HashMap<(Hash256, Epoch), bool>,
-        att: &AttestationRef<T::EthSpec>,
+        att: &CompactAttestationRef<T::EthSpec>,
         state: &BeaconState<T::EthSpec>,
     ) -> bool {
         *filter_cache
@@ -2601,6 +2653,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
         received_pre_capella: ReceivedPreCapella,
     ) -> bool {
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_bls_to_execution_change_subscribers() {
+                event_handler.register(EventKind::BlsToExecutionChange(Box::new(
+                    bls_to_execution_change.clone().into_inner(),
+                )));
+            }
+        }
+
         if self.eth1_chain.is_some() {
             self.op_pool
                 .insert_bls_to_execution_change(bls_to_execution_change, received_pre_capella)
@@ -4951,11 +5011,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         initialize_epoch_cache(&mut state, &self.spec)?;
 
         let mut prev_filter_cache = HashMap::new();
-        let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+        let prev_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
             self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
         };
         let mut curr_filter_cache = HashMap::new();
-        let curr_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+        let curr_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
             self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
         };
 
@@ -5130,50 +5190,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 (base, electra)
             },
         );
-
-        // TODO(electra): figure out what should *actually* be done here when we have attestations / attester_slashings of the wrong type
-        match &state {
-            BeaconState::Base(_)
-            | BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => {
-                if !attestations_electra.is_empty() {
-                    error!(
-                        self.log,
-                        "Tried to produce block with attestations of the wrong type";
-                        "slot" => slot,
-                        "attestations" => attestations_electra.len(),
-                    );
-                }
-                if !attester_slashings_electra.is_empty() {
-                    error!(
-                        self.log,
-                        "Tried to produce block with attester slashings of the wrong type";
-                        "slot" => slot,
-                        "attester_slashings" => attester_slashings_electra.len(),
-                    );
-                }
-            }
-            BeaconState::Electra(_) => {
-                if !attestations_base.is_empty() {
-                    error!(
-                        self.log,
-                        "Tried to produce block with attestations of the wrong type";
-                        "slot" => slot,
-                        "attestations" => attestations_base.len(),
-                    );
-                }
-                if !attester_slashings_base.is_empty() {
-                    error!(
-                        self.log,
-                        "Tried to produce block with attester slashings of the wrong type";
-                        "slot" => slot,
-                        "attester_slashings" => attester_slashings_base.len(),
-                    );
-                }
-            }
-        };
 
         let (inner_block, maybe_blobs_and_proofs, execution_payload_value) = match &state {
             BeaconState::Base(_) => (
@@ -6504,9 +6520,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// account the current slot when accounting for skips.
     pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
         let cached_head = self.canonical_head.cached_head();
-        // Check if the merge has been finalized.
-        if let Some(finalized_hash) = cached_head.forkchoice_update_parameters().finalized_hash {
-            if ExecutionBlockHash::zero() == finalized_hash {
+        if let Some(head_hash) = cached_head.forkchoice_update_parameters().head_hash {
+            if ExecutionBlockHash::zero() == head_hash {
                 return Ok(ChainHealth::PreMerge);
             }
         } else {
@@ -6747,6 +6762,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map_err(Error::LightClientError)
             }
             ForkName::Base => Err(Error::UnsupportedFork),
+        }
+    }
+
+    pub fn metrics(&self) -> BeaconChainMetrics {
+        BeaconChainMetrics {
+            reqresp_pre_import_cache_len: self.reqresp_pre_import_cache.read().len(),
         }
     }
 }

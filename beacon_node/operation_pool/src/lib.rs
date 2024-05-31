@@ -11,11 +11,10 @@ mod sync_aggregate_id;
 
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
 pub use attestation::{earliest_attestation_validators, AttMaxCover};
-pub use attestation_storage::{AttestationRef, SplitAttestation};
+pub use attestation_storage::{CompactAttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
-    PersistedOperationPool, PersistedOperationPoolV12, PersistedOperationPoolV14,
-    PersistedOperationPoolV15, PersistedOperationPoolV5,
+    PersistedOperationPool, PersistedOperationPoolV15, PersistedOperationPoolV20,
 };
 pub use reward_cache::RewardCache;
 use state_processing::epoch_cache::is_epoch_cache_initialized;
@@ -228,7 +227,7 @@ impl<E: EthSpec> OperationPool<E> {
         state: &'a BeaconState<E>,
         reward_cache: &'a RewardCache,
         total_active_balance: u64,
-        validity_filter: impl FnMut(&AttestationRef<'a, E>) -> bool + Send,
+        validity_filter: impl FnMut(&CompactAttestationRef<'a, E>) -> bool + Send,
         spec: &'a ChainSpec,
     ) -> impl Iterator<Item = AttMaxCover<'a, E>> + Send {
         all_attestations
@@ -252,8 +251,8 @@ impl<E: EthSpec> OperationPool<E> {
     pub fn get_attestations(
         &self,
         state: &BeaconState<E>,
-        prev_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, E>) -> bool + Send,
-        curr_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, E>) -> bool + Send,
+        prev_epoch_validity_filter: impl for<'a> FnMut(&CompactAttestationRef<'a, E>) -> bool + Send,
+        curr_epoch_validity_filter: impl for<'a> FnMut(&CompactAttestationRef<'a, E>) -> bool + Send,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<E>>, OpPoolError> {
         let fork_name = state.fork_name_unchecked();
@@ -1282,9 +1281,7 @@ mod release_tests {
         for att in &best_attestations {
             match fork_name {
                 ForkName::Electra => {
-                    // TODO(electra) some attestations only have 2 or 3 agg bits set
-                    // others have 5
-                    assert!(att.num_set_aggregation_bits() >= 2);
+                    assert!(att.num_set_aggregation_bits() >= small_step_size);
                 }
                 _ => {
                     assert!(att.num_set_aggregation_bits() >= big_step_size);

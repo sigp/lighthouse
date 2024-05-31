@@ -4,7 +4,7 @@ use types::EthSpec;
 
 use eth1_test_rig::{Http, Provider};
 
-pub fn run<E: EthSpec>(env: Environment<E>, matches: &ArgMatches<'_>) -> Result<(), String> {
+pub fn run<E: EthSpec>(env: Environment<E>, matches: &ArgMatches) -> Result<(), String> {
     let eth1_http: String = clap_utils::parse_required(matches, "eth1-http")?;
     let confirmations: usize = clap_utils::parse_required(matches, "confirmations")?;
     let validator_count: Option<usize> = clap_utils::parse_optional(matches, "validator-count")?;

@@ -23,7 +23,7 @@ use tokio::time::{interval_at, Duration, Instant};
 use types::{ChainSpec, DepositTreeSnapshot, Eth1Data, EthSpec, Unsigned};
 
 /// Indicates the default eth1 chain id we use for the deposit contract.
-pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
+pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Mainnet;
 /// Indicates the default eth1 endpoint.
 pub const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545";
 
@@ -266,7 +266,7 @@ pub struct Config {
     pub endpoint: Eth1Endpoint,
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
-    /// The eth1 chain id where the deposit contract is deployed (Goerli/Mainnet).
+    /// The eth1 chain id where the deposit contract is deployed (Holesky/Mainnet).
     pub chain_id: Eth1Id,
     /// Defines the first block that the `DepositCache` will start searching for deposit logs.
     ///
@@ -450,11 +450,6 @@ impl Service {
 
     /// Returns the follow distance that has been shortened to accommodate for differences in the
     /// spacing between blocks.
-    ///
-    /// ## Notes
-    ///
-    /// This is useful since the spec declares `SECONDS_PER_ETH1_BLOCK` to be `14`, whilst it is
-    /// actually `15` on Goerli.
     pub fn cache_follow_distance(&self) -> u64 {
         self.config().cache_follow_distance()
     }

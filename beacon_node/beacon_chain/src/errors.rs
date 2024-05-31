@@ -227,6 +227,7 @@ pub enum BeaconChainError {
     UnsupportedFork,
     MilhouseError(MilhouseError),
     AttestationError(AttestationError),
+    AttestationCommitteeIndexNotSet,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
