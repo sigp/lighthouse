@@ -47,11 +47,11 @@ $SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b false -c
 kurtosis service stop $ENCLAVE_NAME cl-4-lighthouse-geth el-4-geth-lighthouse vc-4-geth-lighthouse > /dev/null
 
 # Get the http port to get the config
-http_address=`kurtosis port print $ENCLAVE_NAME cl-1-lighthouse-geth http`
+BN1_HTTP_ADDRESS=`kurtosis port print $ENCLAVE_NAME cl-1-lighthouse-geth http`
 
 # Get the genesis time and genesis delay
-MIN_GENESIS_TIME=`curl -s $http_address/eth/v1/config/spec | jq '.data.MIN_GENESIS_TIME|tonumber'`
-GENESIS_DELAY=`curl -s $http_address/eth/v1/config/spec | jq '.data.GENESIS_DELAY|tonumber'`
+MIN_GENESIS_TIME=`curl -s $BN1_HTTP_ADDRESS/eth/v1/config/spec | jq '.data.MIN_GENESIS_TIME|tonumber'`
+GENESIS_DELAY=`curl -s $BN1_HTTP_ADDRESS/eth/v1/config/spec | jq '.data.GENESIS_DELAY|tonumber'`
 
 CURRENT_TIME=`date +%s`
 # Note: doppelganger protection can only be started post epoch 0
@@ -132,10 +132,6 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     echo "Waiting three epochs..."
     sleep $(( $SECONDS_PER_SLOT * 32 * 3 ))
 
-    # Get BN2 localhost URL
-    bn2_2_local_url=$(kurtosis enclave inspect $ENCLAVE_NAME | grep 'cl-2-lighthouse-geth' | grep -oP 'http://[^ ]+')
-    echo "Performing checks using beacon node 2: $bn2_2_local_url"
-
     # Get VC4 validator keys
     keys_path=$SCRIPT_DIR/$ENCLAVE_NAME/node_4/validators
     rm -rf $keys_path && mkdir -p $keys_path
@@ -144,8 +140,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     for val in 0x*; do
         [[ -e $val ]] || continue
-        is_attester=$(run_command_without_exit "curl -s $bn2_2_local_url/lighthouse/validator_inclusion/3/$val | jq | grep -q '"is_previous_epoch_target_attester": false'")
-        echo $is_attester
+        is_attester=$(run_command_without_exit "curl -s $BN1_HTTP_ADDRESS/lighthouse/validator_inclusion/3/$val | jq | grep -q '\"is_previous_epoch_target_attester\": false'")
         if [[ $is_attester -eq 0 ]]; then
             echo "$val did not attest in epoch 2."
         else
@@ -166,7 +161,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do
         [[ -e $val ]] || continue
-        is_attester=$(run_command_without_exit "curl -s $bn2_2_local_url/lighthouse/validator_inclusion/5/$val | jq | grep -q '"is_previous_epoch_target_attester": true'")
+        is_attester=$(run_command_without_exit "curl -s $BN1_HTTP_ADDRESS/lighthouse/validator_inclusion/5/$val | jq | grep -q '\"is_previous_epoch_target_attester\": true'")
         if [[ $is_attester -eq 0 ]]; then
             echo "$val attested in epoch 4."
         else
