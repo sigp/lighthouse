@@ -123,7 +123,6 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.committee_lengths
                 .get_committee_length::<E>(request_slot, request_index, spec)?;
 
-        // TODO(electra) make fork-agnostic
         let attestation = if spec.fork_name_at_slot::<E>(request_slot) >= ForkName::Electra {
             let mut committee_bits = BitVector::default();
             if committee_len > 0 {

@@ -1,4 +1,4 @@
-use crate::attestation_storage::{AttestationRef, CompactIndexedAttestation};
+use crate::attestation_storage::{CompactAttestationRef, CompactIndexedAttestation};
 use crate::max_cover::MaxCover;
 use crate::reward_cache::RewardCache;
 use state_processing::common::{
@@ -14,14 +14,14 @@ use types::{
 #[derive(Debug, Clone)]
 pub struct AttMaxCover<'a, E: EthSpec> {
     /// Underlying attestation.
-    pub att: AttestationRef<'a, E>,
+    pub att: CompactAttestationRef<'a, E>,
     /// Mapping of validator indices and their rewards.
     pub fresh_validators_rewards: HashMap<u64, u64>,
 }
 
 impl<'a, E: EthSpec> AttMaxCover<'a, E> {
     pub fn new(
-        att: AttestationRef<'a, E>,
+        att: CompactAttestationRef<'a, E>,
         state: &BeaconState<E>,
         reward_cache: &'a RewardCache,
         total_active_balance: u64,
@@ -36,7 +36,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
 
     /// Initialise an attestation cover object for base/phase0 hard fork.
     pub fn new_for_base(
-        att: AttestationRef<'a, E>,
+        att: CompactAttestationRef<'a, E>,
         state: &BeaconState<E>,
         base_state: &BeaconStateBase<E>,
         total_active_balance: u64,
@@ -69,7 +69,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
 
     /// Initialise an attestation cover object for Altair or later.
     pub fn new_for_altair_deneb(
-        att: AttestationRef<'a, E>,
+        att: CompactAttestationRef<'a, E>,
         state: &BeaconState<E>,
         reward_cache: &'a RewardCache,
         spec: &ChainSpec,
@@ -119,14 +119,14 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
 
 impl<'a, E: EthSpec> MaxCover for AttMaxCover<'a, E> {
     type Object = Attestation<E>;
-    type Intermediate = AttestationRef<'a, E>;
+    type Intermediate = CompactAttestationRef<'a, E>;
     type Set = HashMap<u64, u64>;
 
-    fn intermediate(&self) -> &AttestationRef<'a, E> {
+    fn intermediate(&self) -> &CompactAttestationRef<'a, E> {
         &self.att
     }
 
-    fn convert_to_object(att_ref: &AttestationRef<'a, E>) -> Attestation<E> {
+    fn convert_to_object(att_ref: &CompactAttestationRef<'a, E>) -> Attestation<E> {
         att_ref.clone_as_attestation()
     }
 
@@ -153,7 +153,7 @@ impl<'a, E: EthSpec> MaxCover for AttMaxCover<'a, E> {
     /// executing the `retain` when the `committee_bits` of the two attestations intersect.
     fn update_covering_set(
         &mut self,
-        best_att: &AttestationRef<'a, E>,
+        best_att: &CompactAttestationRef<'a, E>,
         covered_validators: &HashMap<u64, u64>,
     ) {
         if self.att.data.slot == best_att.data.slot && self.att.data.index == best_att.data.index {
@@ -177,7 +177,7 @@ impl<'a, E: EthSpec> MaxCover for AttMaxCover<'a, E> {
 ///
 /// This isn't optimal, but with the Altair fork this code is obsolete and not worth upgrading.
 pub fn earliest_attestation_validators<E: EthSpec>(
-    attestation: &AttestationRef<E>,
+    attestation: &CompactAttestationRef<E>,
     state: &BeaconState<E>,
     base_state: &BeaconStateBase<E>,
 ) -> BitList<E::MaxValidatorsPerCommittee> {
