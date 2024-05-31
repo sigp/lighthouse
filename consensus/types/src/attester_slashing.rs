@@ -164,7 +164,12 @@ impl<E: EthSpec> AttesterSlashing<E> {
 mod tests {
     use super::*;
     use crate::*;
-
-    // TODO(electra): should this be done for both variants?
-    ssz_and_tree_hash_tests!(AttesterSlashingBase<MainnetEthSpec>);
+    mod base {
+        use super::*;
+        ssz_and_tree_hash_tests!(AttesterSlashingBase<MainnetEthSpec>);
+    }
+    mod electra {
+        use super::*;
+        ssz_and_tree_hash_tests!(AttesterSlashingElectra<MainnetEthSpec>);
+    }
 }

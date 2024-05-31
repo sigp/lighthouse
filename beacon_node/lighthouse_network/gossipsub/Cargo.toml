@@ -10,7 +10,7 @@ keywords = ["peer-to-peer", "libp2p", "networking"]
 categories = ["network-programming", "asynchronous"]
 
 [features]
-wasm-bindgen = ["getrandom/js", "instant/wasm-bindgen"]
+wasm-bindgen = ["getrandom/js"]
 
 [dependencies]
 async-channel = { workspace = true }
@@ -25,7 +25,6 @@ futures-ticker = "0.0.3"
 futures-timer = "3.0.2"
 getrandom = "0.2.12"
 hex_fmt = "0.3.0"
-instant = "0.1.12"
 libp2p = { version = "0.53", default-features = false }
 quick-protobuf = "0.8"
 quick-protobuf-codec = "0.3"
@@ -33,11 +32,10 @@ rand = "0.8"
 regex = "1.10.3"
 serde = { version = "1", optional = true, features = ["derive"] }
 sha2 = "0.10.8"
-smallvec = "1.13.1"
 tracing = "0.1.37"
 void = "1.0.2"
-
 prometheus-client = "0.22.0"
+web-time = "1.1.0"
 
 [dev-dependencies]
 quickcheck = { workspace = true }

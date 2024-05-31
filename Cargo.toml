@@ -102,10 +102,10 @@ bincode = "1"
 bitvec = "1"
 byteorder = "1"
 bytes = "1"
+clap = { version = "4.5.4", features = ["cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
-c-kzg = { version = "1", default-features = false }
-clap = "2"
+c-kzg = { version = "1", default-features =  false }
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.3"
 delay_map = "0.3"

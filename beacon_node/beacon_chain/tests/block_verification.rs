@@ -666,27 +666,58 @@ async fn invalid_signature_attester_slashing() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
-        let indexed_attestation = IndexedAttestationBase {
-            attesting_indices: vec![0].into(),
-            data: AttestationData {
-                slot: Slot::new(0),
-                index: 0,
-                beacon_block_root: Hash256::zero(),
-                source: Checkpoint {
-                    epoch: Epoch::new(0),
-                    root: Hash256::zero(),
+        let fork_name = harness.chain.spec.fork_name_at_slot::<E>(Slot::new(0));
+
+        let attester_slashing = if fork_name >= ForkName::Electra {
+            let indexed_attestation = IndexedAttestationElectra {
+                attesting_indices: vec![0].into(),
+                data: AttestationData {
+                    slot: Slot::new(0),
+                    index: 0,
+                    beacon_block_root: Hash256::zero(),
+                    source: Checkpoint {
+                        epoch: Epoch::new(0),
+                        root: Hash256::zero(),
+                    },
+                    target: Checkpoint {
+                        epoch: Epoch::new(0),
+                        root: Hash256::zero(),
+                    },
                 },
-                target: Checkpoint {
-                    epoch: Epoch::new(0),
-                    root: Hash256::zero(),
+                signature: junk_aggregate_signature(),
+            };
+            let attester_slashing = AttesterSlashingElectra {
+                attestation_1: indexed_attestation.clone(),
+                attestation_2: indexed_attestation,
+            };
+
+            AttesterSlashing::Electra(attester_slashing)
+        } else {
+            let indexed_attestation = IndexedAttestationBase {
+                attesting_indices: vec![0].into(),
+                data: AttestationData {
+                    slot: Slot::new(0),
+                    index: 0,
+                    beacon_block_root: Hash256::zero(),
+                    source: Checkpoint {
+                        epoch: Epoch::new(0),
+                        root: Hash256::zero(),
+                    },
+                    target: Checkpoint {
+                        epoch: Epoch::new(0),
+                        root: Hash256::zero(),
+                    },
                 },
-            },
-            signature: junk_aggregate_signature(),
+                signature: junk_aggregate_signature(),
+            };
+            let attester_slashing = AttesterSlashingBase {
+                attestation_1: indexed_attestation.clone(),
+                attestation_2: indexed_attestation,
+            };
+
+            AttesterSlashing::Base(attester_slashing)
         };
-        let attester_slashing = AttesterSlashingBase {
-            attestation_1: indexed_attestation.clone(),
-            attestation_2: indexed_attestation,
-        };
+
         let (mut block, signature) = snapshots[block_index]
             .beacon_block
             .as_ref()
@@ -695,31 +726,33 @@ async fn invalid_signature_attester_slashing() {
         match &mut block.body_mut() {
             BeaconBlockBodyRefMut::Base(ref mut blk) => {
                 blk.attester_slashings
-                    .push(attester_slashing)
+                    .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
             BeaconBlockBodyRefMut::Altair(ref mut blk) => {
                 blk.attester_slashings
-                    .push(attester_slashing)
+                    .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
             BeaconBlockBodyRefMut::Bellatrix(ref mut blk) => {
                 blk.attester_slashings
-                    .push(attester_slashing)
+                    .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
             BeaconBlockBodyRefMut::Capella(ref mut blk) => {
                 blk.attester_slashings
-                    .push(attester_slashing)
+                    .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
             BeaconBlockBodyRefMut::Deneb(ref mut blk) => {
                 blk.attester_slashings
-                    .push(attester_slashing)
+                    .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Electra(_) => {
-                panic!("electra test not implemented!");
+            BeaconBlockBodyRefMut::Electra(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_electra().unwrap().clone())
+                    .expect("should update attester slashing");
             }
         }
         snapshots[block_index].beacon_block =

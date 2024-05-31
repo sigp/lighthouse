@@ -82,8 +82,12 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         "attestation".into()
     }
 
-    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file(path)
+    fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        if fork_name < ForkName::Electra {
+            Ok(Self::Base(ssz_decode_file(path)?))
+        } else {
+            Ok(Self::Electra(ssz_decode_file(path)?))
+        }
     }
 
     fn apply_to(
