@@ -225,7 +225,7 @@ Example Response Body
 ```json
 {
   "data": {
-    "CONFIG_NAME": "prater",
+    "CONFIG_NAME": "holesky",
     "PRESET_BASE": "mainnet",
     "TERMINAL_TOTAL_DIFFICULTY": "10790000",
     "TERMINAL_BLOCK_HASH": "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -353,7 +353,7 @@ Example Response Body
 
 ```json
 {
-    "token_path": "/home/karlm/.lighthouse/prater/validators/api-token.txt"
+    "token_path": "/home/karlm/.lighthouse/holesky/validators/api-token.txt"
 }
 ```
 

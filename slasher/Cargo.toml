@@ -25,7 +25,6 @@ rand = { workspace = true }
 safe_arith = { workspace = true }
 serde = { workspace = true }
 slog = { workspace = true }
-sloggers = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 types = { workspace = true }
