@@ -26,6 +26,7 @@ slasher-lmdb = ["slasher/lmdb"]
 jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
+lighthouse_network = { workspace = true }
 beacon_node = { workspace = true }
 slog = { workspace = true }
 types = { workspace = true }
