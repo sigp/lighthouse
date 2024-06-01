@@ -1,5 +1,3 @@
-mod metrics;
-
 pub use beacon_node;
 pub use environment;
 pub use types as eth2_types;
