@@ -52,14 +52,12 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
         arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
     ),
     specific_variant_attributes(
-        Base(metastruct(mappings(beacon_block_body_base_fields(groups(tree_lists))))),
-        Altair(metastruct(mappings(beacon_block_body_altair_fields(groups(tree_lists))))),
-        Bellatrix(metastruct(mappings(beacon_block_body_bellatrix_fields(groups(
-            tree_lists
-        ))))),
-        Capella(metastruct(mappings(beacon_block_body_capella_fields(groups(tree_lists))))),
-        Deneb(metastruct(mappings(beacon_block_body_deneb_fields(groups(tree_lists))))),
-        Electra(metastruct(mappings(beacon_block_body_electra_fields(groups(tree_lists))))),
+        Base(metastruct(mappings(beacon_block_body_base_fields(groups(fields))))),
+        Altair(metastruct(mappings(beacon_block_body_altair_fields(groups(fields))))),
+        Bellatrix(metastruct(mappings(beacon_block_body_bellatrix_fields(groups(fields))))),
+        Capella(metastruct(mappings(beacon_block_body_capella_fields(groups(fields))))),
+        Deneb(metastruct(mappings(beacon_block_body_deneb_fields(groups(fields))))),
+        Electra(metastruct(mappings(beacon_block_body_electra_fields(groups(fields))))),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -119,7 +117,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Electra))]
     pub consolidations: VariableList<SignedConsolidation, E::MaxConsolidations>,
     #[superstruct(only(Base, Altair))]
-    #[metastruct(exclude_from(tree_lists))]
+    #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[serde(skip)]
