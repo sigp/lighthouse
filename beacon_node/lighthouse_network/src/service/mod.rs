@@ -926,17 +926,14 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
         // Check if the peer is connected before sending an RPC request
         if !self.swarm.is_connected(&peer_id) {
             return Err((request_id, RPCError::Disconnected));
-         }
-            self.eth2_rpc_mut().send_request(
-                peer_id,
-                RequestId::Application(request_id),
-                request.into(),
-            );
-            Ok(())
-        } else {
-            // The peer is not connected, return an error
-            Err((request_id, RPCError::Disconnected))
         }
+
+        self.eth2_rpc_mut().send_request(
+            peer_id,
+            RequestId::Application(request_id),
+            request.into(),
+        );
+        Ok(())
     }
 
     /// Send a successful response to a peer over RPC.
