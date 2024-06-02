@@ -64,6 +64,7 @@ struct ApiTester {
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
     next_block: PublishBlockRequest<E>,
+    block_gossip: PublishBlockRequest<E>,
     reorg_block: PublishBlockRequest<E>,
     attestations: Vec<Attestation<E>>,
     contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
@@ -286,6 +287,7 @@ impl ApiTester {
             chain,
             client,
             next_block,
+            block_gossip,
             reorg_block,
             attestations,
             contribution_and_proofs,
@@ -373,6 +375,7 @@ impl ApiTester {
             chain,
             client,
             next_block,
+            block_gossip,
             reorg_block,
             attestations,
             contribution_and_proofs: vec![],
@@ -5219,6 +5222,7 @@ impl ApiTester {
             EventTopic::Attestation,
             EventTopic::VoluntaryExit,
             EventTopic::Block,
+            EventTopic::BlockGossip,
             EventTopic::Head,
             EventTopic::FinalizedCheckpoint,
             EventTopic::AttesterSlashing,
@@ -5338,6 +5342,22 @@ impl ApiTester {
         assert_eq!(
             block_events.as_slice(),
             &[expected_block, expected_head, expected_finalized]
+        );
+
+        // Test a block gossip event
+        self.client
+            .post_beacon_blocks(&self.block_gossip)
+            .await
+            .unwrap();
+
+        let block_gossip_events =
+            poll_events(&mut events_future, 3, Duration::from_millis(10000)).await;
+        assert_eq!(
+            block_gossip_events.as_slice(),
+            &[EventKind::BlockGossip(Box::new(BlockGossip {
+                slot: next_slot,
+                block: block_root,
+            }))]
         );
 
         // Test a reorg event
