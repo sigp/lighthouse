@@ -1,7 +1,7 @@
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
+    BeaconChain, ChainConfig, GossipVerifiedBlock, StateSkipConfig, WhenSlotSkipped,
 };
 use environment::null_logger;
 use eth2::{
@@ -18,7 +18,7 @@ use execution_layer::test_utils::{
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{
-    test_utils::{create_api_server, ApiServer},
+    test_utils::{create_api_server, ApiServer, InteractiveTester},
     BlockId, StateId,
 };
 use lighthouse_network::{Enr, EnrExt, PeerId};
@@ -64,7 +64,7 @@ struct ApiTester {
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
     next_block: PublishBlockRequest<E>,
-    block_gossip: PublishBlockRequest<E>,
+    block_gossip: GossipVerifiedBlock<T>,
     reorg_block: PublishBlockRequest<E>,
     attestations: Vec<Attestation<E>>,
     contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
@@ -174,6 +174,15 @@ impl ApiTester {
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
         let next_block = PublishBlockRequest::from(next_block);
+
+        let tester = InteractiveTester::<E>::new(None, VALIDATOR_COUNT).await;
+        let num_initial: u64 = 31;
+        let slot_a = Slot::new(num_initial);
+        let slot_b = slot_a + 1;
+        let state_a = tester.harness.get_current_state();
+        let ((block_a, _), _state_after_a) =
+            tester.harness.make_block(state_a.clone(), slot_b).await;
+        let block_gossip = GossipVerifiedBlock::new(block_a.clone().into(), &tester.harness.chain);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
@@ -320,6 +329,15 @@ impl ApiTester {
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
         let next_block = PublishBlockRequest::from(next_block);
+
+        let tester = InteractiveTester::<E>::new(None, VALIDATOR_COUNT).await;
+        let num_initial: u64 = 31;
+        let slot_a = Slot::new(num_initial);
+        let slot_b = slot_a + 1;
+        let state_a = tester.harness.get_current_state();
+        let ((block_a, _), _state_after_a) =
+            tester.harness.make_block(state_a.clone(), slot_b).await;
+        let block_gossip = GossipVerifiedBlock::new(block_a.clone().into(), &tester.harness.chain);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
@@ -5351,7 +5369,7 @@ impl ApiTester {
             .unwrap();
 
         let block_gossip_events =
-            poll_events(&mut events_future, 3, Duration::from_millis(10000)).await;
+            poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
         assert_eq!(
             block_gossip_events.as_slice(),
             &[EventKind::BlockGossip(Box::new(BlockGossip {
