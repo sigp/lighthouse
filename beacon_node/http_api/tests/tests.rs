@@ -64,7 +64,7 @@ struct ApiTester {
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
     next_block: PublishBlockRequest<E>,
-    block_gossip: GossipVerifiedBlock<T>,
+    block_gossip: GossipVerifiedBlock<EphemeralHarnessType<E>>,
     reorg_block: PublishBlockRequest<E>,
     attestations: Vec<Attestation<E>>,
     contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
