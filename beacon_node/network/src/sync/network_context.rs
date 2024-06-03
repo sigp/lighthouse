@@ -159,7 +159,7 @@ pub enum LookupRequestResult<R = ReqId> {
     /// that makes progress on the request. For example: request is processing from a different
     /// source (i.e. block received from gossip) and sync MUST receive an event with that processing
     /// result.
-    Pending,
+    Pending(&'static str),
 }
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
@@ -473,7 +473,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             BlockProcessStatus::Unknown => {}
             // Block is known are currently processing, expect a future event with the result of
             // processing.
-            BlockProcessStatus::NotValidated { .. } => return Ok(LookupRequestResult::Pending),
+            BlockProcessStatus::NotValidated { .. } => {
+                return Ok(LookupRequestResult::Pending("block in processing cache"))
+            }
             // Block is fully validated. If it's not yet imported it's waiting for missing block
             // components. Consider this request completed and do nothing.
             BlockProcessStatus::ExecutionValidated { .. } => {
@@ -552,7 +554,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // latter handle the case where if the peer sent no blobs, penalize.
             // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
             // - if `num_expected_blobs` returns Some = block is processed.
-            return Ok(LookupRequestResult::Pending);
+            return Ok(LookupRequestResult::Pending("waiting for block download"));
         };
 
         let imported_blob_indexes = self
@@ -666,7 +668,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // latter handle the case where if the peer sent no columns, penalize.
             // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
             // - if `num_expected_blobs` returns Some = block is processed.
-            return Ok(LookupRequestResult::Pending);
+            return Ok(LookupRequestResult::Pending("waiting for block download"));
         };
 
         // No data required for this block

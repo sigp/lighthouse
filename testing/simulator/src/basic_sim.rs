@@ -27,15 +27,32 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
-    let node_count = value_t!(matches, "nodes", usize).expect("Missing nodes default");
-    let proposer_nodes =
-        value_t!(matches, "proposer-nodes", usize).expect("Missing proposer-nodes default");
-    let validators_per_node = value_t!(matches, "validators-per-node", usize)
-        .expect("Missing validators-per-node default");
-    let speed_up_factor =
-        value_t!(matches, "speed-up-factor", u64).expect("Missing speed-up-factor default");
-    let log_level = value_t!(matches, "debug-level", String).expect("Missing default log-level");
-    let continue_after_checks = matches.is_present("continue-after-checks");
+    let node_count = matches
+        .get_one::<String>("nodes")
+        .expect("missing nodes default")
+        .parse::<usize>()
+        .expect("missing nodes default");
+    let proposer_nodes = matches
+        .get_one::<String>("proposer-nodes")
+        .unwrap_or(&String::from("0"))
+        .parse::<usize>()
+        .unwrap_or(0);
+    println!("PROPOSER-NODES: {}", proposer_nodes);
+    let validators_per_node = matches
+        .get_one::<String>("validators-per-node")
+        .expect("missing validators-per-node default")
+        .parse::<usize>()
+        .expect("missing validators-per-node default");
+    let speed_up_factor = matches
+        .get_one::<String>("speed-up-factor")
+        .expect("missing speed-up-factor default")
+        .parse::<u64>()
+        .expect("missing speed-up-factor default");
+    let log_level = matches
+        .get_one::<String>("debug-level")
+        .expect("missing debug-level");
+
+    let continue_after_checks = matches.get_flag("continue-after-checks");
 
     println!("Basic Simulator:");
     println!(" nodes: {}", node_count);
@@ -64,7 +81,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .initialize_logger(LoggerConfig {
             path: None,
             debug_level: log_level.clone(),
-            logfile_debug_level: log_level,
+            logfile_debug_level: log_level.clone(),
             log_format: None,
             logfile_format: None,
             log_color: false,

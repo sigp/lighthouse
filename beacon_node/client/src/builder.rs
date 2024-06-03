@@ -19,8 +19,8 @@ use beacon_chain::{
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
 };
-use beacon_processor::BeaconProcessorConfig;
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
+use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2::{
@@ -885,6 +885,14 @@ where
                     None,
                     beacon_chain.slot_clock.clone(),
                     beacon_chain.spec.maximum_gossip_clock_disparity(),
+                    BeaconProcessorQueueLengths::from_state(
+                        &beacon_chain
+                            .canonical_head
+                            .cached_head()
+                            .snapshot
+                            .beacon_state,
+                        &beacon_chain.spec,
+                    )?,
                 )?;
             }
 

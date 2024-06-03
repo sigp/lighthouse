@@ -317,7 +317,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         .insert(req_id, ActiveBatchColumnsRequest { indices, peer_id });
                 }
                 LookupRequestResult::NoRequestNeeded => unreachable!(),
-                LookupRequestResult::Pending => unreachable!(),
+                LookupRequestResult::Pending(_) => unreachable!(),
             }
         }
 

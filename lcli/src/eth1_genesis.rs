@@ -15,15 +15,19 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
 pub fn run<E: EthSpec>(
     env: Environment<E>,
     testnet_dir: PathBuf,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> Result<(), String> {
     let endpoints = matches
-        .value_of("eth1-endpoint")
+        .get_one::<String>("eth1-endpoint")
         .map(|e| {
             warn!("The --eth1-endpoint flag is deprecated. Please use --eth1-endpoints instead");
             String::from(e)
         })
-        .or_else(|| matches.value_of("eth1-endpoints").map(String::from));
+        .or_else(|| {
+            matches
+                .get_one::<String>("eth1-endpoints")
+                .map(String::from)
+        });
 
     let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 

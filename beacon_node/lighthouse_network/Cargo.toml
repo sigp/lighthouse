@@ -46,7 +46,6 @@ either = { workspace = true }
 itertools = { workspace = true }
 
 # Local dependencies
-instant = "0.1.12"
 void = "1.0.2"
 libp2p-mplex = "0.41"
 
@@ -66,4 +65,3 @@ logging = { workspace = true }
 
 [features]
 libp2p-websocket = []
-
