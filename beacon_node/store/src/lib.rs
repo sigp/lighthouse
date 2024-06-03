@@ -315,7 +315,7 @@ impl DBColumn {
             | Self::BeaconStateRoots
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
-            | Self::BeaconRandaoMixes 
+            | Self::BeaconRandaoMixes
             | Self::LightClientUpdate => 8,
         }
     }

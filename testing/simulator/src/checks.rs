@@ -357,9 +357,7 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             }
         };
     }
-    return Err(format!(
-        "we succeeded in returning light client data :)"
-    ));
+
     Ok(())
 }
 

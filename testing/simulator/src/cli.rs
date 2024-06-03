@@ -56,7 +56,7 @@ pub fn cli_app() -> Command {
                         .help("Set the severity level of the logs."),
                 )
                 .arg(
-                    Arg::with_name("continue-after-checks")
+                    Arg::new("continue-after-checks")
                         .long("continue_after_checks")
                         .action(ArgAction::SetTrue)
                         .help("Continue after checks (default false)"),
@@ -114,7 +114,7 @@ pub fn cli_app() -> Command {
                         .help("Set the severity level of the logs."),
                 )
                 .arg(
-                    Arg::with_name("continue-after-checks")
+                    Arg::new("continue-after-checks")
                         .long("continue_after_checks")
                         .action(ArgAction::SetTrue)
                         .help("Continue after checks (default false)"),

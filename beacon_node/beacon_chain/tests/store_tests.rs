@@ -5,11 +5,11 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
+use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::test_utils::{
     mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
     BlockStrategy, DiskHarnessType, KZG,
 };
-use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
@@ -108,10 +108,9 @@ fn get_harness_generic(
 }
 
 #[tokio::test]
-async fn light_client_test() {
-    let num_blocks_produced = E::slots_per_epoch() * 20;
+async fn light_client_updates_test() {
     let num_final_blocks = E::slots_per_epoch() * 2;
-    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9); 
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let db_path = tempdir().unwrap();
     let log = test_logger();
     let spec = test_spec::<E>();
@@ -165,8 +164,8 @@ async fn light_client_test() {
     let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
 
     let mock =
-    mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
-  
+        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
+
     harness.advance_slot();
     harness
         .extend_chain(
@@ -217,7 +216,7 @@ async fn light_client_test() {
     let beacon_chain = Arc::new(beacon_chain);
 
     let current_state = harness.get_current_state();
-    
+
     let block_root = *current_state
         .get_block_root(current_state.slot() - Slot::new(1))
         .unwrap();
@@ -229,23 +228,30 @@ async fn light_client_test() {
         RelativeSyncCommittee::Current,
     );
 
+    // generate sync aggregates
     for (_, contribution_and_proof) in contributions {
         let contribution = contribution_and_proof
             .expect("contribution exists for committee")
             .message
             .contribution;
-        beacon_chain.op_pool
+        beacon_chain
+            .op_pool
             .insert_sync_contribution(contribution.clone())
             .unwrap();
-        beacon_chain.op_pool.insert_sync_contribution(contribution).unwrap();
+        beacon_chain
+            .op_pool
+            .insert_sync_contribution(contribution)
+            .unwrap();
     }
 
+    // check that we can fetch the newly generated sync aggregate
     let sync_aggregate = beacon_chain
         .op_pool
         .get_sync_aggregate(&current_state)
         .unwrap()
         .unwrap();
 
+    // cache light client data
     beacon_chain
         .light_client_server_cache
         .recompute_and_cache_updates(
@@ -254,30 +260,35 @@ async fn light_client_test() {
             &block_root,
             &sync_aggregate,
             &log,
-            &spec
-    ).unwrap();
+            &spec,
+        )
+        .unwrap();
 
+    // calculate the sync period from the previous slot
     let sync_period = (current_state.slot() - Slot::new(1))
         .epoch(E::slots_per_epoch())
-        .sync_committee_period(&spec).unwrap();
+        .sync_committee_period(&spec)
+        .unwrap();
 
-    let res = beacon_chain.light_client_server_cache.get_light_client_update(
-        &store,
-        sync_period,
-        &spec
-    ).unwrap();
+    // fetch a single light client update directly from the db
+    let res = beacon_chain
+        .light_client_server_cache
+        .get_light_client_update(&store, sync_period, &spec)
+        .unwrap();
 
-    let other = beacon_chain.get_light_client_updates(
-        sync_period,
-        1
-    ).unwrap();
+    // fetch a range of light client updates. right now there should only be one light client update
+    // in the db.
+    let other = beacon_chain
+        .get_light_client_updates(sync_period, 100)
+        .unwrap();
 
+    assert_eq!(other.len(), 1);
+
+    // advance a bunch of slots & extend the chain
     for i in 0..1000 {
         harness.advance_slot();
-
     }
 
-   
     harness
         .extend_chain(
             num_final_blocks as usize,
@@ -286,13 +297,12 @@ async fn light_client_test() {
         )
         .await;
 
-
     let current_state = harness.get_current_state();
 
     let block_root = *current_state
         .get_block_root(current_state.slot() - Slot::new(1))
         .unwrap();
-    
+
     let contributions = harness.make_sync_contributions(
         &current_state,
         block_root,
@@ -300,15 +310,20 @@ async fn light_client_test() {
         RelativeSyncCommittee::Current,
     );
 
+    // generate new sync aggregates from this new state
     for (_, contribution_and_proof) in contributions {
         let contribution = contribution_and_proof
             .expect("contribution exists for committee")
             .message
             .contribution;
-        beacon_chain.op_pool
+        beacon_chain
+            .op_pool
             .insert_sync_contribution(contribution.clone())
             .unwrap();
-        beacon_chain.op_pool.insert_sync_contribution(contribution).unwrap();
+        beacon_chain
+            .op_pool
+            .insert_sync_contribution(contribution)
+            .unwrap();
     }
 
     let sync_aggregate = beacon_chain
@@ -317,6 +332,7 @@ async fn light_client_test() {
         .unwrap()
         .unwrap();
 
+    // cache new light client data
     beacon_chain
         .light_client_server_cache
         .recompute_and_cache_updates(
@@ -325,21 +341,25 @@ async fn light_client_test() {
             &block_root,
             &sync_aggregate,
             &log,
-            &spec
-    ).unwrap();
+            &spec,
+        )
+        .unwrap();
 
-    let res = beacon_chain.light_client_server_cache.get_light_client_update(
-        &store,
-        sync_period,
-        &spec
-    ).unwrap();
+    let res = beacon_chain
+        .light_client_server_cache
+        .get_light_client_update(&store, sync_period, &spec)
+        .unwrap();
 
-    let other = beacon_chain.get_light_client_updates(
-        sync_period,
-        2
-    ).unwrap();
+    // we should now have two light client updates in the db
+    let other = beacon_chain
+        .get_light_client_updates(sync_period, 100)
+        .unwrap();
 
-    println!("other len {}", other.len());
+    for o in other.iter() {
+        println!("{:?}", o.signature_slot());
+    }
+
+    assert_eq!(other.len(), 2);
 }
 
 /// Tests that `store.heal_freezer_block_roots_at_split` inserts block roots between last restore point

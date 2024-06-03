@@ -1,7 +1,7 @@
 use crate::errors::BeaconChainError;
 use crate::{metrics, BeaconChainTypes, BeaconStore};
 use parking_lot::{Mutex, RwLock};
-use safe_arith::{ArithError, SafeArith};
+use safe_arith::SafeArith;
 use slog::{debug, Logger};
 use ssz::Decode;
 use ssz::Encode;
@@ -16,7 +16,7 @@ use types::light_client_update::{
 };
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
+    BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, Slot, SyncAggregate,
     SyncCommittee,
 };
@@ -160,10 +160,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             }
         }
 
-        if let Some(finalized_block) =
-                store.get_full_block(&cached_parts.finalized_block_root)?
-            {
-
+        if let Some(finalized_block) = store.get_full_block(&cached_parts.finalized_block_root)? {
             let new_light_client_update = LightClientUpdate::new(
                 sync_aggregate,
                 block_slot,
@@ -183,19 +180,14 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 self.get_light_client_update(&store, sync_period, chain_spec)?;
 
             if let Some(prev_light_client_update) = prev_light_client_update {
-                if prev_light_client_update.is_better_light_client_update(
-                    &new_light_client_update,
-                    chain_spec,
-                )? {
-                    self.store_light_client_update(
-                        &store,
-                        sync_period,
-                        &new_light_client_update,
-                    )?;
+                if prev_light_client_update
+                    .is_better_light_client_update(&new_light_client_update, chain_spec)?
+                {
+                    self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
                 }
             } else {
                 self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
-            }    
+            }
         }
 
         Ok(())
@@ -236,7 +228,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             let fork_name = chain_spec.fork_name_at_epoch(epoch.into());
 
             let light_client_update =
-                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, fork_name)
+                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
                     .map_err(store::errors::Error::SszDecodeError)?;
 
             return Ok(Some(light_client_update));
@@ -256,8 +248,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let mut light_client_updates = vec![];
         for res in store
             .hot_db
-            .iter_column_from::<Vec<u8>>(column.into(), &start_period.to_le_bytes())
-        {   
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+        {
             let (sync_committee_bytes, light_client_update_bytes) = res?;
             let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)
                 .map_err(store::errors::Error::SszDecodeError)?;
@@ -267,7 +259,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             let fork_name = chain_spec.fork_name_at_epoch(epoch.into());
 
             let light_client_update =
-                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, fork_name)
+                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
                     .map_err(store::errors::Error::SszDecodeError)?;
 
             light_client_updates.push(light_client_update);
@@ -366,4 +358,3 @@ fn is_latest_finality_update<E: EthSpec>(
         attested_slot == prev_slot && signature_slot > *prev.signature_slot()
     }
 }
-

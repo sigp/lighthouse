@@ -1,12 +1,11 @@
 use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::{
-    beacon_state, test_utils::TestRandom, ChainSpec, ForkName, ForkVersionDeserialize,
+    beacon_state, test_utils::TestRandom, ChainSpec, Epoch, ForkName, ForkVersionDeserialize,
     LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
-    Epoch,
 };
-use safe_arith::SafeArith;
 use derivative::Derivative;
 use safe_arith::ArithError;
+use safe_arith::SafeArith;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use ssz::Decode;
@@ -213,7 +212,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         Ok(light_client_update)
     }
 
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: &ForkName) -> Result<Self, ssz::DecodeError> {
         let update = match fork_name {
             ForkName::Altair | ForkName::Bellatrix => {
                 Self::Altair(LightClientUpdateAltair::from_ssz_bytes(bytes)?)
@@ -271,15 +270,15 @@ impl<E: EthSpec> LightClientUpdate<E> {
         };
 
         let prev_attested_header_slot = match self {
-            LightClientUpdate::Altair(update) => update.attested_header.beacon.slot,
-            LightClientUpdate::Capella(update) => update.attested_header.beacon.slot,
-            LightClientUpdate::Deneb(update) => update.attested_header.beacon.slot,
+            LightClientUpdate::Altair(prev) => prev.attested_header.beacon.slot,
+            LightClientUpdate::Capella(prev) => prev.attested_header.beacon.slot,
+            LightClientUpdate::Deneb(prev) => prev.attested_header.beacon.slot,
         };
 
         let prev_finalized_header_slot = match self {
-            LightClientUpdate::Altair(update) => update.finalized_header.beacon.slot,
-            LightClientUpdate::Capella(update) => update.finalized_header.beacon.slot,
-            LightClientUpdate::Deneb(update) => update.finalized_header.beacon.slot,
+            LightClientUpdate::Altair(prev) => prev.finalized_header.beacon.slot,
+            LightClientUpdate::Capella(prev) => prev.finalized_header.beacon.slot,
+            LightClientUpdate::Deneb(prev) => prev.finalized_header.beacon.slot,
         };
 
         let new_attested_header_sync_committee_period =
@@ -295,10 +294,11 @@ impl<E: EthSpec> LightClientUpdate<E> {
             compute_sync_committee_period_at_slot::<E>(*self.signature_slot(), chain_spec)?;
 
         // Compare presence of relevant sync committee
-        let new_has_relevant_sync_committee = new.next_sync_committee_branch().is_empty()
-            && (new_attested_header_sync_committee_period == new_signature_slot_sync_committee_period);
+        let new_has_relevant_sync_committee = !new.next_sync_committee_branch().is_empty()
+            && (new_attested_header_sync_committee_period
+                == new_signature_slot_sync_committee_period);
 
-        let prev_has_relevant_sync_committee = self.next_sync_committee_branch().is_empty()
+        let prev_has_relevant_sync_committee = !self.next_sync_committee_branch().is_empty()
             && (prev_attested_header_sync_committee_period
                 == prev_signature_slot_sync_committee_period);
 
@@ -307,8 +307,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
         }
 
         // Compare indication of any finality
-        let new_has_finality = new.finality_branch().is_empty();
-        let prev_has_finality = self.finality_branch().is_empty();
+        let new_has_finality = !new.finality_branch().is_empty();
+        let prev_has_finality = !self.finality_branch().is_empty();
         if new_has_finality != prev_has_finality {
             return Ok(new_has_finality);
         }
@@ -317,17 +317,11 @@ impl<E: EthSpec> LightClientUpdate<E> {
         if new_has_finality {
             let new_has_sync_committee_finality =
                 compute_sync_committee_period_at_slot::<E>(new_finalized_header_slot, chain_spec)?
-                    == compute_sync_committee_period_at_slot::<E>(
-                        new_attested_header_slot,
-                        chain_spec,
-                    )?;
+                    == new_attested_header_sync_committee_period;
 
             let prev_has_sync_committee_finality =
                 compute_sync_committee_period_at_slot::<E>(prev_finalized_header_slot, chain_spec)?
-                    == compute_sync_committee_period_at_slot::<E>(
-                        prev_attested_header_slot,
-                        chain_spec,
-                    )?;
+                    == prev_attested_header_sync_committee_period;
 
             if new_has_sync_committee_finality != prev_has_sync_committee_finality {
                 return Ok(new_has_sync_committee_finality);
@@ -355,7 +349,6 @@ fn compute_sync_committee_period_at_slot<E: EthSpec>(
     slot.epoch(E::slots_per_epoch())
         .safe_div(chain_spec.epochs_per_sync_committee_period)
 }
-
 
 #[cfg(test)]
 mod tests {

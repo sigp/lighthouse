@@ -830,6 +830,31 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct LightClientUpdateHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
+    type Case = cases::LightClientVerifyIsBetterUpdate<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "light_client"
+    }
+
+    fn handler_name(&self) -> String {
+        "update_ranking".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // Enabled in Altair
+        fork_name != ForkName::Base
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct OperationsHandler<E, O>(PhantomData<(E, O)>);
 
 impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O> {
