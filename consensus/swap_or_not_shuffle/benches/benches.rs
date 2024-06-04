@@ -23,28 +23,30 @@ fn shuffles(c: &mut Criterion) {
     });
 
     for size in [8, 16, 512, 16_384] {
-        c.bench_function_with_input(
+        c.bench_with_input(
             BenchmarkId::new("whole list shuffle", format!("{size} elements")),
             &size,
-            move |b, n| {
+            move |b, &n| {
                 let seed = vec![42; 32];
                 b.iter(|| black_box(shuffle_list(&seed, n)))
             },
         );
     }
 
+    let mut group = c.benchmark_group("fast");
+    group.sample_size(10);
     for size in [512, 16_384, 4_000_000] {
-        c.bench_function_with_input(
-            BenchmarkId::new("fast whole list shuffle", format!("{size} elements")),
+        group.bench_with_input(
+            BenchmarkId::new("whole list shuffle", format!("{size} elements")),
             &size,
-            move |b, n| {
+            move |b, &n| {
                 let seed = vec![42; 32];
-                let list: Vec<usize> = (0..size).collect();
+                let list: Vec<usize> = (0..n).collect();
                 b.iter(|| black_box(fast_shuffle(list.clone(), SHUFFLE_ROUND_COUNT, &seed, true)))
             },
-        )
-        .sample_size(10);
+        );
     }
+    group.finish();
 }
 
 criterion_group!(benches, shuffles);
