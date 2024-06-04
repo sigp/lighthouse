@@ -2187,6 +2187,8 @@ fn slasher_broadcast_flag_false() {
             assert!(!slasher_config.broadcast);
         });
 }
+
+#[cfg(all(feature = "lmdb", not(any(feature = "lmdb", feature = "mdbx"))))]
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend

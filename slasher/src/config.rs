@@ -15,11 +15,11 @@ pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
 pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(100_000);
 pub const DEFAULT_BROADCAST: bool = false;
 
-#[cfg(feature = "mdbx")]
+#[cfg(all(feature = "mdbx", not(any(feature = "lmdb", feature = "redb"))))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Mdbx;
-#[cfg(feature = "lmdb")]
+#[cfg(all(feature = "lmdb", not(any(feature = "mdbx", feature = "redb"))))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Lmdb;
-#[cfg(feature = "redb")]
+#[cfg(all(feature = "redb", not(any(feature = "mdbx", feature = "lmdb"))))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Redb;
 #[cfg(not(any(feature = "mdbx", feature = "lmdb", feature = "redb")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Disabled;
