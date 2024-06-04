@@ -716,6 +716,21 @@ impl<T: BeaconChainTypes> Critical<T> {
         }
     }
 
+    /// Removes and returns the pending_components corresponding to
+    /// the `block_root` or `None` if it does not exist
+    pub fn remove_pending_components(&mut self, block_root: Hash256) {
+        match self.in_memory.pop_entry(&block_root) {
+            Some { .. } => {}
+            None => {
+                // not in memory, is it in the store?
+                // We don't need to remove the data from the store as we have removed it from
+                // `store_keys` so we won't go looking for it on disk. The maintenance thread
+                // will remove it from disk the next time it runs.
+                self.store_keys.remove(&block_root);
+            }
+        }
+    }
+
     /// Returns the number of pending component entries in memory.
     pub fn num_blocks(&self) -> usize {
         self.in_memory.len()
@@ -912,6 +927,11 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             };
 
         if pending_components.is_available(&block_import_requirement, &self.log) {
+            write_lock.put_pending_components(
+                block_root,
+                pending_components.clone(),
+                &self.overflow_store,
+            )?;
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components
@@ -979,6 +999,11 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         let block_import_requirement = self.block_import_requirement(&pending_components)?;
         if pending_components.is_available(&block_import_requirement, &self.log) {
+            write_lock.put_pending_components(
+                block_root,
+                pending_components.clone(),
+                &self.overflow_store,
+            )?;
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(&self.spec, |diet_block| {
@@ -1019,6 +1044,11 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // Check if we have all components and entire set is consistent.
         let block_import_requirement = self.block_import_requirement(&pending_components)?;
         if pending_components.is_available(&block_import_requirement, &self.log) {
+            write_lock.put_pending_components(
+                block_root,
+                pending_components.clone(),
+                &self.overflow_store,
+            )?;
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(&self.spec, |diet_block| {
@@ -1032,6 +1062,10 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             )?;
             Ok(Availability::MissingComponents(block_root))
         }
+    }
+
+    pub fn remove_pending_components(&self, block_root: Hash256) {
+        self.critical.write().remove_pending_components(block_root);
     }
 
     /// write all in memory objects to disk
@@ -1590,8 +1624,15 @@ mod test {
             );
             assert_eq!(
                 cache.critical.read().in_memory.len(),
+                1,
+                "cache should still have block as it hasn't been imported yet"
+            );
+            // remove the blob to simulate successful import
+            cache.remove_pending_components(root);
+            assert_eq!(
+                cache.critical.read().in_memory.len(),
                 0,
-                "cache should be empty because we don't have blobs"
+                "cache should be empty now that block has been imported"
             );
         } else {
             assert!(
@@ -1656,6 +1697,12 @@ mod test {
             "block should be available: {:?}",
             availability
         );
+        assert!(
+            cache.critical.read().in_memory.len() == 1,
+            "cache should still have available block until import"
+        );
+        // remove the blob to simulate successful import
+        cache.remove_pending_components(root);
         assert!(
             cache.critical.read().in_memory.is_empty(),
             "cache should be empty now that all components available"
@@ -1771,6 +1818,8 @@ mod test {
                 .expect("should put blob");
             if blob_index == expected_blobs - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
+                // remove the block from the cache to simulate import
+                cache.remove_pending_components(roots[0]);
             } else {
                 // the first block should be brought back into memory
                 assert!(
