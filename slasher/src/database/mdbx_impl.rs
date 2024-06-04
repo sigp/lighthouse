@@ -194,7 +194,7 @@ impl<'env> Cursor<'env> {
             let (key_bytes, value) = self.get_current()?.ok_or(Error::MissingKey)?;
 
             if f(&key_bytes)? {
-                result.push(value.to_vec());
+                result.push(value);
                 self.delete_current()?;
                 if self.next_key()?.is_none() {
                     break;
