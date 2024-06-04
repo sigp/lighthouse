@@ -748,7 +748,6 @@ impl<E: EthSpec> SlasherDB<E> {
             .collect();
         drop(cursor);
 
-
         // Delete the indexed attestations.
         // Optimisation potential: use a cursor here.
         let indexed_attestation_db = &self.databases.indexed_attestation_db;
