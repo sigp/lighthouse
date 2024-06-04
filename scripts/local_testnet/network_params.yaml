@@ -6,8 +6,6 @@ participants:
     cl_image: lighthouse:local
     cl_extra_params:
       - --target-peers=3
-    vc_type: lighthouse
-    vc_image: lighthouse:local
     count: 4
 network_params:
   deneb_fork_epoch: 0
