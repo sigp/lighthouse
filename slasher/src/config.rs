@@ -17,7 +17,7 @@ pub const DEFAULT_BROADCAST: bool = false;
 
 #[cfg(all(feature = "mdbx", not(any(feature = "lmdb", feature = "redb"))))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Mdbx;
-#[cfg(all(feature = "lmdb"))]
+#[cfg(feature = "lmdb")]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Lmdb;
 #[cfg(all(feature = "redb", not(any(feature = "mdbx", feature = "lmdb"))))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Redb;

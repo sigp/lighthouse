@@ -111,10 +111,10 @@ impl Environment {
 
 impl<'env> RwTransaction<'env> {
     pub fn get<K: AsRef<[u8]> + ?Sized>(
-        &self,
-        db: &Database,
+        &'env self,
+        db: &'env Database,
         key: &K,
-    ) -> Result<Option<Cow<'_, [u8]>>, Error> {
+    ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&db.table_name);
         let table = self.txn.open_table(table_definition)?;

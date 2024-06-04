@@ -123,10 +123,10 @@ impl Environment {
 
 impl<'env> RwTransaction<'env> {
     pub fn get<K: AsRef<[u8]> + ?Sized>(
-        &self,
-        db: &Database,
+        &'env self,
+        db: &'env Database,
         key: &K,
-    ) -> Result<Option<Cow<'_, [u8]>>, Error> {
+    ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         match (self, db) {
             #[cfg(feature = "mdbx")]
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.get(db, key),

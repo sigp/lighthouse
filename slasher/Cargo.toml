@@ -5,7 +5,7 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = { workspace = true }
 
 [features]
-default = ["lmdb"]
+default = ["redb"]
 mdbx = ["dep:mdbx"]
 lmdb = ["lmdb-rkv", "lmdb-rkv-sys"]
 redb = ["dep:redb"]
