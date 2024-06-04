@@ -14,13 +14,12 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
-use std::collections::HashSet;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
-use types::{ColumnIndex, Epoch, EthSpec, ForkName, Hash256, Slot};
+use types::{Epoch, EthSpec, ForkName, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -332,13 +331,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let column_indexes_by_block = request.group_by_ordered_block_root();
         let mut send_data_column_count = 0;
 
-        for (block_root, column_ids) in column_indexes_by_block.iter() {
-            match self
-                .chain
-                .get_selected_data_columns_checking_all_caches(*block_root, column_ids)
-            {
-                Ok(data_columns) => {
-                    for data_column in data_columns {
+        for (block_root, column_indices) in column_indexes_by_block.iter() {
+            for index in column_indices {
+                match self
+                    .chain
+                    .get_data_column_checking_all_caches(*block_root, *index)
+                {
+                    Ok(Some(data_column)) => {
                         send_data_column_count += 1;
                         self.send_response(
                             peer_id,
@@ -346,21 +345,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             request_id,
                         );
                     }
-                }
-                Err(e) => {
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ServerError,
-                        // TODO(das): leak error details to ease debugging
-                        format!("{:?}", e).to_string(),
-                        request_id,
-                    );
-                    error!(self.log, "Error getting data column";
-                        "block_root" => ?block_root,
-                        "peer" => %peer_id,
-                        "error" => ?e
-                    );
-                    return;
+                    Ok(None) => {} // no-op
+                    Err(e) => {
+                        self.send_error_response(
+                            peer_id,
+                            RPCResponseErrorCode::ServerError,
+                            // TODO(das): leak error details to ease debugging
+                            format!("{:?}", e).to_string(),
+                            request_id,
+                        );
+                        error!(self.log, "Error getting data column";
+                            "block_root" => ?block_root,
+                            "peer" => %peer_id,
+                            "error" => ?e
+                        );
+                        return;
+                    }
                 }
             }
         }
@@ -1077,40 +1077,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // remove all skip slots
         let block_roots = block_roots.into_iter().flatten();
-
         let mut data_columns_sent = 0;
-        let requested_column_indices =
-            HashSet::<ColumnIndex>::from_iter(req.columns.iter().copied());
 
         for root in block_roots {
-            match self.chain.get_data_columns(&root) {
-                Ok(data_column_sidecar_list) => {
-                    for data_column_sidecar in data_column_sidecar_list.iter() {
-                        if requested_column_indices.contains(&data_column_sidecar.index) {
-                            data_columns_sent += 1;
-                            self.send_network_message(NetworkMessage::SendResponse {
-                                peer_id,
-                                response: Response::DataColumnsByRange(Some(
-                                    data_column_sidecar.clone(),
-                                )),
-                                id: request_id,
-                            });
-                        }
+            for index in &req.columns {
+                match self.chain.get_data_column(&root, index) {
+                    Ok(Some(data_column_sidecar)) => {
+                        data_columns_sent += 1;
+                        self.send_network_message(NetworkMessage::SendResponse {
+                            peer_id,
+                            response: Response::DataColumnsByRange(Some(
+                                data_column_sidecar.clone(),
+                            )),
+                            id: request_id,
+                        });
                     }
-                }
-                Err(e) => {
-                    error!(
-                        self.log,
-                        "Error fetching data columns block root";
-                        "request" => ?req,
-                        "peer" => %peer_id,
-                        "block_root" => ?root,
-                        "error" => ?e
-                    );
-                    return Err((
-                        RPCResponseErrorCode::ServerError,
-                        "No data columns and failed fetching corresponding block",
-                    ));
+                    Ok(None) => {} // no-op
+                    Err(e) => {
+                        error!(
+                            self.log,
+                            "Error fetching data columns block root";
+                            "request" => ?req,
+                            "peer" => %peer_id,
+                            "block_root" => ?root,
+                            "error" => ?e
+                        );
+                        return Err((
+                            RPCResponseErrorCode::ServerError,
+                            "No data columns and failed fetching corresponding block",
+                        ));
+                    }
                 }
             }
         }

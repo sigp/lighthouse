@@ -102,11 +102,13 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Iterate through all keys and values in a particular column.
     fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        self.iter_column_from(column, &vec![0; column.key_size()])
+        let min_key = vec![0x00; column.key_size()];
+        let max_key = vec![0xff; column.key_size()];
+        self.iter_column_from(column, &min_key, &max_key)
     }
 
     /// Iterate through all keys and values in a column from a given starting point.
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8], to: &[u8]) -> ColumnIter<K>;
 
     fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
         Box::new(std::iter::empty())
@@ -143,6 +145,12 @@ impl Key for Vec<u8> {
 pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
     let mut result = column.as_bytes().to_vec();
     result.extend_from_slice(key);
+    result
+}
+
+pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> Vec<u8> {
+    let mut result = block_root.as_bytes().to_vec();
+    result.extend_from_slice(&column_index.to_le_bytes());
     result
 }
 
@@ -206,13 +214,13 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
-    PutDataColumns(Hash256, DataColumnSidecarList<E>),
+    PutDataColumns(Hash256, DataColumnSidecarVec<E>),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
-    DeleteDataColumns(Hash256),
+    DeleteDataColumns(Hash256, Vec<ColumnIndex>),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
     KeyValueOp(KeyValueStoreOp),
@@ -301,7 +309,6 @@ impl DBColumn {
             | Self::BeaconBlock
             | Self::BeaconState
             | Self::BeaconBlob
-            | Self::BeaconDataColumn
             | Self::BeaconStateSummary
             | Self::BeaconStateTemporary
             | Self::ExecPayload
@@ -318,6 +325,7 @@ impl DBColumn {
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
             | Self::BeaconRandaoMixes => 8,
+            Self::BeaconDataColumn => 32 + 8,
         }
     }
 }

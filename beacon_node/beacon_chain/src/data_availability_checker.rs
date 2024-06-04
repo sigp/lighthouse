@@ -15,7 +15,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
+    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarVec, Epoch, EthSpec, Hash256,
     RuntimeVariableList, SignedBeaconBlock,
 };
 
@@ -309,16 +309,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     block,
                     blobs: None,
                     blobs_available_timestamp: None,
-                    // TODO(das): update store type to prevent this conversion
                     data_columns: Some(
-                        RuntimeVariableList::new(
-                            data_column_list
-                                .into_iter()
-                                .map(|d| d.clone_arc())
-                                .collect(),
-                            self.spec.number_of_columns,
-                        )
-                        .expect("data column list is within bounds"),
+                        data_column_list
+                            .into_iter()
+                            .map(|d| d.clone_arc())
+                            .collect(),
                     ),
                     spec: self.spec.clone(),
                 }))
@@ -409,13 +404,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block,
                         blobs: None,
                         blobs_available_timestamp: None,
-                        // TODO(das): update store type to prevent this conversion
                         data_columns: data_columns.map(|data_columns| {
-                            RuntimeVariableList::new(
-                                data_columns.into_iter().map(|d| d.into_inner()).collect(),
-                                self.spec.number_of_columns,
-                            )
-                            .expect("data column list is within bounds")
+                            data_columns.into_iter().map(|d| d.into_inner()).collect()
                         }),
                         spec: self.spec.clone(),
                     })
@@ -605,7 +595,7 @@ pub struct AvailableBlock<E: EthSpec> {
     blobs: Option<BlobSidecarList<E>>,
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
-    data_columns: Option<DataColumnSidecarList<E>>,
+    data_columns: Option<DataColumnSidecarVec<E>>,
     pub spec: Arc<ChainSpec>,
 }
 
@@ -614,7 +604,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
-        data_columns: Option<DataColumnSidecarList<E>>,
+        data_columns: Option<DataColumnSidecarVec<E>>,
         spec: Arc<ChainSpec>,
     ) -> Self {
         Self {
@@ -643,7 +633,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs_available_timestamp
     }
 
-    pub fn data_columns(&self) -> Option<&DataColumnSidecarList<E>> {
+    pub fn data_columns(&self) -> Option<&DataColumnSidecarVec<E>> {
         self.data_columns.as_ref()
     }
 
@@ -654,7 +644,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         Hash256,
         Arc<SignedBeaconBlock<E>>,
         Option<BlobSidecarList<E>>,
-        Option<DataColumnSidecarList<E>>,
+        Option<DataColumnSidecarVec<E>>,
     ) {
         let AvailableBlock {
             block_root,

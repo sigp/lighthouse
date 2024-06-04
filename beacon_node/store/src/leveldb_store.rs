@@ -165,14 +165,15 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         Ok(())
     }
 
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8], to: &[u8]) -> ColumnIter<K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
+        let end_key = BytesKey::from_vec(get_key_for_col(column.into(), to));
 
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
         Box::new(
-            iter.take_while(move |(key, _)| key.matches_column(column))
+            iter.take_while(move |(key, _)| key < &end_key)
                 .map(move |(bytes_key, value)| {
                     let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
                         HotColdDBError::IterationError {
