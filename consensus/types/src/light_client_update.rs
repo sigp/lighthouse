@@ -33,6 +33,9 @@ pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const NEXT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const EXECUTION_PAYLOAD_PROOF_LEN: usize = 4;
 
+type FinalityBranch = FixedVector<Hash256, FinalizedRootProofLen>;
+type NextSyncCommitteeBranch = FixedVector<Hash256, NextSyncCommitteeProofLen>;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
@@ -113,7 +116,7 @@ pub struct LightClientUpdate<E: EthSpec> {
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<E>>,
     /// Merkle proof for next sync committee
-    pub next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
+    pub next_sync_committee_branch: NextSyncCommitteeBranch,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
     #[superstruct(only(Altair), partial_getter(rename = "finalized_header_altair"))]
     pub finalized_header: LightClientHeaderAltair<E>,
@@ -122,7 +125,7 @@ pub struct LightClientUpdate<E: EthSpec> {
     #[superstruct(only(Deneb), partial_getter(rename = "finalized_header_deneb"))]
     pub finalized_header: LightClientHeaderDeneb<E>,
     /// Merkle proof attesting finalized header.
-    pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
+    pub finality_branch: FinalityBranch,
     /// current sync aggreggate
     pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated signature
@@ -241,6 +244,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
     ) -> Result<bool, Error> {
         // Compare super majority (> 2/3) sync committee participation
         let max_active_participants = new.sync_aggregate().sync_committee_bits.len();
+        
         let new_active_participants = new.sync_aggregate().sync_committee_bits.num_set_bits();
         let prev_active_participants = self.sync_aggregate().sync_committee_bits.num_set_bits();
 
@@ -294,11 +298,11 @@ impl<E: EthSpec> LightClientUpdate<E> {
             compute_sync_committee_period_at_slot::<E>(*self.signature_slot(), chain_spec)?;
 
         // Compare presence of relevant sync committee
-        let new_has_relevant_sync_committee = !new.next_sync_committee_branch().is_empty()
+        let new_has_relevant_sync_committee = !new.is_next_sync_committee_branch_empty()
             && (new_attested_header_sync_committee_period
                 == new_signature_slot_sync_committee_period);
 
-        let prev_has_relevant_sync_committee = !self.next_sync_committee_branch().is_empty()
+        let prev_has_relevant_sync_committee = !self.is_next_sync_committee_branch_empty()
             && (prev_attested_header_sync_committee_period
                 == prev_signature_slot_sync_committee_period);
 
@@ -307,8 +311,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
         }
 
         // Compare indication of any finality
-        let new_has_finality = !new.finality_branch().is_empty();
-        let prev_has_finality = !self.finality_branch().is_empty();
+        let new_has_finality = !new.is_finality_branch_empty();
+        let prev_has_finality = !self.is_finality_branch_empty();
         if new_has_finality != prev_has_finality {
             return Ok(new_has_finality);
         }
@@ -340,14 +344,37 @@ impl<E: EthSpec> LightClientUpdate<E> {
 
         return Ok(new.signature_slot() < self.signature_slot());
     }
+
+    fn is_next_sync_committee_branch_empty(&self) -> bool {
+        for index in self.next_sync_committee_branch().iter() {
+            if index.clone() != Hash256::default() {
+                return false
+            }
+        }
+        true
+    }
+
+    fn is_finality_branch_empty(&self) -> bool {
+        for index in self.finality_branch().iter() {
+            if index.clone() != Hash256::default() {
+                return false
+            }
+        }
+        true
+    }
 }
 
 fn compute_sync_committee_period_at_slot<E: EthSpec>(
     slot: Slot,
     chain_spec: &ChainSpec,
 ) -> Result<Epoch, ArithError> {
-    slot.epoch(E::slots_per_epoch())
-        .safe_div(chain_spec.epochs_per_sync_committee_period)
+    println!("slot {}", slot);
+    let x = slot.epoch(E::slots_per_epoch())
+        .safe_div(chain_spec.epochs_per_sync_committee_period).unwrap();
+
+    println!("sync comm period {}", x);
+
+    Ok(x)
 }
 
 #[cfg(test)]

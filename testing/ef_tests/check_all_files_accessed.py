@@ -27,7 +27,8 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/PowBlock/",
     # light_client
     # "tests/.*/.*/light_client",
-    "tests/.*/mainnet/.*/light_client/update_ranking",
+    "tests/.*/.*/light_client/single_merkle_proof",
+    "tests/.*/.*/light_client/sync",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
