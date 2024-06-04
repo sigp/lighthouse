@@ -68,9 +68,10 @@ pub fn cli_app() -> Command {
             // TODO(das): remove this before release
             Arg::new("malicious-withhold-count")
                 .long("malicious-withhold-count")
-                .action(ArgAction::SetTrue)
+                .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
                 .help("TESTING ONLY do not use this")
+                .hide(true)
                 .display_order(0)
         )
         .arg(
