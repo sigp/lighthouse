@@ -244,7 +244,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
     ) -> Result<bool, Error> {
         // Compare super majority (> 2/3) sync committee participation
         let max_active_participants = new.sync_aggregate().sync_committee_bits.len();
-        
+
         let new_active_participants = new.sync_aggregate().sync_committee_bits.num_set_bits();
         let prev_active_participants = self.sync_aggregate().sync_committee_bits.num_set_bits();
 
@@ -347,8 +347,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
 
     fn is_next_sync_committee_branch_empty(&self) -> bool {
         for index in self.next_sync_committee_branch().iter() {
-            if index.clone() != Hash256::default() {
-                return false
+            if *index != Hash256::default() {
+                return false;
             }
         }
         true
@@ -356,8 +356,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
 
     fn is_finality_branch_empty(&self) -> bool {
         for index in self.finality_branch().iter() {
-            if index.clone() != Hash256::default() {
-                return false
+            if *index != Hash256::default() {
+                return false;
             }
         }
         true
@@ -369,8 +369,10 @@ fn compute_sync_committee_period_at_slot<E: EthSpec>(
     chain_spec: &ChainSpec,
 ) -> Result<Epoch, ArithError> {
     println!("slot {}", slot);
-    let x = slot.epoch(E::slots_per_epoch())
-        .safe_div(chain_spec.epochs_per_sync_committee_period).unwrap();
+    let x = slot
+        .epoch(E::slots_per_epoch())
+        .safe_div(chain_spec.epochs_per_sync_committee_period)
+        .unwrap();
 
     println!("sync comm period {}", x);
 
