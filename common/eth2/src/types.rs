@@ -955,7 +955,6 @@ pub struct SseHead {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-
 pub struct BlockGossip {
     pub slot: Slot,
     pub block: Hash256,
