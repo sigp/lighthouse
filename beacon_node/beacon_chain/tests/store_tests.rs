@@ -109,11 +109,17 @@ fn get_harness_generic(
 
 #[tokio::test]
 async fn light_client_updates_test() {
+    let spec = test_spec::<E>();
+    let Some(_) = spec.altair_fork_epoch else {
+        // No-op prior to Altair.
+        return;
+    };
+
     let num_final_blocks = E::slots_per_epoch() * 2;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let db_path = tempdir().unwrap();
     let log = test_logger();
-    let spec = test_spec::<E>();
+
     let seconds_per_slot = spec.seconds_per_slot;
     let store = get_store_generic(
         &db_path,
@@ -137,7 +143,6 @@ async fn light_client_updates_test() {
             &all_validators,
         )
         .await;
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
 
     let wss_block_root = harness
         .chain
@@ -271,21 +276,23 @@ async fn light_client_updates_test() {
         .unwrap();
 
     // fetch a single light client update directly from the db
-    let res = beacon_chain
+    let lc_update = beacon_chain
         .light_client_server_cache
         .get_light_client_update(&store, sync_period, &spec)
+        .unwrap()
         .unwrap();
 
     // fetch a range of light client updates. right now there should only be one light client update
     // in the db.
-    let other = beacon_chain
+    let lc_updates = beacon_chain
         .get_light_client_updates(sync_period, 100)
         .unwrap();
 
-    assert_eq!(other.len(), 1);
+    assert_eq!(lc_updates.len(), 1);
+    assert_eq!(lc_updates.first().unwrap().clone(), lc_update);
 
     // advance a bunch of slots & extend the chain
-    for i in 0..1000 {
+    for _i in 0..1000 {
         harness.advance_slot();
     }
 
@@ -345,21 +352,12 @@ async fn light_client_updates_test() {
         )
         .unwrap();
 
-    let res = beacon_chain
-        .light_client_server_cache
-        .get_light_client_update(&store, sync_period, &spec)
-        .unwrap();
-
     // we should now have two light client updates in the db
-    let other = beacon_chain
+    let lc_updates = beacon_chain
         .get_light_client_updates(sync_period, 100)
         .unwrap();
 
-    for o in other.iter() {
-        println!("{:?}", o.signature_slot());
-    }
-
-    assert_eq!(other.len(), 2);
+    assert_eq!(lc_updates.len(), 2);
 }
 
 /// Tests that `store.heal_freezer_block_roots_at_split` inserts block roots between last restore point
