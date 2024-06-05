@@ -1,32 +1,3 @@
-//! This module implements a LRU cache for storing partially available blocks and blobs.
-//! When the cache overflows, the least recently used items are persisted to the database.
-//! This prevents lighthouse from using too much memory storing unfinalized blocks and blobs
-//! if the chain were to lose finality.
-//!
-//! ## Deadlock safety
-//!
-//! The main object in this module is the `OverflowLruCache`. It contains two locks:
-//!
-//! - `self.critical` is an `RwLock` that protects content stored in memory.
-//! - `self.maintenance_lock` is held when moving data between memory and disk.
-//!
-//! You mostly need to ensure that you don't try to hold the critical lock more than once
-//!
-//! ## Basic Algorithm
-//!
-//! As blocks and blobs come in from the network, their components are stored in memory in
-//! this cache. When a block becomes fully available, it is removed from the cache and
-//! imported into fork-choice. Blocks/blobs that remain unavailable will linger in the
-//! cache until they are older than the finalized epoch or older than the data availability
-//! cutoff. In the event the chain is not finalizing, the cache will eventually overflow and
-//! the least recently used items will be persisted to disk. When this happens, we will still
-//! store the hash of the block in memory so we always know we have data for that block
-//! without needing to check the database.
-//!
-//! When the client is shut down, all pending components are persisted in the database.
-//! On startup, the keys of these components are stored in memory and will be loaded in
-//! the cache when they are accessed.
-
 use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
 use crate::beacon_chain::BeaconStore;
 use crate::blob_verification::KzgVerifiedBlob;

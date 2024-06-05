@@ -33,10 +33,28 @@ pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(1024);
 pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(2);
 pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
-/// This includes a cache for any blocks or blobs that have been received over gossip or RPC
-/// and are awaiting more components before they can be imported. Additionally the
-/// `DataAvailabilityChecker` is responsible for KZG verification of block components as well as
-/// checking whether a "availability check" is required at all.
+/// Cache to hold fully valid data that can't be imported to fork-choice yet. After dencun hard-fork
+/// blocks have a sidecar of data that is received separately from the network. We call the concept
+/// of a block "becoming available" when all of its import dependencies are inserted into this
+/// cache.
+///
+/// Usually a block becomes available on its slot within a second of receiving its first component
+/// over gossip. However, a block may never become available if a malicious proposer does not
+/// publish its data, or there are network issues that prevent us from receiving it. If the block
+/// does not become available after some time we can safely forget about it. Consider this two
+/// cases:
+///
+/// - Global unavailability: If nobody has received the block components it's likely that the
+///   proposer never made the block available. So we can safely forget about the block as it will
+///   never become available.
+/// - Local unavailability: Some of our peers will attest to a descendant of the dropped block and
+///   lookup sync will eventually fetch its components
+///
+/// Even in periods of non-finality, the proposer is expected to publish the block's data
+/// immediately. Because this cache only holds fully valid data, its capacity is bounded to 1 block
+/// per slot and fork: before inserting into this cache we check proposer signature and correct
+/// proposer. Having a capacity > 1 is an optimization to prevent sync lookup from having re-fetch
+/// data during moments of unstable network conditions.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
