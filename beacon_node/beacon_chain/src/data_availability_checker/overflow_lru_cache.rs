@@ -359,6 +359,22 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn do_maintenance(&self, cutoff_epoch: Epoch) -> Result<(), AvailabilityCheckError> {
         // clean up any lingering states in the state cache
         self.state_cache.do_maintenance(cutoff_epoch);
+
+        // Collect keys of pending blocks from a previous epoch to cutoff
+        let mut write_lock = self.critical.write();
+        let mut keys_to_remove = vec![];
+        for (key, value) in write_lock.in_memory.iter() {
+            if let Some(epoch) = value.epoch() {
+                if epoch < cutoff_epoch {
+                    keys_to_remove.push(*key);
+                }
+            }
+        }
+        // Now remove keys
+        for key in keys_to_remove {
+            write_lock.in_memory.pop(&key);
+        }
+
         Ok(())
     }
 
