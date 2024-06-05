@@ -268,8 +268,6 @@ pub enum DBColumn {
     OptimisticTransitionBlock,
     #[strum(serialize = "bhs")]
     BeaconHistoricalSummaries,
-    #[strum(serialize = "olc")]
-    OverflowLRUCache,
 }
 
 /// A block from the database, which might have an execution payload or not.
@@ -292,7 +290,6 @@ impl DBColumn {
     /// This function returns the number of bytes used by keys in a given column.
     pub fn key_size(self) -> usize {
         match self {
-            Self::OverflowLRUCache => 33, // See `OverflowKey` encode impl.
             Self::BeaconMeta
             | Self::BeaconBlock
             | Self::BeaconState
