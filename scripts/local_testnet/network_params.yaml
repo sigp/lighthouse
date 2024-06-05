@@ -1,0 +1,14 @@
+# Full configuration reference [here](https://github.com/kurtosis-tech/ethereum-package?tab=readme-ov-file#configuration).
+participants:
+  - el_type: geth
+    el_image: ethereum/client-go:latest
+    cl_type: lighthouse
+    cl_image: lighthouse:local
+    cl_extra_params:
+      - --target-peers=3
+    count: 4
+network_params:
+  deneb_fork_epoch: 0
+  seconds_per_slot: 3
+global_log_level: debug
+snooper_enabled: false

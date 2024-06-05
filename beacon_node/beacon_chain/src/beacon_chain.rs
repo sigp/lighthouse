@@ -2589,6 +2589,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
         received_pre_capella: ReceivedPreCapella,
     ) -> bool {
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_bls_to_execution_change_subscribers() {
+                event_handler.register(EventKind::BlsToExecutionChange(Box::new(
+                    bls_to_execution_change.clone().into_inner(),
+                )));
+            }
+        }
+
         if self.eth1_chain.is_some() {
             self.op_pool
                 .insert_bls_to_execution_change(bls_to_execution_change, received_pre_capella)
@@ -3328,6 +3336,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "payload_verification_handle",
             )
             .await??;
+
+        // Remove block components from da_checker AFTER completing block import. Then we can assert
+        // the following invariant:
+        // > A valid unfinalized block is either in fork-choice or da_checker.
+        //
+        // If we remove the block when it becomes available, there's some time window during
+        // `import_block` where the block is nowhere. Consumers of the da_checker can handle the
+        // extend time a block may exist in the da_checker.
+        //
+        // If `import_block` errors (only errors with internal errors), the pending components will
+        // be pruned on data_availability_checker maintenance as finality advances.
+        self.data_availability_checker
+            .remove_pending_components(block_root);
+
         Ok(AvailabilityProcessingStatus::Imported(block_root))
     }
 
