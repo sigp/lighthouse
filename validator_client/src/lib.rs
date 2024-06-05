@@ -48,7 +48,7 @@ use notifier::spawn_notifier;
 use parking_lot::RwLock;
 use preparation_service::{PreparationService, PreparationServiceBuilder};
 use reqwest::Certificate;
-use slog::{error, info, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::fs::File;
@@ -110,7 +110,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
     /// and attestation production.
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        cli_args: &ArgMatches<'_>,
+        cli_args: &ArgMatches,
     ) -> Result<Self, String> {
         let config = Config::from_cli(cli_args, context.log())
             .map_err(|e| format!("Unable to initialize config: {}", e))?;
@@ -121,6 +121,27 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
     /// and attestation production.
     pub async fn new(context: RuntimeContext<E>, config: Config) -> Result<Self, String> {
         let log = context.log().clone();
+
+        // Attempt to raise soft fd limit. The behavior is OS specific:
+        // `linux` - raise soft fd limit to hard
+        // `macos` - raise soft fd limit to `min(kernel limit, hard fd limit)`
+        // `windows` & rest - noop
+        match fdlimit::raise_fd_limit().map_err(|e| format!("Unable to raise fd limit: {}", e))? {
+            fdlimit::Outcome::LimitRaised { from, to } => {
+                debug!(
+                    log,
+                    "Raised soft open file descriptor resource limit";
+                    "old_limit" => from,
+                    "new_limit" => to
+                );
+            }
+            fdlimit::Outcome::Unsupported => {
+                debug!(
+                    log,
+                    "Raising soft open file descriptor resource limit is not supported"
+                );
+            }
+        };
 
         info!(
             log,
@@ -464,6 +485,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
             validator_store: validator_store.clone(),
+            unknown_validator_next_poll_slots: <_>::default(),
             spec: context.eth2_config.spec.clone(),
             context: duties_context,
             enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,

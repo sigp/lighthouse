@@ -31,8 +31,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256, IndexedAttestation,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    beacon_block::BlockImportSource, Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256,
+    IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
     SyncSubnetId,
@@ -753,7 +753,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        match self.chain.process_gossip_blob(verified_blob).await {
+        let result = self.chain.process_gossip_blob(verified_blob).await;
+
+        match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 // Note: Reusing block imported metric here
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
@@ -778,25 +780,39 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
             }
+            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+                debug!(
+                    self.log,
+                    "Ignoring gossip blob already imported";
+                    "block_root" => ?block_root,
+                    "blob_index" =>  blob_index,
+                );
+            }
             Err(err) => {
                 debug!(
                     self.log,
                     "Invalid gossip blob";
                     "outcome" => ?err,
-                    "block root" => ?block_root,
-                    "block slot" =>  blob_slot,
-                    "blob index" =>  blob_index,
+                    "block_root" => ?block_root,
+                    "block_slot" =>  blob_slot,
+                    "blob_index" =>  blob_index,
                 );
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::MidToleranceError,
                     "bad_gossip_blob_ssz",
                 );
-                trace!(
-                    self.log,
-                    "Invalid gossip blob ssz";
-                );
             }
+        }
+
+        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
+        // imported. A block can become imported both after processing a block or blob. If a
+        // importing a block results in `Imported`, notify. Do not notify of blob errors.
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: true,
+            });
         }
     }
 
@@ -1137,9 +1153,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
+        // TODO(block source)
+
         let result = self
             .chain
-            .process_block_with_early_caching(block_root, verified_block, NotifyExecutionLayer::Yes)
+            .process_block_with_early_caching(
+                block_root,
+                verified_block,
+                BlockImportSource::Gossip,
+                NotifyExecutionLayer::Yes,
+            )
             .await;
 
         match &result {
@@ -1183,19 +1206,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
             }
-            Err(BlockError::ParentUnknown(block)) => {
-                // Inform the sync manager to find parents for this block
-                // This should not occur. It should be checked by `should_forward_block`
+            Err(BlockError::ParentUnknown(_)) => {
+                // This should not occur. It should be checked by `should_forward_block`.
+                // Do not send sync message UnknownParentBlock to prevent conflicts with the
+                // BlockComponentProcessed message below. If this error ever happens, lookup sync
+                // can recover by receiving another block / blob / attestation referencing the
+                // chain that includes this block.
                 error!(
                     self.log,
                     "Block with unknown parent attempted to be processed";
+                    "block_root" => %block_root,
                     "peer_id" => %peer_id
                 );
-                self.send_sync_message(SyncMessage::UnknownParentBlock(
-                    peer_id,
-                    block.clone(),
-                    block_root,
-                ));
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(
@@ -1259,6 +1281,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 &self.log,
             );
         }
+
+        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+            block_root,
+            imported: matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))),
+        });
     }
 
     pub fn process_gossip_voluntary_exit(

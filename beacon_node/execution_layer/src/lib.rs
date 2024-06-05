@@ -370,6 +370,9 @@ pub struct Config {
     pub execution_endpoint: Option<SensitiveUrl>,
     /// Endpoint urls for services providing the builder api.
     pub builder_url: Option<SensitiveUrl>,
+    /// The timeout value used when making a request to fetch a block header
+    /// from the builder api.
+    pub builder_header_timeout: Option<Duration>,
     /// User agent to send with requests to the builder API.
     pub builder_user_agent: Option<String>,
     /// JWT secret for the above endpoint running the engine api.
@@ -400,6 +403,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             execution_endpoint: url,
             builder_url,
             builder_user_agent,
+            builder_header_timeout,
             secret_file,
             suggested_fee_recipient,
             jwt_id,
@@ -469,7 +473,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         };
 
         if let Some(builder_url) = builder_url {
-            el.set_builder_url(builder_url, builder_user_agent)?;
+            el.set_builder_url(builder_url, builder_user_agent, builder_header_timeout)?;
         }
 
         Ok(el)
@@ -491,9 +495,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         builder_url: SensitiveUrl,
         builder_user_agent: Option<String>,
+        builder_header_timeout: Option<Duration>,
     ) -> Result<(), Error> {
-        let builder_client = BuilderHttpClient::new(builder_url.clone(), builder_user_agent)
-            .map_err(Error::Builder)?;
+        let builder_client = BuilderHttpClient::new(
+            builder_url.clone(),
+            builder_user_agent,
+            builder_header_timeout,
+        )
+        .map_err(Error::Builder)?;
         info!(
             self.log(),
             "Using external block builder";
@@ -2003,6 +2012,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     withdrawals,
                     blob_gas_used: electra_block.blob_gas_used,
                     excess_blob_gas: electra_block.excess_blob_gas,
+                    // TODO(electra)
+                    // deposit_receipts: electra_block.deposit_receipts,
+                    // withdrawal_requests: electra_block.withdrawal_requests,
+                    deposit_receipts: <_>::default(),
+                    withdrawal_requests: <_>::default(),
                 })
             }
         };

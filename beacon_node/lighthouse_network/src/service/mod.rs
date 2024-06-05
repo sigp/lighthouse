@@ -972,6 +972,12 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             .goodbye_peer(peer_id, reason, source);
     }
 
+    /// Hard (ungraceful) disconnect for testing purposes only
+    /// Use goodbye_peer for disconnections, do not use this function.
+    pub fn __hard_disconnect_testing_only(&mut self, peer_id: PeerId) {
+        let _ = self.swarm.disconnect_peer_id(peer_id);
+    }
+
     /// Returns an iterator over all enr entries in the DHT.
     pub fn enr_entries(&self) -> Vec<Enr> {
         self.discovery().table_entries_enr()
@@ -1373,12 +1379,25 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
         let peer_id = event.peer_id;
 
         if !self.peer_manager().is_connected(&peer_id) {
-            debug!(
-                self.log,
-                "Ignoring rpc message of disconnecting peer";
-                event
-            );
-            return None;
+            // Sync expects a RPCError::Disconnected to drop associated lookups with this peer.
+            // Silencing this event breaks the API contract with RPC where every request ends with
+            // - A stream termination event, or
+            // - An RPCError event
+            return if let HandlerEvent::Err(HandlerErr::Outbound {
+                id: RequestId::Application(id),
+                error,
+                ..
+            }) = event.event
+            {
+                Some(NetworkEvent::RPCFailed { peer_id, id, error })
+            } else {
+                debug!(
+                    self.log,
+                    "Ignoring rpc message of disconnecting peer";
+                    event
+                );
+                None
+            };
         }
 
         let handler_id = event.conn_id;
@@ -1681,12 +1700,16 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             libp2p::upnp::Event::NewExternalAddr(addr) => {
                 info!(self.log, "UPnP route established"; "addr" => %addr);
                 let mut iter = addr.iter();
-                // Skip Ip address.
-                iter.next();
+                let is_ip6 = {
+                    let addr = iter.next();
+                    matches!(addr, Some(MProtocol::Ip6(_)))
+                };
                 match iter.next() {
                     Some(multiaddr::Protocol::Udp(udp_port)) => match iter.next() {
                         Some(multiaddr::Protocol::QuicV1) => {
-                            if let Err(e) = self.discovery_mut().update_enr_quic_port(udp_port) {
+                            if let Err(e) =
+                                self.discovery_mut().update_enr_quic_port(udp_port, is_ip6)
+                            {
                                 warn!(self.log, "Failed to update ENR"; "error" => e);
                             }
                         }
@@ -1695,7 +1718,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                         }
                     },
                     Some(multiaddr::Protocol::Tcp(tcp_port)) => {
-                        if let Err(e) = self.discovery_mut().update_enr_tcp_port(tcp_port) {
+                        if let Err(e) = self.discovery_mut().update_enr_tcp_port(tcp_port, is_ip6) {
                             warn!(self.log, "Failed to update ENR"; "error" => e);
                         }
                     }

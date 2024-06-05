@@ -21,9 +21,9 @@ pub const CUSTOM_TESTNET_DIR: &str = "custom";
 /// if not present, then checks the "testnet-dir" flag and returns a custom name
 /// If neither flags are present, returns the default hardcoded network name.
 pub fn get_network_dir(matches: &ArgMatches) -> String {
-    if let Some(network_name) = matches.value_of("network") {
+    if let Some(network_name) = matches.get_one::<String>("network") {
         network_name.to_string()
-    } else if matches.value_of("testnet-dir").is_some() {
+    } else if matches.get_one::<String>("testnet-dir").is_some() {
         CUSTOM_TESTNET_DIR.to_string()
     } else {
         eth2_network_config::DEFAULT_HARDCODED_NETWORK.to_string()

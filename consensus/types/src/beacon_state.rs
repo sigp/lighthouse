@@ -467,6 +467,40 @@ where
     #[test_random(default)]
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
+    // Electra
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub deposit_receipts_start_index: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub deposit_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub exit_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    pub earliest_exit_epoch: Epoch,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub consolidation_balance_to_consume: u64,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    pub earliest_consolidation_epoch: Epoch,
+    #[test_random(default)]
+    #[superstruct(only(Electra))]
+    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    #[test_random(default)]
+    #[superstruct(only(Electra))]
+    pub pending_partial_withdrawals:
+        List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
+    #[test_random(default)]
+    #[superstruct(only(Electra))]
+    pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
+
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -2031,6 +2065,210 @@ impl<E: EthSpec> BeaconState<E> {
         self.epoch_cache().get_base_reward(validator_index)
     }
 
+    // ******* Electra accessors *******
+
+    /// Return the churn limit for the current epoch.
+    pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        let total_active_balance = self.get_total_active_balance()?;
+        let churn = std::cmp::max(
+            spec.min_per_epoch_churn_limit_electra,
+            total_active_balance.safe_div(spec.churn_limit_quotient)?,
+        );
+
+        Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
+    }
+
+    /// Return the churn limit for the current epoch dedicated to activations and exits.
+    pub fn get_activation_exit_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        Ok(std::cmp::min(
+            spec.max_per_epoch_activation_exit_churn_limit,
+            self.get_balance_churn_limit(spec)?,
+        ))
+    }
+
+    pub fn get_consolidation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
+        self.get_balance_churn_limit(spec)?
+            .safe_sub(self.get_activation_exit_churn_limit(spec)?)
+            .map_err(Into::into)
+    }
+
+    /// Get active balance for the given `validator_index`.
+    pub fn get_active_balance(
+        &self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<u64, Error> {
+        let max_effective_balance = self
+            .validators()
+            .get(validator_index)
+            .map(|validator| validator.get_validator_max_effective_balance(spec))
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        Ok(std::cmp::min(
+            *self
+                .balances()
+                .get(validator_index)
+                .ok_or(Error::UnknownValidator(validator_index))?,
+            max_effective_balance,
+        ))
+    }
+
+    pub fn get_pending_balance_to_withdraw(&self, validator_index: usize) -> Result<u64, Error> {
+        let mut pending_balance = 0;
+        for withdrawal in self
+            .pending_partial_withdrawals()?
+            .iter()
+            .filter(|withdrawal| withdrawal.index as usize == validator_index)
+        {
+            pending_balance.safe_add_assign(withdrawal.amount)?;
+        }
+        Ok(pending_balance)
+    }
+
+    // ******* Electra mutators *******
+
+    pub fn queue_excess_active_balance(
+        &mut self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let balance = self
+            .balances_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        if *balance > spec.min_activation_balance {
+            let excess_balance = balance.safe_sub(spec.min_activation_balance)?;
+            *balance = spec.min_activation_balance;
+            self.pending_balance_deposits_mut()?
+                .push(PendingBalanceDeposit {
+                    index: validator_index as u64,
+                    amount: excess_balance,
+                })?;
+        }
+        Ok(())
+    }
+
+    pub fn queue_entire_balance_and_reset_validator(
+        &mut self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let balance = self
+            .balances_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        let balance_copy = *balance;
+        *balance = 0_u64;
+
+        let validator = self
+            .validators_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        validator.effective_balance = 0;
+        validator.activation_eligibility_epoch = spec.far_future_epoch;
+
+        self.pending_balance_deposits_mut()?
+            .push(PendingBalanceDeposit {
+                index: validator_index as u64,
+                amount: balance_copy,
+            })
+            .map_err(Into::into)
+    }
+
+    /// Change the withdrawal prefix of the given `validator_index` to the compounding withdrawal validator prefix.
+    pub fn switch_to_compounding_validator(
+        &mut self,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let validator = self
+            .validators_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))?;
+        if validator.has_eth1_withdrawal_credential(spec) {
+            validator.withdrawal_credentials.as_fixed_bytes_mut()[0] =
+                spec.compounding_withdrawal_prefix_byte;
+            self.queue_excess_active_balance(validator_index, spec)?;
+        }
+        Ok(())
+    }
+
+    pub fn compute_exit_epoch_and_update_churn(
+        &mut self,
+        exit_balance: u64,
+        spec: &ChainSpec,
+    ) -> Result<Epoch, Error> {
+        let mut earliest_exit_epoch = std::cmp::max(
+            self.earliest_exit_epoch()?,
+            self.compute_activation_exit_epoch(self.current_epoch(), spec)?,
+        );
+
+        let per_epoch_churn = self.get_activation_exit_churn_limit(spec)?;
+        // New epoch for exits
+        let mut exit_balance_to_consume = if self.earliest_exit_epoch()? < earliest_exit_epoch {
+            per_epoch_churn
+        } else {
+            self.exit_balance_to_consume()?
+        };
+
+        // Exit doesn't fit in the current earliest epoch
+        if exit_balance > exit_balance_to_consume {
+            let balance_to_process = exit_balance.safe_sub(exit_balance_to_consume)?;
+            let additional_epochs = balance_to_process
+                .safe_sub(1)?
+                .safe_div(per_epoch_churn)?
+                .safe_add(1)?;
+            earliest_exit_epoch.safe_add_assign(additional_epochs)?;
+            exit_balance_to_consume
+                .safe_add_assign(additional_epochs.safe_mul(per_epoch_churn)?)?;
+        }
+        let state = self.as_electra_mut()?;
+        // Consume the balance and update state variables
+        state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
+        state.earliest_exit_epoch = earliest_exit_epoch;
+
+        Ok(state.earliest_exit_epoch)
+    }
+
+    pub fn compute_consolidation_epoch_and_update_churn(
+        &mut self,
+        consolidation_balance: u64,
+        spec: &ChainSpec,
+    ) -> Result<Epoch, Error> {
+        let mut earliest_consolidation_epoch = std::cmp::max(
+            self.earliest_consolidation_epoch()?,
+            self.compute_activation_exit_epoch(self.current_epoch(), spec)?,
+        );
+
+        let per_epoch_consolidation_churn = self.get_consolidation_churn_limit(spec)?;
+
+        // New epoch for consolidations
+        let mut consolidation_balance_to_consume =
+            if self.earliest_consolidation_epoch()? < earliest_consolidation_epoch {
+                per_epoch_consolidation_churn
+            } else {
+                self.consolidation_balance_to_consume()?
+            };
+        // Consolidation doesn't fit in the current earliest epoch
+        if consolidation_balance > consolidation_balance_to_consume {
+            let balance_to_process =
+                consolidation_balance.safe_sub(consolidation_balance_to_consume)?;
+            let additional_epochs = balance_to_process
+                .safe_sub(1)?
+                .safe_div(per_epoch_consolidation_churn)?
+                .safe_add(1)?;
+            earliest_consolidation_epoch.safe_add_assign(additional_epochs)?;
+            consolidation_balance_to_consume
+                .safe_add_assign(additional_epochs.safe_mul(per_epoch_consolidation_churn)?)?;
+        }
+        // Consume the balance and update state variables
+        let state = self.as_electra_mut()?;
+        state.consolidation_balance_to_consume =
+            consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
+        state.earliest_consolidation_epoch = earliest_consolidation_epoch;
+
+        Ok(state.earliest_consolidation_epoch)
+    }
+
     #[allow(clippy::arithmetic_side_effects)]
     pub fn rebase_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
         // Required for macros (which use type-hints internally).
@@ -2147,10 +2385,17 @@ impl<E: EthSpec> BeaconState<E> {
     /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
     ///
     /// This is relevant to tree-hashing of the `BeaconState`.
-    ///
-    /// We assume this value is stable across forks. This assumption is checked in the
-    /// `check_num_fields_pow2` test.
-    pub const NUM_FIELDS_POW2: usize = BeaconStateBellatrix::<E>::NUM_FIELDS.next_power_of_two();
+    pub fn num_fields_pow2(&self) -> usize {
+        let fork_name = self.fork_name_unchecked();
+        match fork_name {
+            ForkName::Base => BeaconStateBase::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Bellatrix => BeaconStateBellatrix::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS.next_power_of_two(),
+        }
+    }
 
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
     #[allow(clippy::arithmetic_side_effects)]
@@ -2211,7 +2456,7 @@ impl<E: EthSpec> BeaconState<E> {
                 // in the `BeaconState`:
                 // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
                 generalized_index
-                    .checked_sub(Self::NUM_FIELDS_POW2)
+                    .checked_sub(self.num_fields_pow2())
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
             light_client_update::FINALIZED_ROOT_INDEX => {
@@ -2221,7 +2466,7 @@ impl<E: EthSpec> BeaconState<E> {
                 // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 which matches
                 // position of `finalized_checkpoint` in `BeaconState`.
                 finalized_checkpoint_generalized_index
-                    .checked_sub(Self::NUM_FIELDS_POW2)
+                    .checked_sub(self.num_fields_pow2())
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
             _ => return Err(Error::IndexNotSupported(generalized_index)),

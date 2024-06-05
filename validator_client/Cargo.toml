@@ -61,3 +61,4 @@ system_health = { path = "../common/system_health" }
 logging = { workspace = true }
 strum = { workspace = true }
 itertools = { workspace = true }
+fdlimit = "0.3.0"

@@ -684,6 +684,7 @@ where
             .set_builder_url(
                 SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap(),
                 None,
+                None,
             )
             .unwrap();
 
@@ -1881,6 +1882,7 @@ where
                 block_root,
                 RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
                 || Ok(()),
             )
             .await?
@@ -1907,6 +1909,7 @@ where
                 block_root,
                 RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
                 || Ok(()),
             )
             .await?

@@ -95,7 +95,7 @@ impl DepositContract {
                 .await
                 .map_err(|e| {
                     format!(
-                        "Failed to deploy contract: {}. Is scripts/anvil_tests_node.sh running?.",
+                        "Failed to deploy contract: {}. Is the RPC server running?.",
                         e
                     )
                 })?;

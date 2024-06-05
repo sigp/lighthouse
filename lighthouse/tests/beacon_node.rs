@@ -637,6 +637,26 @@ fn builder_fallback_flags() {
 }
 
 #[test]
+fn builder_get_header_timeout() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-header-timeout"),
+        Some("1500"),
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_header_timeout,
+                Some(Duration::from_millis(1500))
+            );
+        },
+    );
+}
+
+#[test]
 fn builder_user_agent() {
     run_payload_builder_flag_test_with_config(
         "builder",
@@ -1578,7 +1598,7 @@ fn empty_inbound_rate_limiter_flag() {
 #[test]
 fn disable_inbound_rate_limiter_flag() {
     CommandLineTest::new()
-        .flag("inbound-rate-limiter", Some("disabled"))
+        .flag("disable-inbound-rate-limiter", None)
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.network.inbound_rate_limiter_config, None));
 }
@@ -1844,6 +1864,19 @@ fn block_cache_size_flag() {
         .flag("block-cache-size", Some("4"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.block_cache_size, new_non_zero_usize(4)));
+}
+#[test]
+fn state_cache_size_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(128)));
+}
+#[test]
+fn state_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("state-cache-size", Some("64"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(64)));
 }
 #[test]
 fn historic_state_cache_size_flag() {
@@ -2121,7 +2154,6 @@ fn slasher_broadcast_flag_no_args() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("1"))
-        .flag("slasher-broadcast", None)
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -2300,7 +2332,7 @@ fn proposer_re_org_disallowed_offsets_default() {
 #[test]
 fn proposer_re_org_disallowed_offsets_override() {
     CommandLineTest::new()
-        .flag("--proposer-reorg-disallowed-offsets", Some("1,2,3"))
+        .flag("proposer-reorg-disallowed-offsets", Some("1,2,3"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
@@ -2314,7 +2346,7 @@ fn proposer_re_org_disallowed_offsets_override() {
 #[should_panic]
 fn proposer_re_org_disallowed_offsets_invalid() {
     CommandLineTest::new()
-        .flag("--proposer-reorg-disallowed-offsets", Some("32,33,34"))
+        .flag("proposer-reorg-disallowed-offsets", Some("32,33,34"))
         .run_with_zero_port();
 }
 

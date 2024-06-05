@@ -2121,14 +2121,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              eth1_service: eth1::Service| {
                 task_spawner.blocking_response_task(Priority::P1, move || match accept_header {
-                    Some(api_types::Accept::Json) | None => {
-                        let snapshot = eth1_service.get_deposit_snapshot();
-                        Ok(
-                            warp::reply::json(&api_types::GenericResponse::from(snapshot))
-                                .into_response(),
-                        )
-                    }
-                    _ => eth1_service
+                    Some(api_types::Accept::Ssz) => eth1_service
                         .get_deposit_snapshot()
                         .map(|snapshot| {
                             Response::builder()
@@ -2154,6 +2147,13 @@ pub fn serve<T: BeaconChainTypes>(
                                     ))
                                 })
                         }),
+                    _ => {
+                        let snapshot = eth1_service.get_deposit_snapshot();
+                        Ok(
+                            warp::reply::json(&api_types::GenericResponse::from(snapshot))
+                                .into_response(),
+                        )
+                    }
                 })
             },
         );
@@ -4357,6 +4357,15 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::BlockReward => {
                                     event_handler.subscribe_block_reward()
+                                }
+                                api_types::EventTopic::AttesterSlashing => {
+                                    event_handler.subscribe_attester_slashing()
+                                }
+                                api_types::EventTopic::ProposerSlashing => {
+                                    event_handler.subscribe_proposer_slashing()
+                                }
+                                api_types::EventTopic::BlsToExecutionChange => {
+                                    event_handler.subscribe_bls_to_execution_change()
                                 }
                             };
 
