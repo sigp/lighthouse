@@ -4,7 +4,8 @@ use beacon_node::beacon_chain::chain_config::{
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
 };
 use beacon_node::{
-    beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend, ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin
+    beacon_chain::graffiti_calculator::GraffitiOrigin,
+    beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend, ClientConfig as Config,
 };
 use beacon_processor::BeaconProcessorConfig;
 use eth1::Eth1Endpoint;

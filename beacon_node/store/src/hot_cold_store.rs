@@ -15,8 +15,8 @@ use crate::metadata::{
     BLOB_INFO_KEY, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION,
     PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN,
 };
-use crate::{metrics, KeyValueStore};
 use crate::state_cache::{PutStateOutcome, StateCache};
+use crate::{metrics, KeyValueStore};
 use crate::{
     ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp, PartialBeaconState,
     StoreItem, StoreOp,
