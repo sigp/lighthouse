@@ -36,7 +36,7 @@ kurtosis service logs local-testnet $SERVICE_NAME
 
 where `$SERVICE_NAME` is obtained by inspecting the running services above. For example, to view the logs of the first beacon node, validator client and geth:
 
-```json
+```bash
 kurtosis service logs local-testnet -f cl-1-lighthouse-geth 
 kurtosis service logs local-testnet -f vc-1-geth-lighthouse
 kurtosis service logs local-testnet -f el-1-geth-lighthouse
@@ -59,11 +59,11 @@ cd ./scripts/local_testnet
 ./stop_local_testnet.sh
 ```
 
-You will see `Local testnet stopped.` at the end. 
+You will see "Local testnet stopped." at the end. 
 
 ## CLI options
 
-The sciprt comes with some CLI options, which can be viewed with `./start_local_testnet.sh --help`. One of the CLI options is to avoid rebuilding Lighthouse each time the testnet starts, which can be configured with the command:
+The script comes with some CLI options, which can be viewed with `./start_local_testnet.sh --help`. One of the CLI options is to avoid rebuilding Lighthouse each time the testnet starts, which can be configured with the command:
 
 ```bash
 ./start_local_testnet.sh -b false
