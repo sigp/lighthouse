@@ -7,13 +7,14 @@ use std::path::PathBuf;
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
     name = "database_manager",
-    alias = "db",
+    visible_alias = "db",
     about = "Manage a beacon node database.",
     styles = get_color_style(),
     next_line_help = true,
     term_width = 80,
     disable_help_flag = true,
     disable_help_subcommand = true,
+    display_order = 0,
 )]
 pub struct DatabaseManager {
     #[clap(
