@@ -13,15 +13,14 @@ This setup can be useful for testing and development.
 
 ## Starting the testnet
 
-To start a testnet:
+To start a testnet, from the Lighthouse root repository:
 
 ```bash
-cd ~
-cd ./lighthouse/scripts/local_testnet
+cd .scripts/local_testnet
 ./start_local_testnet.sh
 ```
 
-It will take an approximately 12 minutes to build. Once built, the testing will be started automatically. You will see a list of services running and "Started!" at the end.
+It will build Lighthouse and will take an approximately 12 minutes to complete. Once built, the testing will be started automatically. You will see a list of services running and "Started!" at the end. 
 
 To view all running services:
 
@@ -43,14 +42,29 @@ kurtosis service logs local-testnet -f vc-1-geth-lighthouse
 kurtosis service logs local-testnet -f el-1-geth-lighthouse
 ```
 
-## Stopping the testnet
-
-To stop the testnet:
+Kurtosis comes with a Dora explorer which can be opened with:
 
 ```bash
-cd ~
-cd ./lighthouse/scripts/local_testnet
+open $(kurtosis port print local-testnet dora http)
+```
+
+Some testnet parameters can be varied by modifying the `network_params.yaml` file. 
+
+## Stopping the testnet
+
+To stop the testnet, from the Lighthouse root repository:
+
+```bash
+cd ./scripts/local_testnet
 ./stop_local_testnet.sh
 ```
 
-You will see `Local testnet stopped.` at the end.
+You will see `Local testnet stopped.` at the end. 
+
+## CLI options
+
+The sciprt comes with some CLI options, which can be viewed with `./start_local_testnet.sh --help`. One of the CLI options is to avoid rebuilding Lighthouse each time the testnet starts, which can be configured with the command:
+
+```bash
+./start_local_testnet.sh -b false
+```
