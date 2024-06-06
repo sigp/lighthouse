@@ -169,7 +169,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
 ///
 /// Keyed by the validator index as `Hash256::from_low_u64_be(index)`.
 #[derive(Encode, Decode)]
-struct DatabasePubkey {
+pub struct DatabasePubkey {
     pubkey: SmallVec<[u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN]>,
 }
 
@@ -192,13 +192,13 @@ impl DatabasePubkey {
         Hash256::from_low_u64_be(index as u64)
     }
 
-    fn from_pubkey(pubkey: &PublicKey) -> Self {
+    pub fn from_pubkey(pubkey: &PublicKey) -> Self {
         Self {
             pubkey: pubkey.serialize_uncompressed().into(),
         }
     }
 
-    fn as_pubkey(&self) -> Result<(PublicKey, PublicKeyBytes), BeaconChainError> {
+    pub fn as_pubkey(&self) -> Result<(PublicKey, PublicKeyBytes), BeaconChainError> {
         let pubkey = PublicKey::deserialize_uncompressed(&self.pubkey)
             .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?;
         let pubkey_bytes = pubkey.compress();
