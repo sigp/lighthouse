@@ -5,15 +5,12 @@ use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
     per_block_processing, per_block_processing::BlockSignatureStrategy, ConsensusContext,
-    StateProcessingStrategy, VerifyBlockRoot,
+    VerifyBlockRoot,
 };
 use std::sync::Arc;
 use std::time::Duration;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
-use types::{
-    BeaconState, ChainSpec, EthSpec, ForkName, Hash256, ProgressiveBalancesMode, SignedBeaconBlock,
-    Slot,
-};
+use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
 
 const CORRUPT_DB_MESSAGE: &str = "The database could be corrupt. Check its file permissions or \
                                   consider deleting it by running with the --purge-db flag.";
@@ -103,8 +100,6 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     store: Arc<HotColdDB<E, Hot, Cold>>,
     current_slot: Option<Slot>,
     spec: &ChainSpec,
-    progressive_balances_mode: ProgressiveBalancesMode,
-    log: &Logger,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
@@ -180,7 +175,6 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
             &mut state,
             &block,
             BlockSignatureStrategy::NoVerification,
-            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut ctxt,
             spec,
@@ -202,9 +196,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
                 Duration::from_secs(0),
                 &state,
                 payload_verification_status,
-                progressive_balances_mode,
                 spec,
-                log,
             )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }

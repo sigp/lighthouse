@@ -23,7 +23,7 @@ pub const POOL_SIZE: u32 = 1;
 #[cfg(not(test))]
 pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
-pub const CONNECTION_TIMEOUT: Duration = Duration::from_millis(500);
+pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Supported version of the interchange format.
 pub const SUPPORTED_INTERCHANGE_FORMAT_VERSION: u64 = 5;
@@ -175,10 +175,10 @@ impl SlashingDatabase {
     }
 
     /// Execute a database transaction as a closure, committing if `f` returns `Ok`.
-    pub fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
+    pub fn with_transaction<T, U, F>(&self, f: F) -> Result<T, U>
     where
-        F: FnOnce(&Transaction) -> Result<T, E>,
-        E: From<NotSafe>,
+        F: FnOnce(&Transaction) -> Result<T, U>,
+        U: From<NotSafe>,
     {
         let mut conn = self.conn_pool.get().map_err(NotSafe::from)?;
         let txn = conn.transaction().map_err(NotSafe::from)?;

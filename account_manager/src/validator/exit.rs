@@ -1,6 +1,7 @@
 use crate::wallet::create::STDIN_INPUTS_FLAG;
 use bls::{Keypair, PublicKey};
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use environment::Environment;
 use eth2::{
     types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
@@ -28,48 +29,59 @@ pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-exit.html";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("exit")
+pub fn cli_app() -> Command {
+    Command::new("exit")
         .about("Submits a VoluntaryExit to the beacon chain for a given validator keystore.")
         .arg(
-            Arg::with_name(KEYSTORE_FLAG)
+            Arg::new(KEYSTORE_FLAG)
                 .long(KEYSTORE_FLAG)
                 .value_name("KEYSTORE_PATH")
                 .help("The path to the EIP-2335 voting keystore for the validator")
-                .takes_value(true)
-                .required(true),
+                .action(ArgAction::Set)
+                .required(true)
+                .display_order(0)
         )
         .arg(
-            Arg::with_name(PASSWORD_FILE_FLAG)
+            Arg::new(PASSWORD_FILE_FLAG)
                 .long(PASSWORD_FILE_FLAG)
                 .value_name("PASSWORD_FILE_PATH")
                 .help("The path to the password file which unlocks the validator voting keystore")
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
-            Arg::with_name(BEACON_SERVER_FLAG)
+            Arg::new(BEACON_SERVER_FLAG)
                 .long(BEACON_SERVER_FLAG)
                 .value_name("NETWORK_ADDRESS")
                 .help("Address to a beacon node HTTP API")
                 .default_value(DEFAULT_BEACON_NODE)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0)
         )
         .arg(
-            Arg::with_name(NO_WAIT)
+            Arg::new(NO_WAIT)
                 .long(NO_WAIT)
                 .help("Exits after publishing the voluntary exit without waiting for confirmation that the exit was included in the beacon chain")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
-            Arg::with_name(NO_CONFIRMATION)
+            Arg::new(NO_CONFIRMATION)
                 .long(NO_CONFIRMATION)
                 .help("Exits without prompting for confirmation that you understand the implications of a voluntary exit. This should be used with caution")
+                .display_order(0)
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
         )
         .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
+            Arg::new(STDIN_INPUTS_FLAG)
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0)
         )
 }
 
@@ -78,9 +90,9 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let password_file_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
 
-    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
-    let no_wait = matches.is_present(NO_WAIT);
-    let no_confirmation = matches.is_present(NO_CONFIRMATION);
+    let stdin_inputs = cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG);
+    let no_wait = matches.get_flag(NO_WAIT);
+    let no_confirmation = matches.get_flag(NO_CONFIRMATION);
 
     let spec = env.eth2_config().spec.clone();
     let server_url: String = clap_utils::parse_required(matches, BEACON_SERVER_FLAG)?;

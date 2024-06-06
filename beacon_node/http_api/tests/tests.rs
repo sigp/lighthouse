@@ -70,6 +70,7 @@ struct ApiTester {
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
+    bls_to_execution_change: SignedBlsToExecutionChange,
     network_rx: NetworkReceivers<E>,
     local_enr: Enr,
     external_peer_id: PeerId,
@@ -128,6 +129,7 @@ impl ApiTester {
             })
             .logger(logging::test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
+            .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer_with_config()
             .build();
@@ -223,6 +225,7 @@ impl ApiTester {
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
+        let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
 
         let chain = harness.chain.clone();
 
@@ -289,6 +292,7 @@ impl ApiTester {
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
+            bls_to_execution_change,
             network_rx,
             local_enr,
             external_peer_id,
@@ -301,6 +305,7 @@ impl ApiTester {
             BeaconChainHarness::builder(MainnetEthSpec)
                 .default_spec()
                 .deterministic_keypairs(VALIDATOR_COUNT)
+                .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
                 .build(),
         );
@@ -336,6 +341,7 @@ impl ApiTester {
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
+        let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
 
         let chain = harness.chain.clone();
 
@@ -373,6 +379,7 @@ impl ApiTester {
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
+            bls_to_execution_change,
             network_rx,
             local_enr,
             external_peer_id,
@@ -628,7 +635,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_beacon_blocks_finalized<T: EthSpec>(self) -> Self {
+    pub async fn test_beacon_blocks_finalized<E: EthSpec>(self) -> Self {
         for block_id in self.interesting_block_ids() {
             let block_root = block_id.root(&self.chain);
             let block = block_id.full_block(&self.chain).await;
@@ -665,7 +672,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_beacon_blinded_blocks_finalized<T: EthSpec>(self) -> Self {
+    pub async fn test_beacon_blinded_blocks_finalized<E: EthSpec>(self) -> Self {
         for block_id in self.interesting_block_ids() {
             let block_root = block_id.root(&self.chain);
             let block = block_id.full_block(&self.chain).await;
@@ -806,7 +813,7 @@ impl ApiTester {
                 let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
                     Some((state, _execution_optimistic, _finalized)) => {
-                        state.validators().clone().into()
+                        state.validators().clone().to_vec()
                     }
                     None => vec![],
                 };
@@ -822,7 +829,7 @@ impl ApiTester {
                         ValidatorId::PublicKey(
                             validators
                                 .get(i as usize)
-                                .map_or(PublicKeyBytes::empty(), |val| val.pubkey.clone()),
+                                .map_or(PublicKeyBytes::empty(), |val| val.pubkey),
                         )
                     })
                     .collect::<Vec<ValidatorId>>();
@@ -865,7 +872,7 @@ impl ApiTester {
                         if i < state.balances().len() as u64 {
                             validators.push(ValidatorBalanceData {
                                 index: i as u64,
-                                balance: state.balances()[i as usize],
+                                balance: *state.balances().get(i as usize).unwrap(),
                             });
                         }
                     }
@@ -892,7 +899,7 @@ impl ApiTester {
                         .ok()
                         .map(|(state, _execution_optimistic, _finalized)| state);
                     let validators: Vec<Validator> = match state_opt.as_ref() {
-                        Some(state) => state.validators().clone().into(),
+                        Some(state) => state.validators().to_vec(),
                         None => vec![],
                     };
                     let validator_index_ids = validator_indices
@@ -907,7 +914,7 @@ impl ApiTester {
                             ValidatorId::PublicKey(
                                 validators
                                     .get(i as usize)
-                                    .map_or(PublicKeyBytes::empty(), |val| val.pubkey.clone()),
+                                    .map_or(PublicKeyBytes::empty(), |val| val.pubkey),
                             )
                         })
                         .collect::<Vec<ValidatorId>>();
@@ -955,7 +962,7 @@ impl ApiTester {
                             if i >= state.validators().len() as u64 {
                                 continue;
                             }
-                            let validator = state.validators()[i as usize].clone();
+                            let validator = state.validators().get(i as usize).unwrap().clone();
                             let status = ValidatorStatus::from_validator(
                                 &validator,
                                 epoch,
@@ -967,7 +974,7 @@ impl ApiTester {
                             {
                                 validators.push(ValidatorData {
                                     index: i as u64,
-                                    balance: state.balances()[i as usize],
+                                    balance: *state.balances().get(i as usize).unwrap(),
                                     status,
                                     validator,
                                 });
@@ -995,13 +1002,13 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
             let validators = match state_opt.as_ref() {
-                Some(state) => state.validators().clone().into(),
+                Some(state) => state.validators().to_vec(),
                 None => vec![],
             };
 
             for (i, validator) in validators.into_iter().enumerate() {
                 let validator_ids = &[
-                    ValidatorId::PublicKey(validator.pubkey.clone()),
+                    ValidatorId::PublicKey(validator.pubkey),
                     ValidatorId::Index(i as u64),
                 ];
 
@@ -1025,7 +1032,7 @@ impl ApiTester {
 
                         ValidatorData {
                             index: i as u64,
-                            balance: state.balances()[i],
+                            balance: *state.balances().get(i).unwrap(),
                             status: ValidatorStatus::from_validator(
                                 &validator,
                                 epoch,
@@ -1931,9 +1938,9 @@ impl ApiTester {
     pub async fn test_get_config_spec(self) -> Self {
         let result = self
             .client
-            .get_config_spec::<ConfigAndPresetDeneb>()
+            .get_config_spec::<ConfigAndPresetElectra>()
             .await
-            .map(|res| ConfigAndPreset::Deneb(res.data))
+            .map(|res| ConfigAndPreset::Electra(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
 
@@ -2360,7 +2367,7 @@ impl ApiTester {
                         .unwrap()
                     {
                         let expected = AttesterData {
-                            pubkey: state.validators()[i as usize].pubkey.clone().into(),
+                            pubkey: state.validators().get(i as usize).unwrap().pubkey,
                             validator_index: i,
                             committees_at_slot: duty.committees_at_slot,
                             committee_index: duty.index,
@@ -2465,7 +2472,7 @@ impl ApiTester {
                     let index = state
                         .get_beacon_proposer_index(slot, &self.chain.spec)
                         .unwrap();
-                    let pubkey = state.validators()[index].pubkey.clone().into();
+                    let pubkey = state.validators().get(index).unwrap().pubkey;
 
                     ProposerData {
                         pubkey,
@@ -5214,6 +5221,9 @@ impl ApiTester {
             EventTopic::Block,
             EventTopic::Head,
             EventTopic::FinalizedCheckpoint,
+            EventTopic::AttesterSlashing,
+            EventTopic::ProposerSlashing,
+            EventTopic::BlsToExecutionChange,
         ];
         let mut events_future = self
             .client
@@ -5254,6 +5264,20 @@ impl ApiTester {
         assert_eq!(
             exit_events.as_slice(),
             &[EventKind::VoluntaryExit(self.voluntary_exit.clone())]
+        );
+
+        // Produce a BLS to execution change event
+        self.client
+            .post_beacon_pool_bls_to_execution_changes(&[self.bls_to_execution_change.clone()])
+            .await
+            .unwrap();
+
+        let bls_events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+        assert_eq!(
+            bls_events.as_slice(),
+            &[EventKind::BlsToExecutionChange(Box::new(
+                self.bls_to_execution_change.clone()
+            ))]
         );
 
         // Submit the next block, which is on an epoch boundary, so this will produce a finalized
@@ -5352,6 +5376,42 @@ impl ApiTester {
         )
         .await;
         assert_eq!(reorg_event.as_slice(), &[expected_reorg]);
+
+        // Test attester slashing event
+        let mut attester_slashing_event_future = self
+            .client
+            .get_events::<E>(&[EventTopic::AttesterSlashing])
+            .await
+            .unwrap();
+
+        self.harness.add_attester_slashing(vec![1, 2, 3]).unwrap();
+
+        let attester_slashing_event = poll_events(
+            &mut attester_slashing_event_future,
+            1,
+            Duration::from_millis(10000),
+        )
+        .await;
+
+        assert!(attester_slashing_event.len() == 1);
+
+        // Test proposer slashing event
+        let mut proposer_slashing_event_future = self
+            .client
+            .get_events::<E>(&[EventTopic::ProposerSlashing])
+            .await
+            .unwrap();
+
+        self.harness.add_proposer_slashing(1).unwrap();
+
+        let proposer_slashing_event = poll_events(
+            &mut proposer_slashing_event_future,
+            1,
+            Duration::from_millis(10000),
+        )
+        .await;
+
+        assert!(proposer_slashing_event.len() == 1);
 
         self
     }
@@ -5528,11 +5588,11 @@ impl ApiTester {
     }
 }
 
-async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin, T: EthSpec>(
+async fn poll_events<S: Stream<Item = Result<EventKind<E>, eth2::Error>> + Unpin, E: EthSpec>(
     stream: &mut S,
     num_events: usize,
     timeout: Duration,
-) -> Vec<EventKind<T>> {
+) -> Vec<EventKind<E>> {
     let mut events = Vec::new();
 
     let collect_stream_fut = async {

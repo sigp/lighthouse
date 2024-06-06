@@ -102,9 +102,12 @@ bincode = "1"
 bitvec = "1"
 byteorder = "1"
 bytes = "1"
-clap = "2"
+clap = { version = "4.5.4", features = ["cargo", "wrap_help"] }
+# Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
+# feature ourselves when desired.
+c-kzg = { version = "1", default-features =  false }
 compare_fields_derive = { path = "common/compare_fields_derive" }
-criterion = "0.3"
+criterion = "0.5"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
@@ -113,7 +116,7 @@ discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
-ethereum_hashing = "1.0.0-beta.2"
+ethereum_hashing = "0.6.0"
 ethereum_serde_utils = "0.5.2"
 ethereum_ssz = "0.5"
 ethereum_ssz_derive = "0.5"
@@ -131,6 +134,7 @@ libsecp256k1 = "0.7"
 log = "0.4"
 lru = "0.12"
 maplit = "1"
+milhouse = "0.1"
 num_cpus = "1"
 parking_lot = "0.12"
 paste = "1"
@@ -143,6 +147,7 @@ rayon = "1.7"
 regex = "1"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "stream", "rustls-tls", "native-tls-vendored"] }
 ring = "0.16"
+rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -155,9 +160,9 @@ slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
 smallvec = "1.11.2"
 snap = "1"
-ssz_types = "0.5"
+ssz_types = "0.6"
 strum = { version = "0.24", features = ["derive"] }
-superstruct = "0.6"
+superstruct = "0.7"
 syn = "1"
 sysinfo = "0.26"
 tempfile = "3"
@@ -169,11 +174,11 @@ tracing-appender = "0.2"
 tracing-core = "0.1"
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tree_hash = "0.5"
-tree_hash_derive = "0.5"
+tree_hash = "0.6"
+tree_hash_derive = "0.6"
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
-warp = { version = "0.3.6", default-features = false, features = ["tls"] }
+warp = { version = "0.3.7", default-features = false, features = ["tls"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 zip = "0.6"
 
@@ -181,7 +186,7 @@ zip = "0.6"
 account_utils = { path = "common/account_utils" }
 beacon_chain = { path = "beacon_node/beacon_chain" }
 beacon_node = { path = "beacon_node" }
-beacon_processor =  { path = "beacon_node/beacon_processor" }
+beacon_processor = { path = "beacon_node/beacon_processor" }
 bls = { path = "crypto/bls" }
 cached_tree_hash = { path = "consensus/cached_tree_hash" }
 clap_utils = { path = "common/clap_utils" }
@@ -218,7 +223,7 @@ network = { path = "beacon_node/network" }
 operation_pool = { path = "beacon_node/operation_pool" }
 pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 proto_array = { path = "consensus/proto_array" }
-safe_arith = {path = "consensus/safe_arith"}
+safe_arith = { path = "consensus/safe_arith" }
 sensitive_url = { path = "common/sensitive_url" }
 slasher = { path = "slasher" }
 slashing_protection = { path = "validator_client/slashing_protection" }
@@ -232,9 +237,6 @@ unused_port = { path = "common/unused_port" }
 validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
 warp_utils = { path = "common/warp_utils" }
-
-[patch.crates-io]
-yamux = { git = "https://github.com/sigp/rust-yamux.git" }
 
 [profile.maxperf]
 inherits = "release"

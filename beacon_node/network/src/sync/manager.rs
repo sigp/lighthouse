@@ -35,19 +35,19 @@
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
-use super::network_context::{BlockOrBlob, SyncNetworkContext};
+use super::network_context::{BlockOrBlob, RangeRequestId, RpcEvent, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::common::{Current, Parent};
-use crate::sync::block_lookups::{BlobRequestState, BlockRequestState};
-use crate::sync::network_context::BlocksAndBlobsByRangeRequest;
-use crate::sync::range_sync::ByRangeRequestType;
+use crate::sync::block_lookups::{
+    BlobRequestState, BlockComponent, BlockRequestState, DownloadResult,
+};
+use crate::sync::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_availability_checker::ChildComponents;
+use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
@@ -56,13 +56,12 @@ use lighthouse_network::rpc::RPCError;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
-use slog::{crit, debug, error, info, trace, warn, Logger};
-use std::ops::IndexMut;
+use lru_cache::LRUTimeCache;
+use slog::{crit, debug, error, info, o, trace, warn, Logger};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -74,12 +73,17 @@ use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 
+/// Suppress duplicated `UnknownBlockHashFromAttestation` events for some duration of time. In
+/// practice peers are likely to send the same root during a single slot. 30 seconds is a rather
+/// arbitrary number that covers a full slot, but allows recovery if sync get stuck for a few slots.
+const NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS: u64 = 30;
+
 pub type Id = u32;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct SingleLookupReqId {
-    pub id: Id,
-    pub req_counter: Id,
+    pub lookup_id: Id,
+    pub req_id: Id,
 }
 
 /// Id of rpc requests sent by sync to the network.
@@ -89,25 +93,13 @@ pub enum RequestId {
     SingleBlock { id: SingleLookupReqId },
     /// Request searching for a set of blobs given a hash.
     SingleBlob { id: SingleLookupReqId },
-    /// Request searching for a block's parent. The id is the chain, share with the corresponding
-    /// blob id.
-    ParentLookup { id: SingleLookupReqId },
-    /// Request searching for a block's parent blobs. The id is the chain, shared with the corresponding
-    /// block id.
-    ParentLookupBlob { id: SingleLookupReqId },
-    /// Request was from the backfill sync algorithm.
-    BackFillBlocks { id: Id },
-    /// Backfill request that is composed by both a block range request and a blob range request.
-    BackFillBlockAndBlobs { id: Id },
-    /// The request was from a chain in the range sync algorithm.
-    RangeBlocks { id: Id },
     /// Range request that is composed by both a block range request and a blob range request.
     RangeBlockAndBlobs { id: Id },
 }
 
 #[derive(Debug)]
 /// A message that can be sent to the sync manager thread.
-pub enum SyncMessage<T: EthSpec> {
+pub enum SyncMessage<E: EthSpec> {
     /// A useful peer has been discovered.
     AddPeer(PeerId, SyncInfo),
 
@@ -115,7 +107,7 @@ pub enum SyncMessage<T: EthSpec> {
     RpcBlock {
         request_id: RequestId,
         peer_id: PeerId,
-        beacon_block: Option<Arc<SignedBeaconBlock<T>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
         seen_timestamp: Duration,
     },
 
@@ -123,15 +115,15 @@ pub enum SyncMessage<T: EthSpec> {
     RpcBlob {
         request_id: RequestId,
         peer_id: PeerId,
-        blob_sidecar: Option<Arc<BlobSidecar<T>>>,
+        blob_sidecar: Option<Arc<BlobSidecar<E>>>,
         seen_timestamp: Duration,
     },
 
     /// A block with an unknown parent has been received.
-    UnknownParentBlock(PeerId, RpcBlock<T>, Hash256),
+    UnknownParentBlock(PeerId, RpcBlock<E>, Hash256),
 
     /// A blob with an unknown parent has been received.
-    UnknownParentBlob(PeerId, Arc<BlobSidecar<T>>),
+    UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -156,8 +148,11 @@ pub enum SyncMessage<T: EthSpec> {
     /// Block processed
     BlockComponentProcessed {
         process_type: BlockProcessType,
-        result: BlockProcessingResult<T>,
+        result: BlockProcessingResult<E>,
     },
+
+    /// A block from gossip has completed processing,
+    GossipBlockProcessResult { block_root: Hash256, imported: bool },
 }
 
 /// The type of processing specified for a received block.
@@ -165,13 +160,12 @@ pub enum SyncMessage<T: EthSpec> {
 pub enum BlockProcessType {
     SingleBlock { id: Id },
     SingleBlob { id: Id },
-    ParentLookup { chain_hash: Hash256 },
 }
 
 #[derive(Debug)]
-pub enum BlockProcessingResult<T: EthSpec> {
+pub enum BlockProcessingResult<E: EthSpec> {
     Ok(AvailabilityProcessingStatus),
-    Err(BlockError<T>),
+    Err(BlockError<E>),
     Ignored,
 }
 
@@ -211,6 +205,10 @@ pub struct SyncManager<T: BeaconChainTypes> {
     backfill_sync: BackFillSync<T>,
 
     block_lookups: BlockLookups<T>,
+    /// debounce duplicated `UnknownBlockHashFromAttestation` for the same root peer tuple. A peer
+    /// may forward us thousands of a attestations, each one triggering an individual event. Only
+    /// one event is useful, the rest generating log noise and wasted cycles
+    notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -233,24 +231,13 @@ pub fn spawn<T: BeaconChainTypes>(
     );
 
     // create an instance of the SyncManager
-    let network_globals = beacon_processor.network_globals.clone();
-    let mut sync_manager = SyncManager {
-        chain: beacon_chain.clone(),
-        input_channel: sync_recv,
-        network: SyncNetworkContext::new(
-            network_send,
-            beacon_processor.clone(),
-            beacon_chain.clone(),
-            log.clone(),
-        ),
-        range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
-        backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
-        block_lookups: BlockLookups::new(
-            beacon_chain.data_availability_checker.clone(),
-            log.clone(),
-        ),
-        log: log.clone(),
-    };
+    let mut sync_manager = SyncManager::new(
+        beacon_chain,
+        network_send,
+        beacon_processor,
+        sync_recv,
+        log.clone(),
+    );
 
     // spawn the sync manager thread
     debug!(log, "Sync Manager started");
@@ -258,6 +245,64 @@ pub fn spawn<T: BeaconChainTypes>(
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {
+    pub(crate) fn new(
+        beacon_chain: Arc<BeaconChain<T>>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        beacon_processor: Arc<NetworkBeaconProcessor<T>>,
+        sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
+        log: slog::Logger,
+    ) -> Self {
+        let network_globals = beacon_processor.network_globals.clone();
+        Self {
+            chain: beacon_chain.clone(),
+            input_channel: sync_recv,
+            network: SyncNetworkContext::new(
+                network_send,
+                beacon_processor.clone(),
+                beacon_chain.clone(),
+                log.clone(),
+            ),
+            range_sync: RangeSync::new(
+                beacon_chain.clone(),
+                log.new(o!("service" => "range_sync")),
+            ),
+            backfill_sync: BackFillSync::new(
+                beacon_chain.clone(),
+                network_globals,
+                log.new(o!("service" => "backfill_sync")),
+            ),
+            block_lookups: BlockLookups::new(log.new(o!("service"=> "lookup_sync"))),
+            notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
+                NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
+            )),
+            log: log.clone(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_single_lookups(&self) -> Vec<super::block_lookups::BlockLookupSummary> {
+        self.block_lookups.active_single_lookups()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_parent_lookups(&self) -> Vec<Vec<Hash256>> {
+        self.block_lookups
+            .active_parent_lookups()
+            .iter()
+            .map(|c| c.chain.clone())
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn get_failed_chains(&mut self) -> Vec<Hash256> {
+        self.block_lookups.get_failed_chains()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_failed_chain(&mut self, block_root: Hash256) {
+        self.block_lookups.insert_failed_chain(block_root);
+    }
+
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
         self.network.network_globals()
     }
@@ -301,98 +346,32 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         trace!(self.log, "Sync manager received a failed RPC");
         match request_id {
             RequestId::SingleBlock { id } => {
-                self.block_lookups
-                    .single_block_lookup_failed::<BlockRequestState<Current>>(
-                        id,
-                        &peer_id,
-                        &self.network,
-                        error,
-                    );
+                self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
             }
             RequestId::SingleBlob { id } => {
-                self.block_lookups
-                    .single_block_lookup_failed::<BlobRequestState<Current, T::EthSpec>>(
-                        id,
-                        &peer_id,
-                        &self.network,
-                        error,
-                    );
-            }
-            RequestId::ParentLookup { id } => {
-                self.block_lookups
-                    .parent_lookup_failed::<BlockRequestState<Parent>>(
-                        id,
-                        peer_id,
-                        &self.network,
-                        error,
-                    );
-            }
-            RequestId::ParentLookupBlob { id } => {
-                self.block_lookups
-                    .parent_lookup_failed::<BlobRequestState<Parent, T::EthSpec>>(
-                        id,
-                        peer_id,
-                        &self.network,
-                        error,
-                    );
-            }
-            RequestId::BackFillBlocks { id } => {
-                if let Some(batch_id) = self
-                    .network
-                    .backfill_request_failed(id, ByRangeRequestType::Blocks)
-                {
-                    match self
-                        .backfill_sync
-                        .inject_error(&mut self.network, batch_id, &peer_id, id)
-                    {
-                        Ok(_) => {}
-                        Err(_) => self.update_sync_state(),
-                    }
-                }
-            }
-
-            RequestId::BackFillBlockAndBlobs { id } => {
-                if let Some(batch_id) = self
-                    .network
-                    .backfill_request_failed(id, ByRangeRequestType::BlocksAndBlobs)
-                {
-                    match self
-                        .backfill_sync
-                        .inject_error(&mut self.network, batch_id, &peer_id, id)
-                    {
-                        Ok(_) => {}
-                        Err(_) => self.update_sync_state(),
-                    }
-                }
-            }
-            RequestId::RangeBlocks { id } => {
-                if let Some((chain_id, batch_id)) = self
-                    .network
-                    .range_sync_request_failed(id, ByRangeRequestType::Blocks)
-                {
-                    self.range_sync.inject_error(
-                        &mut self.network,
-                        peer_id,
-                        batch_id,
-                        chain_id,
-                        id,
-                    );
-                    self.update_sync_state()
-                }
+                self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
             RequestId::RangeBlockAndBlobs { id } => {
-                if let Some((chain_id, batch_id)) = self
-                    .network
-                    .range_sync_request_failed(id, ByRangeRequestType::BlocksAndBlobs)
-                {
-                    self.range_sync.inject_error(
-                        &mut self.network,
-                        peer_id,
-                        batch_id,
-                        chain_id,
-                        id,
-                    );
-                    self.update_sync_state()
+                if let Some(sender_id) = self.network.range_request_failed(id) {
+                    match sender_id {
+                        RangeRequestId::RangeSync { chain_id, batch_id } => {
+                            self.range_sync.inject_error(
+                                &mut self.network,
+                                peer_id,
+                                batch_id,
+                                chain_id,
+                                id,
+                            );
+                            self.update_sync_state();
+                        }
+                        RangeRequestId::BackfillSync { batch_id } => match self
+                            .backfill_sync
+                            .inject_error(&mut self.network, batch_id, &peer_id, id)
+                        {
+                            Ok(_) => {}
+                            Err(_) => self.update_sync_state(),
+                        },
+                    }
                 }
             }
         }
@@ -400,12 +379,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
-        self.block_lookups
-            .peer_disconnected(peer_id, &mut self.network);
+        self.block_lookups.peer_disconnected(peer_id);
         // Regardless of the outcome, we update the sync status.
-        let _ = self
-            .backfill_sync
-            .peer_disconnected(peer_id, &mut self.network);
+        let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.update_sync_state();
     }
 
@@ -584,6 +560,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             futures::stream::iter(ee_responsiveness_watch.await).flatten()
         };
 
+        // min(LOOKUP_MAX_DURATION_*) is 15 seconds. The cost of calling prune_lookups more often is
+        // one iteration over the single lookups HashMap. This map is supposed to be very small < 10
+        // unless there is a bug.
+        let mut prune_lookups_interval = tokio::time::interval(Duration::from_secs(15));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -593,11 +574,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Some(engine_state) = check_ee_stream.next(), if check_ee => {
                     self.handle_new_execution_engine_state(engine_state);
                 }
+                _ = prune_lookups_interval.tick() => {
+                    self.block_lookups.prune_lookups();
+                }
             }
         }
     }
 
-    fn handle_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
+    pub(crate) fn handle_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
         match sync_message {
             SyncMessage::AddPeer(peer_id, info) => {
                 self.add_peer(peer_id, info);
@@ -619,41 +603,47 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
+                debug!(self.log, "Received unknown parent block message"; "block_root" => %block_root, "parent_root" => %parent_root);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
                     block_slot,
-                    block.into(),
+                    BlockComponent::Block(DownloadResult {
+                        value: block.block_cloned(),
+                        block_root,
+                        seen_timestamp: timestamp_now(),
+                        peer_id,
+                    }),
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
                 let blob_slot = blob.slot();
                 let block_root = blob.block_root();
                 let parent_root = blob.block_parent_root();
-                let blob_index = blob.index;
-                if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
-                    warn!(self.log, "Peer sent blob with invalid index"; "index" => blob_index, "peer_id" => %peer_id);
-                    return;
-                }
-                let mut blobs = FixedBlobSidecarList::default();
-                *blobs.index_mut(blob_index as usize) = Some(blob);
+                debug!(self.log, "Received unknown parent blob message"; "block_root" => %block_root, "parent_root" => %parent_root);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
                     blob_slot,
-                    ChildComponents::new(block_root, None, Some(blobs)),
+                    BlockComponent::Blob(DownloadResult {
+                        value: blob,
+                        block_root,
+                        seen_timestamp: timestamp_now(),
+                        peer_id,
+                    }),
                 );
             }
-            SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
-                // If we are not synced, ignore this block.
-                if self.synced_and_connected(&peer_id) {
-                    self.block_lookups
-                        .search_block(block_hash, &[peer_id], &mut self.network);
+            SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
+                if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
+                    self.notified_unknown_roots.insert((peer_id, block_root));
+                    debug!(self.log, "Received unknown block hash message"; "block_root" => ?block_root, "peer" => ?peer_id);
+                    self.handle_unknown_block_root(peer_id, block_root);
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
+                debug!(self.log, "Received disconnected message"; "peer_id" => %peer_id);
                 self.peer_disconnect(&peer_id);
             }
             SyncMessage::RpcError {
@@ -664,25 +654,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::BlockComponentProcessed {
                 process_type,
                 result,
-            } => match process_type {
-                BlockProcessType::SingleBlock { id } => self
-                    .block_lookups
-                    .single_block_component_processed::<BlockRequestState<Current>>(
-                        id,
-                        result,
-                        &mut self.network,
-                    ),
-                BlockProcessType::SingleBlob { id } => self
-                    .block_lookups
-                    .single_block_component_processed::<BlobRequestState<Current, T::EthSpec>>(
-                        id,
-                        result,
-                        &mut self.network,
-                    ),
-                BlockProcessType::ParentLookup { chain_hash } => self
-                    .block_lookups
-                    .parent_block_processed(chain_hash, result, &mut self.network),
-            },
+            } => self
+                .block_lookups
+                .on_processing_result(process_type, result, &mut self.network),
+            SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported,
+            } => self.block_lookups.on_external_processing_result(
+                block_root,
+                imported,
+                &mut self.network,
+            ),
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                 ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                     self.range_sync.handle_block_process_result(
@@ -708,9 +690,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     }
                 }
-                ChainSegmentProcessId::ParentLookup(chain_hash) => self
-                    .block_lookups
-                    .parent_chain_processed(chain_hash, result, &self.network),
             },
         }
     }
@@ -721,27 +700,45 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        child_components: ChildComponents<T::EthSpec>,
+        block_component: BlockComponent<T::EthSpec>,
     ) {
-        if self.should_search_for_block(slot, &peer_id) {
-            self.block_lookups.search_parent(
-                slot,
-                block_root,
-                parent_root,
-                peer_id,
-                &mut self.network,
-            );
-            self.block_lookups.search_child_block(
-                block_root,
-                child_components,
-                &[peer_id],
-                &mut self.network,
-            );
+        match self.should_search_for_block(Some(slot), &peer_id) {
+            Ok(_) => {
+                self.block_lookups.search_child_and_parent(
+                    block_root,
+                    block_component,
+                    peer_id,
+                    &mut self.network,
+                );
+            }
+            Err(reason) => {
+                debug!(self.log, "Ignoring unknown parent request"; "block_root" => %block_root, "parent_root" => %parent_root, "reason" => reason);
+            }
         }
     }
 
-    fn should_search_for_block(&mut self, block_slot: Slot, peer_id: &PeerId) -> bool {
+    fn handle_unknown_block_root(&mut self, peer_id: PeerId, block_root: Hash256) {
+        match self.should_search_for_block(None, &peer_id) {
+            Ok(_) => {
+                self.block_lookups
+                    .search_unknown_block(block_root, &[peer_id], &mut self.network);
+            }
+            Err(reason) => {
+                debug!(self.log, "Ignoring unknown block request"; "block_root" => %block_root, "reason" => reason);
+            }
+        }
+    }
+
+    fn should_search_for_block(
+        &mut self,
+        block_slot: Option<Slot>,
+        peer_id: &PeerId,
+    ) -> Result<(), &'static str> {
         if !self.network_globals().sync_state.read().is_synced() {
+            let Some(block_slot) = block_slot else {
+                return Err("not synced");
+            };
+
             let head_slot = self.chain.canonical_head.cached_head().head_slot();
 
             // if the block is far in the future, ignore it. If its within the slot tolerance of
@@ -751,21 +748,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 || (head_slot < block_slot
                     && block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
             {
-                return false;
+                return Err("not synced");
             }
         }
 
-        self.network_globals().peers.read().is_connected(peer_id)
-            && self.network.is_execution_engine_online()
-    }
-
-    fn synced(&mut self) -> bool {
-        self.network_globals().sync_state.read().is_synced()
-            && self.network.is_execution_engine_online()
-    }
-
-    fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {
-        self.synced() && self.network_globals().peers.read().is_connected(peer_id)
+        if !self.network_globals().peers.read().is_connected(peer_id) {
+            return Err("peer not connected");
+        }
+        if !self.network.is_execution_engine_online() {
+            return Err("execution engine offline");
+        }
+        Ok(())
     }
 
     fn handle_new_execution_engine_state(&mut self, engine_state: EngineState) {
@@ -800,11 +793,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 let dropped_single_blocks_requests =
                     self.block_lookups.drop_single_block_requests();
 
-                // - Parent lookups:
-                //   Disabled while in this state. We drop current requests and don't search for new
-                //   blocks.
-                let dropped_parent_chain_requests = self.block_lookups.drop_parent_chain_requests();
-
                 // - Range:
                 //   We still send found peers to range so that it can keep track of potential chains
                 //   with respect to our current peers. Range will stop processing batches in the
@@ -813,10 +801,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // - Backfill: Not affected by ee states, nothing to do.
 
                 // Some logs.
-                if dropped_single_blocks_requests > 0 || dropped_parent_chain_requests > 0 {
+                if dropped_single_blocks_requests > 0 {
                     debug!(self.log, "Execution engine not online. Dropping active requests.";
                         "dropped_single_blocks_requests" => dropped_single_blocks_requests,
-                        "dropped_parent_chain_requests" => dropped_parent_chain_requests,
                     );
                 }
             }
@@ -831,76 +818,37 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id } => self
-                .block_lookups
-                .single_lookup_response::<BlockRequestState<Current>>(
-                    id,
-                    peer_id,
-                    block,
-                    seen_timestamp,
-                    &self.network,
-                ),
+            RequestId::SingleBlock { id } => self.on_single_block_response(
+                id,
+                peer_id,
+                match block {
+                    Some(block) => RpcEvent::Response(block, seen_timestamp),
+                    None => RpcEvent::StreamTermination,
+                },
+            ),
             RequestId::SingleBlob { .. } => {
                 crit!(self.log, "Block received during blob request"; "peer_id" => %peer_id  );
-            }
-            RequestId::ParentLookup { id } => self
-                .block_lookups
-                .parent_lookup_response::<BlockRequestState<Parent>>(
-                    id,
-                    peer_id,
-                    block,
-                    seen_timestamp,
-                    &self.network,
-                ),
-            RequestId::ParentLookupBlob { id: _ } => {
-                crit!(self.log, "Block received during parent blob request"; "peer_id" => %peer_id  );
-            }
-            RequestId::BackFillBlocks { id } => {
-                let is_stream_terminator = block.is_none();
-                if let Some(batch_id) = self
-                    .network
-                    .backfill_sync_only_blocks_response(id, is_stream_terminator)
-                {
-                    match self.backfill_sync.on_block_response(
-                        &mut self.network,
-                        batch_id,
-                        &peer_id,
-                        id,
-                        block.map(|b| RpcBlock::new_without_blobs(None, b)),
-                    ) {
-                        Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
-                        Ok(ProcessResult::Successful) => {}
-                        Err(_error) => {
-                            // The backfill sync has failed, errors are reported
-                            // within.
-                            self.update_sync_state();
-                        }
-                    }
-                }
-            }
-            RequestId::RangeBlocks { id } => {
-                let is_stream_terminator = block.is_none();
-                if let Some((chain_id, batch_id)) = self
-                    .network
-                    .range_sync_block_only_response(id, is_stream_terminator)
-                {
-                    self.range_sync.blocks_by_range_response(
-                        &mut self.network,
-                        peer_id,
-                        chain_id,
-                        batch_id,
-                        id,
-                        block.map(|b| RpcBlock::new_without_blobs(None, b)),
-                    );
-                    self.update_sync_state();
-                }
-            }
-            RequestId::BackFillBlockAndBlobs { id } => {
-                self.backfill_block_and_blobs_response(id, peer_id, block.into())
             }
             RequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, block.into())
             }
+        }
+    }
+
+    fn on_single_block_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) {
+        if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
+            self.block_lookups
+                .on_download_response::<BlockRequestState<T::EthSpec>>(
+                    id,
+                    peer_id,
+                    resp,
+                    &mut self.network,
+                )
         }
     }
 
@@ -915,40 +863,34 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { .. } => {
                 crit!(self.log, "Single blob received during block request"; "peer_id" => %peer_id  );
             }
-            RequestId::SingleBlob { id } => self
-                .block_lookups
-                .single_lookup_response::<BlobRequestState<Current, T::EthSpec>>(
-                    id,
-                    peer_id,
-                    blob,
-                    seen_timestamp,
-                    &self.network,
-                ),
-
-            RequestId::ParentLookup { id: _ } => {
-                crit!(self.log, "Single blob received during parent block request"; "peer_id" => %peer_id  );
-            }
-            RequestId::ParentLookupBlob { id } => self
-                .block_lookups
-                .parent_lookup_response::<BlobRequestState<Parent, T::EthSpec>>(
-                    id,
-                    peer_id,
-                    blob,
-                    seen_timestamp,
-                    &self.network,
-                ),
-            RequestId::BackFillBlocks { id: _ } => {
-                crit!(self.log, "Blob received during backfill block request"; "peer_id" => %peer_id  );
-            }
-            RequestId::RangeBlocks { id: _ } => {
-                crit!(self.log, "Blob received during range block request"; "peer_id" => %peer_id  );
-            }
-            RequestId::BackFillBlockAndBlobs { id } => {
-                self.backfill_block_and_blobs_response(id, peer_id, blob.into())
-            }
+            RequestId::SingleBlob { id } => self.on_single_blob_response(
+                id,
+                peer_id,
+                match blob {
+                    Some(blob) => RpcEvent::Response(blob, seen_timestamp),
+                    None => RpcEvent::StreamTermination,
+                },
+            ),
             RequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, blob.into())
             }
+        }
+    }
+
+    fn on_single_blob_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+    ) {
+        if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
+            self.block_lookups
+                .on_download_response::<BlobRequestState<T::EthSpec>>(
+                    id,
+                    peer_id,
+                    resp,
+                    &mut self.network,
+                )
         }
     }
 
@@ -960,9 +902,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block_or_blob: BlockOrBlob<T::EthSpec>,
     ) {
-        if let Some((chain_id, resp)) = self
+        if let Some(resp) = self
             .network
-            .range_sync_block_and_blob_response(id, block_or_blob)
+            .range_block_and_blob_response(id, block_or_blob)
         {
             match resp.responses {
                 Ok(blocks) => {
@@ -972,33 +914,52 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         // chain the stream terminator
                         .chain(vec![None])
                     {
-                        self.range_sync.blocks_by_range_response(
-                            &mut self.network,
-                            peer_id,
-                            chain_id,
-                            resp.batch_id,
-                            id,
-                            block,
-                        );
-                        self.update_sync_state();
+                        match resp.sender_id {
+                            RangeRequestId::RangeSync { chain_id, batch_id } => {
+                                self.range_sync.blocks_by_range_response(
+                                    &mut self.network,
+                                    peer_id,
+                                    chain_id,
+                                    batch_id,
+                                    id,
+                                    block,
+                                );
+                                self.update_sync_state();
+                            }
+                            RangeRequestId::BackfillSync { batch_id } => {
+                                match self.backfill_sync.on_block_response(
+                                    &mut self.network,
+                                    batch_id,
+                                    &peer_id,
+                                    id,
+                                    block,
+                                ) {
+                                    Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                                    Ok(ProcessResult::Successful) => {}
+                                    Err(_error) => {
+                                        // The backfill sync has failed, errors are reported
+                                        // within.
+                                        self.update_sync_state();
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 Err(e) => {
                     // Re-insert the request so we can retry
-                    let new_req = BlocksAndBlobsByRangeRequest {
-                        chain_id,
-                        batch_id: resp.batch_id,
-                        block_blob_info: <_>::default(),
-                    };
-                    self.network
-                        .insert_range_blocks_and_blobs_request(id, new_req);
+                    self.network.insert_range_blocks_and_blobs_request(
+                        id,
+                        resp.sender_id,
+                        BlocksAndBlobsRequestInfo::new(resp.request_type),
+                    );
                     // inform range that the request needs to be treated as failed
                     // With time we will want to downgrade this log
                     warn!(
                         self.log,
                         "Blocks and blobs request for range received invalid data";
                         "peer_id" => %peer_id,
-                        "batch_id" => resp.batch_id,
+                        "sender_id" => ?resp.sender_id,
                         "error" => e.clone()
                     );
                     let id = RequestId::RangeBlockAndBlobs { id };
@@ -1012,75 +973,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         }
     }
-
-    /// Handles receiving a response for a Backfill sync request that should have both blocks and
-    /// blobs.
-    fn backfill_block_and_blobs_response(
-        &mut self,
-        id: Id,
-        peer_id: PeerId,
-        block_or_blob: BlockOrBlob<T::EthSpec>,
-    ) {
-        if let Some(resp) = self
-            .network
-            .backfill_sync_block_and_blob_response(id, block_or_blob)
-        {
-            match resp.responses {
-                Ok(blocks) => {
-                    for block in blocks
-                        .into_iter()
-                        .map(Some)
-                        // chain the stream terminator
-                        .chain(vec![None])
-                    {
-                        match self.backfill_sync.on_block_response(
-                            &mut self.network,
-                            resp.batch_id,
-                            &peer_id,
-                            id,
-                            block,
-                        ) {
-                            Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
-                            Ok(ProcessResult::Successful) => {}
-                            Err(_error) => {
-                                // The backfill sync has failed, errors are reported
-                                // within.
-                                self.update_sync_state();
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    // Re-insert the request so we can retry
-                    self.network.insert_backfill_blocks_and_blobs_requests(
-                        id,
-                        resp.batch_id,
-                        <_>::default(),
-                    );
-
-                    // inform backfill that the request needs to be treated as failed
-                    // With time we will want to downgrade this log
-                    warn!(
-                        self.log, "Blocks and blobs request for backfill received invalid data";
-                        "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e.clone()
-                    );
-                    let id = RequestId::BackFillBlockAndBlobs { id };
-                    self.network.report_peer(
-                        peer_id,
-                        PeerAction::MidToleranceError,
-                        "block_blob_faulty_backfill_batch",
-                    );
-                    self.inject_error(peer_id, id, RPCError::InvalidData(e))
-                }
-            }
-        }
-    }
 }
 
-impl<T: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<T>>>
-    for BlockProcessingResult<T>
+impl<E: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<E>>>
+    for BlockProcessingResult<E>
 {
-    fn from(result: Result<AvailabilityProcessingStatus, BlockError<T>>) -> Self {
+    fn from(result: Result<AvailabilityProcessingStatus, BlockError<E>>) -> Self {
         match result {
             Ok(status) => BlockProcessingResult::Ok(status),
             Err(e) => BlockProcessingResult::Err(e),
@@ -1088,8 +986,8 @@ impl<T: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<T>>>
     }
 }
 
-impl<T: EthSpec> From<BlockError<T>> for BlockProcessingResult<T> {
-    fn from(e: BlockError<T>) -> Self {
+impl<E: EthSpec> From<BlockError<E>> for BlockProcessingResult<E> {
+    fn from(e: BlockError<E>) -> Self {
         BlockProcessingResult::Err(e)
     }
 }

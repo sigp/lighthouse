@@ -208,7 +208,7 @@ struct LightClientCachedData {
 }
 
 impl LightClientCachedData {
-    fn from_state<T: EthSpec>(state: &mut BeaconState<T>) -> Result<Self, BeaconChainError> {
+    fn from_state<E: EthSpec>(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
         Ok(Self {
             finality_branch: state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?.into(),
             finalized_block_root: state.finalized_checkpoint().root,
@@ -220,8 +220,8 @@ impl LightClientCachedData {
 // > Full nodes SHOULD provide the LightClientFinalityUpdate with the highest attested_header.beacon.slot (if multiple, highest signature_slot)
 //
 // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_finality_update
-fn is_latest_finality_update<T: EthSpec>(
-    prev: &LightClientFinalityUpdate<T>,
+fn is_latest_finality_update<E: EthSpec>(
+    prev: &LightClientFinalityUpdate<E>,
     attested_slot: Slot,
     signature_slot: Slot,
 ) -> bool {
@@ -237,8 +237,8 @@ fn is_latest_finality_update<T: EthSpec>(
 // > Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest attested_header.beacon.slot (if multiple, highest signature_slot)
 //
 // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_optimistic_update
-fn is_latest_optimistic_update<T: EthSpec>(
-    prev: &LightClientOptimisticUpdate<T>,
+fn is_latest_optimistic_update<E: EthSpec>(
+    prev: &LightClientOptimisticUpdate<E>,
     attested_slot: Slot,
     signature_slot: Slot,
 ) -> bool {

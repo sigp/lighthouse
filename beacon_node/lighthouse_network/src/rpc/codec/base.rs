@@ -20,20 +20,20 @@ pub trait OutboundCodec<TItem>: Encoder<TItem> + Decoder {
 /* Global Inbound Codec */
 // This deals with Decoding RPC Requests from other peers and encoding our responses
 
-pub struct BaseInboundCodec<TCodec, TSpec>
+pub struct BaseInboundCodec<TCodec, E>
 where
-    TCodec: Encoder<RPCCodedResponse<TSpec>> + Decoder,
-    TSpec: EthSpec,
+    TCodec: Encoder<RPCCodedResponse<E>> + Decoder,
+    E: EthSpec,
 {
     /// Inner codec for handling various encodings
     inner: TCodec,
-    phantom: PhantomData<TSpec>,
+    phantom: PhantomData<E>,
 }
 
-impl<TCodec, TSpec> BaseInboundCodec<TCodec, TSpec>
+impl<TCodec, E> BaseInboundCodec<TCodec, E>
 where
-    TCodec: Encoder<RPCCodedResponse<TSpec>> + Decoder,
-    TSpec: EthSpec,
+    TCodec: Encoder<RPCCodedResponse<E>> + Decoder,
+    E: EthSpec,
 {
     pub fn new(codec: TCodec) -> Self {
         BaseInboundCodec {
@@ -45,22 +45,22 @@ where
 
 /* Global Outbound Codec */
 // This deals with Decoding RPC Responses from other peers and encoding our requests
-pub struct BaseOutboundCodec<TOutboundCodec, TSpec>
+pub struct BaseOutboundCodec<TOutboundCodec, E>
 where
-    TOutboundCodec: OutboundCodec<OutboundRequest<TSpec>>,
-    TSpec: EthSpec,
+    TOutboundCodec: OutboundCodec<OutboundRequest<E>>,
+    E: EthSpec,
 {
     /// Inner codec for handling various encodings.
     inner: TOutboundCodec,
     /// Keeps track of the current response code for a chunk.
     current_response_code: Option<u8>,
-    phantom: PhantomData<TSpec>,
+    phantom: PhantomData<E>,
 }
 
-impl<TOutboundCodec, TSpec> BaseOutboundCodec<TOutboundCodec, TSpec>
+impl<TOutboundCodec, E> BaseOutboundCodec<TOutboundCodec, E>
 where
-    TSpec: EthSpec,
-    TOutboundCodec: OutboundCodec<OutboundRequest<TSpec>>,
+    E: EthSpec,
+    TOutboundCodec: OutboundCodec<OutboundRequest<E>>,
 {
     pub fn new(codec: TOutboundCodec) -> Self {
         BaseOutboundCodec {
@@ -76,18 +76,14 @@ where
 /* Base Inbound Codec */
 
 // This Encodes RPC Responses sent to external peers
-impl<TCodec, TSpec> Encoder<RPCCodedResponse<TSpec>> for BaseInboundCodec<TCodec, TSpec>
+impl<TCodec, E> Encoder<RPCCodedResponse<E>> for BaseInboundCodec<TCodec, E>
 where
-    TSpec: EthSpec,
-    TCodec: Decoder + Encoder<RPCCodedResponse<TSpec>>,
+    E: EthSpec,
+    TCodec: Decoder + Encoder<RPCCodedResponse<E>>,
 {
-    type Error = <TCodec as Encoder<RPCCodedResponse<TSpec>>>::Error;
+    type Error = <TCodec as Encoder<RPCCodedResponse<E>>>::Error;
 
-    fn encode(
-        &mut self,
-        item: RPCCodedResponse<TSpec>,
-        dst: &mut BytesMut,
-    ) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RPCCodedResponse<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         dst.clear();
         dst.reserve(1);
         dst.put_u8(
@@ -99,12 +95,12 @@ where
 }
 
 // This Decodes RPC Requests from external peers
-impl<TCodec, TSpec> Decoder for BaseInboundCodec<TCodec, TSpec>
+impl<TCodec, E> Decoder for BaseInboundCodec<TCodec, E>
 where
-    TSpec: EthSpec,
-    TCodec: Encoder<RPCCodedResponse<TSpec>> + Decoder<Item = InboundRequest<TSpec>>,
+    E: EthSpec,
+    TCodec: Encoder<RPCCodedResponse<E>> + Decoder<Item = InboundRequest<E>>,
 {
-    type Item = InboundRequest<TSpec>;
+    type Item = InboundRequest<E>;
     type Error = <TCodec as Decoder>::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -115,30 +111,26 @@ where
 /* Base Outbound Codec */
 
 // This Encodes RPC Requests sent to external peers
-impl<TCodec, TSpec> Encoder<OutboundRequest<TSpec>> for BaseOutboundCodec<TCodec, TSpec>
+impl<TCodec, E> Encoder<OutboundRequest<E>> for BaseOutboundCodec<TCodec, E>
 where
-    TSpec: EthSpec,
-    TCodec: OutboundCodec<OutboundRequest<TSpec>> + Encoder<OutboundRequest<TSpec>>,
+    E: EthSpec,
+    TCodec: OutboundCodec<OutboundRequest<E>> + Encoder<OutboundRequest<E>>,
 {
-    type Error = <TCodec as Encoder<OutboundRequest<TSpec>>>::Error;
+    type Error = <TCodec as Encoder<OutboundRequest<E>>>::Error;
 
-    fn encode(
-        &mut self,
-        item: OutboundRequest<TSpec>,
-        dst: &mut BytesMut,
-    ) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: OutboundRequest<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         self.inner.encode(item, dst)
     }
 }
 
 // This decodes RPC Responses received from external peers
-impl<TCodec, TSpec> Decoder for BaseOutboundCodec<TCodec, TSpec>
+impl<TCodec, E> Decoder for BaseOutboundCodec<TCodec, E>
 where
-    TSpec: EthSpec,
-    TCodec: OutboundCodec<OutboundRequest<TSpec>, CodecErrorType = ErrorType>
-        + Decoder<Item = RPCResponse<TSpec>>,
+    E: EthSpec,
+    TCodec: OutboundCodec<OutboundRequest<E>, CodecErrorType = ErrorType>
+        + Decoder<Item = RPCResponse<E>>,
 {
-    type Item = RPCCodedResponse<TSpec>;
+    type Item = RPCCodedResponse<E>;
     type Error = <TCodec as Decoder>::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -154,7 +146,7 @@ where
         });
 
         let inner_result = {
-            if RPCCodedResponse::<TSpec>::is_response(response_code) {
+            if RPCCodedResponse::<E>::is_response(response_code) {
                 // decode an actual response and mutates the buffer if enough bytes have been read
                 // returning the result.
                 self.inner
@@ -192,21 +184,24 @@ mod tests {
     fn fork_context(fork_name: ForkName) -> ForkContext {
         let mut chain_spec = Spec::default_spec();
         let altair_fork_epoch = Epoch::new(1);
-        let merge_fork_epoch = Epoch::new(2);
+        let bellatrix_fork_epoch = Epoch::new(2);
         let capella_fork_epoch = Epoch::new(3);
         let deneb_fork_epoch = Epoch::new(4);
+        let electra_fork_epoch = Epoch::new(5);
 
         chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
-        chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
+        chain_spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
         chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
         chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+        chain_spec.electra_fork_epoch = Some(electra_fork_epoch);
 
         let current_slot = match fork_name {
             ForkName::Base => Slot::new(0),
             ForkName::Altair => altair_fork_epoch.start_slot(Spec::slots_per_epoch()),
-            ForkName::Merge => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Bellatrix => bellatrix_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Deneb => deneb_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Electra => electra_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }

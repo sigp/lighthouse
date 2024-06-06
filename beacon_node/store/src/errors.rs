@@ -5,7 +5,8 @@ use crate::hot_cold_store::HotColdDBError;
 use leveldb::error::Error as LevelDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{BeaconStateError, Hash256, InconsistentFork, Slot};
+use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
@@ -54,6 +55,14 @@ pub enum Error {
     LevelDbError(LevelDBError),
     #[cfg(feature = "redb")]
     RedbError(redb::Error),
+    CacheBuildError(EpochCacheError),
+    RandaoMixOutOfBounds,
+    FinalizedStateDecreasingSlot,
+    FinalizedStateUnaligned,
+    StateForCacheHasPendingUpdates {
+        state_root: Hash256,
+        slot: Slot,
+    },
 }
 
 pub trait HandleUnavailable<T> {
@@ -171,6 +180,12 @@ impl From<redb::CommitError> for Error {
 impl From<redb::CompactionError> for Error {
     fn from(e: redb::CompactionError) -> Self {
         Error::RedbError(e.into())
+    }
+}
+
+impl From<EpochCacheError> for Error {
+    fn from(e: EpochCacheError) -> Error {
+        Error::CacheBuildError(e)
     }
 }
 
