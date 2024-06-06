@@ -14,9 +14,8 @@ use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
-    attestation_sync_committee_topics, fork_core_topics, subnet_from_topic_hash, GossipEncoding,
-    GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS,
-    BASE_CORE_TOPICS, CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
+    all_topics, max_topic_count, subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic,
+    SnappyTransform, Subnet, SubnetDiscovery,
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
@@ -39,10 +38,10 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
+use types::ChainSpec;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
-use types::{ChainSpec, ForkName};
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
 pub mod api_types;
@@ -239,15 +238,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             // Set up a scoring update interval
             let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
 
-            let max_topics = ctx.chain_spec.attestation_subnet_count as usize
-                + SYNC_COMMITTEE_SUBNET_COUNT as usize
-                + ctx.chain_spec.blob_sidecar_subnet_count as usize
-                + ctx.chain_spec.data_column_sidecar_subnet_count as usize
-                + BASE_CORE_TOPICS.len()
-                + ALTAIR_CORE_TOPICS.len()
-                + CAPELLA_CORE_TOPICS.len()
-                + DENEB_CORE_TOPICS.len()
-                + LIGHT_CLIENT_GOSSIP_TOPICS.len();
+            let max_topics = max_topic_count::<E>(ctx.chain_spec);
 
             let possible_fork_digests = ctx.fork_context.all_fork_digests();
             let filter = gossipsub::MaxCountSubscriptionFilter {
@@ -294,7 +285,8 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             // If we are using metrics, then register which topics we want to make sure to keep
             // track of
             if ctx.libp2p_registry.is_some() {
-                let topics_to_keep_metrics_for = attestation_sync_committee_topics::<E>()
+                let topics_to_keep_metrics_for = all_topics::<E>(ctx.chain_spec)
+                    .into_iter()
                     .map(|gossip_kind| {
                         Topic::from(GossipTopic::new(
                             gossip_kind,
@@ -666,33 +658,27 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     }
 
     /// Subscribe to all required topics for the `new_fork` with the given `new_fork_digest`.
-    pub fn subscribe_new_fork_topics(&mut self, new_fork: ForkName, new_fork_digest: [u8; 4]) {
-        // Subscribe to existing topics with new fork digest
+    pub fn subscribe_new_fork_topics(
+        &mut self,
+        new_fork_digest: [u8; 4],
+        new_topics: Vec<GossipKind>,
+        exclude_topics: Vec<GossipKind>,
+    ) {
+        // Subscribe to existing topics with new fork digest. Node may be subscribed to non-core
+        // topics like long-lived random subnet subscriptions that we want to roll-over to the next
         let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
         for mut topic in subscriptions.into_iter() {
-            topic.fork_digest = new_fork_digest;
-            self.subscribe(topic);
+            if !exclude_topics.contains(topic.kind()) {
+                topic.fork_digest = new_fork_digest;
+                self.subscribe(topic);
+            }
         }
 
         // Subscribe to core topics for the new fork
-        for kind in fork_core_topics::<E>(&new_fork, &self.fork_context.spec) {
+        for kind in new_topics {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
-
-        // Register the new topics for metrics
-        let topics_to_keep_metrics_for = attestation_sync_committee_topics::<E>()
-            .map(|gossip_kind| {
-                Topic::from(GossipTopic::new(
-                    gossip_kind,
-                    GossipEncoding::default(),
-                    new_fork_digest,
-                ))
-                .into()
-            })
-            .collect::<Vec<TopicHash>>();
-        self.gossipsub_mut()
-            .register_topics_for_metrics(topics_to_keep_metrics_for);
     }
 
     /// Unsubscribe from all topics that doesn't have the given fork_digest

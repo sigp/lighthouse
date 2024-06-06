@@ -1,12 +1,13 @@
 use parking_lot::RwLock;
 
-use crate::{ChainSpec, EthSpec, ForkName, Hash256, Slot};
+use crate::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, Slot};
 use std::collections::HashMap;
 
 /// Provides fork specific info like the current fork name and the fork digests corresponding to every valid fork.
 #[derive(Debug)]
 pub struct ForkContext {
-    current_fork: RwLock<ForkName>,
+    /// Tracks fork and epoch as the peerdas transition does not change the fork-digest
+    current_fork: RwLock<(ForkName, Epoch)>,
     fork_to_digest: HashMap<ForkName, [u8; 4]>,
     digest_to_fork: HashMap<[u8; 4], ForkName>,
     pub spec: ChainSpec,
@@ -78,7 +79,10 @@ impl ForkContext {
             .collect();
 
         Self {
-            current_fork: RwLock::new(spec.fork_name_at_slot::<E>(current_slot)),
+            current_fork: RwLock::new((
+                spec.fork_name_at_slot::<E>(current_slot),
+                current_slot.epoch(E::slots_per_epoch()),
+            )),
             fork_to_digest,
             digest_to_fork,
             spec: spec.clone(),
@@ -92,12 +96,16 @@ impl ForkContext {
 
     /// Returns the `current_fork`.
     pub fn current_fork(&self) -> ForkName {
-        *self.current_fork.read()
+        self.current_fork.read().0
+    }
+
+    pub fn current_fork_epoch(&self) -> Epoch {
+        self.current_fork.read().1
     }
 
     /// Updates the `current_fork` field to a new fork.
-    pub fn update_current_fork(&self, new_fork: ForkName) {
-        *self.current_fork.write() = new_fork;
+    pub fn update_current_fork(&self, new_fork: ForkName, new_fork_epoch: Epoch) {
+        *self.current_fork.write() = (new_fork, new_fork_epoch);
     }
 
     /// Returns the context bytes/fork_digest corresponding to the genesis fork version.
@@ -123,5 +131,11 @@ impl ForkContext {
     /// Returns all `fork_digest`s that are currently in the `ForkContext` object.
     pub fn all_fork_digests(&self) -> Vec<[u8; 4]> {
         self.digest_to_fork.keys().cloned().collect()
+    }
+
+    /// Returns true if peerdas fork is schduled for some epoch != FAR_FUTURE_EPOCH
+    pub fn peerdas_fork_scheduled(&self) -> bool {
+        self.spec
+            .is_peer_das_enabled_for_epoch(Epoch::max_value().saturating_sub(Epoch::new(1)))
     }
 }

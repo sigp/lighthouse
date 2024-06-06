@@ -356,6 +356,49 @@ impl ChainSpec {
         }
     }
 
+    /// Returns a list of epochs at which there is a fork transition. This method is meant to also
+    /// support forks like PeerDAS that do not have distinct data structures.
+    ///
+    /// Epochs are sorted in ascending order.
+    pub fn fork_transitions(&self) -> Vec<(Epoch, String)> {
+        // Every ForkName enum changes the fork digest so requires a fork transition of topics
+        let mut fork_transitions = ForkName::list_all()
+            .iter()
+            .filter_map(|fork| {
+                self.fork_epoch(*fork)
+                    .map(|epoch| (epoch, fork.to_string()))
+            })
+            .collect::<Vec<_>>();
+        // peerdas does not change the fork digest but requires a change of topics
+        if let Some(peerdas_epoch) = self.eip7594_fork_epoch {
+            fork_transitions.push((peerdas_epoch, "peerdas".to_owned()));
+        }
+        fork_transitions.sort();
+        fork_transitions
+    }
+
+    /// Returns the first fork transition after `epoch`
+    pub fn current_fork_transition(&self, epoch: Epoch) -> (Epoch, String) {
+        let mut descending_order = self.fork_transitions();
+        descending_order.reverse();
+        descending_order
+            .iter()
+            .find(|(transition_epoch, _)| epoch >= *transition_epoch)
+            .cloned()
+            .unwrap_or((Epoch::new(0), ForkName::Base.to_string()))
+    }
+
+    /// Returns the next fork transition after `epoch`
+    pub fn next_fork_transition(&self, epoch: Epoch) -> Option<(Epoch, String)> {
+        let fork_transitions = self.fork_transitions();
+        let current_fork_transition = self.current_fork_transition(epoch);
+        fork_transitions
+            .iter()
+            .position(|item| item == &current_fork_transition)
+            .and_then(|pos| fork_transitions.get(pos.saturating_add(1)))
+            .cloned()
+    }
+
     pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
         if fork_name >= ForkName::Bellatrix {
             self.inactivity_penalty_quotient_bellatrix

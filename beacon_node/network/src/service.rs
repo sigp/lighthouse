@@ -21,13 +21,17 @@ use lighthouse_network::Eth2Enr;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode},
-    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
+    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response,
 };
 use lighthouse_network::{
-    types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
+    types::{
+        core_topics_to_subscribe, new_topics_to_subscribe_at_epoch,
+        old_topics_to_unsubscribe_at_epoch, GossipEncoding, GossipTopic, TopicSubscriptionOpts,
+    },
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
+use slot_clock::SlotClock;
 use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -36,8 +40,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, DataColumnSubnetId, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, Unsigned, ValidatorSubscription,
+    ChainSpec, DataColumnSubnetId, Epoch, EthSpec, ForkContext, Slot, SyncCommitteeSubscription,
+    ValidatorSubscription,
 };
 
 mod tests;
@@ -191,10 +195,6 @@ pub struct NetworkService<T: BeaconChainTypes> {
     next_fork_subscriptions: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to unsubscribe from old fork topics.
     next_unsubscribe: Pin<Box<OptionFuture<Sleep>>>,
-    /// Subscribe to all the data column subnets.
-    subscribe_all_data_column_subnets: bool,
-    /// Subscribe to all the subnets once synced.
-    subscribe_all_subnets: bool,
     /// Shutdown beacon node after sync is complete.
     shutdown_after_sync: bool,
     /// Whether metrics are enabled or not.
@@ -203,8 +203,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     metrics_update: tokio::time::Interval,
     /// gossipsub_parameter_update timer
     gossipsub_parameter_update: tokio::time::Interval,
-    /// enable_light_client_server indicator
-    enable_light_client_server: bool,
+    /// Topic options for subscriptions
+    topic_opts: TopicSubscriptionOpts,
     /// The logger for the network service.
     fork_context: Arc<ForkContext>,
     log: slog::Logger,
@@ -260,8 +260,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let enr_fork_id = beacon_chain.enr_fork_id();
 
         // keep track of when our fork_id needs to be updated
-        let next_fork_update = Box::pin(next_fork_delay(&beacon_chain).into());
-        let next_fork_subscriptions = Box::pin(next_fork_subscriptions_delay(&beacon_chain).into());
+        let next_fork_update = Box::pin(next_topic_transition_delay(&beacon_chain).into());
+        let next_fork_subscriptions =
+            Box::pin(next_topic_subscriptions_delay(&beacon_chain).into());
         let next_unsubscribe = Box::pin(None.into());
 
         let current_slot = beacon_chain
@@ -344,6 +345,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             validator_subscription_recv,
         } = network_receivers;
 
+        // Compute STATIC (no rotation) custody subnets for this node
+        let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
+            network_globals.local_enr().node_id().raw().into(),
+            network_globals
+                .local_enr()
+                .custody_subnet_count::<<T as BeaconChainTypes>::EthSpec>(&fork_context.spec),
+            &fork_context.spec,
+        )
+        .collect::<Vec<_>>();
+
         // create the network service and spawn the task
         let network_log = network_log.new(o!("service" => "network"));
         let network_service = NetworkService {
@@ -359,15 +370,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             next_fork_update,
             next_fork_subscriptions,
             next_unsubscribe,
-            subscribe_all_data_column_subnets: config.subscribe_all_data_column_subnets,
-            subscribe_all_subnets: config.subscribe_all_subnets,
             shutdown_after_sync: config.shutdown_after_sync,
             metrics_enabled: config.metrics_enabled,
             metrics_update,
             gossipsub_parameter_update,
             fork_context,
             log: network_log,
-            enable_light_client_server: config.enable_light_client_server,
+            topic_opts: TopicSubscriptionOpts {
+                enable_light_client_server: config.enable_light_client_server,
+                subscribe_all_subnets: config.subscribe_all_subnets,
+                subscribe_all_data_column_subnets: config.subscribe_all_data_column_subnets,
+                custody_subnets,
+            },
         };
 
         Ok((network_service, network_globals, network_senders))
@@ -482,18 +496,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         self.next_unsubscribe = Box::pin(None.into());
                     }
 
-                    Some(_) = &mut self.next_fork_subscriptions => {
-                        if let Some((fork_name, _)) = self.beacon_chain.duration_to_next_fork() {
-                            let fork_version = self.beacon_chain.spec.fork_version_for_name(fork_name);
-                            let fork_digest = ChainSpec::compute_fork_digest(fork_version, self.beacon_chain.genesis_validators_root);
-                            info!(self.log, "Subscribing to new fork topics");
-                            self.libp2p.subscribe_new_fork_topics(fork_name, fork_digest);
-                            self.next_fork_subscriptions = Box::pin(None.into());
-                        }
-                        else {
-                            error!(self.log, "Fork subscription scheduled but no fork scheduled");
-                        }
-                    }
+                    Some(_) = &mut self.next_fork_subscriptions => self.subscribe_next_fork_topics(),
                 }
             }
         };
@@ -699,119 +702,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
-                    self.fork_context.current_fork(),
-                    &self.fork_context.spec,
-                ) {
-                    for fork_digest in self.required_gossip_fork_digests() {
-                        let topic = GossipTopic::new(
-                            topic_kind.clone(),
-                            GossipEncoding::default(),
-                            fork_digest,
-                        );
+                for fork_digest in self.required_gossip_fork_digests() {
+                    for kind in core_topics_to_subscribe::<T::EthSpec>(
+                        &self.fork_context.spec,
+                        self.beacon_chain.epoch().unwrap_or(Epoch::new(0)),
+                        &self.topic_opts,
+                    ) {
+                        let topic = GossipTopic::new(kind, GossipEncoding::default(), fork_digest);
                         if self.libp2p.subscribe(topic.clone()) {
                             subscribed_topics.push(topic);
                         } else {
                             warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                        }
-                    }
-                }
-
-                if self.enable_light_client_server {
-                    for light_client_topic_kind in
-                        lighthouse_network::types::LIGHT_CLIENT_GOSSIP_TOPICS.iter()
-                    {
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let light_client_topic = GossipTopic::new(
-                                light_client_topic_kind.clone(),
-                                GossipEncoding::default(),
-                                fork_digest,
-                            );
-                            if self.libp2p.subscribe(light_client_topic.clone()) {
-                                subscribed_topics.push(light_client_topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %light_client_topic);
-                            }
-                        }
-                    }
-                }
-
-                if self.subscribe_all_data_column_subnets {
-                    for column_subnet in 0..self.fork_context.spec.data_column_sidecar_subnet_count
-                    {
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let gossip_kind =
-                                Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
-                            let topic = GossipTopic::new(
-                                gossip_kind,
-                                GossipEncoding::default(),
-                                fork_digest,
-                            );
-                            if self.libp2p.subscribe(topic.clone()) {
-                                subscribed_topics.push(topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                            }
-                        }
-                    }
-                } else {
-                    // TODO(das): subscribe after `EIP7594_FORK_EPOCH`
-                    for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
-                        self.network_globals.local_enr().node_id().raw().into(),
-                        self.network_globals
-                            .local_enr()
-                            .custody_subnet_count::<<T as BeaconChainTypes>::EthSpec>(
-                                &self.fork_context.spec,
-                            ),
-                        &self.fork_context.spec,
-                    ) {
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let gossip_kind = Subnet::DataColumn(column_subnet).into();
-                            let topic = GossipTopic::new(
-                                gossip_kind,
-                                GossipEncoding::default(),
-                                fork_digest,
-                            );
-                            if self.libp2p.subscribe(topic.clone()) {
-                                subscribed_topics.push(topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                            }
-                        }
-                    }
-                }
-
-                // If we are to subscribe to all subnets we do it here
-                if self.subscribe_all_subnets {
-                    for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
-                        let subnet = Subnet::Attestation(SubnetId::new(subnet_id));
-                        // Update the ENR bitfield
-                        self.libp2p.update_enr_subnet(subnet, true);
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
-                            if self.libp2p.subscribe(topic.clone()) {
-                                subscribed_topics.push(topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                            }
-                        }
-                    }
-                    let subnet_max = <<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSubnetCount::to_u64();
-                    for subnet_id in 0..subnet_max {
-                        let subnet = Subnet::SyncCommittee(SyncSubnetId::new(subnet_id));
-                        // Update the ENR bitfield
-                        self.libp2p.update_enr_subnet(subnet, true);
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let topic = GossipTopic::new(
-                                subnet.into(),
-                                GossipEncoding::default(),
-                                fork_digest,
-                            );
-                            if self.libp2p.subscribe(topic.clone()) {
-                                subscribed_topics.push(topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                            }
                         }
                     }
                 }
@@ -937,6 +838,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 
     fn update_next_fork(&mut self) {
+        let new_fork_epoch = current_epoch_or_genesis(&self.beacon_chain);
         let new_enr_fork_id = self.beacon_chain.enr_fork_id();
         let new_fork_digest = new_enr_fork_id.fork_digest;
 
@@ -948,11 +850,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 "old_fork" => ?fork_context.current_fork(),
                 "new_fork" => ?new_fork_name,
             );
-            fork_context.update_current_fork(*new_fork_name);
+            fork_context.update_current_fork(*new_fork_name, new_fork_epoch);
 
             self.libp2p.update_fork_version(new_enr_fork_id);
             // Reinitialize the next_fork_update
-            self.next_fork_update = Box::pin(next_fork_delay(&self.beacon_chain).into());
+            self.next_fork_update =
+                Box::pin(next_topic_transition_delay(&self.beacon_chain).into());
 
             // Set the next_unsubscribe delay.
             let epoch_duration =
@@ -961,7 +864,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
             // Update the `next_fork_subscriptions` timer if the next fork is known.
             self.next_fork_subscriptions =
-                Box::pin(next_fork_subscriptions_delay(&self.beacon_chain).into());
+                Box::pin(next_topic_subscriptions_delay(&self.beacon_chain).into());
             self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
             info!(self.log, "Network will unsubscribe from old fork gossip topics in a few epochs"; "remaining_epochs" => UNSUBSCRIBE_DELAY_EPOCHS);
 
@@ -973,10 +876,42 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         }
     }
 
+    fn subscribe_next_fork_topics(&mut self) {
+        let Some((fork_transition_epoch, _)) = self
+            .beacon_chain
+            .spec
+            .next_fork_transition(current_epoch_or_genesis(&self.beacon_chain))
+        else {
+            return error!(self.log, "Fork subscription scheduled but no next fork");
+        };
+        let fork_name = self
+            .beacon_chain
+            .spec
+            .fork_name_at_epoch(fork_transition_epoch);
+        let fork_version = self.beacon_chain.spec.fork_version_for_name(fork_name);
+        let fork_digest =
+            ChainSpec::compute_fork_digest(fork_version, self.beacon_chain.genesis_validators_root);
+        let new_topics = new_topics_to_subscribe_at_epoch::<T::EthSpec>(
+            &self.fork_context.spec,
+            fork_transition_epoch,
+            &self.topic_opts,
+        );
+        let exclude_topics = old_topics_to_unsubscribe_at_epoch::<T::EthSpec>(
+            &self.fork_context.spec,
+            fork_transition_epoch,
+            &self.topic_opts,
+        );
+        info!(self.log, "Subscribing to new fork topics");
+        self.libp2p
+            .subscribe_new_fork_topics(fork_digest, new_topics, exclude_topics);
+        self.next_fork_subscriptions = Box::pin(None.into());
+    }
+
     fn subscribed_core_topics(&self) -> bool {
         let core_topics = core_topics_to_subscribe::<T::EthSpec>(
-            self.fork_context.current_fork(),
             &self.fork_context.spec,
+            self.fork_context.current_fork_epoch(),
+            &self.topic_opts,
         );
         let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
         let subscriptions = self.network_globals.gossipsub_subscriptions.read();
@@ -987,30 +922,47 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 }
 
+fn current_epoch_or_genesis<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Epoch {
+    chain
+        .slot()
+        .unwrap_or(chain.spec.genesis_slot)
+        .epoch(T::EthSpec::slots_per_epoch())
+}
+
+fn next_topic_transition_duration<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Option<Duration> {
+    chain
+        .spec
+        .next_fork_transition(current_epoch_or_genesis(chain))
+        .and_then(|(fork_epoch, _)| {
+            chain
+                .slot_clock
+                .duration_to_slot(fork_epoch.start_slot(T::EthSpec::slots_per_epoch()))
+        })
+}
+
 /// Returns a `Sleep` that triggers after the next change in the beacon chain fork version.
 /// If there is no scheduled fork, `None` is returned.
-fn next_fork_delay<T: BeaconChainTypes>(
-    beacon_chain: &BeaconChain<T>,
+fn next_topic_transition_delay<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
 ) -> Option<tokio::time::Sleep> {
-    beacon_chain
-        .duration_to_next_fork()
-        .map(|(_, until_fork)| tokio::time::sleep(until_fork))
+    next_topic_transition_duration(chain).map(tokio::time::sleep)
 }
 
 /// Returns a `Sleep` that triggers `SUBSCRIBE_DELAY_SLOTS` before the next fork.
 /// Returns `None` if there are no scheduled forks or we are already past `current_slot + SUBSCRIBE_DELAY_SLOTS > fork_slot`.
-fn next_fork_subscriptions_delay<T: BeaconChainTypes>(
-    beacon_chain: &BeaconChain<T>,
+fn next_topic_subscriptions_delay<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
 ) -> Option<tokio::time::Sleep> {
-    if let Some((_, duration_to_fork)) = beacon_chain.duration_to_next_fork() {
-        let duration_to_subscription = duration_to_fork.saturating_sub(Duration::from_secs(
-            beacon_chain.spec.seconds_per_slot * SUBSCRIBE_DELAY_SLOTS,
+    next_topic_transition_duration(chain).and_then(|duration| {
+        let duration_to_subscription = duration.saturating_sub(Duration::from_secs(
+            chain.spec.seconds_per_slot * SUBSCRIBE_DELAY_SLOTS,
         ));
-        if !duration_to_subscription.is_zero() {
-            return Some(tokio::time::sleep(duration_to_subscription));
+        if duration_to_subscription.is_zero() {
+            None
+        } else {
+            Some(tokio::time::sleep(duration_to_subscription))
         }
-    }
-    None
+    })
 }
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {
