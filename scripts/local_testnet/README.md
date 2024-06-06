@@ -16,7 +16,7 @@ This setup can be useful for testing and development.
 To start a testnet, from the Lighthouse root repository:
 
 ```bash
-cd .scripts/local_testnet
+cd ./scripts/local_testnet
 ./start_local_testnet.sh
 ```
 
