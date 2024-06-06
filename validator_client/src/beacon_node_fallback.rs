@@ -129,8 +129,9 @@ impl<T: Debug> fmt::Display for Errors<T> {
 }
 
 /// Reasons why a candidate might not be ready.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 pub enum CandidateError {
+    PreGenesis,
     Uninitialized,
     Offline,
     Incompatible,
@@ -210,7 +211,12 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         if let Some(slot_clock) = slot_clock {
             match check_node_health(&self.beacon_node, log).await {
                 Ok((head, is_optimistic, el_offline)) => {
-                    let slot_clock_head = slot_clock.now().ok_or(CandidateError::Uninitialized)?;
+                    let Some(slot_clock_head) = slot_clock.now() else {
+                        match slot_clock.is_prior_to_genesis() {
+                            Some(true) => return Err(CandidateError::PreGenesis),
+                            _ => return Err(CandidateError::Uninitialized),
+                        }
+                    };
 
                     if head > slot_clock_head + FUTURE_SLOT_TOLERANCE {
                         return Err(CandidateError::TimeDiscrepancy);
@@ -457,12 +463,14 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         for (result, node) in results {
             if let Err(e) = result {
-                warn!(
-                    self.log,
-                    "A connected beacon node errored during routine health check.";
-                    "error" => ?e,
-                    "endpoint" => node,
-                );
+                if *e != CandidateError::PreGenesis {
+                    warn!(
+                        self.log,
+                        "A connected beacon node errored during routine health check.";
+                        "error" => ?e,
+                        "endpoint" => node,
+                    );
+                }
             }
         }
 
