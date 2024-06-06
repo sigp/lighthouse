@@ -1378,10 +1378,10 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     ) -> Option<NetworkEvent<AppReqId, E>> {
         let peer_id = event.peer_id;
 
+        // Do not permit Inbound events from peers that are being disconnected, or RPC requests.
         if !self.peer_manager().is_connected(&peer_id)
-            // Do not permit Inbound events from peers that are being disconnected
-            && matches!(event.event, HandlerEvent::Err(HandlerErr::Inbound { .. }))
-            && matches!(event.event, HandlerEvent::Ok(RPCReceived::Request(..)))
+            && (matches!(event.event, HandlerEvent::Err(HandlerErr::Inbound { .. }))
+                || matches!(event.event, HandlerEvent::Ok(RPCReceived::Request(..))))
         {
             debug!(
                 self.log,
