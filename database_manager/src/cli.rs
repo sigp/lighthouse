@@ -1,5 +1,6 @@
-pub use clap::Parser;
+pub use clap::{Arg, ArgAction, Args, Command, FromArgMatches, Parser};
 use clap_utils::get_color_style;
+use clap_utils::FLAG_HEADER;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -8,7 +9,11 @@ use std::path::PathBuf;
     name = "database_manager",
     alias = "db",
     about = "Manage a beacon node database.",
-    styles = get_color_style()
+    styles = get_color_style(),
+    next_line_help = true,
+    term_width = 80,
+    disable_help_flag = true,
+    disable_help_subcommand = true,
 )]
 pub struct DatabaseManager {
     #[clap(
@@ -16,14 +21,16 @@ pub struct DatabaseManager {
         value_name = "SLOT_COUNT",
         help = "Specifies how often a freezer DB restore point should be stored. \
                 Cannot be changed after initialization. \
-                [default: 2048 (mainnet) or 64 (minimal)]"
+                [default: 2048 (mainnet) or 64 (minimal)]",
+        display_order = 0
     )]
     pub slots_per_restore_point: Option<u64>,
 
     #[clap(
         long,
         value_name = "DIR",
-        help = "Data directory for the freezer database."
+        help = "Data directory for the freezer database.",
+        display_order = 0
     )]
     pub freezer_dir: Option<PathBuf>,
 
@@ -32,16 +39,21 @@ pub struct DatabaseManager {
         value_name = "EPOCHS",
         default_value_t = 0,
         help = "The margin for blob pruning in epochs. The oldest blobs are pruned \
-                up until data_availability_boundary - blob_prune_margin_epochs."
+                up until data_availability_boundary - blob_prune_margin_epochs.",
+        display_order = 0
     )]
     pub blob_prune_margin_epochs: u64,
 
     #[clap(
         long,
         value_name = "DIR",
-        help = "Data directory for the blobs database."
+        help = "Data directory for the blobs database.",
+        display_order = 0
     )]
     pub blobs_dir: Option<PathBuf>,
+
+    #[clap(long, help = "Prints help information", action = clap::ArgAction::HelpLong, display_order = 0, help_heading = FLAG_HEADER)]
+    help: Option<bool>,
 
     #[clap(subcommand)]
     pub subcommand: DatabaseManagerSubcommand,
@@ -62,14 +74,24 @@ pub enum DatabaseManagerSubcommand {
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Migrate the database to a specific schema version.")]
 pub struct Migrate {
-    #[clap(long, value_name = "VERSION", help = "Schema version to migrate to")]
+    #[clap(
+        long,
+        value_name = "VERSION",
+        help = "Schema version to migrate to",
+        display_order = 0
+    )]
     pub to: u64,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Inspect raw database values.")]
 pub struct Inspect {
-    #[clap(long, value_name = "TAG", help = "3-byte column ID (see `DBColumn`)")]
+    #[clap(
+        long,
+        value_name = "TAG",
+        help = "3-byte column ID (see `DBColumn`)",
+        display_order = 0
+    )]
     pub column: String,
 
     // TODO InspectTarget::VARIANTS
@@ -77,34 +99,50 @@ pub struct Inspect {
         long,
         value_name = "TARGET",
         default_value_t = String::from("sizes"),
-        help = "Select the type of output to show"
+        help = "Select the type of output to show",
+        display_order = 0,
     )]
     pub output: String,
 
-    #[clap(long, value_name = "N", help = "Skip over the first N keys")]
+    #[clap(
+        long,
+        value_name = "N",
+        help = "Skip over the first N keys",
+        display_order = 0
+    )]
     pub skip: Option<usize>,
 
-    #[clap(long, value_name = "N", help = "Output at most N keys")]
+    #[clap(
+        long,
+        value_name = "N",
+        help = "Output at most N keys",
+        display_order = 0
+    )]
     pub limit: Option<usize>,
 
     #[clap(
         long,
         conflicts_with = "blobs_db",
-        help = "Inspect the freezer DB rather than the hot DB"
+        help = "Inspect the freezer DB rather than the hot DB",
+        display_order = 0,
+        help_heading = FLAG_HEADER
     )]
     pub freezer: bool,
 
     #[clap(
         long,
         conflicts_with = "freezer",
-        help = "Inspect the blobs DB rather than the hot DB"
+        help = "Inspect the blobs DB rather than the hot DB",
+        display_order = 0,
+        help_heading = FLAG_HEADER
     )]
     pub blobs_db: bool,
 
     #[clap(
         long,
         value_name = "DIR",
-        help = "Base directory for the output files. Defaults to the current directory"
+        help = "Base directory for the output files. Defaults to the current directory",
+        display_order = 0
     )]
     pub output_dir: Option<PathBuf>,
 }
@@ -136,7 +174,8 @@ pub struct PruneStates {
     #[clap(
         long,
         help = "Commit to pruning states irreversably. Without this flag the command will \
-                just check that the database is capable of being pruned."
+                just check that the database is capable of being pruned.",
+                help_heading = FLAG_HEADER,
     )]
     pub confirm: bool,
 }
@@ -144,27 +183,37 @@ pub struct PruneStates {
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Compact database manually.")]
 pub struct Compact {
-    #[clap(long, value_name = "TAG", help = "3-byte column ID (see `DBColumn`)")]
+    #[clap(
+        long,
+        value_name = "TAG",
+        help = "3-byte column ID (see `DBColumn`)",
+        display_order = 0
+    )]
     pub column: String,
 
     #[clap(
         long,
         conflicts_with = "blobs_db",
-        help = "Inspect the freezer DB rather than the hot DB"
+        help = "Inspect the freezer DB rather than the hot DB",
+        display_order = 0,
+        help_heading = FLAG_HEADER
     )]
     pub freezer: bool,
 
     #[clap(
         long,
         conflicts_with = "freezer",
-        help = "Inspect the blobs DB rather than the hot DB"
+        help = "Inspect the blobs DB rather than the hot DB",
+        display_order = 0,
+        help_heading = FLAG_HEADER
     )]
     pub blobs_db: bool,
 
     #[clap(
         long,
         value_name = "DIR",
-        help = "Base directory for the output files. Defaults to the current directory"
+        help = "Base directory for the output files. Defaults to the current directory",
+        display_order = 0
     )]
     pub output_dir: Option<PathBuf>,
 }
