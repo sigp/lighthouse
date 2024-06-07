@@ -147,7 +147,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                     Err((rate_limited_req, wait_time)) => {
                         let key = (peer_id, protocol);
                         self.next_peer_request.insert(key, wait_time);
-                        queued_requests.push_back(rate_limited_req);
+                        queued_requests.push_front(rate_limited_req);
                         // If one fails just wait for the next window that allows sending requests.
                         return;
                     }
