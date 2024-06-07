@@ -4937,6 +4937,7 @@ dependencies = [
  "libp2p-mplex",
  "lighthouse_metrics",
  "lighthouse_version",
+ "logging",
  "lru",
  "lru_cache",
  "parking_lot 0.12.2",

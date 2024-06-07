@@ -18,6 +18,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use parking_lot::Mutex;
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -119,6 +120,7 @@ pub struct NetworkParams {
 pub struct RPC<Id: ReqId, E: EthSpec> {
     /// Rate limiter
     limiter: Option<RateLimiter>,
+    response_limiter: Option<Arc<Mutex<RateLimiter>>>,
     /// Rate limiter for our own requests.
     self_limiter: Option<SelfRateLimiter<Id, E>>,
     /// Queue of events to be processed.
@@ -142,10 +144,16 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
-        let inbound_limiter = inbound_rate_limiter_config.map(|config| {
-            debug!(log, "Using inbound rate limiting params"; "config" => ?config);
-            RateLimiter::new_with_config(config.0)
-                .expect("Inbound limiter configuration parameters are valid")
+        // let inbound_limiter = inbound_rate_limiter_config.map(|config| {
+        //     debug!(log, "Using inbound rate limiting params"; "config" => ?config);
+        //     RateLimiter::new_with_config(config.0)
+        //         .expect("Inbound limiter configuration parameters are valid")
+        // });
+        let inbound_limiter = None; // TODO
+
+        let response_limiter = inbound_rate_limiter_config.map(|config| {
+            debug!(log, "Using response rate limiting params"; "config" => ?config);
+            Arc::new(Mutex::new(RateLimiter::new_with_config(config.0).expect("Inbound limiter configuration parameters are valid")))
         });
 
         let self_limiter = outbound_rate_limiter_config.map(|config| {
@@ -154,6 +162,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
         RPC {
             limiter: inbound_limiter,
+            response_limiter,
             self_limiter,
             events: Vec::new(),
             fork_context,
@@ -246,6 +255,7 @@ where
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
+            self.response_limiter.as_ref().map(|response_limiter| (peer_id, response_limiter.clone())),
         );
 
         Ok(handler)
@@ -278,6 +288,7 @@ where
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
+            self.response_limiter.as_ref().map(|response_limiter| (peer_id, response_limiter.clone())),
         );
 
         Ok(handler)

@@ -250,6 +250,17 @@ impl<E: EthSpec> RateLimiterItem for super::OutboundRequest<E> {
         self.max_responses()
     }
 }
+
+impl<E: EthSpec> RateLimiterItem for (super::RPCCodedResponse<E>, Protocol) {
+    fn protocol(&self) -> Protocol {
+        self.1
+    }
+
+    fn max_responses(&self) -> u64 {
+        1
+    }
+}
+
 impl RPCRateLimiter {
     pub fn new_with_config(config: RateLimiterConfig) -> Result<Self, &'static str> {
         // Destructure to make sure every configuration value is used.
