@@ -1389,26 +1389,17 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     ) -> Option<NetworkEvent<AppReqId, E>> {
         let peer_id = event.peer_id;
 
-        if !self.peer_manager().is_connected(&peer_id) {
-            // Sync expects a RPCError::Disconnected to drop associated lookups with this peer.
-            // Silencing this event breaks the API contract with RPC where every request ends with
-            // - A stream termination event, or
-            // - An RPCError event
-            return if let HandlerEvent::Err(HandlerErr::Outbound {
-                id: RequestId::Application(id),
-                error,
-                ..
-            }) = event.event
-            {
-                Some(NetworkEvent::RPCFailed { peer_id, id, error })
-            } else {
-                debug!(
-                    self.log,
-                    "Ignoring rpc message of disconnecting peer";
-                    event
-                );
-                None
-            };
+        // Do not permit Inbound events from peers that are being disconnected, or RPC requests.
+        if !self.peer_manager().is_connected(&peer_id)
+            && (matches!(event.event, HandlerEvent::Err(HandlerErr::Inbound { .. }))
+                || matches!(event.event, HandlerEvent::Ok(RPCReceived::Request(..))))
+        {
+            debug!(
+                self.log,
+                "Ignoring rpc message of disconnecting peer";
+                event
+            );
+            return None;
         }
 
         let handler_id = event.conn_id;
