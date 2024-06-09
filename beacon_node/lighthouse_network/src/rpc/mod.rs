@@ -391,6 +391,10 @@ where
             let _ = limiter.poll_unpin(cx);
         }
 
+        if let Some(response_limiter) = self.response_limiter.as_ref() {
+            let _ = response_limiter.lock().poll_unpin(cx);
+        }
+
         if let Some(self_limiter) = self.self_limiter.as_mut() {
             if let Poll::Ready(event) = self_limiter.poll_ready(cx) {
                 self.events.push(event)
