@@ -5,7 +5,9 @@ use maplit::hashset;
 use rayon::prelude::*;
 use slasher::{
     config::DEFAULT_CHUNK_SIZE,
-    test_utils::{att_slashing, indexed_att, slashed_validators_from_slashings, E},
+    test_utils::{
+        att_slashing, indexed_att, indexed_att_electra, slashed_validators_from_slashings, E,
+    },
     Config, Slasher,
 };
 use std::collections::HashSet;
@@ -100,52 +102,105 @@ fn no_double_vote_repeated() {
 #[test]
 fn surrounds_existing_single_val_single_chunk() {
     let v = vec![0];
-    let att1 = indexed_att(&v, 1, 2, 0);
-    let att2 = indexed_att(&v, 0, 3, 0);
-    let slashings = hashset![att_slashing(&att2, &att1)];
-    slasher_test_indiv(&[att1, att2], &slashings, 3);
+    for (att1, att2) in [
+        (indexed_att(&v, 1, 2, 0), indexed_att(&v, 0, 3, 0)),
+        (indexed_att(&v, 1, 2, 0), indexed_att_electra(&v, 0, 3, 0)),
+        (
+            indexed_att_electra(&v, 1, 2, 0),
+            indexed_att_electra(&v, 0, 3, 0),
+        ),
+    ] {
+        let slashings = hashset![att_slashing(&att2, &att1)];
+        slasher_test_indiv(&[att1, att2], &slashings, 3);
+    }
 }
 
 #[test]
 fn surrounds_existing_multi_vals_single_chunk() {
     let validators = vec![0, 16, 1024, 300_000, 300_001];
-    let att1 = indexed_att(validators.clone(), 1, 2, 0);
-    let att2 = indexed_att(validators, 0, 3, 0);
-    let slashings = hashset![att_slashing(&att2, &att1)];
-    slasher_test_indiv(&[att1, att2], &slashings, 3);
+    for (att1, att2) in [
+        (
+            indexed_att(&validators, 1, 2, 0),
+            indexed_att(&validators, 0, 3, 0),
+        ),
+        (
+            indexed_att(&validators, 1, 2, 0),
+            indexed_att_electra(&validators, 0, 3, 0),
+        ),
+        (
+            indexed_att_electra(&validators, 1, 2, 0),
+            indexed_att_electra(&validators, 0, 3, 0),
+        ),
+    ] {
+        let slashings = hashset![att_slashing(&att2, &att1)];
+        slasher_test_indiv(&[att1, att2], &slashings, 3);
+    }
 }
 
 #[test]
 fn surrounds_existing_many_chunks() {
     let v = vec![0];
     let chunk_size = DEFAULT_CHUNK_SIZE as u64;
-    let att1 = indexed_att(&v, 3 * chunk_size, 3 * chunk_size + 1, 0);
-    let att2 = indexed_att(&v, 0, 3 * chunk_size + 2, 0);
-    let slashings = hashset![att_slashing(&att2, &att1)];
-    let attestations = vec![att1, att2];
-    slasher_test_indiv(&attestations, &slashings, 4 * chunk_size);
+    for (att1, att2) in [
+        (
+            indexed_att(&v, 3 * chunk_size, 3 * chunk_size + 1, 0),
+            indexed_att(&v, 0, 3 * chunk_size + 2, 0),
+        ),
+        (
+            indexed_att(&v, 3 * chunk_size, 3 * chunk_size + 1, 0),
+            indexed_att_electra(&v, 0, 3 * chunk_size + 2, 0),
+        ),
+        (
+            indexed_att_electra(&v, 3 * chunk_size, 3 * chunk_size + 1, 0),
+            indexed_att_electra(&v, 0, 3 * chunk_size + 2, 0),
+        ),
+    ] {
+        let slashings = hashset![att_slashing(&att2, &att1)];
+        let attestations = vec![att1, att2];
+        slasher_test_indiv(&attestations, &slashings, 4 * chunk_size);
+    }
 }
 
 #[test]
 fn surrounded_by_single_val_single_chunk() {
     let v = vec![0];
-    let att1 = indexed_att(&v, 0, 15, 0);
-    let att2 = indexed_att(&v, 1, 14, 0);
-    let slashings = hashset![att_slashing(&att1, &att2)];
-    let attestations = vec![att1, att2];
-    slasher_test_indiv(&attestations, &slashings, 15);
+    for (att1, att2) in [
+        (indexed_att(&v, 0, 15, 0), indexed_att(&v, 1, 14, 0)),
+        (indexed_att(&v, 0, 15, 0), indexed_att_electra(&v, 1, 14, 0)),
+        (
+            indexed_att_electra(&v, 0, 15, 0),
+            indexed_att_electra(&v, 1, 14, 0),
+        ),
+    ] {
+        let slashings = hashset![att_slashing(&att1, &att2)];
+        let attestations = vec![att1, att2];
+        slasher_test_indiv(&attestations, &slashings, 15);
+    }
 }
 
 #[test]
 fn surrounded_by_single_val_multi_chunk() {
     let v = vec![0];
     let chunk_size = DEFAULT_CHUNK_SIZE as u64;
-    let att1 = indexed_att(&v, 0, 3 * chunk_size, 0);
-    let att2 = indexed_att(&v, chunk_size, chunk_size + 1, 0);
-    let slashings = hashset![att_slashing(&att1, &att2)];
-    let attestations = vec![att1, att2];
-    slasher_test_indiv(&attestations, &slashings, 3 * chunk_size);
-    slasher_test_indiv(&attestations, &slashings, 4 * chunk_size);
+    for (att1, att2) in [
+        (
+            indexed_att(&v, 0, 3 * chunk_size, 0),
+            indexed_att(&v, chunk_size, chunk_size + 1, 0),
+        ),
+        (
+            indexed_att(&v, 0, 3 * chunk_size, 0),
+            indexed_att_electra(&v, chunk_size, chunk_size + 1, 0),
+        ),
+        (
+            indexed_att_electra(&v, 0, 3 * chunk_size, 0),
+            indexed_att_electra(&v, chunk_size, chunk_size + 1, 0),
+        ),
+    ] {
+        let slashings = hashset![att_slashing(&att1, &att2)];
+        let attestations = vec![att1, att2];
+        slasher_test_indiv(&attestations, &slashings, 3 * chunk_size);
+        slasher_test_indiv(&attestations, &slashings, 4 * chunk_size);
+    }
 }
 
 // Process each attestation individually, and confirm that the slashings produced are as expected.
