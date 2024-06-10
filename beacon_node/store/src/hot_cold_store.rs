@@ -139,6 +139,7 @@ pub enum HotColdDBError {
         proposed_split_slot: Slot,
     },
     MissingStateToFreeze(Hash256),
+    MissingBlockToFreeze(Hash256),
     MissingRestorePointHash(u64),
     MissingRestorePoint(Hash256),
     MissingColdStateSummary(Hash256),
@@ -2705,6 +2706,14 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         Err(_) => true,
     }) {
         let (block_root, state_root, slot) = maybe_tuple?;
+
+        // Delete block from hot DB
+        hot_db_ops.push(StoreOp::DeleteBlock(block_root));
+        // Write block to cold DB
+        let block = store
+            .get_hot_blinded_block(&block_root)?
+            .ok_or(HotColdDBError::MissingBlockToFreeze(block_root))?;
+        store.blinded_block_as_cold_kv_store_ops(&block_root, &block, &mut cold_db_ops)?;
 
         // Delete the execution payload if payload pruning is enabled. At a skipped slot we may
         // delete the payload for the finalized block itself, but that's OK as we only guarantee
