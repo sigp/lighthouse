@@ -24,7 +24,6 @@ use types::{
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
 /// prev block cache are very small 32 * (6 + 1) = 224 bytes. 32 is an arbitrary number that
 /// represents unlikely re-orgs, while keeping the cache very small.
-// TODO(lightclientupdate) this cache size has now increased
 const PREV_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(32);
 
 /// This cache computes light client messages ahead of time, required to satisfy p2p and API
