@@ -157,7 +157,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
         finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
         attested_block: &SignedBeaconBlock<E>,
-        finalized_block: &SignedBeaconBlock<E>,
+        finalized_block: Option<&SignedBeaconBlock<E>>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let light_client_update = match attested_block
@@ -168,8 +168,13 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Altair | ForkName::Bellatrix => {
                 let attested_header =
                     LightClientHeaderAltair::block_to_light_client_header(attested_block)?;
-                let finalized_header =
-                    LightClientHeaderAltair::block_to_light_client_header(finalized_block)?;
+
+                let finalized_header = if let Some(finalized_block) = finalized_block {
+                    LightClientHeaderAltair::block_to_light_client_header(finalized_block)?
+                } else {
+                    LightClientHeaderAltair::default()
+                };
+
                 Self::Altair(LightClientUpdateAltair {
                     attested_header,
                     next_sync_committee,
@@ -183,8 +188,13 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Capella => {
                 let attested_header =
                     LightClientHeaderCapella::block_to_light_client_header(attested_block)?;
-                let finalized_header =
-                    LightClientHeaderCapella::block_to_light_client_header(finalized_block)?;
+
+                let finalized_header = if let Some(finalized_block) = finalized_block {
+                    LightClientHeaderCapella::block_to_light_client_header(finalized_block)?
+                } else {
+                    LightClientHeaderCapella::default()
+                };
+
                 Self::Capella(LightClientUpdateCapella {
                     attested_header,
                     next_sync_committee,
@@ -198,8 +208,13 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Deneb | ForkName::Electra => {
                 let attested_header =
                     LightClientHeaderDeneb::block_to_light_client_header(attested_block)?;
-                let finalized_header =
-                    LightClientHeaderDeneb::block_to_light_client_header(finalized_block)?;
+
+                let finalized_header = if let Some(finalized_block) = finalized_block {
+                    LightClientHeaderDeneb::block_to_light_client_header(finalized_block)?
+                } else {
+                    LightClientHeaderDeneb::default()
+                };
+
                 Self::Deneb(LightClientUpdateDeneb {
                     attested_header,
                     next_sync_committee,
