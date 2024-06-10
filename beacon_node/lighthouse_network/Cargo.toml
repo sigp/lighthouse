@@ -7,7 +7,7 @@ edition = { workspace = true }
 [dependencies]
 discv5 = { workspace = true }
 gossipsub = { workspace = true }
-unsigned-varint = { version = "0.6", features = ["codec"] }
+unsigned-varint = { version = "0.8", features = ["codec"] }
 ssz_types = { workspace = true }
 types = { workspace = true }
 serde = { workspace = true }
@@ -45,7 +45,6 @@ bytes = { workspace = true }
 either = { workspace = true }
 
 # Local dependencies
-instant = "0.1.12"
 void = "1.0.2"
 libp2p-mplex = "0.41"
 
@@ -64,4 +63,3 @@ async-channel = { workspace = true }
 
 [features]
 libp2p-websocket = []
-

@@ -4385,6 +4385,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::ProposerSlashing => {
                                     event_handler.subscribe_proposer_slashing()
                                 }
+                                api_types::EventTopic::BlsToExecutionChange => {
+                                    event_handler.subscribe_bls_to_execution_change()
+                                }
                             };
 
                             receivers.push(

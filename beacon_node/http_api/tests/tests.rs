@@ -70,6 +70,7 @@ struct ApiTester {
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
+    bls_to_execution_change: SignedBlsToExecutionChange,
     network_rx: NetworkReceivers<E>,
     local_enr: Enr,
     external_peer_id: PeerId,
@@ -128,6 +129,7 @@ impl ApiTester {
             })
             .logger(logging::test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
+            .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer_with_config()
             .build();
@@ -223,6 +225,7 @@ impl ApiTester {
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
+        let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
 
         let chain = harness.chain.clone();
 
@@ -289,6 +292,7 @@ impl ApiTester {
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
+            bls_to_execution_change,
             network_rx,
             local_enr,
             external_peer_id,
@@ -301,6 +305,7 @@ impl ApiTester {
             BeaconChainHarness::builder(MainnetEthSpec)
                 .default_spec()
                 .deterministic_keypairs(VALIDATOR_COUNT)
+                .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
                 .build(),
         );
@@ -336,6 +341,7 @@ impl ApiTester {
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
+        let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
 
         let chain = harness.chain.clone();
 
@@ -373,6 +379,7 @@ impl ApiTester {
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
+            bls_to_execution_change,
             network_rx,
             local_enr,
             external_peer_id,
@@ -5246,6 +5253,7 @@ impl ApiTester {
             EventTopic::FinalizedCheckpoint,
             EventTopic::AttesterSlashing,
             EventTopic::ProposerSlashing,
+            EventTopic::BlsToExecutionChange,
         ];
         let mut events_future = self
             .client
@@ -5286,6 +5294,20 @@ impl ApiTester {
         assert_eq!(
             exit_events.as_slice(),
             &[EventKind::VoluntaryExit(self.voluntary_exit.clone())]
+        );
+
+        // Produce a BLS to execution change event
+        self.client
+            .post_beacon_pool_bls_to_execution_changes(&[self.bls_to_execution_change.clone()])
+            .await
+            .unwrap();
+
+        let bls_events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+        assert_eq!(
+            bls_events.as_slice(),
+            &[EventKind::BlsToExecutionChange(Box::new(
+                self.bls_to_execution_change.clone()
+            ))]
         );
 
         // Submit the next block, which is on an epoch boundary, so this will produce a finalized

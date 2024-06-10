@@ -755,6 +755,9 @@ pub mod serde_logs_bloom {
 #[serde(rename_all = "camelCase")]
 pub struct JsonClientVersionV1 {
     pub code: String,
+    // This `default` is required until Geth v1.13.x is no longer supported on mainnet.
+    // See: https://github.com/ethereum/go-ethereum/pull/29351
+    #[serde(default)]
     pub name: String,
     pub version: String,
     pub commit: String,
