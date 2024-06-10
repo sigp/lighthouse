@@ -7,6 +7,7 @@ use super::protocol::{InboundOutput, InboundRequest, Protocol, RPCError, RPCProt
 use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
+use crate::rpc::rate_limiter::{RPCRateLimiter, RateLimitedErr};
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use futures::SinkExt;
@@ -15,7 +16,9 @@ use libp2p::swarm::handler::{
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
 };
 use libp2p::swarm::Stream;
-use slog::{crit, debug, Logger, trace, warn};
+use libp2p::PeerId;
+use parking_lot::Mutex;
+use slog::{crit, debug, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::{
     collections::{hash_map::Entry, VecDeque},
@@ -24,12 +27,9 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use libp2p::PeerId;
-use parking_lot::Mutex;
 use tokio::time::{sleep, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
 use types::{EthSpec, ForkContext};
-use crate::rpc::rate_limiter::{RateLimitedErr, RPCRateLimiter};
 
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
@@ -307,7 +307,13 @@ where
         }
     }
 
-    fn try_response_limiter(limiter: &mut Arc<Mutex<RPCRateLimiter>>, peer_id: &PeerId, protocol: Protocol, response: RPCCodedResponse<E>, log: &Logger) -> Result<(), Duration> {
+    fn try_response_limiter(
+        limiter: &mut Arc<Mutex<RPCRateLimiter>>,
+        peer_id: &PeerId,
+        protocol: Protocol,
+        response: RPCCodedResponse<E>,
+        log: &Logger,
+    ) -> Result<(), Duration> {
         match limiter.lock().allows(peer_id, &(response, protocol)) {
             Ok(()) => Ok(()),
             Err(e) => match e {
@@ -346,24 +352,53 @@ where
         if let Some((peer_id, limiter)) = self.response_limiter.as_mut() {
             // First check that there are not already other responses waiting to be sent.
             if let Some(queued_responses) = self.delayed_responses.get_mut(&inbound_info.protocol) {
-                queued_responses.push_back(QueuedResponse { response, protocol: inbound_info.protocol, inbound_id});
+                queued_responses.push_back(QueuedResponse {
+                    response,
+                    protocol: inbound_info.protocol,
+                    inbound_id,
+                });
                 return;
             }
 
-            match Self::try_response_limiter(limiter, peer_id, inbound_info.protocol.clone(), response.clone(), &self.log) {
+            match Self::try_response_limiter(
+                limiter,
+                peer_id,
+                inbound_info.protocol.clone(),
+                response.clone(),
+                &self.log,
+            ) {
                 Ok(()) => {
-                    Self::send_response_inner(inbound_id, inbound_info, response, &mut self.events_out, &self.state, &self.log);
+                    Self::send_response_inner(
+                        inbound_id,
+                        inbound_info,
+                        response,
+                        &mut self.events_out,
+                        &self.state,
+                        &self.log,
+                    );
                 }
                 Err(wait_time) => {
-                    self.next_response.insert(inbound_info.protocol.clone(), wait_time);
+                    self.next_response
+                        .insert(inbound_info.protocol.clone(), wait_time);
                     self.delayed_responses
                         .entry(inbound_info.protocol.clone())
                         .or_default()
-                        .push_back(QueuedResponse { response, protocol: inbound_info.protocol, inbound_id});
+                        .push_back(QueuedResponse {
+                            response,
+                            protocol: inbound_info.protocol,
+                            inbound_id,
+                        });
                 }
             }
         } else {
-            Self::send_response_inner(inbound_id, inbound_info, response, &mut self.events_out, &self.state, &self.log);
+            Self::send_response_inner(
+                inbound_id,
+                inbound_info,
+                response,
+                &mut self.events_out,
+                &self.state,
+                &self.log,
+            );
         }
     }
 
@@ -494,15 +529,29 @@ where
                 if let Entry::Occupied(mut entry) = self.delayed_responses.entry(protocol) {
                     let queued_responses = entry.get_mut();
                     while let Some(res) = queued_responses.pop_front() {
-                        let Some(inbound_info) = self.inbound_substreams.get_mut(&res.inbound_id) else {
+                        let Some(inbound_info) = self.inbound_substreams.get_mut(&res.inbound_id)
+                        else {
                             // TODO: log message
                             debug!(self.log, "Inbound stream has expired. Response not sent"; "protocol" => %protocol, "peer_id" => %peer_id, "inbound_id" => res.inbound_id);
                             continue;
                         };
-                        match Self::try_response_limiter(limiter, peer_id, res.protocol.clone(), res.response.clone(), &self.log) {
+                        match Self::try_response_limiter(
+                            limiter,
+                            peer_id,
+                            res.protocol.clone(),
+                            res.response.clone(),
+                            &self.log,
+                        ) {
                             Ok(()) => {
                                 debug!(self.log, "The waiting time for response rate-limiting has over. Sending the response."; "protocol" => %protocol, "peer_id" => %peer_id, "inbound_id" => res.inbound_id);
-                                Self::send_response_inner(res.inbound_id, inbound_info, res.response, &mut self.events_out, &self.state, &self.log);
+                                Self::send_response_inner(
+                                    res.inbound_id,
+                                    inbound_info,
+                                    res.response,
+                                    &mut self.events_out,
+                                    &self.state,
+                                    &self.log,
+                                );
                             }
                             Err(wait_time) => {
                                 self.next_response.insert(protocol, wait_time);

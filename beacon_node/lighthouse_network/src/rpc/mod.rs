@@ -12,13 +12,13 @@ use libp2p::swarm::{
 };
 use libp2p::swarm::{FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
+use parking_lot::Mutex;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
 use slog::{crit, debug, o};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use parking_lot::Mutex;
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -153,7 +153,10 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
         let response_limiter = inbound_rate_limiter_config.map(|config| {
             debug!(log, "Using response rate limiting params"; "config" => ?config);
-            Arc::new(Mutex::new(RateLimiter::new_with_config(config.0).expect("Inbound limiter configuration parameters are valid")))
+            Arc::new(Mutex::new(
+                RateLimiter::new_with_config(config.0)
+                    .expect("Inbound limiter configuration parameters are valid"),
+            ))
         });
 
         let self_limiter = outbound_rate_limiter_config.map(|config| {
@@ -255,7 +258,9 @@ where
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
-            self.response_limiter.as_ref().map(|response_limiter| (peer_id, response_limiter.clone())),
+            self.response_limiter
+                .as_ref()
+                .map(|response_limiter| (peer_id, response_limiter.clone())),
         );
 
         Ok(handler)
@@ -288,7 +293,9 @@ where
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
-            self.response_limiter.as_ref().map(|response_limiter| (peer_id, response_limiter.clone())),
+            self.response_limiter
+                .as_ref()
+                .map(|response_limiter| (peer_id, response_limiter.clone())),
         );
 
         Ok(handler)
