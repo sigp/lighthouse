@@ -186,11 +186,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
     // > Full nodes SHOULD provide the LightClientFinalityUpdate with the highest attested_header.beacon.slot (if multiple, highest signature_slot)
     //
     // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_finality_update
-    pub fn is_latest_finality_update(
-        &self,
-        attested_slot: Slot,
-        signature_slot: Slot,
-    ) -> bool {
+    pub fn is_latest_finality_update(&self, attested_slot: Slot, signature_slot: Slot) -> bool {
         let prev_slot = self.get_attested_header_slot();
         if attested_slot > prev_slot {
             true

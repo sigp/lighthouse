@@ -17,8 +17,7 @@ use types::light_client_update::{
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, Slot, SyncAggregate,
-    SyncCommittee,
+    LightClientOptimisticUpdate, LightClientUpdate, Slot, SyncAggregate, SyncCommittee,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the

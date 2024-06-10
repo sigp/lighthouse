@@ -56,7 +56,7 @@ pub fn get_light_client_updates<T: BeaconChainTypes>(
             let fork_versioned_response = light_client_updates
                 .iter()
                 .map(|update| map_light_client_update_to_json_response::<T>(&chain, update.clone()))
-                .collect::<Vec<ForkVersionedResponse<LightClientUpdate<T::EthSpec>>>>();
+                .collect::<Result<Vec<ForkVersionedResponse<LightClientUpdate<T::EthSpec>>>, Rejection>>()?;
             Ok(warp::reply::json(&fork_versioned_response).into_response())
         }
     }
@@ -74,10 +74,16 @@ pub fn validate_light_client_updates_request<T: BeaconChainTypes>(
 
     let current_sync_period = chain
         .epoch()
-        .unwrap()
+        .map_err(|_| {
+            warp_utils::reject::custom_server_error("failed to get current epoch".to_string())
+        })?
         .sync_committee_period(&chain.spec)
-        .unwrap();
-    println!("start period {:?}", query.start_period);
+        .map_err(|_| {
+            warp_utils::reject::custom_server_error(
+                "failed to get current sync committee period".to_string(),
+            )
+        })?;
+
     if query.start_period > current_sync_period {
         return Err(warp_utils::reject::custom_bad_request(
             "Invalid sync committee period requested 1".to_string(),
@@ -87,9 +93,16 @@ pub fn validate_light_client_updates_request<T: BeaconChainTypes>(
     let earliest_altair_sync_committee = chain
         .spec
         .altair_fork_epoch
-        .unwrap()
+        .ok_or(warp_utils::reject::custom_server_error(
+            "failed to get altair fork epoch".to_string(),
+        ))?
         .sync_committee_period(&chain.spec)
-        .unwrap();
+        .map_err(|_| {
+            warp_utils::reject::custom_server_error(
+                "failed to get earliest altair sync committee".to_string(),
+            )
+        })?;
+
     if query.start_period < earliest_altair_sync_committee {
         return Err(warp_utils::reject::custom_bad_request(
             "Invalid sync committee period requested 2".to_string(),
@@ -143,10 +156,10 @@ fn map_light_client_update_to_ssz_chunk<T: BeaconChainTypes>(
 fn map_light_client_update_to_json_response<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     light_client_update: LightClientUpdate<T::EthSpec>,
-) -> ForkVersionedResponse<LightClientUpdate<T::EthSpec>> {
+) -> Result<ForkVersionedResponse<LightClientUpdate<T::EthSpec>>, Rejection> {
     let fork_name = chain
         .spec
         .fork_name_at_slot::<T::EthSpec>(*light_client_update.signature_slot());
 
-    fork_versioned_response(V1, fork_name, light_client_update).unwrap()
+    fork_versioned_response(V1, fork_name, light_client_update)
 }
