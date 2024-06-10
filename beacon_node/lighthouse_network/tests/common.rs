@@ -15,8 +15,8 @@ use types::{
 type E = MinimalEthSpec;
 type ReqId = usize;
 
-use tempfile::Builder as TempBuilder;
 use lighthouse_network::rpc::config::InboundRateLimiterConfig;
+use tempfile::Builder as TempBuilder;
 
 /// Returns a dummy fork context
 pub fn fork_context(fork_name: ForkName) -> ForkContext {
@@ -77,7 +77,10 @@ pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     }
 }
 
-pub fn build_config(mut boot_nodes: Vec<Enr>, use_inbound_rate_limiter: bool) -> NetworkConfig {
+pub fn build_config(
+    mut boot_nodes: Vec<Enr>,
+    inbound_rate_limiter: Option<InboundRateLimiterConfig>,
+) -> NetworkConfig {
     let mut config = NetworkConfig::default();
 
     // Find unused ports by using the 0 port.
@@ -93,9 +96,7 @@ pub fn build_config(mut boot_nodes: Vec<Enr>, use_inbound_rate_limiter: bool) ->
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
-    if use_inbound_rate_limiter {
-        config.inbound_rate_limiter_config = Some(InboundRateLimiterConfig::default());
-    }
+    config.inbound_rate_limiter_config = inbound_rate_limiter;
     config
 }
 
@@ -105,9 +106,9 @@ pub async fn build_libp2p_instance(
     log: slog::Logger,
     fork_name: ForkName,
     spec: &ChainSpec,
-    use_inbound_rate_limiter: bool,
+    inbound_rate_limiter: Option<InboundRateLimiterConfig>,
 ) -> Libp2pInstance {
-    let config = build_config(boot_nodes, use_inbound_rate_limiter);
+    let config = build_config(boot_nodes, inbound_rate_limiter);
     // launch libp2p service
 
     let (signal, exit) = async_channel::bounded(1);
@@ -149,13 +150,29 @@ pub async fn build_node_pair(
     fork_name: ForkName,
     spec: &ChainSpec,
     protocol: Protocol,
-    use_inbound_rate_limiter: bool,
+    inbound_rate_limiter: Option<InboundRateLimiterConfig>,
 ) -> (Libp2pInstance, Libp2pInstance) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
-    let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log, fork_name, spec, use_inbound_rate_limiter).await;
-    let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name, spec, use_inbound_rate_limiter).await;
+    let mut sender = build_libp2p_instance(
+        rt.clone(),
+        vec![],
+        sender_log,
+        fork_name,
+        spec,
+        inbound_rate_limiter.clone(),
+    )
+    .await;
+    let mut receiver = build_libp2p_instance(
+        rt,
+        vec![],
+        receiver_log,
+        fork_name,
+        spec,
+        inbound_rate_limiter,
+    )
+    .await;
 
     // let the two nodes set up listeners
     let sender_fut = async {
@@ -228,7 +245,9 @@ pub async fn build_linear(
 ) -> Vec<Libp2pInstance> {
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
-        nodes.push(build_libp2p_instance(rt.clone(), vec![], log.clone(), fork_name, spec, false).await);
+        nodes.push(
+            build_libp2p_instance(rt.clone(), vec![], log.clone(), fork_name, spec, None).await,
+        );
     }
 
     let multiaddrs: Vec<Multiaddr> = nodes

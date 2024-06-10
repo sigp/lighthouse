@@ -5,11 +5,11 @@ mod common;
 use common::Protocol;
 use lighthouse_network::rpc::{methods::*, RPCError};
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
-use slog::{debug, warn, Level};
+use slog::{debug, error, warn, Level};
 use ssz::Encode;
 use ssz_types::VariableList;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
@@ -70,7 +70,7 @@ fn test_tcp_status_rpc() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
-            false,
+            None,
         )
         .await;
 
@@ -171,7 +171,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
             ForkName::Bellatrix,
             &spec,
             Protocol::Tcp,
-            false,
+            None,
         )
         .await;
 
@@ -305,7 +305,7 @@ fn test_blobs_by_range_chunked_rpc() {
             ForkName::Deneb,
             &spec,
             Protocol::Tcp,
-            false,
+            None,
         )
         .await;
 
@@ -418,7 +418,7 @@ fn test_tcp_blocks_by_range_over_limit() {
             ForkName::Bellatrix,
             &spec,
             Protocol::Tcp,
-            false,
+            None,
         )
         .await;
 
@@ -510,7 +510,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
-            false,
+            None,
         )
         .await;
 
@@ -639,7 +639,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
-            false,
+            None,
         )
         .await;
 
@@ -747,7 +747,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
             ForkName::Bellatrix,
             &spec,
             Protocol::Tcp,
-            false,
+            None,
         )
         .await;
 
@@ -884,7 +884,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
-            false,
+            None,
         )
         .await;
 
@@ -1022,7 +1022,7 @@ fn test_disconnect_triggers_rpc_error() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
-            false,
+            None,
         )
         .await;
 
@@ -1106,9 +1106,15 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
 
     // get sender/receiver
     rt.block_on(async {
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec, protocol, false)
-                .await;
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            protocol,
+            None,
+        )
+        .await;
 
         // build the sender future
         let sender_future = async {
@@ -1172,6 +1178,7 @@ fn quic_test_goodbye_rpc() {
     goodbye_test(log_level, enable_logging, Protocol::Quic);
 }
 
+// Test that the receiver delays the responses during response rate-limiting.
 #[test]
 fn test_delayed_rpc_response() {
     let rt = Arc::new(Runtime::new().unwrap());
@@ -1186,7 +1193,8 @@ fn test_delayed_rpc_response() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
-            true
+            // Configure a quota for STATUS responses of 1 token every 3 seconds.
+            Some("status:1/3".parse().unwrap()),
         )
         .await;
 
@@ -1211,11 +1219,13 @@ fn test_delayed_rpc_response() {
         // build the sender future
         let sender_future = async {
             let mut request_id = 1;
+            let mut request_sent_at = Instant::now();
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         debug!(log, "Sending RPC request"; "request_id" => request_id);
                         sender.send_request(peer_id, request_id, rpc_request.clone());
+                        request_sent_at = Instant::now();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id,
@@ -1225,13 +1235,35 @@ fn test_delayed_rpc_response() {
                         debug!(log, "Sender received"; "request_id" => request_id);
                         assert_eq!(id, request_id);
                         assert_eq!(response, rpc_response);
+
+                        match request_id {
+                            1 => {
+                                // The first response is returned instantly.
+                                assert!(request_sent_at.elapsed() < Duration::from_millis(100));
+                            }
+                            2..=5 => {
+                                // The second and subsequent responses are delayed due to the response rate-limiter on the receiver side.
+                                assert!(request_sent_at.elapsed() > Duration::from_secs(3));
+                                if request_id == 5 {
+                                    // End the test
+                                    return;
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+
                         request_id += 1;
                         debug!(log, "Sending RPC request"; "request_id" => request_id);
                         sender.send_request(peer_id, request_id, rpc_request.clone());
+                        request_sent_at = Instant::now();
                     }
-                    NetworkEvent::RPCFailed { id, peer_id: _, error } => {
-                        debug!(log, "RPC Failed"; "request_id" => id, "error" => ?error);
-                        return;
+                    NetworkEvent::RPCFailed {
+                        id,
+                        peer_id: _,
+                        error,
+                    } => {
+                        error!(log, "RPC Failed"; "request_id" => id, "error" => ?error);
+                        panic!("Rpc failed.");
                     }
                     _ => {}
                 }
