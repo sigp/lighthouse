@@ -8715,7 +8715,7 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.6.0"
-source = "git+https://github.com/macladson/tree_hash?branch=stable-container#3fcd1e69addbf7f73786405404b472455d3f4ad7"
+source = "git+https://github.com/macladson/tree_hash?branch=stable-container#b614143d6598fdc67d2282cef69286f672c8f167"
 dependencies = [
  "ethereum-types 0.14.1",
  "ethereum_hashing",
@@ -8725,7 +8725,7 @@ dependencies = [
 [[package]]
 name = "tree_hash_derive"
 version = "0.6.0"
-source = "git+https://github.com/macladson/tree_hash?branch=stable-container#3fcd1e69addbf7f73786405404b472455d3f4ad7"
+source = "git+https://github.com/macladson/tree_hash?branch=stable-container#b614143d6598fdc67d2282cef69286f672c8f167"
 dependencies = [
  "darling",
  "proc-macro2",

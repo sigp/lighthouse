@@ -36,7 +36,8 @@ pub type WithdrawalRequests<E> =
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec")
+        arbitrary(bound = "E: EthSpec"),
+        tree_hash(max_fields = "typenum::U64")
     ),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
@@ -50,52 +51,71 @@ pub type WithdrawalRequests<E> =
 #[serde(bound = "E: EthSpec", untagged)]
 #[arbitrary(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
-#[tree_hash(enum_behaviour = "transparent")]
+#[tree_hash(enum_behaviour = "transparent_stable")]
 pub struct ExecutionPayload<E: EthSpec> {
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 0)]
     pub parent_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 1)]
     pub fee_recipient: Address,
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 2)]
     pub state_root: Hash256,
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 3)]
     pub receipts_root: Hash256,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
+    #[tree_hash(stable_index = 4)]
     pub logs_bloom: FixedVector<u8, E::BytesPerLogsBloom>,
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 5)]
     pub prev_randao: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 6)]
     pub block_number: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 7)]
     pub gas_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 8)]
     pub gas_used: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 9)]
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    #[tree_hash(stable_index = 10)]
     pub extra_data: VariableList<u8, E::MaxExtraDataBytes>,
     #[serde(with = "serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 11)]
     pub base_fee_per_gas: Uint256,
     #[superstruct(getter(copy))]
+    #[tree_hash(stable_index = 12)]
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
+    #[tree_hash(stable_index = 13)]
     pub transactions: Transactions<E>,
     #[superstruct(only(Capella, Deneb, Electra))]
+    #[tree_hash(stable_index = 14)]
     pub withdrawals: Withdrawals<E>,
     #[superstruct(only(Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
+    #[tree_hash(stable_index = 15)]
     pub blob_gas_used: u64,
     #[superstruct(only(Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
+    #[tree_hash(stable_index = 16)]
     pub excess_blob_gas: u64,
     #[superstruct(only(Electra))]
+    #[tree_hash(stable_index = 17)]
     pub deposit_requests: VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>,
     #[superstruct(only(Electra))]
+    #[tree_hash(stable_index = 18)]
     pub withdrawal_requests:
         VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
 }
