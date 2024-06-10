@@ -28,6 +28,10 @@ use tree_hash_derive::TreeHash;
         serde(bound = "E: EthSpec"),
         arbitrary(bound = "E: EthSpec")
     ),
+    specific_variant_attributes(tree_hash(
+        struct_behaviour = "profile",
+        max_fields = "typenum::U8"
+    )),
     ref_attributes(derive(Debug))
 )]
 #[derive(
@@ -40,8 +44,10 @@ use tree_hash_derive::TreeHash;
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct AttesterSlashing<E: EthSpec> {
     #[superstruct(flatten)]
+    #[tree_hash(stable_index = 0)]
     pub attestation_1: IndexedAttestation<E>,
     #[superstruct(flatten)]
+    #[tree_hash(stable_index = 1)]
     pub attestation_2: IndexedAttestation<E>,
 }
 
