@@ -316,7 +316,7 @@ impl InvalidPayloadRig {
                     self.harness
                         .chain
                         .store
-                        .get_full_block(&block_root)
+                        .get_full_block(&block_root, None)
                         .unwrap()
                         .unwrap(),
                     *block,

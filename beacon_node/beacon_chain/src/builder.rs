@@ -1212,7 +1212,7 @@ mod test {
         assert_eq!(
             chain
                 .store
-                .get_blinded_block(&Hash256::zero())
+                .get_blinded_block(&Hash256::zero(), None)
                 .expect("should read db")
                 .expect("should find genesis block"),
             block.clone_as_blinded(),
