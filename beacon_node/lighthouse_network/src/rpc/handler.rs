@@ -143,10 +143,14 @@ where
     /// Timeout that will me used for inbound and outbound responses.
     resp_timeout: Duration,
 
+    /// Rate limiter for our responses and the PeerId that this handler interacts with.
+    /// The PeerId is necessary since the rate limiter manages rate limiting per peer.
     response_limiter: Option<(PeerId, Arc<Mutex<RPCRateLimiter>>)>,
 
+    /// Responses queued for sending. These responses are stored when the response limiter rejects them.
     delayed_responses: FnvHashMap<Protocol, VecDeque<QueuedResponse<E>>>,
 
+    /// The delay required to allow for sending a response per protocol.
     next_response: DelayQueue<Protocol>,
 }
 
@@ -307,6 +311,8 @@ where
         }
     }
 
+    /// Checks if the response limiter allows the response. If the response should be delayed, the
+    /// duration to wait is returned.
     fn try_response_limiter(
         limiter: &mut Arc<Mutex<RPCRateLimiter>>,
         peer_id: &PeerId,
@@ -318,11 +324,11 @@ where
             Ok(()) => Ok(()),
             Err(e) => match e {
                 RateLimitedErr::TooLarge => {
-                    // this should never happen with default parameters. Let's just send the response.
-                    // TODO: Log a crit since this is a config issue.
+                    // This should never happen with default parameters. Let's just send the response.
+                    // Log a crit since this is a config issue.
                     crit!(
                        log,
-                        "TODO!!!! Response rate limiting error for a batch that will never fit. Sending response anyway. Check configuration parameters.";
+                        "Response rate limiting error for a batch that will never fit. Sending response anyway. Check configuration parameters.";
                         "protocol" => %protocol
                     );
                     Ok(())
@@ -402,6 +408,7 @@ where
         }
     }
 
+    /// Sends a response to a peer's request.
     fn send_response_inner(
         inbound_id: SubstreamId,
         inbound_info: &mut InboundInfo<E>,
@@ -524,6 +531,7 @@ where
         }
 
         if let Some((peer_id, limiter)) = self.response_limiter.as_mut() {
+            // Process delayed responses that are ready to be sent.
             if let Poll::Ready(Some(Ok(expired))) = self.next_response.poll_expired(cx) {
                 let protocol = expired.into_inner();
                 if let Entry::Occupied(mut entry) = self.delayed_responses.entry(protocol) {
@@ -531,8 +539,7 @@ where
                     while let Some(res) = queued_responses.pop_front() {
                         let Some(inbound_info) = self.inbound_substreams.get_mut(&res.inbound_id)
                         else {
-                            // TODO: log message
-                            debug!(self.log, "Inbound stream has expired. Response not sent"; "protocol" => %protocol, "peer_id" => %peer_id, "inbound_id" => res.inbound_id);
+                            debug!(self.log, "The inbound stream has expired. The delayed response was not sent."; "protocol" => %protocol, "peer_id" => %peer_id, "inbound_id" => res.inbound_id);
                             continue;
                         };
                         match Self::try_response_limiter(

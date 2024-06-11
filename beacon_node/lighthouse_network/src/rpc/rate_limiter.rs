@@ -257,6 +257,7 @@ impl<E: EthSpec> RateLimiterItem for (super::RPCCodedResponse<E>, Protocol) {
     }
 
     fn max_responses(&self) -> u64 {
+        // A response chunk consumes one token of the rate limiter.
         1
     }
 }

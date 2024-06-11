@@ -120,6 +120,7 @@ pub struct NetworkParams {
 pub struct RPC<Id: ReqId, E: EthSpec> {
     /// Rate limiter
     limiter: Option<RateLimiter>,
+    /// Rate limiter for our responses. This is shared with RPCHandlers.
     response_limiter: Option<Arc<Mutex<RateLimiter>>>,
     /// Rate limiter for our own requests.
     self_limiter: Option<SelfRateLimiter<Id, E>>,
