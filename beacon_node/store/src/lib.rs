@@ -273,6 +273,10 @@ pub enum DBColumn {
     /// For persisting eagerly computed light client data
     #[strum(serialize = "lcu")]
     LightClientUpdate,
+    #[strum(serialize = "scb")]
+    SyncCommitteeBranch,
+    #[strum(serialize = "scm")]
+    SyncCommittee,
 }
 
 /// A block from the database, which might have an execution payload or not.
@@ -316,7 +320,9 @@ impl DBColumn {
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
             | Self::BeaconRandaoMixes
-            | Self::LightClientUpdate => 8,
+            | Self::LightClientUpdate
+            | Self::SyncCommittee
+            | Self::SyncCommitteeBranch => 8,
         }
     }
 }

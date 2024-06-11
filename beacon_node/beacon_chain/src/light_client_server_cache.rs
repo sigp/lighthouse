@@ -1,5 +1,6 @@
 use crate::errors::BeaconChainError;
 use crate::{metrics, BeaconChainTypes, BeaconStore};
+use eth2::types::light_client_update::CurrentSyncCommitteeProofLen;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use slog::{debug, Logger};
@@ -16,8 +17,9 @@ use types::light_client_update::{
 };
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, Slot, SyncAggregate, SyncCommittee,
+    BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, Slot, SyncAggregate,
+    SyncCommittee,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
@@ -309,6 +311,88 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
     pub fn get_latest_optimistic_update(&self) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
         self.latest_optimistic_update.read().clone()
+    }
+
+    pub fn get_sync_committee_branch(
+        &self,
+        store: &BeaconStore<T>,
+        block_root: &Hash256,
+    ) -> Result<Option<FixedVector<Hash256, CurrentSyncCommitteeProofLen>>, BeaconChainError> {
+        let column = DBColumn::SyncCommitteeBranch;
+
+        if let Some(bytes) = store
+            .hot_db
+            .get_bytes(column.into(), &block_root.as_ssz_bytes())?
+        {
+            // TODO unwrap
+            let sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen> =
+                FixedVector::from_ssz_bytes(&bytes).unwrap();
+
+            return Ok(Some(sync_committee_branch));
+        }
+
+        Ok(None)
+    }
+
+    pub fn get_sync_committee(
+        &self,
+        store: &BeaconStore<T>,
+        sync_committee_period: u64,
+    ) -> Result<Option<SyncCommittee<T::EthSpec>>, BeaconChainError> {
+        let column = DBColumn::SyncCommittee;
+
+        if let Some(bytes) = store
+            .hot_db
+            .get_bytes(column.into(), &sync_committee_period.as_ssz_bytes())?
+        {
+            let sync_committee: SyncCommittee<T::EthSpec> =
+                SyncCommittee::from_ssz_bytes(&bytes).unwrap();
+            return Ok(Some(sync_committee));
+        }
+
+        Ok(None)
+    }
+
+    pub fn get_light_client_bootstrap(
+        &self,
+        store: &BeaconStore<T>,
+        block_root: &Hash256,
+        chain_spec: &ChainSpec,
+    ) -> Result<Option<LightClientBootstrap<T::EthSpec>>, BeaconChainError> {
+        if let Some(block) = store.get_full_block(block_root)? {
+            let (state_root, slot) = (block.state_root(), block.slot());
+
+            let header_period = block.slot();
+            let sync_committee_period = 0;
+            // compute the current finalized period?
+            let current_finalized_period = block.slot();
+
+            let current_sync_committee_branch =
+                self.get_sync_committee_branch(store, block_root)?.unwrap();
+            // TODO unwrap
+            // db.current_sync_committee_branch.get(block_root)
+
+            let current_sync_committee = if header_period <= current_finalized_period {
+                // fetch the header current sync committee from the db, since its not cached
+                Arc::new(
+                    self.get_sync_committee(store, sync_committee_period)?
+                        .ok_or(BeaconChainError::AltairForkDisabled)?,
+                ) // TODO fix error
+            } else {
+                // were at the current finalized period, so this data should be easily retrievable from the currently cached state
+                let state = store.get_state(&state_root, Some(slot))?.unwrap();
+                state.current_sync_committee()?.clone()
+            };
+
+            return Ok(Some(LightClientBootstrap::new(
+                &block,
+                current_sync_committee,
+                current_sync_committee_branch,
+                chain_spec,
+            )?));
+        }
+
+        Ok(None)
     }
 }
 

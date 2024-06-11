@@ -6662,42 +6662,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Gets the `LightClientBootstrap` object for a requested block root.
     ///
     /// Returns `None` when the state or block is not found in the database.
-    #[allow(clippy::type_complexity)]
     pub fn get_light_client_bootstrap(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, Error> {
-        let handle = self
-            .task_executor
-            .handle()
-            .ok_or(BeaconChainError::RuntimeShutdown)?;
-
-        let Some(block) = handle.block_on(async { self.get_block(block_root).await })? else {
-            return Ok(None);
-        };
-
-        let (state_root, slot) = (block.state_root(), block.slot());
-
-        let Some(mut state) = self.get_state(&state_root, Some(slot))? else {
-            return Ok(None);
-        };
-
-        let fork_name = state
-            .fork_name(&self.spec)
-            .map_err(Error::InconsistentFork)?;
-
-        match fork_name {
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
-                LightClientBootstrap::from_beacon_state(&mut state, &block, &self.spec)
-                    .map(|bootstrap| Some((bootstrap, fork_name)))
-                    .map_err(Error::LightClientError)
-            }
-            ForkName::Base => Err(Error::UnsupportedFork),
-        }
+    ) -> Result<Option<LightClientBootstrap<T::EthSpec>>, Error> {
+        self.light_client_server_cache.get_light_client_bootstrap(
+            &self.store,
+            block_root,
+            &self.spec,
+        )
     }
 
     pub fn metrics(&self) -> BeaconChainMetrics {

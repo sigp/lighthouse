@@ -5,6 +5,7 @@ use eth2::types::{
 };
 use ssz::Encode;
 use std::sync::Arc;
+use types::Hash256;
 use warp::{
     hyper::{Body, Response},
     reply::Reply,
@@ -58,6 +59,29 @@ pub fn get_light_client_updates<T: BeaconChainTypes>(
                 .map(|update| map_light_client_update_to_json_response::<T>(&chain, update.clone()))
                 .collect::<Result<Vec<ForkVersionedResponse<LightClientUpdate<T::EthSpec>>>, Rejection>>()?;
             Ok(warp::reply::json(&fork_versioned_response).into_response())
+        }
+    }
+}
+
+pub fn get_light_client_bootstrap<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    block_root: &Hash256,
+    accept_header: Option<api_types::Accept>,
+) -> Result<Response<Body>, Rejection> {
+    let light_client_bootstrap = chain.get_light_client_bootstrap(block_root).map_err(|_| {
+        warp_utils::reject::custom_not_found("No LightClientBootstrap found".to_string())
+    })?;
+
+    match accept_header {
+        Some(api_types::Accept::Ssz) => Response::builder()
+            .status(200)
+            .body(light_client_bootstrap.as_ssz_bytes().into())
+            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+            .map_err(|e| {
+                warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
+            }),
+        _ => {
+            todo!()
         }
     }
 }
