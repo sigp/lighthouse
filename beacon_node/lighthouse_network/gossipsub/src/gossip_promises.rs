@@ -46,7 +46,7 @@ impl GossipPromises {
         self.promises
             .get(message_id)
             .map(|peers| peers.keys().copied().collect())
-            .unwrap_or(vec![])
+            .unwrap_or_default()
     }
 
     /// Track a promise to deliver a message from a list of [`MessageId`]s we are requesting.

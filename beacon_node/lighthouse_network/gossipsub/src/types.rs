@@ -129,9 +129,10 @@ pub(crate) struct PeerConnections {
 
 /// Describes the types of peers that can exist in the gossipsub context.
 #[derive(Debug, Clone, PartialEq, Hash, EncodeLabelValue, Eq)]
+#[allow(non_camel_case_types)]
 pub enum PeerKind {
     /// A gossipsub 1.2 peer.
-    Gossipsubv1_2,
+    Gossipsubv1_2_beta,
     /// A gossipsub 1.1 peer.
     Gossipsubv1_1,
     /// A gossipsub 1.0 peer.
@@ -147,7 +148,7 @@ impl PeerKind {
     pub(crate) fn is_gossipsub(&self) -> bool {
         matches!(
             self,
-            Self::Gossipsubv1_2 | Self::Gossipsubv1_1 | Self::Gossipsub
+            Self::Gossipsubv1_2_beta | Self::Gossipsubv1_1 | Self::Gossipsub
         )
     }
 }
@@ -622,7 +623,7 @@ impl PeerKind {
             Self::Floodsub => "Floodsub",
             Self::Gossipsub => "Gossipsub v1.0",
             Self::Gossipsubv1_1 => "Gossipsub v1.1",
-            Self::Gossipsubv1_2 => "Gossipsub v1.2",
+            Self::Gossipsubv1_2_beta => "Gossipsub v1.2-beta",
         }
     }
 }

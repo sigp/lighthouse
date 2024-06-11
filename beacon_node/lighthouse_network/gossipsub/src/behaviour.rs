@@ -1721,7 +1721,7 @@ where
             );
             self.gossip_promises
                 .reject_message(msg_id, &RejectReason::BlackListedPeer);
-            if let Some((peer_score, .., _)) = &mut self.peer_score {
+            if let Some((peer_score, ..)) = &mut self.peer_score {
                 peer_score.reject_message(
                     propagation_source,
                     msg_id,
@@ -1841,7 +1841,7 @@ where
         self.gossip_promises.message_delivered(&msg_id);
 
         // Tells score that message arrived (but is maybe not fully validated yet).
-        if let Some((peer_score, .., _)) = &mut self.peer_score {
+        if let Some((peer_score, ..)) = &mut self.peer_score {
             peer_score.validate_message(propagation_source, &msg_id, &message.topic);
         }
 
@@ -1889,7 +1889,7 @@ where
         raw_message: &RawMessage,
         reject_reason: RejectReason,
     ) {
-        if let Some((peer_score, .., _)) = &mut self.peer_score {
+        if let Some((peer_score, ..)) = &mut self.peer_score {
             if let Some(metrics) = self.metrics.as_mut() {
                 metrics.register_invalid_message(&raw_message.topic);
             }
@@ -2085,7 +2085,7 @@ where
 
     /// Applies penalties to peers that did not respond to our IWANT requests.
     fn apply_iwant_penalties(&mut self) {
-        if let Some((peer_score, .., _)) = &mut self.peer_score {
+        if let Some((peer_score, ..)) = &mut self.peer_score {
             for (peer, count) in self.gossip_promises.get_broken_promises() {
                 peer_score.add_penalty(&peer, count);
                 if let Some(metrics) = self.metrics.as_mut() {
@@ -2713,7 +2713,7 @@ where
             };
 
             // Only gossipsub 1.2 peers support IDONTWANT.
-            if peer.kind != PeerKind::Gossipsubv1_2 {
+            if peer.kind != PeerKind::Gossipsubv1_2_beta {
                 continue;
             }
 
