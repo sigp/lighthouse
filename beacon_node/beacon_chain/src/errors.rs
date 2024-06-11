@@ -31,6 +31,7 @@ use state_processing::{
 use std::time::Duration;
 use task_executor::ShutdownReason;
 use tokio::task::JoinError;
+use types::milhouse::Error as MilhouseError;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -55,6 +56,7 @@ pub enum BeaconChainError {
     SlotClockDidNotStart,
     NoStateForSlot(Slot),
     BeaconStateError(BeaconStateError),
+    EpochCacheError(EpochCacheError),
     DBInconsistent(String),
     DBError(store::Error),
     ForkChoiceError(ForkChoiceError),
@@ -223,6 +225,7 @@ pub enum BeaconChainError {
     AvailabilityCheckError(AvailabilityCheckError),
     LightClientError(LightClientError),
     UnsupportedFork,
+    MilhouseError(MilhouseError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -250,7 +253,9 @@ easy_from_to!(StateAdvanceError, BeaconChainError);
 easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
+easy_from_to!(EpochCacheError, BeaconChainError);
 easy_from_to!(LightClientError, BeaconChainError);
+easy_from_to!(MilhouseError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
@@ -259,6 +264,7 @@ pub enum BlockProductionError {
     UnableToProduceAtSlot(Slot),
     SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
+    EpochCacheError(EpochCacheError),
     ForkChoiceError(ForkChoiceError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
@@ -276,6 +282,7 @@ pub enum BlockProductionError {
     TerminalPoWBlockLookupFailed(execution_layer::Error),
     GetPayloadFailed(execution_layer::Error),
     FailedToReadFinalizedBlock(store::Error),
+    FailedToLoadState(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
     ShuttingDown,
@@ -298,3 +305,4 @@ easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(Eth1ChainError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);
+easy_from_to!(EpochCacheError, BlockProductionError);

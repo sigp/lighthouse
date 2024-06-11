@@ -3,7 +3,7 @@ PRESET_BASE: 'gnosis'
 # Free-form short name of the network that this configuration applies to - known
 # canonical network names include:
 # * 'mainnet' - there can be only one
-# * 'prater' - testnet
+# * 'holesky' - testnet
 # Must match the regex: [a-z0-9\-]
 CONFIG_NAME: 'chiado'
 
@@ -46,7 +46,9 @@ CAPELLA_FORK_EPOCH: 244224 # Wed May 24 2023 13:12:00 GMT+0000
 # Deneb
 DENEB_FORK_VERSION: 0x0400006f
 DENEB_FORK_EPOCH: 516608 # Wed Jan 31 2024 18:15:40 GMT+0000
-
+# Electra
+ELECTRA_FORK_VERSION: 0x0500006f
+ELECTRA_FORK_EPOCH: 18446744073709551615
 
 # Time parameters
 # ---------------------------------------------------------------

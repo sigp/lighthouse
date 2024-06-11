@@ -239,6 +239,11 @@ impl TestRig {
             Some(work_journal_tx),
             harness.chain.slot_clock.clone(),
             chain.spec.maximum_gossip_clock_disparity(),
+            BeaconProcessorQueueLengths::from_state(
+                &chain.canonical_head.cached_head().snapshot.beacon_state,
+                &chain.spec,
+            )
+            .unwrap(),
         );
 
         assert!(beacon_processor.is_ok());
@@ -311,9 +316,7 @@ impl TestRig {
                 block_root,
                 RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
                 std::time::Duration::default(),
-                BlockProcessType::ParentLookup {
-                    chain_hash: Hash256::random(),
-                },
+                BlockProcessType::SingleBlock { id: 0 },
             )
             .unwrap();
     }
