@@ -17,12 +17,12 @@ use crate::metadata::{
     DATA_COLUMN_INFO_KEY, PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY,
     STATE_UPPER_LIMIT_NO_RETAIN,
 };
-use crate::metrics;
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
     get_data_column_key, get_key_for_col, ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore,
     KeyValueStoreOp, PartialBeaconState, StoreItem, StoreOp,
 };
+use crate::{metrics, parse_data_column_key};
 use itertools::process_results;
 use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
@@ -1065,10 +1065,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     }
                     true
                 }
-                StoreOp::DeleteDataColumns(block_root, _column_indices) => {
-                    // TODO(das): use _column_indices when pruning is implemented
-                    match self.get_data_columns(block_root) {
-                        Ok(data_column_sidecar_list) => {
+                StoreOp::DeleteDataColumns(block_root, indices) => {
+                    match indices
+                        .iter()
+                        .map(|index| self.get_data_column(block_root, index))
+                        .collect::<Result<Vec<_>, _>>()
+                    {
+                        Ok(data_column_sidecar_list_opt) => {
+                            let data_column_sidecar_list = data_column_sidecar_list_opt
+                                .into_iter()
+                                .flatten()
+                                .collect::<Vec<_>>();
                             // Must push the same number of items as StoreOp::DeleteDataColumns items to
                             // prevent a `HotColdDBError::Rollback` error below in case of rollback
                             data_columns_to_delete.push((*block_root, data_column_sidecar_list));
@@ -1667,21 +1674,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Fetch all data_columns for a given block from the store.
-    pub fn get_data_columns(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Vec<Arc<DataColumnSidecar<E>>>, Error> {
-        let mut items = vec![];
-        for entry_result in self.blobs_db.iter_column_from::<Vec<u8>>(
-            DBColumn::BeaconDataColumn,
-            &get_data_column_key(block_root, &0),
-            &get_data_column_key(block_root, &u64::max_value()),
-        ) {
-            let (_, value_bytes) = entry_result?;
-            items.push(Arc::new(DataColumnSidecar::from_ssz_bytes(&value_bytes)?));
-        }
-        Ok(items)
+    /// Fetch all keys in the data_column column with prefix `block_root`
+    pub fn get_data_column_keys(&self, block_root: Hash256) -> Result<Vec<ColumnIndex>, Error> {
+        self.blobs_db
+            .iter_raw_keys(DBColumn::BeaconDataColumn, block_root.as_bytes())
+            .map(|key| key.and_then(|key| parse_data_column_key(key).map(|key| key.1)))
+            .collect()
     }
 
     /// Fetch a single data_column for a given block from the store.
@@ -2514,15 +2512,33 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
             };
 
-            if Some(block_root) != last_pruned_block_root && self.blobs_exist(&block_root)? {
-                trace!(
-                    self.log,
-                    "Pruning blobs of block";
-                    "slot" => slot,
-                    "block_root" => ?block_root,
-                );
-                last_pruned_block_root = Some(block_root);
-                ops.push(StoreOp::DeleteBlobs(block_root));
+            if Some(block_root) != last_pruned_block_root {
+                if self
+                    .spec
+                    .is_peer_das_enabled_for_epoch(slot.epoch(E::slots_per_epoch()))
+                {
+                    // data columns
+                    let indices = self.get_data_column_keys(block_root)?;
+                    if !indices.is_empty() {
+                        trace!(
+                            self.log,
+                            "Pruning data columns of block";
+                            "slot" => slot,
+                            "block_root" => ?block_root,
+                        );
+                        last_pruned_block_root = Some(block_root);
+                        ops.push(StoreOp::DeleteDataColumns(block_root, indices));
+                    }
+                } else if self.blobs_exist(&block_root)? {
+                    trace!(
+                        self.log,
+                        "Pruning blobs of block";
+                        "slot" => slot,
+                        "block_root" => ?block_root,
+                    );
+                    last_pruned_block_root = Some(block_root);
+                    ops.push(StoreOp::DeleteBlobs(block_root));
+                }
             }
 
             if slot >= end_slot {

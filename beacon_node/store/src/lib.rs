@@ -102,21 +102,17 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Iterate through all keys and values in a particular column.
     fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        let min_key = vec![0x00; column.key_size()];
-        let max_key = vec![0xff; column.key_size()];
-        self.iter_column_from(column, &min_key, &max_key)
+        self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
     /// Iterate through all keys and values in a column from a given starting point.
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8], to: &[u8]) -> ColumnIter<K>;
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
 
     fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
         Box::new(std::iter::empty())
     }
 
-    fn iter_raw_keys(&self, _column: DBColumn, _prefix: &[u8]) -> RawKeyIter {
-        Box::new(std::iter::empty())
-    }
+    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter;
 
     /// Iterate through all keys in a particular column.
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
@@ -152,6 +148,22 @@ pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> 
     let mut result = block_root.as_bytes().to_vec();
     result.extend_from_slice(&column_index.to_le_bytes());
     result
+}
+
+pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Error> {
+    if data.len() != 32 + 8 {
+        return Err(Error::InvalidKey);
+    }
+    // split_at panics if 32 < 40 which will never happen after the length check above
+    let (block_root_bytes, column_index_bytes) = data.split_at(32);
+    let block_root = Hash256::from_slice(block_root_bytes);
+    // column_index_bytes is asserted to be 8 bytes after the length check above
+    let column_index = ColumnIndex::from_le_bytes(
+        column_index_bytes
+            .try_into()
+            .expect("slice with incorrect length"),
+    );
+    Ok((block_root, column_index))
 }
 
 #[must_use]

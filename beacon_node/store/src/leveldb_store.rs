@@ -165,15 +165,14 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         Ok(())
     }
 
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8], to: &[u8]) -> ColumnIter<K> {
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
-        let end_key = BytesKey::from_vec(get_key_for_col(column.into(), to));
 
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
         Box::new(
-            iter.take_while(move |(key, _)| key < &end_key)
+            iter.take_while(move |(key, _)| key.matches_column(column))
                 .map(move |(bytes_key, value)| {
                     let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
                         HotColdDBError::IterationError {
@@ -256,6 +255,10 @@ impl db_key::Key for BytesKey {
 }
 
 impl BytesKey {
+    pub fn starts_with(&self, prefix: &Self) -> bool {
+        self.key.starts_with(&prefix.key)
+    }
+
     /// Return `true` iff this `BytesKey` was created with the given `column`.
     pub fn matches_column(&self, column: DBColumn) -> bool {
         self.key.starts_with(column.as_bytes())

@@ -1,3 +1,4 @@
+use crate::RawKeyIter;
 use crate::{
     get_key_for_col, leveldb_store::BytesKey, ColumnIter, ColumnKeyIter, DBColumn, Error,
     ItemStore, Key, KeyValueStore, KeyValueStoreOp,
@@ -78,17 +79,16 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         Ok(())
     }
 
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8], to: &[u8]) -> ColumnIter<K> {
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         // We use this awkward pattern because we can't lock the `self.db` field *and* maintain a
         // reference to the lock guard across calls to `.next()`. This would be require a
         // struct with a field (the iterator) which references another field (the lock guard).
         let start_key = BytesKey::from_vec(get_key_for_col(column.as_str(), from));
-        let end_key = BytesKey::from_vec(get_key_for_col(column.as_str(), to));
         let col = column.as_str();
         let keys = self
             .db
             .read()
-            .range(start_key..end_key)
+            .range(start_key..)
             .take_while(|(k, _)| k.remove_column_variable(column).is_some())
             .filter_map(|(k, _)| k.remove_column_variable(column).map(|k| k.to_vec()))
             .collect::<Vec<_>>();
@@ -99,6 +99,18 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
                 Ok((k, v))
             })
         }))
+    }
+
+    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.as_str(), prefix));
+        let keys = self
+            .db
+            .read()
+            .range(start_key.clone()..)
+            .take_while(|(k, _)| k.starts_with(&start_key))
+            .filter_map(|(k, _)| k.remove_column_variable(column).map(|k| k.to_vec()))
+            .collect::<Vec<_>>();
+        Box::new(keys.into_iter().map(Ok))
     }
 
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
