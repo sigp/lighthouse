@@ -11,15 +11,16 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use store::DBColumn;
 use store::KeyValueStore;
+use tree_hash::TreeHash;
 use types::light_client_update::{
-    FinalizedRootProofLen, NextSyncCommitteeProofLen, FINALIZED_ROOT_INDEX,
-    NEXT_SYNC_COMMITTEE_INDEX,
+    FinalizedRootProofLen, NextSyncCommitteeProofLen, CURRENT_SYNC_COMMITTEE_INDEX,
+    FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
 };
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, Slot, SyncAggregate,
-    SyncCommittee,
+    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, EthSpec, ForkName, Hash256,
+    LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    LightClientUpdate, Slot, SyncAggregate, SyncCommittee,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
@@ -95,6 +96,10 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let signature_slot = block_slot;
         let attested_block_root = block_parent_root;
 
+        let sync_period = block_slot
+            .epoch(T::EthSpec::slots_per_epoch())
+            .sync_committee_period(chain_spec)?;
+
         let attested_block =
             store
                 .get_full_block(attested_block_root)?
@@ -110,7 +115,20 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             attested_block.slot(),
         )?;
 
+        let finalized_period = cached_parts
+            .finalized_checkpoint
+            .epoch
+            .sync_committee_period(chain_spec)?;
+
         let attested_slot = attested_block.slot();
+
+        self.store_current_sync_committee_branch(
+            &store,
+            &cached_parts,
+            attested_block.message().tree_hash_root(),
+        )?;
+
+        self.store_sync_committee(&store, &cached_parts, sync_period, finalized_period)?;
 
         // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
@@ -143,10 +161,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             maybe_finalized_block_root.as_ref(),
             chain_spec,
         )?;
-
-        let sync_period = block_slot
-            .epoch(T::EthSpec::slots_per_epoch())
-            .sync_committee_period(chain_spec)?;
 
         let prev_light_client_update =
             self.get_light_client_update(&store, sync_period, chain_spec)?;
@@ -190,6 +204,50 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                     "finalized_block_root" => format!("{}", cached_parts.finalized_block_root),
                 );
             }
+        }
+
+        Ok(())
+    }
+
+    fn store_current_sync_committee_branch(
+        &self,
+        store: &BeaconStore<T>,
+        cached_parts: &LightClientCachedData<T::EthSpec>,
+        block_root: Hash256,
+    ) -> Result<(), BeaconChainError> {
+        let column = DBColumn::SyncCommitteeBranch;
+        store.hot_db.put_bytes(
+            column.into(),
+            &block_root.as_ssz_bytes(),
+            &cached_parts.current_sync_committee_branch.as_ssz_bytes(),
+        )?;
+        Ok(())
+    }
+
+    fn store_sync_committee(
+        &self,
+        store: &BeaconStore<T>,
+        cached_parts: &LightClientCachedData<T::EthSpec>,
+        sync_committee_period: u64,
+        finalized_period: u64,
+    ) -> Result<(), BeaconChainError> {
+        let column = DBColumn::SyncCommittee;
+
+        // TODO should i always write to db, even if a record already exists?
+        if finalized_period >= sync_committee_period {
+            store.hot_db.put_bytes(
+                column.into(),
+                &(sync_committee_period + 1).to_le_bytes(),
+                &cached_parts.next_sync_committee.as_ssz_bytes(),
+            )?;
+        }
+
+        if finalized_period >= sync_committee_period - 1 {
+            store.hot_db.put_bytes(
+                column.into(),
+                &sync_committee_period.to_le_bytes(),
+                &cached_parts.current_sync_committee.as_ssz_bytes(),
+            )?;
         }
 
         Ok(())
@@ -357,29 +415,32 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         &self,
         store: &BeaconStore<T>,
         block_root: &Hash256,
+        finalized_period: u64,
         chain_spec: &ChainSpec,
     ) -> Result<Option<LightClientBootstrap<T::EthSpec>>, BeaconChainError> {
         if let Some(block) = store.get_full_block(block_root)? {
             let (state_root, slot) = (block.state_root(), block.slot());
 
-            let header_period = block.slot();
-            let sync_committee_period = 0;
-            // compute the current finalized period?
-            let current_finalized_period = block.slot();
+            let sync_committee_period = block
+                .slot()
+                .epoch(T::EthSpec::slots_per_epoch())
+                .sync_committee_period(chain_spec)?;
 
             let current_sync_committee_branch =
                 self.get_sync_committee_branch(store, block_root)?.unwrap();
             // TODO unwrap
             // db.current_sync_committee_branch.get(block_root)
 
-            let current_sync_committee = if header_period <= current_finalized_period {
+            let current_sync_committee = if sync_committee_period <= finalized_period {
                 // fetch the header current sync committee from the db, since its not cached
+                // TODO unwrap
                 Arc::new(
                     self.get_sync_committee(store, sync_committee_period)?
-                        .ok_or(BeaconChainError::AltairForkDisabled)?,
-                ) // TODO fix error
+                        .unwrap(),
+                )
             } else {
                 // were at the current finalized period, so this data should be easily retrievable from the currently cached state
+                // TODO unwrap
                 let state = store.get_state(&state_root, Some(slot))?.unwrap();
                 state.current_sync_committee()?.clone()
             };
@@ -404,22 +465,31 @@ impl<T: BeaconChainTypes> Default for LightClientServerCache<T> {
 
 type FinalityBranch = FixedVector<Hash256, FinalizedRootProofLen>;
 type NextSyncCommitteeBranch = FixedVector<Hash256, NextSyncCommitteeProofLen>;
+type CurrentSyncCommitteeBranch = FixedVector<Hash256, CurrentSyncCommitteeProofLen>;
 
 #[derive(Clone)]
 struct LightClientCachedData<E: EthSpec> {
+    finalized_checkpoint: Checkpoint,
     finality_branch: FinalityBranch,
     next_sync_committee_branch: NextSyncCommitteeBranch,
+    current_sync_committee_branch: CurrentSyncCommitteeBranch,
     next_sync_committee: Arc<SyncCommittee<E>>,
+    current_sync_committee: Arc<SyncCommittee<E>>,
     finalized_block_root: Hash256,
 }
 
 impl<E: EthSpec> LightClientCachedData<E> {
     fn from_state(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
         Ok(Self {
+            finalized_checkpoint: state.finalized_checkpoint(),
             finality_branch: state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?.into(),
             next_sync_committee: state.next_sync_committee()?.clone(),
+            current_sync_committee: state.current_sync_committee()?.clone(),
             next_sync_committee_branch: state
                 .compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?
+                .into(),
+            current_sync_committee_branch: state
+                .compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?
                 .into(),
             finalized_block_root: state.finalized_checkpoint().root,
         })

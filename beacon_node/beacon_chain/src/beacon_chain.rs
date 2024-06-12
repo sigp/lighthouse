@@ -6666,9 +6666,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<LightClientBootstrap<T::EthSpec>>, Error> {
+        let head_state = &self.head().snapshot.beacon_state;
+        let finalized_period = head_state
+            .finalized_checkpoint()
+            .epoch
+            .sync_committee_period(&self.spec)?;
+
         self.light_client_server_cache.get_light_client_bootstrap(
             &self.store,
             block_root,
+            finalized_period,
             &self.spec,
         )
     }
