@@ -325,7 +325,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             peer_id,
             request_id,
             match self.chain.get_light_client_bootstrap(&request.root) {
-                Ok(Some(bootstrap)) => Ok(Arc::new(bootstrap)),
+                Ok(Some((bootstrap, _))) => Ok(Arc::new(bootstrap)),
                 Ok(None) => Err((
                     RPCResponseErrorCode::ResourceUnavailable,
                     "Bootstrap not available",

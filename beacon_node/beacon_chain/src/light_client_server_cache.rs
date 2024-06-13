@@ -411,15 +411,18 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         Ok(None)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn get_light_client_bootstrap(
         &self,
         store: &BeaconStore<T>,
         block_root: &Hash256,
         finalized_period: u64,
         chain_spec: &ChainSpec,
-    ) -> Result<Option<LightClientBootstrap<T::EthSpec>>, BeaconChainError> {
+    ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, BeaconChainError> {
         if let Some(block) = store.get_full_block(block_root)? {
             let (state_root, slot) = (block.state_root(), block.slot());
+
+            let fork_name = chain_spec.fork_name_at_slot::<T::EthSpec>(slot);
 
             let sync_committee_period = block
                 .slot()
@@ -445,12 +448,14 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 state.current_sync_committee()?.clone()
             };
 
-            return Ok(Some(LightClientBootstrap::new(
+            let light_client_bootstrap = LightClientBootstrap::new(
                 &block,
                 current_sync_committee,
                 current_sync_committee_branch,
                 chain_spec,
-            )?));
+            )?;
+
+            return Ok(Some((light_client_bootstrap, fork_name)));
         }
 
         Ok(None)
