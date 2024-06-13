@@ -1,5 +1,7 @@
 pub use lighthouse_metrics::*;
 
+use lazy_static::lazy_static;
+
 lazy_static! {
     pub static ref NAT_OPEN: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "nat_open",

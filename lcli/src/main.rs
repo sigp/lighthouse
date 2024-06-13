@@ -1,5 +1,3 @@
-#[macro_use]
-extern crate log;
 mod block_root;
 mod check_deposit_data;
 mod generate_bootnode_enr;

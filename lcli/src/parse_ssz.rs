@@ -1,6 +1,7 @@
 use clap::ArgMatches;
 use clap_utils::parse_required;
 use eth2_network_config::Eth2NetworkConfig;
+use log::info;
 use serde::Serialize;
 use snap::raw::Decoder;
 use ssz::Decode;
