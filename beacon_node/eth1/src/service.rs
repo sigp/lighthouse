@@ -853,7 +853,7 @@ impl Service {
         let max_log_requests_per_update = self
             .config()
             .max_log_requests_per_update
-            .unwrap_or_else(|| usize::MAX);
+            .unwrap_or(usize::MAX);
 
         let range = {
             match new_block_numbers {
@@ -996,10 +996,7 @@ impl Service {
     ) -> Result<BlockCacheUpdateOutcome, Error> {
         let client = self.client();
         let block_cache_truncation = self.config().block_cache_truncation;
-        let max_blocks_per_update = self
-            .config()
-            .max_blocks_per_update
-            .unwrap_or_else(|| usize::MAX);
+        let max_blocks_per_update = self.config().max_blocks_per_update.unwrap_or(usize::MAX);
 
         let range = {
             match new_block_numbers {
