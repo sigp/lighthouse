@@ -30,7 +30,7 @@ impl Default for InclusionInfo {
     /// Defaults to `delay` at its maximum value and `proposer_index` at zero.
     fn default() -> Self {
         Self {
-            delay: u64::max_value(),
+            delay: u64::MAX,
             proposer_index: 0,
         }
     }
