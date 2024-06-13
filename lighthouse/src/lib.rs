@@ -1,12 +1,15 @@
 pub use account_manager;
 pub use beacon_node;
 pub use boot_node;
-pub use database_manager;
 pub use environment;
+pub use eth2 as http;
 pub use eth2_network_config;
+pub use execution_layer;
 pub use lighthouse_network;
 pub use lighthouse_version;
 pub use slasher;
+pub use slot_clock;
+pub use store;
 pub use task_executor;
 pub use types;
 pub use validator_client;
