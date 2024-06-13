@@ -371,14 +371,14 @@ macro_rules! from_into_tests {
             let x: $other = $type(u64::MAX).into();
             // Note: this will fail on 32 bit systems. This is expected as we don't have a proper
             // 32-bit system strategy in place.
-            assert_eq!(x, $other::max_value());
+            assert_eq!(x, $other::MAX);
         }
 
         #[test]
         fn from() {
             assert_eq!($type(0), $type::from(0_u64));
             assert_eq!($type(3), $type::from(3_u64));
-            assert_eq!($type(u64::MAX), $type::from($other::max_value()));
+            assert_eq!($type(u64::MAX), $type::from($other::MAX));
         }
     };
 }
