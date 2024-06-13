@@ -123,12 +123,10 @@ impl Serializer for ToSendSerializer {
         take(&mut self.kv, |kv| Box::new((kv, SingleKV(key, val))));
         Ok(())
     }
-    #[cfg(integer128)]
     fn emit_u128(&mut self, key: Key, val: u128) -> slog::Result {
         take(&mut self.kv, |kv| Box::new((kv, SingleKV(key, val))));
         Ok(())
     }
-    #[cfg(integer128)]
     fn emit_i128(&mut self, key: Key, val: i128) -> slog::Result {
         take(&mut self.kv, |kv| Box::new((kv, SingleKV(key, val))));
         Ok(())
