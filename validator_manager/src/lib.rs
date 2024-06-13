@@ -40,7 +40,7 @@ impl DumpConfig {
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
-        .visible_aliases(["vm", "validator-manager", CMD])
+        .visible_aliases(["vm", "validator-manager"])
         .display_order(0)
         .styles(get_color_style())
         .about("Utilities for managing a Lighthouse validator client via the HTTP API.")
