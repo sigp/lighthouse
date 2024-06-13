@@ -57,7 +57,10 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
         Bellatrix(metastruct(mappings(beacon_block_body_bellatrix_fields(groups(fields))))),
         Capella(metastruct(mappings(beacon_block_body_capella_fields(groups(fields))))),
         Deneb(metastruct(mappings(beacon_block_body_deneb_fields(groups(fields))))),
-        Electra(metastruct(mappings(beacon_block_body_electra_fields(groups(fields))))),
+        Electra(
+            metastruct(mappings(beacon_block_body_electra_fields(groups(fields)))),
+            tree_hash(struct_behaviour = "profile", max_fields = "typenum::U64"),
+        ),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -68,28 +71,39 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
+    #[tree_hash(stable_index = 0)]
     pub randao_reveal: Signature,
+    #[tree_hash(stable_index = 1)]
     pub eth1_data: Eth1Data,
+    #[tree_hash(stable_index = 2)]
     pub graffiti: Graffiti,
+    #[tree_hash(stable_index = 3)]
     pub proposer_slashings: VariableList<ProposerSlashing, E::MaxProposerSlashings>,
     #[superstruct(
         only(Base, Altair, Bellatrix, Capella, Deneb),
         partial_getter(rename = "attester_slashings_base")
     )]
+    #[tree_hash(stable_index = 4)]
     pub attester_slashings: VariableList<AttesterSlashingBase<E>, E::MaxAttesterSlashings>,
     #[superstruct(only(Electra), partial_getter(rename = "attester_slashings_electra"))]
+    #[tree_hash(stable_index = 4)]
     pub attester_slashings:
         VariableList<AttesterSlashingElectra<E>, E::MaxAttesterSlashingsElectra>,
     #[superstruct(
         only(Base, Altair, Bellatrix, Capella, Deneb),
         partial_getter(rename = "attestations_base")
     )]
+    #[tree_hash(stable_index = 5)]
     pub attestations: VariableList<AttestationBase<E>, E::MaxAttestations>,
     #[superstruct(only(Electra), partial_getter(rename = "attestations_electra"))]
+    #[tree_hash(stable_index = 5)]
     pub attestations: VariableList<AttestationElectra<E>, E::MaxAttestationsElectra>,
+    #[tree_hash(stable_index = 6)]
     pub deposits: VariableList<Deposit, E::MaxDeposits>,
+    #[tree_hash(stable_index = 7)]
     pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[tree_hash(stable_index = 8)]
     pub sync_aggregate: SyncAggregate<E>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
@@ -99,22 +113,29 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
         partial_getter(rename = "execution_payload_bellatrix")
     )]
     #[serde(flatten)]
+    #[tree_hash(stable_index = 9)]
     pub execution_payload: Payload::Bellatrix,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     #[serde(flatten)]
+    #[tree_hash(stable_index = 9)]
     pub execution_payload: Payload::Capella,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
     #[serde(flatten)]
+    #[tree_hash(stable_index = 9)]
     pub execution_payload: Payload::Deneb,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     #[serde(flatten)]
+    #[tree_hash(stable_index = 9)]
     pub execution_payload: Payload::Electra,
     #[superstruct(only(Capella, Deneb, Electra))]
+    #[tree_hash(stable_index = 10)]
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
     #[superstruct(only(Deneb, Electra))]
+    #[tree_hash(stable_index = 11)]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Electra))]
+    #[tree_hash(stable_index = 12)]
     pub consolidations: VariableList<SignedConsolidation, E::MaxConsolidations>,
     #[superstruct(only(Base, Altair))]
     #[metastruct(exclude_from(fields))]
