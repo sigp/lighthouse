@@ -43,6 +43,9 @@ Options:
           slots on the canonical chain in the past `SLOTS_PER_EPOCH`, it will
           NOT query any connected builders, and will use the local execution
           engine for payload construction. [default: 8]
+      --builder-header-timeout <MILLISECONDS>
+          Defines a timeout value (in milliseconds) to use when fetching a block
+          header from the builder API. [default: 1000]
       --builder-profit-threshold <WEI_VALUE>
           This flag is deprecated and has no effect.
       --builder-user-agent <STRING>
@@ -353,7 +356,7 @@ Options:
       --slasher-backend <DATABASE>
           Set the database backend to be used by the slasher. [possible values:
           lmdb, disabled]
-      --slasher-broadcast <slasher-broadcast>
+      --slasher-broadcast [<slasher-broadcast>]
           Broadcast slashings found by the slasher to the rest of the network
           [Enabled by default]. [default: true]
       --slasher-chunk-size <EPOCHS>

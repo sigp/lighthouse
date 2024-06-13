@@ -280,7 +280,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn active_single_lookups(&self) -> Vec<(Id, Hash256, Option<Hash256>)> {
+    pub(crate) fn active_single_lookups(&self) -> Vec<super::block_lookups::BlockLookupSummary> {
         self.block_lookups.active_single_lookups()
     }
 

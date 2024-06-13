@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Command};
 use clap_utils::{get_color_style, FLAG_HEADER};
 use strum::VariantNames;
@@ -855,6 +857,32 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .display_order(0)
         )
+        .arg(
+            Arg::new("builder-header-timeout")
+                .long("builder-header-timeout")
+                .value_name("MILLISECONDS")
+                .help("Defines a timeout value (in milliseconds) to use when \
+                    fetching a block header from the builder API.")
+                .default_value("1000")
+                .value_parser(|timeout: &str| {
+                    match timeout
+                        .parse::<u64>()
+                        .ok()
+                        .map(Duration::from_millis)
+                    {
+                        Some(val) =>  {
+                            if val > Duration::from_secs(3) {
+                                return Err("builder-header-timeout cannot exceed 3000ms")
+                            }
+                            Ok(timeout.to_string())
+                        },
+                        None => Err("builder-header-timeout must be a number"),
+                    }
+                })
+                .requires("builder")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
         /* Deneb settings */
         .arg(
             Arg::new("trusted-setup-file-override")
@@ -1073,6 +1101,8 @@ pub fn cli_app() -> Command {
                        [Enabled by default].")
                 .action(ArgAction::Set)
                 .default_value("true")
+                .num_args(0..=1)
+                .default_missing_value("true")
                 .display_order(0)
         )
         .arg(

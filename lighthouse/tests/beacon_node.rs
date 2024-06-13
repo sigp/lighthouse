@@ -637,6 +637,26 @@ fn builder_fallback_flags() {
 }
 
 #[test]
+fn builder_get_header_timeout() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-header-timeout"),
+        Some("1500"),
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_header_timeout,
+                Some(Duration::from_millis(1500))
+            );
+        },
+    );
+}
+
+#[test]
 fn builder_user_agent() {
     run_payload_builder_flag_test_with_config(
         "builder",
@@ -2148,6 +2168,21 @@ fn slasher_broadcast_flag_no_default() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("1"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
+        });
+}
+#[test]
+fn slasher_broadcast_flag_no_argument() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-broadcast", None)
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config

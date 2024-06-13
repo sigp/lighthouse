@@ -85,6 +85,11 @@ pub struct BlockLookups<T: BeaconChainTypes> {
     log: Logger,
 }
 
+#[cfg(test)]
+/// Tuple of `SingleLookupId`, requested block root, awaiting parent block root (if any),
+/// and list of peers that claim to have imported this set of block components.
+pub(crate) type BlockLookupSummary = (Id, Hash256, Option<Hash256>, Vec<PeerId>);
+
 impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new(log: Logger) -> Self {
         Self {
@@ -107,10 +112,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn active_single_lookups(&self) -> Vec<(Id, Hash256, Option<Hash256>)> {
+    pub(crate) fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.single_block_lookups
             .iter()
-            .map(|(id, e)| (*id, e.block_root(), e.awaiting_parent()))
+            .map(|(id, l)| {
+                (
+                    *id,
+                    l.block_root(),
+                    l.awaiting_parent(),
+                    l.all_peers().copied().collect(),
+                )
+            })
             .collect()
     }
 
@@ -244,17 +256,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // Do not re-request a block that is already being requested
-        if let Some((_, lookup)) = self
+        if let Some((&lookup_id, lookup)) = self
             .single_block_lookups
             .iter_mut()
             .find(|(_id, lookup)| lookup.is_for_block(block_root))
         {
-            for peer in peers {
-                if lookup.add_peer(*peer) {
-                    debug!(self.log, "Adding peer to existing single block lookup"; "block_root" => ?block_root, "peer" => ?peer);
-                }
-            }
-
             if let Some(block_component) = block_component {
                 let component_type = block_component.get_type();
                 let imported = lookup.add_child_components(block_component);
@@ -262,6 +268,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     debug!(self.log, "Lookup child component ignored"; "block_root" => ?block_root, "type" => component_type);
                 }
             }
+
+            if let Err(e) = self.add_peers_to_lookup_and_ancestors(lookup_id, peers) {
+                warn!(self.log, "Error adding peers to ancestor lookup"; "error" => ?e);
+            }
+
             return true;
         }
 
@@ -797,9 +808,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Recursively find the oldest ancestor lookup of another lookup
     fn find_oldest_ancestor_lookup<'a>(
         &'a self,
-        stuck_lookup: &'a SingleBlockLookup<T>,
+        lookup: &'a SingleBlockLookup<T>,
     ) -> Result<&'a SingleBlockLookup<T>, String> {
-        if let Some(awaiting_parent) = stuck_lookup.awaiting_parent() {
+        if let Some(awaiting_parent) = lookup.awaiting_parent() {
             if let Some(lookup) = self
                 .single_block_lookups
                 .values()
@@ -812,7 +823,50 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 ))
             }
         } else {
-            Ok(stuck_lookup)
+            Ok(lookup)
+        }
+    }
+
+    /// Adds peers to a lookup and its ancestors recursively.
+    /// Note: Takes a `lookup_id` as argument to allow recursion on mutable lookups, without having
+    /// to duplicate the code to add peers to a lookup
+    fn add_peers_to_lookup_and_ancestors(
+        &mut self,
+        lookup_id: SingleLookupId,
+        peers: &[PeerId],
+    ) -> Result<(), String> {
+        let lookup = self
+            .single_block_lookups
+            .get_mut(&lookup_id)
+            .ok_or(format!("Unknown lookup for id {lookup_id}"))?;
+
+        for peer in peers {
+            if lookup.add_peer(*peer) {
+                debug!(self.log, "Adding peer to existing single block lookup";
+                    "block_root" => ?lookup.block_root(),
+                    "peer" => ?peer
+                );
+            }
+        }
+
+        // We may choose to attempt to continue a lookup here. It is possible that a lookup had zero
+        // peers and after adding this set of peers it can make progress again. Note that this
+        // recursive function iterates from child to parent, so continuing the child first is weird.
+        // However, we choose to not attempt to continue the lookup for simplicity. It's not
+        // strictly required and just and optimization for a rare corner case.
+
+        if let Some(parent_root) = lookup.awaiting_parent() {
+            if let Some((&child_id, _)) = self
+                .single_block_lookups
+                .iter()
+                .find(|(_, l)| l.block_root() == parent_root)
+            {
+                self.add_peers_to_lookup_and_ancestors(child_id, peers)
+            } else {
+                Err(format!("Lookup references unknown parent {parent_root:?}"))
+            }
+        } else {
+            Ok(())
         }
     }
 }
