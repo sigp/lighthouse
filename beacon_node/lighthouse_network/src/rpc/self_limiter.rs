@@ -158,13 +158,39 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                 entry.remove();
             }
         }
+        // NOTE: There can be entries that have been removed due to peer disconnections, we simply
+        // ignore these messages here.
+    }
+
+    /// Informs the limiter that a peer has disconnected. This removes any pending requests and
+    /// returns their IDs.
+    pub fn peer_disconnected(&mut self, peer_id: PeerId) -> Vec<(Id, Protocol)> {
+        // It's not ideal to iterate this map, but the key is (PeerId, Protocol) and this map
+        // should never really be large. So we iterate for simplicity
+        let mut failed_requests = Vec::new();
+        self.delayed_requests
+            .retain(|(map_peer_id, protocol), queue| {
+                if map_peer_id == &peer_id {
+                    // NOTE: Currently cannot remove entries from the DelayQueue, we will just let
+                    // them expire and ignore them.
+                    for message in queue {
+                        failed_requests.push((message.request_id, *protocol))
+                    }
+                    // Remove the entry
+                    false
+                } else {
+                    // Keep the entry
+                    true
+                }
+            });
+        failed_requests
     }
 
     pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id, E>> {
         // First check the requests that were self rate limited, since those might add events to
         // the queue. Also do this this before rate limiter prunning to avoid removing and
         // immediately adding rate limiting keys.
-        if let Poll::Ready(Some(Ok(expired))) = self.next_peer_request.poll_expired(cx) {
+        if let Poll::Ready(Some(expired)) = self.next_peer_request.poll_expired(cx) {
             let (peer_id, protocol) = expired.into_inner();
             self.next_peer_request_ready(peer_id, protocol);
         }

@@ -1,7 +1,3 @@
-//! NOTE: These tests will not pass unless an anvil is running on `ENDPOINT` (see below).
-//!
-//! You can start a suitable instance using the `anvil_test_node.sh` script in the `scripts`
-//! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
 use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};

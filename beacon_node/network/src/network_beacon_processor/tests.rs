@@ -239,6 +239,11 @@ impl TestRig {
             Some(work_journal_tx),
             harness.chain.slot_clock.clone(),
             chain.spec.maximum_gossip_clock_disparity(),
+            BeaconProcessorQueueLengths::from_state(
+                &chain.canonical_head.cached_head().snapshot.beacon_state,
+                &chain.spec,
+            )
+            .unwrap(),
         );
 
         assert!(beacon_processor.is_ok());
