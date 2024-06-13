@@ -64,7 +64,7 @@ pub struct BlockprintResponse {
 }
 
 impl WatchBlockprintClient {
-    async fn get(&self, url: Url) -> Result<Response, Error> {
+    pub async fn get(&self, url: Url) -> Result<Response, Error> {
         let mut builder = self.client.get(url).timeout(TIMEOUT);
         if let Some(username) = &self.username {
             builder = builder.basic_auth(username, self.password.as_ref());
