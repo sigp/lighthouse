@@ -234,6 +234,7 @@ impl From<BeaconStateHash> for Hash256 {
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
         derivative(Clone),
+        tree_hash(struct_behaviour = "profile", max_fields = "typenum::U128"),
     ),
     specific_variant_attributes(
         Base(metastruct(
@@ -331,7 +332,7 @@ impl From<BeaconStateHash> for Hash256 {
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
-#[tree_hash(enum_behaviour = "transparent")]
+#[tree_hash(enum_behaviour = "transparent_stable")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconState<E>
 where
@@ -341,100 +342,126 @@ where
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
+    #[tree_hash(stable_index = 0)]
     pub genesis_time: u64,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 1)]
     pub genesis_validators_root: Hash256,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 2)]
     pub slot: Slot,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 3)]
     pub fork: Fork,
 
     // History
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 4)]
     pub latest_block_header: BeaconBlockHeader,
     #[test_random(default)]
     #[compare_fields(as_iter)]
+    #[tree_hash(stable_index = 5)]
     pub block_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
     #[test_random(default)]
     #[compare_fields(as_iter)]
+    #[tree_hash(stable_index = 6)]
     pub state_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
     // Frozen in Capella, replaced by historical_summaries
     #[test_random(default)]
     #[compare_fields(as_iter)]
+    #[tree_hash(stable_index = 7)]
     pub historical_roots: List<Hash256, E::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 8)]
     pub eth1_data: Eth1Data,
     #[test_random(default)]
+    #[tree_hash(stable_index = 9)]
     pub eth1_data_votes: List<Eth1Data, E::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
+    #[tree_hash(stable_index = 10)]
     pub eth1_deposit_index: u64,
 
     // Registry
     #[test_random(default)]
+    #[tree_hash(stable_index = 11)]
     pub validators: List<Validator, E::ValidatorRegistryLimit>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
     #[test_random(default)]
+    #[tree_hash(stable_index = 12)]
     pub balances: List<u64, E::ValidatorRegistryLimit>,
 
     // Randomness
     #[test_random(default)]
+    #[tree_hash(stable_index = 13)]
     pub randao_mixes: Vector<Hash256, E::EpochsPerHistoricalVector>,
 
     // Slashings
     #[test_random(default)]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
+    #[tree_hash(stable_index = 14)]
     pub slashings: Vector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
     #[superstruct(only(Base))]
     #[test_random(default)]
+    #[tree_hash(stable_index = 15)]
     pub previous_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
     #[superstruct(only(Base))]
     #[test_random(default)]
+    #[tree_hash(stable_index = 16)]
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[test_random(default)]
+    #[tree_hash(stable_index = 15)]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[test_random(default)]
+    #[tree_hash(stable_index = 16)]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
     #[test_random(default)]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 17)]
     pub justification_bits: BitVector<E::JustificationBitsLength>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 18)]
     pub previous_justified_checkpoint: Checkpoint,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 19)]
     pub current_justified_checkpoint: Checkpoint,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 20)]
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[test_random(default)]
+    #[tree_hash(stable_index = 21)]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 22)]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 23)]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
@@ -443,72 +470,88 @@ where
         partial_getter(rename = "latest_execution_payload_header_bellatrix")
     )]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 24)]
     pub latest_execution_payload_header: ExecutionPayloadHeaderBellatrix<E>,
     #[superstruct(
         only(Capella),
         partial_getter(rename = "latest_execution_payload_header_capella")
     )]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 24)]
     pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<E>,
     #[superstruct(
         only(Deneb),
         partial_getter(rename = "latest_execution_payload_header_deneb")
     )]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 24)]
     pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(
         only(Electra),
         partial_getter(rename = "latest_execution_payload_header_electra")
     )]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 24)]
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
 
     // Capella
     #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 25)]
     pub next_withdrawal_index: u64,
     #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 26)]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella, Deneb, Electra))]
     #[test_random(default)]
+    #[tree_hash(stable_index = 27)]
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
     // Electra
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
+    #[tree_hash(stable_index = 28)]
     pub deposit_requests_start_index: u64,
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
+    #[tree_hash(stable_index = 29)]
     pub deposit_balance_to_consume: u64,
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
+    #[tree_hash(stable_index = 30)]
     pub exit_balance_to_consume: u64,
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 31)]
     pub earliest_exit_epoch: Epoch,
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
+    #[tree_hash(stable_index = 32)]
     pub consolidation_balance_to_consume: u64,
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
+    #[tree_hash(stable_index = 33)]
     pub earliest_consolidation_epoch: Epoch,
     #[test_random(default)]
     #[superstruct(only(Electra))]
+    #[tree_hash(stable_index = 34)]
     pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
     #[test_random(default)]
     #[superstruct(only(Electra))]
+    #[tree_hash(stable_index = 35)]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
     #[test_random(default)]
     #[superstruct(only(Electra))]
+    #[tree_hash(stable_index = 36)]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 
     // Caching (not in the spec)
