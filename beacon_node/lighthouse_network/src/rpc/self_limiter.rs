@@ -25,7 +25,7 @@ struct QueuedRequest<Id: ReqId, E: EthSpec> {
 }
 
 pub(crate) struct SelfRateLimiter<Id: ReqId, E: EthSpec> {
-    /// Requests queued for sending per peer. This requests are stored when the self rate
+    /// Requests queued for sending per peer. These requests are stored when the self rate
     /// limiter rejects them. Rate limiting is based on a Peer and Protocol basis, therefore
     /// are stored in the same way.
     delayed_requests: HashMap<(PeerId, Protocol), VecDeque<QueuedRequest<Id, E>>>,
@@ -49,7 +49,7 @@ pub enum Error {
 }
 
 impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
-    /// Creates a new [`SelfRateLimiter`] based on configration values.
+    /// Creates a new [`SelfRateLimiter`] based on configuration values.
     pub fn new(config: OutboundRateLimiterConfig, log: Logger) -> Result<Self, &'static str> {
         debug!(log, "Using self rate limiting params"; "config" => ?config);
         let limiter = RateLimiter::new_with_config(config.0)?;
@@ -162,7 +162,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
 
     pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id, E>> {
         // First check the requests that were self rate limited, since those might add events to
-        // the queue. Also do this this before rate limiter prunning to avoid removing and
+        // the queue. Also do this before rate limiter pruning to avoid removing and
         // immediately adding rate limiting keys.
         if let Poll::Ready(Some(Ok(expired))) = self.next_peer_request.poll_expired(cx) {
             let (peer_id, protocol) = expired.into_inner();

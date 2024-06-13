@@ -140,7 +140,7 @@ where
     /// Logger for handling RPC streams
     log: slog::Logger,
 
-    /// Timeout that will me used for inbound and outbound responses.
+    /// Timeout that will be used for inbound and outbound responses.
     resp_timeout: Duration,
 
     /// Rate limiter for our responses and the PeerId that this handler interacts with.
