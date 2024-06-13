@@ -8,6 +8,6 @@ pub use lighthouse_network;
 pub use lighthouse_version;
 pub use slasher;
 pub use task_executor;
-pub use types as eth2_types;
+pub use types;
 pub use validator_client;
 pub use validator_manager;
