@@ -395,6 +395,13 @@ where
                     connection: CloseConnection::All,
                 });
             }
+            HandlerEvent::Err(err) => {
+                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    conn_id,
+                    event: HandlerEvent::Err(err),
+                }));
+            }
             _ => {
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
