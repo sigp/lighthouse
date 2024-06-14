@@ -39,7 +39,6 @@ pub fn indexed_att(
     target_epoch: u64,
     target_root: u64,
 ) -> IndexedAttestation<E> {
-    // TODO(electra) make fork-agnostic
     IndexedAttestation::Base(IndexedAttestationBase {
         attesting_indices: attesting_indices.as_ref().to_vec().into(),
         data: AttestationData {
@@ -121,11 +120,9 @@ pub fn slashed_validators_from_attestations(
                 continue;
             }
 
-            // TODO(electra) in a nested loop, copying to vecs feels bad
-            let attesting_indices_1 = att1.attesting_indices_to_vec();
-            let attesting_indices_2 = att2.attesting_indices_to_vec();
-
             if att1.is_double_vote(att2) || att1.is_surround_vote(att2) {
+                let attesting_indices_1 = att1.attesting_indices_to_vec();
+                let attesting_indices_2 = att2.attesting_indices_to_vec();
                 slashed_validators.extend(hashset_intersection(
                     &attesting_indices_1,
                     &attesting_indices_2,
