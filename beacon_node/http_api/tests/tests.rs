@@ -2279,9 +2279,9 @@ impl ApiTester {
             vec![validator_count],
             vec![validator_count, 1],
             vec![validator_count, 1, 3],
-            vec![u64::max_value()],
-            vec![u64::max_value(), 1],
-            vec![u64::max_value(), 1, 3],
+            vec![u64::MAX],
+            vec![u64::MAX, 1],
+            vec![u64::MAX, 1, 3],
         ];
 
         interesting.push((0..validator_count).collect());
