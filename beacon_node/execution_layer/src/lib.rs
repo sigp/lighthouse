@@ -1985,39 +1985,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     excess_blob_gas: deneb_block.excess_blob_gas,
                 })
             }
-            ExecutionBlockWithTransactions::Electra(electra_block) => {
-                let withdrawals = VariableList::new(
-                    electra_block
-                        .withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-                .map_err(ApiError::DeserializeWithdrawals)?;
-                ExecutionPayload::Electra(ExecutionPayloadElectra {
-                    parent_hash: electra_block.parent_hash,
-                    fee_recipient: electra_block.fee_recipient,
-                    state_root: electra_block.state_root,
-                    receipts_root: electra_block.receipts_root,
-                    logs_bloom: electra_block.logs_bloom,
-                    prev_randao: electra_block.prev_randao,
-                    block_number: electra_block.block_number,
-                    gas_limit: electra_block.gas_limit,
-                    gas_used: electra_block.gas_used,
-                    timestamp: electra_block.timestamp,
-                    extra_data: electra_block.extra_data,
-                    base_fee_per_gas: electra_block.base_fee_per_gas,
-                    block_hash: electra_block.block_hash,
-                    transactions: convert_transactions(electra_block.transactions)?,
-                    withdrawals,
-                    blob_gas_used: electra_block.blob_gas_used,
-                    excess_blob_gas: electra_block.excess_blob_gas,
-                    // TODO(electra)
-                    // deposit_receipts: electra_block.deposit_receipts,
-                    // withdrawal_requests: electra_block.withdrawal_requests,
-                    deposit_receipts: <_>::default(),
-                    withdrawal_requests: <_>::default(),
-                })
+            ExecutionBlockWithTransactions::Electra(_) => {
+                return Err(ApiError::UnsupportedForkVariant(format!(
+                    "legacy payload construction for {fork} is not implemented"
+                )));
             }
         };
 
