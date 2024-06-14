@@ -20,7 +20,9 @@ cd ./scripts/local_testnet
 ./start_local_testnet.sh
 ```
 
-It will build Lighthouse and will take an approximately 12 minutes to complete. Once built, the testing will be started automatically. You will see a list of services running and "Started!" at the end. 
+It will build a Lighthouse docker image from the root of the directory and will take an approximately 12 minutes to complete. Once built, the testing will be started automatically. You will see a list of services running and "Started!" at the end. 
+You can also select your own Lighthouse docker image to use by specifying it in `network_params.yml` under the `cl_image ` key.
+Full configuration reference for kurtosis is specified here [here](https://github.com/kurtosis-tech/ethereum-package?tab=readme-ov-file#configuration)
 
 To view all running services:
 
