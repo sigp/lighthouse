@@ -6,11 +6,14 @@ use ssz_types::{BitList, BitVector};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
 };
 use types::slot_data::SlotData;
-use types::{Attestation, AttestationRef, EthSpec, Hash256, Slot, SyncCommitteeContribution};
+use types::{
+    Attestation, AttestationData, AttestationRef, EthSpec, Hash256, Slot, SyncCommitteeContribution,
+};
 
 pub type ObservedSyncContributions<E> = ObservedAggregates<
     SyncCommitteeContribution<E>,
@@ -19,6 +22,17 @@ pub type ObservedSyncContributions<E> = ObservedAggregates<
 >;
 pub type ObservedAggregateAttestations<E> =
     ObservedAggregates<Attestation<E>, E, BitList<<E as types::EthSpec>::MaxValidatorsPerSlot>>;
+
+/// Attestation data augmented with committee index
+///
+/// This is hashed and used to key the map of observed aggregate attestations. This is important
+/// post-Electra where the attestation data committee index is 0 and we want to avoid accidentally
+/// comparing aggregation bits for *different* committees.
+#[derive(TreeHash)]
+pub struct ObservedAttestationKey {
+    pub committee_index: u64,
+    pub attestation_data: AttestationData,
+}
 
 /// A trait use to associate capacity constants with the type being stored in `ObservedAggregates`.
 pub trait Consts {
@@ -136,9 +150,14 @@ impl<'a, E: EthSpec> SubsetItem for AttestationRef<'a, E> {
         }
     }
 
-    /// Returns the hash tree root of the attestation data.
+    /// Returns the hash tree root of the attestation data augmented with the committee index.
     fn root(&self) -> Hash256 {
-        self.data().tree_hash_root()
+        // TODO(electra) unwrap
+        ObservedAttestationKey {
+            committee_index: self.committee_index().unwrap(),
+            attestation_data: self.data().clone(),
+        }
+        .tree_hash_root()
     }
 }
 

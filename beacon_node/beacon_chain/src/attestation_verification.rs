@@ -35,8 +35,10 @@
 mod batch;
 
 use crate::{
-    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT, metrics,
-    observed_aggregates::ObserveOutcome, observed_attesters::Error as ObservedAttestersError,
+    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+    metrics,
+    observed_aggregates::{ObserveOutcome, ObservedAttestationKey},
+    observed_attesters::Error as ObservedAttestersError,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
@@ -58,9 +60,8 @@ use state_processing::{
 use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
-use tree_hash_derive::TreeHash;
 use types::{
-    Attestation, AttestationData, AttestationRef, BeaconCommittee, BeaconStateError,
+    Attestation, AttestationRef, BeaconCommittee, BeaconStateError,
     BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName,
     Hash256, IndexedAttestation, SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
 };
@@ -307,12 +308,6 @@ struct IndexedAggregatedAttestation<'a, T: BeaconChainTypes> {
     signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
     observed_attestation_key_root: Hash256,
-}
-
-#[derive(TreeHash)]
-pub struct ObservedAttestationKey {
-    pub committee_index: u64,
-    pub attestation_data: AttestationData,
 }
 
 /// Wraps a `Attestation` that has been verified up until the point that an `IndexedAttestation` can
