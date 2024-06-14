@@ -13,7 +13,7 @@ use libp2p::swarm::{
 use libp2p::swarm::{FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
 use parking_lot::Mutex;
-use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
+use rate_limiter::RPCRateLimiter as RateLimiter;
 use slog::{crit, debug, o};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -25,6 +25,7 @@ pub(crate) use handler::{HandlerErr, HandlerEvent};
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
 pub(crate) use protocol::InboundRequest;
 
+use crate::rpc::rate_limiter::InboundRequestSizeLimiter;
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
@@ -124,6 +125,8 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     response_limiter: Option<Arc<Mutex<RateLimiter>>>,
     /// Rate limiter for our own requests.
     self_limiter: Option<SelfRateLimiter<Id, E>>,
+    /// Limiter for our inbound requests, which checks the request size.
+    inbound_request_size_limiter: Option<InboundRequestSizeLimiter>,
     /// Queue of events to be processed.
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
@@ -152,12 +155,17 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         // });
         let inbound_limiter = None; // TODO
 
-        let response_limiter = inbound_rate_limiter_config.map(|config| {
+        let response_limiter = inbound_rate_limiter_config.clone().map(|config| {
             debug!(log, "Using response rate limiting params"; "config" => ?config);
             Arc::new(Mutex::new(
                 RateLimiter::new_with_config(config.0)
                     .expect("Inbound limiter configuration parameters are valid"),
             ))
+        });
+
+        let inbound_request_size_limiter = inbound_rate_limiter_config.map(|config| {
+            InboundRequestSizeLimiter::new_with_config(config.0)
+                .expect("Inbound limiter configuration parameters are valid")
         });
 
         let self_limiter = outbound_rate_limiter_config.map(|config| {
@@ -168,6 +176,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             limiter: inbound_limiter,
             response_limiter,
             self_limiter,
+            inbound_request_size_limiter,
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
@@ -315,57 +324,42 @@ where
     ) {
         match event {
             HandlerEvent::Ok(RPCReceived::Request(ref id, ref req)) => {
-                if let Some(limiter) = self.limiter.as_mut() {
-                    // check if the request is conformant to the quota
-                    match limiter.allows(&peer_id, req) {
-                        Ok(()) => {
-                            // send the event to the user
-                            self.events.push(ToSwarm::GenerateEvent(RPCMessage {
-                                peer_id,
-                                conn_id,
-                                event,
-                            }))
+                // TODO: Send error response if there is ongoing request with the same protocol.
+
+                if let Some(limiter) = self.inbound_request_size_limiter.as_ref() {
+                    // Check if the request is conformant to the quota
+                    if limiter.allows(req) {
+                        // Send the event to the user
+                        self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                            peer_id,
+                            conn_id,
+                            event,
+                        }))
+                    } else {
+                        // We set the batch sizes, so this is a coding/config err for most protocols
+                        let protocol = req.versioned_protocol().protocol();
+                        if matches!(
+                            protocol,
+                            Protocol::BlocksByRange
+                                | Protocol::BlobsByRange
+                                | Protocol::BlocksByRoot
+                                | Protocol::BlobsByRoot
+                        ) {
+                            debug!(self.log, "Request too large to process"; "request" => %req, "protocol" => %protocol);
+                        } else {
+                            // Other protocols shouldn't be sending large messages, we should flag the peer kind
+                            crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
                         }
-                        Err(RateLimitedErr::TooLarge) => {
-                            // we set the batch sizes, so this is a coding/config err for most protocols
-                            let protocol = req.versioned_protocol().protocol();
-                            if matches!(
-                                protocol,
-                                Protocol::BlocksByRange
-                                    | Protocol::BlobsByRange
-                                    | Protocol::BlocksByRoot
-                                    | Protocol::BlobsByRoot
-                            ) {
-                                debug!(self.log, "Request too large to process"; "request" => %req, "protocol" => %protocol);
-                            } else {
-                                // Other protocols shouldn't be sending large messages, we should flag the peer kind
-                                crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
-                            }
-                            // send an error code to the peer.
-                            // the handler upon receiving the error code will send it back to the behaviour
-                            self.send_response(
-                                peer_id,
-                                (conn_id, *id),
-                                RPCCodedResponse::Error(
-                                    RPCResponseErrorCode::RateLimited,
-                                    "Rate limited. Request too large".into(),
-                                ),
-                            );
-                        }
-                        Err(RateLimitedErr::TooSoon(wait_time)) => {
-                            debug!(self.log, "Request exceeds the rate limit";
-                        "request" => %req, "peer_id" => %peer_id, "wait_time_ms" => wait_time.as_millis());
-                            // send an error code to the peer.
-                            // the handler upon receiving the error code will send it back to the behaviour
-                            self.send_response(
-                                peer_id,
-                                (conn_id, *id),
-                                RPCCodedResponse::Error(
-                                    RPCResponseErrorCode::RateLimited,
-                                    format!("Wait {:?}", wait_time).into(),
-                                ),
-                            );
-                        }
+                        // Send an error code to the peer.
+                        // The handler upon receiving the error code will send it back to the behaviour
+                        self.send_response(
+                            peer_id,
+                            (conn_id, *id),
+                            RPCCodedResponse::Error(
+                                RPCResponseErrorCode::RateLimited,
+                                "Rate limited. Request too large".into(),
+                            ),
+                        );
                     }
                 } else {
                     // No rate limiting, send the event to the user

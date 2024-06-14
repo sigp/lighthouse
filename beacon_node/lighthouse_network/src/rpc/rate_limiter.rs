@@ -434,6 +434,94 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
     }
 }
 
+pub(super) struct InboundRequestSizeLimiter {
+    ping: (Nanosecs, Nanosecs),
+    status: (Nanosecs, Nanosecs),
+    meta_data: (Nanosecs, Nanosecs),
+    goodbye: (Nanosecs, Nanosecs),
+    blocks_by_range: (Nanosecs, Nanosecs),
+    blocks_by_root: (Nanosecs, Nanosecs),
+    blobs_by_range: (Nanosecs, Nanosecs),
+    blobs_by_root: (Nanosecs, Nanosecs),
+    light_client_bootstrap: (Nanosecs, Nanosecs),
+    light_client_optimistic_update: (Nanosecs, Nanosecs),
+    light_client_finality_update: (Nanosecs, Nanosecs),
+}
+
+impl InboundRequestSizeLimiter {
+    pub fn new_with_config(config: RateLimiterConfig) -> Result<Self, &'static str> {
+        // Destructure to make sure every configuration value is used.
+        let RateLimiterConfig {
+            ping_quota,
+            meta_data_quota,
+            status_quota,
+            goodbye_quota,
+            blocks_by_range_quota,
+            blocks_by_root_quota,
+            blobs_by_range_quota,
+            blobs_by_root_quota,
+            light_client_bootstrap_quota,
+            light_client_optimistic_update_quota,
+            light_client_finality_update_quota,
+        } = config;
+
+        let tau_and_t = |quota: &Quota| {
+            let tau = quota.replenish_all_every.as_nanos();
+            if tau == 0 {
+                return Err("Replenish time must be positive");
+            }
+            let t = (tau / quota.max_tokens as u128)
+                .try_into()
+                .map_err(|_| "total replenish time is too long")?;
+            let tau = tau
+                .try_into()
+                .map_err(|_| "total replenish time is too long")?;
+            Ok((tau, t))
+        };
+
+        Ok(Self {
+            ping: tau_and_t(&ping_quota)?,
+            meta_data: tau_and_t(&meta_data_quota)?,
+            status: tau_and_t(&status_quota)?,
+            goodbye: tau_and_t(&goodbye_quota)?,
+            blocks_by_range: tau_and_t(&blocks_by_range_quota)?,
+            blocks_by_root: tau_and_t(&blocks_by_root_quota)?,
+            blobs_by_range: tau_and_t(&blobs_by_range_quota)?,
+            blobs_by_root: tau_and_t(&blobs_by_root_quota)?,
+            light_client_bootstrap: tau_and_t(&light_client_bootstrap_quota)?,
+            light_client_optimistic_update: tau_and_t(&light_client_optimistic_update_quota)?,
+            light_client_finality_update: tau_and_t(&light_client_finality_update_quota)?,
+        })
+    }
+
+    pub fn allows<Item: RateLimiterItem>(&self, request: &Item) -> bool {
+        let tokens = request.max_responses().max(1);
+        let (tau, t) = match request.protocol() {
+            Protocol::Ping => self.ping,
+            Protocol::Status => self.status,
+            Protocol::MetaData => self.meta_data,
+            Protocol::Goodbye => self.goodbye,
+            Protocol::BlocksByRange => self.blocks_by_range,
+            Protocol::BlocksByRoot => self.blocks_by_root,
+            Protocol::BlobsByRange => self.blobs_by_range,
+            Protocol::BlobsByRoot => self.blobs_by_root,
+            Protocol::LightClientBootstrap => self.light_client_bootstrap,
+            Protocol::LightClientOptimisticUpdate => self.light_client_optimistic_update,
+            Protocol::LightClientFinalityUpdate => self.light_client_finality_update,
+        };
+
+        // how long does it take to replenish these tokens
+        let additional_time = t * tokens;
+
+        if additional_time > tau {
+            // the time required to process this amount of tokens is longer than the time that
+            // makes the bucket full. So, this batch can _never_ be processed
+            return false;
+        }
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::rpc::rate_limiter::{Limiter, Quota};

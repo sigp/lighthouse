@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
+use types::blob_sidecar::BlobIdentifier;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
     EmptyBlock, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature,
@@ -70,6 +71,7 @@ fn test_tcp_status_rpc() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
+            false,
             None,
         )
         .await;
@@ -171,6 +173,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
             ForkName::Bellatrix,
             &spec,
             Protocol::Tcp,
+            false,
             None,
         )
         .await;
@@ -305,6 +308,7 @@ fn test_blobs_by_range_chunked_rpc() {
             ForkName::Deneb,
             &spec,
             Protocol::Tcp,
+            false,
             None,
         )
         .await;
@@ -418,6 +422,7 @@ fn test_tcp_blocks_by_range_over_limit() {
             ForkName::Bellatrix,
             &spec,
             Protocol::Tcp,
+            false,
             None,
         )
         .await;
@@ -510,6 +515,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
+            false,
             None,
         )
         .await;
@@ -639,6 +645,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
+            false,
             None,
         )
         .await;
@@ -747,6 +754,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
             ForkName::Bellatrix,
             &spec,
             Protocol::Tcp,
+            false,
             None,
         )
         .await;
@@ -884,6 +892,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
+            false,
             None,
         )
         .await;
@@ -1022,6 +1031,7 @@ fn test_disconnect_triggers_rpc_error() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
+            false,
             None,
         )
         .await;
@@ -1112,6 +1122,7 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
             ForkName::Base,
             &spec,
             protocol,
+            false,
             None,
         )
         .await;
@@ -1193,6 +1204,7 @@ fn test_delayed_rpc_response() {
             ForkName::Base,
             &spec,
             Protocol::Tcp,
+            false,
             // Configure a quota for STATUS responses of 1 token every 3 seconds.
             Some("status:1/3".parse().unwrap()),
         )
@@ -1296,4 +1308,119 @@ fn test_delayed_rpc_response() {
             }
         }
     })
+}
+
+// Test that the receiver sends an RPC error when the request is too large.
+#[test]
+fn test_request_too_large() {
+    let rt = Arc::new(Runtime::new().unwrap());
+    let log = logging::test_logger();
+    let spec = E::default_spec();
+
+    rt.block_on(async {
+        // Configure quotas for requests.
+        let quotas = vec![
+            "beacon_blocks_by_range:1/1024",
+            "beacon_blocks_by_root:1/128",
+            "blob_sidecars_by_range:1/768",
+            "blob_sidecars_by_root:1/128",
+        ];
+
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            Protocol::Tcp,
+            // In this test, many RPC errors occur (which are expected). Disabling peer scoring to
+            // avoid banning a peer and to ensure we can test that the receiver sends RPC errors to
+            // the sender.
+            true,
+            Some(quotas.join(";").parse().unwrap()),
+        )
+        .await;
+
+        // RPC requests that triggers RPC error (request too large) on the receiver side.
+        let mut rpc_requests = vec![
+            Request::BlocksByRange(BlocksByRangeRequest::new(0, 2)),
+            Request::BlocksByRoot(BlocksByRootRequest::new(
+                vec![
+                    Hash256::from_low_u64_be(0),
+                    Hash256::from_low_u64_be(0),
+                ],
+                &spec,
+            )),
+            Request::BlobsByRange(BlobsByRangeRequest {
+                start_slot: 0,
+                count: 32,
+            }),
+            Request::BlobsByRoot(BlobsByRootRequest::new(
+                vec![
+                    BlobIdentifier { block_root: Hash256::zero(), index: 0  },
+                    BlobIdentifier { block_root: Hash256::zero(), index: 1  },
+                ],
+                &spec,
+            )),
+        ];
+        let requests_to_be_failed = rpc_requests.len();
+        let mut failed_request_ids = vec![];
+
+        // Build the sender future
+        let sender_future = async {
+            let mut request_id = 1;
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        let request = rpc_requests.pop().unwrap();
+                        debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
+                        sender.send_request(peer_id, request_id, request);
+                    }
+                    NetworkEvent::ResponseReceived { id, response, .. } => {
+                        debug!(log, "Received response"; "request_id" => id, "response" => ?response);
+                        // Handle the response termination.
+                        match response {
+                            Response::BlocksByRange(None) | Response::BlocksByRoot(None) | Response::BlobsByRange(None) | Response::BlobsByRoot(None) => {},
+                            _ => unreachable!(),
+                        }
+                    }
+                    NetworkEvent::RPCFailed { id, peer_id, error } => {
+                        debug!(log, "RPC Failed"; "error" => ?error, "request_id" => id);
+                        assert_eq!(id, request_id);
+                        assert!(matches!(error, RPCError::ErrorResponse(RPCResponseErrorCode::RateLimited, .. )));
+
+                        failed_request_ids.push(id);
+                        if let Some(request) = rpc_requests.pop() {
+                            request_id += 1;
+                            debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
+                            sender.send_request(peer_id, request_id, request);
+                        } else {
+                            assert_eq!(failed_request_ids.len(), requests_to_be_failed);
+                            return
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        // Build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived { .. } => {
+                        unreachable!();
+                    }
+                    _ => {} // Ignore other events
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    });
 }
