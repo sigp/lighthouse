@@ -8041,7 +8041,8 @@ checksum = "81cdd64d312baedb58e21336b31bc043b77e01cc99033ce76ef539f78e965ebc"
 [[package]]
 name = "superstruct"
 version = "0.8.0"
-source = "git+https://github.com/sigp/superstruct?rev=45eecbfb9708c9fe11dbb6a6a5bd8d618f02269e#45eecbfb9708c9fe11dbb6a6a5bd8d618f02269e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf0f31f730ad9e579364950e10d6172b4a9bd04b447edf5988b066a860cc340e"
 dependencies = [
  "darling",
  "itertools",
