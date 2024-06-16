@@ -37,8 +37,6 @@ while getopts "e:b:n:phc" flag; do
   esac
 done
 
-LH_IMAGE_NAME=$(yq eval ".participants[0].cl_image" $NETWORK_PARAMS_FILE)
-
 if ! command -v docker &> /dev/null; then
     echo "Docker is not installed. Please install Docker and try again."
     exit 1
@@ -52,6 +50,8 @@ fi
 if ! command -v yq &> /dev/null; then
     echo "yq not found. Please install yq and try again."
 fi
+
+LH_IMAGE_NAME=$(yq eval ".participants[0].cl_image" $NETWORK_PARAMS_FILE)
 
 if [ "$BUILDER_PROPOSALS" = true ]; then
   yq eval '.participants[0].vc_extra_params = ["--builder-proposals"]' -i $NETWORK_PARAMS_FILE
@@ -78,6 +78,6 @@ fi
 # Stop local testnet
 kurtosis enclave rm -f $ENCLAVE_NAME 2>/dev/null || true
 
-kurtosis run --enclave $ENCLAVE_NAME github.com/kurtosis-tech/ethereum-package --args-file $NETWORK_PARAMS_FILE
+kurtosis run --enclave $ENCLAVE_NAME github.com/ethpandaops/ethereum-package --args-file $NETWORK_PARAMS_FILE
 
 echo "Started!"
