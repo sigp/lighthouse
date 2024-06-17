@@ -76,33 +76,30 @@ pub mod base {
             )
             .map_err(|e| e.into_with_index(i))?;
 
-            match attestation {
-                AttestationRef::Base(att) => {
-                    let pending_attestation = PendingAttestation {
-                        aggregation_bits: att.aggregation_bits.clone(),
-                        data: att.data.clone(),
-                        inclusion_delay: state.slot().safe_sub(att.data.slot)?.as_u64(),
-                        proposer_index,
-                    };
-
-                    if attestation.data().target.epoch == state.current_epoch() {
-                        state
-                            .as_base_mut()?
-                            .current_epoch_attestations
-                            .push(pending_attestation)?;
-                    } else {
-                        state
-                            .as_base_mut()?
-                            .previous_epoch_attestations
-                            .push(pending_attestation)?;
-                    }
-                }
-                AttestationRef::Electra(_) => {
-                    // TODO(electra) pending attestations are only phase 0
-                    // so we should just raise a relevant error here
-                    todo!()
-                }
+            let AttestationRef::Base(attestation) = attestation else {
+                // Pending attestations have been deprecated in a altair, this branch should
+                // never happen
+                return Err(BlockProcessingError::PendingAttestationInElectra);
             };
+
+            let pending_attestation = PendingAttestation {
+                aggregation_bits: attestation.aggregation_bits.clone(),
+                data: attestation.data.clone(),
+                inclusion_delay: state.slot().safe_sub(attestation.data.slot)?.as_u64(),
+                proposer_index,
+            };
+
+            if attestation.data.target.epoch == state.current_epoch() {
+                state
+                    .as_base_mut()?
+                    .current_epoch_attestations
+                    .push(pending_attestation)?;
+            } else {
+                state
+                    .as_base_mut()?
+                    .previous_epoch_attestations
+                    .push(pending_attestation)?;
+            }
         }
 
         Ok(())
