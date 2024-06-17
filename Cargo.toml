@@ -96,6 +96,7 @@ clap = { version = "4.5.4", features = ["cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
 c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", rev = "114fa0382990e9b74b1f90f3b0dc5f97c2f8a7ad" }
+eip7594 = { git = "https://github.com/crate-crypto/peerdas-kzg", rev = "8bafeda8d969cf8c8887aab2eaf3ccba37201abf" }
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.3"
 delay_map = "0.3"
