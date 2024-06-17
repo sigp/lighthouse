@@ -179,42 +179,34 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
-                Step::Attestation { attestation } => match fork_name {
-                    ForkName::Base
-                    | ForkName::Altair
-                    | ForkName::Bellatrix
-                    | ForkName::Capella
-                    | ForkName::Deneb => ssz_decode_file(
-                        &path.join(format!("{}.ssz_snappy", attestation)),
-                    )
-                    .map(|attestation| Step::Attestation {
-                        attestation: Attestation::Base(attestation),
-                    }),
-                    ForkName::Electra => ssz_decode_file(
-                        &path.join(format!("{}.ssz_snappy", attestation)),
-                    )
-                    .map(|attestation| Step::Attestation {
-                        attestation: Attestation::Electra(attestation),
-                    }),
-                },
-                Step::AttesterSlashing { attester_slashing } => match fork_name {
-                    ForkName::Base
-                    | ForkName::Altair
-                    | ForkName::Bellatrix
-                    | ForkName::Capella
-                    | ForkName::Deneb => {
+                Step::Attestation { attestation } => {
+                    if fork_name >= ForkName::Electra {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
+                            |attestation| Step::Attestation {
+                                attestation: Attestation::Electra(attestation),
+                            },
+                        )
+                    } else {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
+                            |attestation| Step::Attestation {
+                                attestation: Attestation::Base(attestation),
+                            },
+                        )
+                    }
+                }
+                Step::AttesterSlashing { attester_slashing } => {
+                    if fork_name >= ForkName::Electra {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                            .map(|attester_slashing| Step::AttesterSlashing {
+                                attester_slashing: AttesterSlashing::Electra(attester_slashing),
+                            })
+                    } else {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Base(attester_slashing),
                             })
                     }
-                    ForkName::Electra => {
-                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
-                            .map(|attester_slashing| Step::AttesterSlashing {
-                                attester_slashing: AttesterSlashing::Electra(attester_slashing),
-                            })
-                    }
-                },
+                }
                 Step::PowBlock { pow_block } => {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", pow_block)))
                         .map(|pow_block| Step::PowBlock { pow_block })
