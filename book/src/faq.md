@@ -223,7 +223,7 @@ An example of the full log is shown below:
 Jun 07 23:05:12.170 WARN Could not verify blob sidecar for gossip. Ignoring the blob sidecar, commitment: 0xaa97…6f54, index: 1, root: 0x93b8…c47c, slot: 9248017, error: PastFinalizedSlot { blob_slot: Slot(9248017), finalized_slot: Slot(9248032) }, module: network::network_beacon_processor::gossip_methods:720
 ```
 
-The `PastFinalizedSlot` indicates that the time at which the node received the blob has past the finalization period. This could be due to a peer sending an earlier blob. The log is generally harmless and is safe to ignore.
+The `PastFinalizedSlot` indicates that the time at which the node received the blob has past the finalization period. This could be due to a peer sending an earlier blob. The log will be gone when Lighthouse eventually drops the peer.
 
 ## Validator
 
