@@ -4,6 +4,7 @@ use super::{
     SignedRoot,
 };
 use crate::test_utils::TestRandom;
+use crate::Attestation;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
@@ -88,28 +89,39 @@ impl<E: EthSpec> AggregateAndProof<E> {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Self {
-        let selection_proof = selection_proof
-            .unwrap_or_else(|| {
-                SelectionProof::new::<E>(
-                    aggregate.data().slot,
-                    secret_key,
-                    fork,
-                    genesis_validators_root,
-                    spec,
-                )
-            })
-            .into();
+        let selection_proof = selection_proof.unwrap_or_else(|| {
+            SelectionProof::new::<E>(
+                aggregate.data().slot,
+                secret_key,
+                fork,
+                genesis_validators_root,
+                spec,
+            )
+        });
 
+        Self::from_attestation(
+            aggregator_index,
+            aggregate.clone_as_attestation(),
+            selection_proof,
+        )
+    }
+
+    /// Produces a new `AggregateAndProof` given a `selection_proof`
+    pub fn from_attestation(
+        aggregator_index: u64,
+        aggregate: Attestation<E>,
+        selection_proof: SelectionProof,
+    ) -> Self {
         match aggregate {
-            AttestationRef::Base(attestation) => Self::Base(AggregateAndProofBase {
+            Attestation::Base(aggregate) => Self::Base(AggregateAndProofBase {
                 aggregator_index,
-                aggregate: attestation.clone(),
-                selection_proof,
+                aggregate,
+                selection_proof: selection_proof.into(),
             }),
-            AttestationRef::Electra(attestation) => Self::Electra(AggregateAndProofElectra {
+            Attestation::Electra(aggregate) => Self::Electra(AggregateAndProofElectra {
                 aggregator_index,
-                aggregate: attestation.clone(),
-                selection_proof,
+                aggregate,
+                selection_proof: selection_proof.into(),
             }),
         }
     }

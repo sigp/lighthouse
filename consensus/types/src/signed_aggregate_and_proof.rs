@@ -83,17 +83,19 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
         );
         let signing_message = message.signing_root(domain);
 
-        match message {
+        Self::from_aggregate_and_proof(message, secret_key.sign(signing_message))
+    }
+
+    /// Produces a new `SignedAggregateAndProof` given a `signature` of `aggregate`
+    pub fn from_aggregate_and_proof(aggregate: AggregateAndProof<E>, signature: Signature) -> Self {
+        match aggregate {
             AggregateAndProof::Base(message) => {
-                SignedAggregateAndProof::Base(SignedAggregateAndProofBase {
-                    message,
-                    signature: secret_key.sign(signing_message),
-                })
+                SignedAggregateAndProof::Base(SignedAggregateAndProofBase { message, signature })
             }
             AggregateAndProof::Electra(message) => {
                 SignedAggregateAndProof::Electra(SignedAggregateAndProofElectra {
                     message,
-                    signature: secret_key.sign(signing_message),
+                    signature,
                 })
             }
         }
