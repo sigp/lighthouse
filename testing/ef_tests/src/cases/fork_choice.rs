@@ -131,7 +131,6 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
     #[allow(clippy::type_complexity)]
-    // TODO(electra): these tests will need to be updated to use new types
     pub steps: Vec<
         Step<SignedBeaconBlock<E>, BlobsList<E>, Attestation<E>, AttesterSlashing<E>, PowBlock>,
     >,
