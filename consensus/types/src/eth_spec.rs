@@ -292,6 +292,22 @@ pub trait EthSpec:
         Self::KzgCommitmentInclusionProofDepth::to_usize()
     }
 
+    fn kzg_commitments_tree_depth() -> usize {
+        // Depth of the subtree rooted at `blob_kzg_commitments` in the `BeaconBlockBody`
+        // is equal to depth of the ssz List max size + 1 for the length mixin
+        Self::max_blob_commitments_per_block()
+            .next_power_of_two()
+            .ilog2()
+            .safe_add(1)
+            .expect("The log of max_blob_commitments_per_block can not overflow") as usize
+    }
+
+    fn block_body_tree_depth() -> usize {
+        Self::kzg_proof_inclusion_proof_depth()
+            .safe_sub(Self::kzg_commitments_tree_depth())
+            .expect("Preset values are not configurable and never result in non-positive block body depth")
+    }
+
     /// Returns the `PENDING_BALANCE_DEPOSITS_LIMIT` constant for this specification.
     fn pending_balance_deposits_limit() -> usize {
         Self::PendingBalanceDepositsLimit::to_usize()
@@ -515,5 +531,28 @@ impl EthSpec for GnosisEthSpec {
 
     fn spec_name() -> EthSpecId {
         EthSpecId::Gnosis
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+
+    fn assert_valid_spec<E: EthSpec>() {
+        E::kzg_commitments_tree_depth();
+        E::block_body_tree_depth();
+    }
+
+    #[test]
+    fn mainnet_spec() {
+        assert_valid_spec::<MainnetEthSpec>();
+    }
+    #[test]
+    fn minimal_spec() {
+        assert_valid_spec::<MinimalEthSpec>();
+    }
+    #[test]
+    fn gnosis_spec() {
+        assert_valid_spec::<GnosisEthSpec>();
     }
 }
