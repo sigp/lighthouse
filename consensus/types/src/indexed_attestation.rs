@@ -1,7 +1,6 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
 use core::slice::Iter;
 use derivative::Derivative;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz::Encode;
@@ -208,23 +207,6 @@ impl<E: EthSpec> Decode for IndexedAttestation<E> {
     }
 }
 
-// TODO(electra): think about how to handle fork variants here
-impl<E: EthSpec> TestRandom for IndexedAttestation<E> {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let attesting_indices = VariableList::random_for_test(rng);
-        // let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
-        let data = AttestationData::random_for_test(rng);
-        let signature = AggregateSignature::random_for_test(rng);
-
-        Self::Base(IndexedAttestationBase {
-            attesting_indices,
-            // committee_bits,
-            data,
-            signature,
-        })
-    }
-}
-
 /// Implementation of non-crypto-secure `Hash`, for use with `HashMap` and `HashSet`.
 ///
 /// Guarantees `att1 == att2 -> hash(att1) == hash(att2)`.
@@ -333,14 +315,22 @@ mod tests {
         assert!(!indexed_vote_first.is_surround_vote(&indexed_vote_second));
     }
 
-    ssz_and_tree_hash_tests!(IndexedAttestation<MainnetEthSpec>);
+    mod base {
+        use super::*;
+        ssz_and_tree_hash_tests!(IndexedAttestationBase<MainnetEthSpec>);
+    }
+    mod electra {
+        use super::*;
+        ssz_and_tree_hash_tests!(IndexedAttestationElectra<MainnetEthSpec>);
+    }
 
     fn create_indexed_attestation(
         target_epoch: u64,
         source_epoch: u64,
     ) -> IndexedAttestation<MainnetEthSpec> {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let mut indexed_vote = IndexedAttestation::random_for_test(&mut rng);
+        let mut indexed_vote =
+            IndexedAttestation::Base(IndexedAttestationBase::random_for_test(&mut rng));
 
         indexed_vote.data_mut().source.epoch = Epoch::new(source_epoch);
         indexed_vote.data_mut().target.epoch = Epoch::new(target_epoch);
