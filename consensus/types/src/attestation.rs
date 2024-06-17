@@ -2,7 +2,6 @@ use crate::slot_data::SlotData;
 use crate::ForkName;
 use crate::{test_utils::TestRandom, Hash256, Slot};
 use derivative::Derivative;
-use rand::RngCore;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -75,23 +74,6 @@ pub struct Attestation<E: EthSpec> {
     #[superstruct(only(Electra))]
     pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
     pub signature: AggregateSignature,
-}
-
-// TODO(electra): think about how to handle fork variants here
-impl<E: EthSpec> TestRandom for Attestation<E> {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let aggregation_bits = BitList::random_for_test(rng);
-        let data = AttestationData::random_for_test(rng);
-        let signature = AggregateSignature::random_for_test(rng);
-        let committee_bits = BitVector::random_for_test(rng);
-
-        Self::Electra(AttestationElectra {
-            aggregation_bits,
-            committee_bits,
-            data,
-            signature,
-        })
-    }
 }
 
 impl<E: EthSpec> Hash for Attestation<E> {
