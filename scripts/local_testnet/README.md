@@ -44,13 +44,20 @@ kurtosis service logs local-testnet -f vc-1-geth-lighthouse
 kurtosis service logs local-testnet -f el-1-geth-lighthouse
 ```
 
+If you would like to save the logs, use the command:
+```bash
+kurtosis dump $OUTPUT_DIRECTORY
+```
+
+This will create a folder named `$OUTPUT_DIRECTORY` in the present working directory that contains all logs and other information.
+
 Kurtosis comes with a Dora explorer which can be opened with:
 
 ```bash
 open $(kurtosis port print local-testnet dora http)
 ```
 
-Some testnet parameters can be varied by modifying the `network_params.yaml` file. Kurtosis also comes with a web UI which can be open with `kurtosis web`.
+Some testnet parameters can be varied by modifying the `network_params.yaml` file. Kurtosis also comes with a web UI which can be open with `kurtosis web`. To 
 
 ## Stopping the testnet
 
