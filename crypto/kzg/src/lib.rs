@@ -13,13 +13,21 @@ pub use c_kzg::{
     Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
     BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
 };
-pub use c_kzg::{Cell, CELLS_PER_EXT_BLOB};
 use mockall::automock;
+
+pub use eip7594::{
+    constants::BYTES_PER_CELL, constants::CELLS_PER_EXT_BLOB, verifier::VerifierError,
+    Bytes48Ref as PeerDASBytes48, Cell, CellID, CellRef, PeerDASContext,
+};
 
 #[derive(Debug)]
 pub enum Error {
     /// An error from the underlying kzg library.
     Kzg(c_kzg::Error),
+    /// A prover error from the PeerdasKZG library
+    ProverKZG(eip7594::prover::ProverError),
+    /// A verifier error from the PeerdasKZG library
+    VerifierKZG(eip7594::verifier::VerifierError),
     /// The kzg verification failed
     KzgVerificationFailed,
     /// Misc indexing error
@@ -36,6 +44,7 @@ impl From<c_kzg::Error> for Error {
 #[derive(Debug)]
 pub struct Kzg {
     trusted_setup: KzgSettings,
+    context: PeerDASContext,
 }
 
 #[automock]
@@ -50,6 +59,7 @@ impl Kzg {
                 // Ref: https://notes.ethereum.org/@jtraglia/windowed_multiplications
                 8,
             )?,
+            context: PeerDASContext::default(),
         })
     }
 
@@ -156,17 +166,21 @@ impl Kzg {
     pub fn compute_cells_and_proofs(
         &self,
         blob: &Blob,
-    ) -> Result<
-        (
-            Box<[Cell; CELLS_PER_EXT_BLOB]>,
-            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
-        ),
-        Error,
-    > {
-        let (cells, proofs) = c_kzg::Cell::compute_cells_and_kzg_proofs(blob, &self.trusted_setup)
-            .map_err(Into::<Error>::into)?;
-        let proofs = Box::new(proofs.map(|proof| KzgProof::from(proof.to_bytes().into_inner())));
-        Ok((cells, proofs))
+    ) -> Result<([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]), Error> {
+        let blob_bytes: &[u8; BYTES_PER_BLOB] = blob
+            .as_ref()
+            .try_into()
+            .expect("Expected blob to have size {BYTES_PER_BLOB}");
+
+        let (cells, proofs) = self
+            .context
+            .prover_ctx()
+            .compute_cells_and_kzg_proofs(blob_bytes)
+            .map_err(Error::ProverKZG)?;
+
+        // Convert the proof type to a c-kzg proof type
+        let c_kzg_proof = proofs.map(|proof| KzgProof(proof));
+        Ok((cells, c_kzg_proof))
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.
@@ -174,70 +188,70 @@ impl Kzg {
     /// Here, `coordinates` correspond to the (row, col) coordinate of the cell in the extended
     /// blob "matrix". In the 1D extension, row corresponds to the blob index, and col corresponds
     /// to the data column index.
-    pub fn verify_cell_proof_batch(
+    pub fn verify_cell_proof_batch<'a>(
         &self,
-        cells: &[Cell],
+        cells: &[CellRef<'a>],
         kzg_proofs: &[Bytes48],
         coordinates: &[(u64, u64)],
         kzg_commitments: &[Bytes48],
     ) -> Result<(), Error> {
         let (rows, columns): (Vec<u64>, Vec<u64>) = coordinates.iter().cloned().unzip();
-        if !c_kzg::KzgProof::verify_cell_kzg_proof_batch(
-            kzg_commitments,
-            &rows,
-            &columns,
-            cells,
-            kzg_proofs,
-            &self.trusted_setup,
-        )? {
-            Err(Error::KzgVerificationFailed)
-        } else {
-            Ok(())
+        // The result of this is either an Ok indicating the proof passed, or an Err indicating
+        // the proof failed or something else went wrong.
+
+        let proofs: Vec<PeerDASBytes48> = kzg_proofs
+            .iter()
+            .map(|proof| proof.as_ref().try_into().unwrap())
+            .collect();
+        let commitments: Vec<PeerDASBytes48> = kzg_commitments
+            .iter()
+            .map(|commitment| commitment.as_ref().try_into().unwrap())
+            .collect();
+        let verification_result = self.context.verifier_ctx().verify_cell_kzg_proof_batch(
+            commitments.to_vec(),
+            rows,
+            columns,
+            cells.to_vec(),
+            proofs.to_vec(),
+        );
+
+        // Modify the result so it matches roughly what the previous method was doing.
+        match verification_result {
+            Ok(_) => Ok(()),
+            Err(VerifierError::InvalidProof) => Err(Error::KzgVerificationFailed),
+            Err(e) => Err(Error::VerifierKZG(e)),
         }
     }
 
-    fn cells_to_blob(&self, cells: &[Cell; c_kzg::CELLS_PER_EXT_BLOB]) -> Result<Blob, Error> {
-        Ok(Blob::cells_to_blob(cells)?)
-    }
-
-    pub fn recover_cells_and_compute_kzg_proofs(
+    pub fn recover_cells_and_compute_kzg_proofs<'a>(
         &self,
         cell_ids: &[u64],
-        cells: &[Cell],
-    ) -> Result<
-        (
-            Box<[Cell; CELLS_PER_EXT_BLOB]>,
-            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
-        ),
-        Error,
-    > {
-        let all_cells = c_kzg::Cell::recover_all_cells(cell_ids, cells, &self.trusted_setup)?;
-        let blob = self.cells_to_blob(&all_cells)?;
-        self.compute_cells_and_proofs(&blob)
+        cells: &[CellRef<'a>],
+    ) -> Result<([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]), Error> {
+        let (cells, proofs) = self
+            .context
+            .prover_ctx()
+            .recover_cells_and_proofs(cell_ids.to_vec(), cells.to_vec(), vec![])
+            .map_err(Error::ProverKZG)?;
+
+        // Convert the proof type to a c-kzg proof type
+        let c_kzg_proof = proofs.map(|proof| KzgProof(proof));
+        Ok((cells, c_kzg_proof))
     }
 }
 
 pub mod mock {
+    use crate::{Blob, Cell, BYTES_PER_CELL, CELLS_PER_EXT_BLOB};
     use crate::{Error, KzgProof};
-    use c_kzg::{Blob, Cell, CELLS_PER_EXT_BLOB};
-
-    pub const MOCK_KZG_BYTES_PER_CELL: usize = 2048;
 
     #[allow(clippy::type_complexity)]
     pub fn compute_cells_and_proofs(
         _blob: &Blob,
-    ) -> Result<
-        (
-            Box<[Cell; CELLS_PER_EXT_BLOB]>,
-            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
-        ),
-        Error,
-    > {
-        let empty_cell = Cell::new([0; MOCK_KZG_BYTES_PER_CELL]);
-        Ok((
-            Box::new([empty_cell; CELLS_PER_EXT_BLOB]),
-            Box::new([KzgProof::empty(); CELLS_PER_EXT_BLOB]),
-        ))
+    ) -> Result<([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]), Error> {
+        let empty_cells = vec![Cell::new([0; BYTES_PER_CELL]); CELLS_PER_EXT_BLOB]
+            .try_into()
+            .expect("expected {CELLS_PER_EXT_BLOB} number of items");
+        Ok((empty_cells, [KzgProof::empty(); CELLS_PER_EXT_BLOB]))
     }
 }
 
