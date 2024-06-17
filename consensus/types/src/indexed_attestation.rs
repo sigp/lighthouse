@@ -2,7 +2,6 @@ use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec
 use core::slice::Iter;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::hash::{Hash, Hasher};
@@ -184,26 +183,6 @@ impl<'a, E: EthSpec> IndexedAttestationRef<'a, E> {
             IndexedAttestationRef::Base(att) => IndexedAttestation::Base(att.clone()),
             IndexedAttestationRef::Electra(att) => IndexedAttestation::Electra(att.clone()),
         }
-    }
-}
-
-impl<E: EthSpec> Decode for IndexedAttestation<E> {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        if let Ok(result) = IndexedAttestationBase::from_ssz_bytes(bytes) {
-            return Ok(IndexedAttestation::Base(result));
-        }
-
-        if let Ok(result) = IndexedAttestationElectra::from_ssz_bytes(bytes) {
-            return Ok(IndexedAttestation::Electra(result));
-        }
-
-        Err(ssz::DecodeError::BytesInvalid(String::from(
-            "bytes not valid for any fork variant",
-        )))
     }
 }
 

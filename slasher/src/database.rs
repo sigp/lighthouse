@@ -18,7 +18,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
-    Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, SignedBeaconBlockHeader, Slot,
+    Epoch, EthSpec, Hash256, IndexedAttestation, IndexedAttestationBase, ProposerSlashing,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
@@ -481,7 +482,11 @@ impl<E: EthSpec> SlasherDB<E> {
             .ok_or(Error::MissingIndexedAttestation {
                 id: indexed_attestation_id.as_u64(),
             })?;
-        ssz_decode(bytes)
+        // TODO(electra): make slasher fork-aware and return correct variant of attestation. Both
+        // Base and Electra variant can the same SSZ encoding, however the smaller list maximum of
+        // Base can error with an Electra attestation with heavy participation.
+        let indexed_attestation: IndexedAttestationBase<E> = ssz_decode(bytes)?;
+        Ok(IndexedAttestation::Base(indexed_attestation))
     }
 
     fn get_attestation_data_root(
