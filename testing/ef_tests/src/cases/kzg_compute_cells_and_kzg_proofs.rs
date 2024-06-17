@@ -62,12 +62,9 @@ impl<E: EthSpec> Case for KZGComputeCellsAndKZGProofs<E> {
                 .ok()
         });
 
-        compare_result::<
-            (
-                Box<[Cell; CELLS_PER_EXT_BLOB]>,
-                Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
-            ),
-            _,
-        >(&cells_and_proofs, &expected)
+        compare_result::<([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]), _>(
+            &cells_and_proofs,
+            &expected,
+        )
     }
 }
