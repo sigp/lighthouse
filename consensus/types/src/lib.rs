@@ -10,8 +10,6 @@
 )]
 
 #[macro_use]
-extern crate lazy_static;
-#[macro_use]
 pub mod test_utils;
 
 pub mod aggregate_and_proof;
