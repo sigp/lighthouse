@@ -2,8 +2,8 @@
 
 use beacon_chain::attestation_verification::{
     batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations, Error,
-    ObservedAttestationKey,
 };
+use beacon_chain::observed_aggregates::ObservedAttestationKey;
 use beacon_chain::test_utils::{MakeAttestationOptions, HARNESS_GENESIS_TIME};
 use beacon_chain::{
     attestation_verification::Error as AttnError,
@@ -852,7 +852,9 @@ async fn aggregated_gossip_verification() {
                     err,
                     AttnError::AttestationSupersetKnown(hash)
                     if hash == ObservedAttestationKey {
-                        committee_index: tester.valid_aggregate.message().aggregate().expect("should get committee index"),
+                        committee_index: tester.valid_aggregate.message().aggregate()
+                            .committee_index()
+                            .expect("should get committee index"),
                         attestation_data: tester.valid_aggregate.message().aggregate().data().clone(),
                     }.tree_hash_root()
                 ))
