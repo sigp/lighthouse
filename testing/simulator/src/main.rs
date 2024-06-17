@@ -10,9 +10,6 @@
 //! simulation uses `println` to communicate some info. It might be nice if the nodes logged to
 //! easy-to-find files and stdout only contained info from the simulation.
 //!
-
-extern crate clap;
-
 mod basic_sim;
 mod checks;
 mod cli;
