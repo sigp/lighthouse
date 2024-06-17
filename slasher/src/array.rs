@@ -5,7 +5,6 @@ use crate::{
 };
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use std::borrow::Borrow;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::io::Read;
@@ -486,7 +485,6 @@ pub fn update<E: EthSpec>(
     batch: Vec<Arc<IndexedAttesterRecord<E>>>,
     current_epoch: Epoch,
     config: &Config,
-    log: &Logger,
 ) -> Result<HashSet<AttesterSlashing<E>>, Error> {
     // Split the batch up into horizontal segments.
     // Map chunk indexes in the range `0..self.config.chunk_size` to attestations
@@ -506,7 +504,6 @@ pub fn update<E: EthSpec>(
         &chunk_attestations,
         current_epoch,
         config,
-        log,
     )?;
     slashings.extend(update_array::<_, MaxTargetChunk>(
         db,
@@ -515,7 +512,6 @@ pub fn update<E: EthSpec>(
         &chunk_attestations,
         current_epoch,
         config,
-        log,
     )?);
 
     // Update all current epochs.
@@ -574,7 +570,6 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     chunk_attestations: &BTreeMap<usize, Vec<Arc<IndexedAttesterRecord<E>>>>,
     current_epoch: Epoch,
     config: &Config,
-    log: &Logger,
 ) -> Result<HashSet<AttesterSlashing<E>>, Error> {
     let mut slashings = HashSet::new();
     // Map from chunk index to updated chunk at that index.
@@ -608,19 +603,8 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
                     current_epoch,
                     config,
                 )?;
-                match slashing_status.into_slashing(&attestation.indexed) {
-                    Ok(Some(slashing)) => {
-                        slashings.insert(slashing);
-                    }
-                    Err(e) => {
-                        slog::error!(
-                            log,
-                            "Invalid slashing conversion";
-                            "validator_index" => validator_index,
-                            "error" => e
-                        );
-                    }
-                    Ok(None) => {}
+                if let Some(slashing) = slashing_status.into_slashing(&attestation.indexed) {
+                    slashings.insert(slashing);
                 }
             }
         }

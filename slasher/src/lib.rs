@@ -53,11 +53,11 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
     pub fn into_slashing(
         self,
         new_attestation: &IndexedAttestation<E>,
-    ) -> Result<Option<AttesterSlashing<E>>, String> {
+    ) -> Option<AttesterSlashing<E>> {
         use AttesterSlashingStatus::*;
 
         // The surrounding attestation must be in `attestation_1` to be valid.
-        Ok(match self {
+        match self {
             NotSlashable => None,
             AlreadyDoubleVoted => None,
             DoubleVote(existing) | SurroundedByExisting(existing) => {
@@ -70,14 +70,8 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
                     }
                     // A slashing involving an electra attestation type must return an `AttesterSlashingElectra` type
                     (_, _) => Some(AttesterSlashing::Electra(AttesterSlashingElectra {
-                        attestation_1: existing
-                            .clone()
-                            .to_electra()
-                            .map_err(|e| format!("{e:?}"))?,
-                        attestation_2: new_attestation
-                            .clone()
-                            .to_electra()
-                            .map_err(|e| format!("{e:?}"))?,
+                        attestation_1: existing.clone().to_electra(),
+                        attestation_2: new_attestation.clone().to_electra(),
                     })),
                 }
             }
@@ -90,16 +84,10 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
                 }
                 // A slashing involving an electra attestation type must return an `AttesterSlashingElectra` type
                 (_, _) => Some(AttesterSlashing::Electra(AttesterSlashingElectra {
-                    attestation_1: new_attestation
-                        .clone()
-                        .to_electra()
-                        .map_err(|e| format!("{e:?}"))?,
-                    attestation_2: existing
-                        .clone()
-                        .to_electra()
-                        .map_err(|e| format!("{e:?}"))?,
+                    attestation_1: new_attestation.clone().to_electra(),
+                    attestation_2: existing.clone().to_electra(),
                 })),
             },
-        })
+        }
     }
 }
