@@ -179,7 +179,7 @@ impl Kzg {
             .map_err(Error::ProverKZG)?;
 
         // Convert the proof type to a c-kzg proof type
-        let c_kzg_proof = proofs.map(|proof| KzgProof(proof));
+        let c_kzg_proof = proofs.map(KzgProof);
         Ok((cells, c_kzg_proof))
     }
 
@@ -201,11 +201,11 @@ impl Kzg {
 
         let proofs: Vec<PeerDASBytes48> = kzg_proofs
             .iter()
-            .map(|proof| proof.as_ref().try_into().unwrap())
+            .map(|proof| proof.as_ref())
             .collect();
         let commitments: Vec<PeerDASBytes48> = kzg_commitments
             .iter()
-            .map(|commitment| commitment.as_ref().try_into().unwrap())
+            .map(|commitment| commitment.as_ref())
             .collect();
         let verification_result = self.context.verifier_ctx().verify_cell_kzg_proof_batch(
             commitments.to_vec(),
@@ -235,7 +235,7 @@ impl Kzg {
             .map_err(Error::ProverKZG)?;
 
         // Convert the proof type to a c-kzg proof type
-        let c_kzg_proof = proofs.map(|proof| KzgProof(proof));
+        let c_kzg_proof = proofs.map(KzgProof);
         Ok((cells, c_kzg_proof))
     }
 }
