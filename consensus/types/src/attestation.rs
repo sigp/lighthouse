@@ -1,4 +1,5 @@
 use crate::slot_data::SlotData;
+use crate::ForkName;
 use crate::{test_utils::TestRandom, Hash256, Slot};
 use derivative::Derivative;
 use rand::RngCore;
@@ -22,6 +23,8 @@ pub enum Error {
     AlreadySigned(usize),
     SubnetCountIsZero(ArithError),
     IncorrectStateVariant,
+    InvalidCommitteeLength,
+    InvalidCommitteeIndex,
 }
 
 #[superstruct(
@@ -104,6 +107,34 @@ impl<E: EthSpec> Hash for Attestation<E> {
 }
 
 impl<E: EthSpec> Attestation<E> {
+    pub fn empty_for_signing(
+        committee_index: usize,
+        committee_length: usize,
+        data: AttestationData,
+        spec: &ChainSpec,
+    ) -> Result<Self, Error> {
+        if spec.fork_name_at_slot::<E>(data.slot) >= ForkName::Electra {
+            let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
+            committee_bits
+                .set(committee_index, true)
+                .map_err(|_| Error::InvalidCommitteeIndex)?;
+            Ok(Attestation::Electra(AttestationElectra {
+                aggregation_bits: BitList::with_capacity(committee_length)
+                    .map_err(|_| Error::InvalidCommitteeLength)?,
+                data,
+                committee_bits,
+                signature: AggregateSignature::infinity(),
+            }))
+        } else {
+            Ok(Attestation::Base(AttestationBase {
+                aggregation_bits: BitList::with_capacity(committee_length)
+                    .map_err(|_| Error::InvalidCommitteeLength)?,
+                data,
+                signature: AggregateSignature::infinity(),
+            }))
+        }
+    }
+
     /// Aggregate another Attestation into this one.
     ///
     /// The aggregation bitfields must be disjoint, and the data must be the same.
