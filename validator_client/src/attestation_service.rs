@@ -374,9 +374,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             }
 
             let mut attestation = match Attestation::<E>::empty_for_signing(
-                duty.committee_index as usize,
+                duty.committee_index,
                 duty.committee_length as usize,
-                attestation_data.clone(),
+                attestation_data.slot,
+                attestation_data.beacon_block_root,
+                attestation_data.source,
+                attestation_data.target,
                 &self.context.eth2_config.spec,
             ) {
                 Ok(attestation) => attestation,
