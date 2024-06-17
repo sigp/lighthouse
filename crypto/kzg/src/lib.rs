@@ -196,20 +196,24 @@ impl Kzg {
         }
     }
 
-    pub fn cells_to_blob(&self, cells: &[Cell; c_kzg::CELLS_PER_EXT_BLOB]) -> Result<Blob, Error> {
+    fn cells_to_blob(&self, cells: &[Cell; c_kzg::CELLS_PER_EXT_BLOB]) -> Result<Blob, Error> {
         Ok(Blob::cells_to_blob(cells)?)
     }
 
-    pub fn recover_all_cells(
+    pub fn recover_cells_and_compute_kzg_proofs(
         &self,
         cell_ids: &[u64],
         cells: &[Cell],
-    ) -> Result<Box<[Cell; c_kzg::CELLS_PER_EXT_BLOB]>, Error> {
-        Ok(c_kzg::Cell::recover_all_cells(
-            cell_ids,
-            cells,
-            &self.trusted_setup,
-        )?)
+    ) -> Result<
+        (
+            Box<[Cell; CELLS_PER_EXT_BLOB]>,
+            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
+        ),
+        Error,
+    > {
+        let all_cells = c_kzg::Cell::recover_all_cells(cell_ids, cells, &self.trusted_setup)?;
+        let blob = self.cells_to_blob(&all_cells)?;
+        self.compute_cells_and_proofs(&blob)
     }
 }
 

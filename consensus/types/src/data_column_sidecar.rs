@@ -226,15 +226,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                     cells.push(ssz_cell_to_crypto_cell::<E>(cell)?);
                     cell_ids.push(data_column.index);
                 }
-                // recover_all_cells does not expect sorted
-                let all_cells = kzg.recover_all_cells(&cell_ids, &cells)?;
-                let blob = kzg.cells_to_blob(&all_cells)?;
-
-                // Note: This function computes all cells and proofs. According to Justin this is okay,
-                // computing a partial set may be more expensive and requires code paths that don't exist.
-                // Computing the blobs cells is technically unnecessary but very cheap. It's done here again
-                // for simplicity.
-                kzg.compute_cells_and_proofs(&blob)
+                kzg.recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
             })
             .collect::<Result<Vec<_>, KzgError>>()?;
 
