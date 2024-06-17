@@ -215,7 +215,7 @@ This suggests that the computer resources are being overwhelmed. It could be due
 
 This is a known [bug](https://github.com/sigp/lighthouse/issues/3707) that will fix by itself.
 
-### <a name=bn-blob"></a> My beacon node logs `WARN Could not verify blob sidecar for gossip`, what does it mean?
+### <a name="bn-blob"></a> My beacon node logs `WARN Could not verify blob sidecar for gossip`, what does it mean?
 
 An example of the full log is shown below:
 
