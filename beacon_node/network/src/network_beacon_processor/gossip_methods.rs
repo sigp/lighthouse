@@ -713,9 +713,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
-                    GossipBlobError::FutureSlot { .. }
-                    | GossipBlobError::RepeatBlob { .. }
-                    | GossipBlobError::PastFinalizedSlot { .. } => {
+                    GossipBlobError::FutureSlot { .. } | GossipBlobError::RepeatBlob { .. } => {
                         warn!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
@@ -730,6 +728,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             peer_id,
                             PeerAction::HighToleranceError,
                             "gossip_blob_high",
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    GossipBlobError::PastFinalizedSlot { .. } => {
+                        warn!(
+                            self.log,
+                            "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
+                            "error" => ?err,
+                            "slot" => %slot,
+                            "root" => %root,
+                            "index" => %index,
+                            "commitment" => %commitment,
+                        );
+                        // Prevent recurring behaviour by penalizing the peer slightly.
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_blob_low",
                         );
                         self.propagate_validation_result(
                             message_id,
