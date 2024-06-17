@@ -16,18 +16,19 @@ pub use c_kzg::{
 use mockall::automock;
 
 pub use eip7594::{
-    constants::BYTES_PER_CELL, constants::CELLS_PER_EXT_BLOB, verifier::VerifierError,
-    Bytes48Ref as PeerDASBytes48, Cell, CellID, CellRef, PeerDASContext, TrustedSetup as PeerDASTrustedSetup,
+    constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
+    Cell, CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
+use eip7594::{prover::ProverError, verifier::VerifierError, PeerDASContext};
 
 #[derive(Debug)]
 pub enum Error {
     /// An error from the underlying kzg library.
     Kzg(c_kzg::Error),
     /// A prover error from the PeerdasKZG library
-    ProverKZG(eip7594::prover::ProverError),
+    ProverKZG(ProverError),
     /// A verifier error from the PeerdasKZG library
-    VerifierKZG(eip7594::verifier::VerifierError),
+    VerifierKZG(VerifierError),
     /// The kzg verification failed
     KzgVerificationFailed,
     /// Misc indexing error
@@ -51,16 +52,15 @@ pub struct Kzg {
 impl Kzg {
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
     pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
-
         // Initialize the trusted setup using default parameters
-        // 
+        //
         // Note: One can also use `from_json` to initialize it from the consensus-specs
         // json string.
         let peerdas_trusted_setup = PeerDASTrustedSetup::default();
         // Set the number of threads to be used
         //
         // we set it to 1 to match the c-kzg performance
-        const NUM_THREADS : usize = 1;
+        const NUM_THREADS: usize = 1;
 
         let context = PeerDASContext::with_threads(&peerdas_trusted_setup, NUM_THREADS);
 
@@ -209,11 +209,8 @@ impl Kzg {
         // The result of this is either an Ok indicating the proof passed, or an Err indicating
         // the proof failed or something else went wrong.
 
-        let proofs: Vec<PeerDASBytes48> = kzg_proofs
-            .iter()
-            .map(|proof| proof.as_ref())
-            .collect();
-        let commitments: Vec<PeerDASBytes48> = kzg_commitments
+        let proofs: Vec<_> = kzg_proofs.iter().map(|proof| proof.as_ref()).collect();
+        let commitments: Vec<_> = kzg_commitments
             .iter()
             .map(|commitment| commitment.as_ref())
             .collect();
