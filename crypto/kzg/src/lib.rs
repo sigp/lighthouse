@@ -17,7 +17,7 @@ use mockall::automock;
 
 pub use eip7594::{
     constants::BYTES_PER_CELL, constants::CELLS_PER_EXT_BLOB, verifier::VerifierError,
-    Bytes48Ref as PeerDASBytes48, Cell, CellID, CellRef, PeerDASContext,
+    Bytes48Ref as PeerDASBytes48, Cell, CellID, CellRef, PeerDASContext, TrustedSetup as PeerDASTrustedSetup,
 };
 
 #[derive(Debug)]
@@ -51,12 +51,25 @@ pub struct Kzg {
 impl Kzg {
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
     pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
+
+        // Initialize the trusted setup using default parameters
+        // 
+        // Note: One can also use `from_json` to initialize it from the consensus-specs
+        // json string.
+        let peerdas_trusted_setup = PeerDASTrustedSetup::default();
+        // Set the number of threads to be used
+        //
+        // we set it to 1 to match the c-kzg performance
+        const NUM_THREADS : usize = 1;
+
+        let context = PeerDASContext::with_threads(&peerdas_trusted_setup, NUM_THREADS);
+
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
                 &trusted_setup.g1_points(),
                 &trusted_setup.g2_points(),
             )?,
-            context: PeerDASContext::default(),
+            context,
         })
     }
 
