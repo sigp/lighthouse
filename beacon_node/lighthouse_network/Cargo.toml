@@ -60,6 +60,7 @@ tempfile = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
 async-channel = { workspace = true }
+logging = { workspace = true }
 
 [features]
 libp2p-websocket = []
