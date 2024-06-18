@@ -6,6 +6,7 @@ use super::{
     Signature, SignedRoot,
 };
 use crate::test_utils::TestRandom;
+use crate::Attestation;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
@@ -107,6 +108,13 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
             SignedAggregateAndProof::Electra(message) => {
                 AggregateAndProofRef::Electra(&message.message)
             }
+        }
+    }
+
+    pub fn into_attestation(self) -> Attestation<E> {
+        match self {
+            Self::Base(att) => Attestation::Base(att.message.aggregate),
+            Self::Electra(att) => Attestation::Electra(att.message.aggregate),
         }
     }
 }
