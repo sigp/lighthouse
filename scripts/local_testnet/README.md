@@ -62,7 +62,7 @@ Kurtosis comes with a Dora explorer which can be opened with:
 open $(kurtosis port print local-testnet dora http)
 ```
 
-Some testnet parameters can be varied by modifying the `network_params.yaml` file. Kurtosis also comes with a web UI which can be open with `kurtosis web`. To 
+Some testnet parameters can be varied by modifying the `network_params.yaml` file. Kurtosis also comes with a web UI which can be open with `kurtosis web`.
 
 ## Stopping the testnet
 
