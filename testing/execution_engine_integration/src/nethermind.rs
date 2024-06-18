@@ -70,11 +70,10 @@ impl NethermindEngine {
             .join("nethermind")
             .join("src")
             .join("Nethermind")
-            .join("Nethermind.Runner")
+            .join("artifacts")
             .join("bin")
-            .join("Release")
-            .join("net7.0")
-            .join("linux-x64")
+            .join("Nethermind.Runner")
+            .join("release")
             .join("nethermind")
     }
 }
