@@ -1,10 +1,8 @@
-#![allow(deprecated)]
-
 use std::sync::Arc;
 
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
 use bls::Signature;
-use criterion::Criterion;
-use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 use eth2_network_config::TRUSTED_SETUP_BYTES;
 use kzg::{Kzg, KzgCommitment, TrustedSetup};
 use types::{
@@ -51,20 +49,17 @@ fn all_benches(c: &mut Criterion) {
 
         let spec = spec.clone();
 
-        c.bench(
-            &format!("reconstruct_{}", blob_count),
-            Benchmark::new("kzg/reconstruct", move |b| {
-                b.iter(|| {
-                    black_box(DataColumnSidecar::reconstruct(
-                        &kzg,
-                        &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
-                        spec.as_ref(),
-                    ))
-                })
-            }),
-        );
+        c.bench_function(&format!("reconstruct_{}", blob_count), |b| {
+            b.iter(|| {
+                black_box(DataColumnSidecar::reconstruct(
+                    &kzg,
+                    &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
+                    spec.as_ref(),
+                ))
+            })
+        });
     }
 }
 
-criterion_group!(benches, all_benches,);
+criterion_group!(benches, all_benches);
 criterion_main!(benches);
