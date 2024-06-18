@@ -255,6 +255,10 @@ impl db_key::Key for BytesKey {
 }
 
 impl BytesKey {
+    pub fn starts_with(&self, prefix: &Self) -> bool {
+        self.key.starts_with(&prefix.key)
+    }
+
     /// Return `true` iff this `BytesKey` was created with the given `column`.
     pub fn matches_column(&self, column: DBColumn) -> bool {
         self.key.starts_with(column.as_bytes())

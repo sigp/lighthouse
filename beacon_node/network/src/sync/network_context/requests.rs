@@ -124,7 +124,7 @@ impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
         if self.request.block_root != block_root {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
-        if !blob.verify_blob_sidecar_inclusion_proof().unwrap_or(false) {
+        if !blob.verify_blob_sidecar_inclusion_proof() {
             return Err(LookupVerifyError::InvalidInclusionProof);
         }
         if !self.request.indices.contains(&blob.index) {

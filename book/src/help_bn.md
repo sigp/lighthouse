@@ -356,7 +356,7 @@ Options:
       --slasher-backend <DATABASE>
           Set the database backend to be used by the slasher. [possible values:
           lmdb, disabled]
-      --slasher-broadcast <slasher-broadcast>
+      --slasher-broadcast [<slasher-broadcast>]
           Broadcast slashings found by the slasher to the rest of the network
           [Enabled by default]. [default: true]
       --slasher-chunk-size <EPOCHS>

@@ -617,7 +617,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 request,
                 request_id,
             } => {
-                self.libp2p.send_request(peer_id, request_id, request);
+                if let Err((request_id, error)) =
+                    self.libp2p.send_request(peer_id, request_id, request)
+                {
+                    self.send_to_router(RouterMessage::RPCFailed {
+                        peer_id,
+                        request_id,
+                        error,
+                    });
+                }
             }
             NetworkMessage::SendResponse {
                 peer_id,

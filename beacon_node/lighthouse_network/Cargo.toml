@@ -7,7 +7,7 @@ edition = { workspace = true }
 [dependencies]
 discv5 = { workspace = true }
 gossipsub = { workspace = true }
-unsigned-varint = { version = "0.6", features = ["codec"] }
+unsigned-varint = { version = "0.8", features = ["codec"] }
 ssz_types = { workspace = true }
 types = { workspace = true }
 serde = { workspace = true }

@@ -20,10 +20,9 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, BlockImportSource, DataColumnSidecarList,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, BlockImportSource, DataColumnSidecarVec,
     DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    FullPayloadBellatrix, Hash256, RuntimeVariableList, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, VariableList,
+    FullPayloadBellatrix, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
@@ -78,7 +77,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     /* actually publish a block */
     let publish_block = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
                               blobs_opt: Option<BlobSidecarList<T::EthSpec>>,
-                              data_cols_opt: Option<DataColumnSidecarList<T::EthSpec>>,
+                              data_cols_opt: Option<DataColumnSidecarVec<T::EthSpec>>,
                               sender,
                               log,
                               seen_timestamp| {
@@ -204,11 +203,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let data_cols_opt = gossip_verified_data_columns
         .as_ref()
         .map(|gossip_verified_data_columns| {
-            let data_columns = gossip_verified_data_columns
+            gossip_verified_data_columns
                 .into_iter()
                 .map(|col| col.clone_data_column())
-                .collect::<Vec<_>>();
-            RuntimeVariableList::from_vec(data_columns, chain.spec.number_of_columns)
+                .collect::<Vec<_>>()
         });
 
     let block_root = block_root.unwrap_or(gossip_verified_block.block_root);

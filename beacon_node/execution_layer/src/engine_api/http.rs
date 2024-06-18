@@ -412,7 +412,7 @@ pub mod deposit_methods {
                     .ok_or("Block number was not string")?,
             )?;
 
-            if number <= usize::max_value() as u64 {
+            if number <= usize::MAX as u64 {
                 Ok(Block {
                     hash,
                     timestamp,
