@@ -19,8 +19,8 @@ use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
+    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
     ValidatorRegistrationData, VoluntaryExit,
