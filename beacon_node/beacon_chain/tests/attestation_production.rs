@@ -190,30 +190,17 @@ async fn produces_attestations() {
                 .produce_unaggregated_attestation(slot, index)
                 .expect("should produce attestation");
 
-            match &attestation {
+            let (aggregation_bits_len, aggregation_bits_zero) = match &attestation {
                 Attestation::Base(att) => {
-                    assert_eq!(
-                        att.aggregation_bits.len(),
-                        committee_len,
-                        "bad committee len"
-                    );
-                    assert!(
-                        att.aggregation_bits.is_zero(),
-                        "some committee bits are set"
-                    );
+                    (att.aggregation_bits.len(), att.aggregation_bits.is_zero())
                 }
                 Attestation::Electra(att) => {
-                    assert_eq!(
-                        att.aggregation_bits.len(),
-                        committee_len,
-                        "bad committee len"
-                    );
-                    assert!(
-                        att.aggregation_bits.is_zero(),
-                        "some committee bits are set"
-                    );
+                    (att.aggregation_bits.len(), att.aggregation_bits.is_zero())
                 }
-            }
+            };
+            assert_eq!(aggregation_bits_len, committee_len, "bad committee len");
+            assert!(aggregation_bits_zero, "some committee bits are set");
+
             let data = attestation.data();
 
             assert_eq!(

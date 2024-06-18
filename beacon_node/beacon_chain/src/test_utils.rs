@@ -1354,36 +1354,25 @@ where
                         let fork_name = self.spec.fork_name_at_slot::<E>(slot);
 
                         let aggregate = if fork_name.electra_enabled() {
-                            self.chain
-                                .get_aggregated_attestation_electra(
-                                    slot,
-                                    &attestation.data().tree_hash_root(),
-                                    bc.index,
-                                )
-                                .unwrap()
-                                .unwrap_or_else(|| {
-                                    committee_attestations.iter().skip(1).fold(
-                                        attestation.clone(),
-                                        |mut agg, (att, _)| {
-                                            agg.aggregate(att.to_ref());
-                                            agg
-                                        },
-                                    )
-                                })
+                            self.chain.get_aggregated_attestation_electra(
+                                slot,
+                                &attestation.data().tree_hash_root(),
+                                bc.index,
+                            )
                         } else {
                             self.chain
                                 .get_aggregated_attestation_base(attestation.data())
-                                .unwrap()
-                                .unwrap_or_else(|| {
-                                    committee_attestations.iter().skip(1).fold(
-                                        attestation.clone(),
-                                        |mut agg, (att, _)| {
-                                            agg.aggregate(att.to_ref());
-                                            agg
-                                        },
-                                    )
-                                })
-                        };
+                        }
+                        .unwrap()
+                        .unwrap_or_else(|| {
+                            committee_attestations.iter().skip(1).fold(
+                                attestation.clone(),
+                                |mut agg, (att, _)| {
+                                    agg.aggregate(att.to_ref());
+                                    agg
+                                },
+                            )
+                        });
 
                         // If the chain is able to produce an aggregate, use that. Otherwise, build an
                         // aggregate locally.
@@ -1518,40 +1507,29 @@ where
 
         let fork_name = self.spec.fork_name_at_slot::<E>(Slot::new(0));
 
+        let data = AttestationData {
+            slot: Slot::new(0),
+            index: 0,
+            beacon_block_root: Hash256::zero(),
+            target: Checkpoint {
+                root: Hash256::zero(),
+                epoch: target1.unwrap_or(fork.epoch),
+            },
+            source: Checkpoint {
+                root: Hash256::zero(),
+                epoch: source1.unwrap_or(Epoch::new(0)),
+            },
+        };
         let mut attestation_1 = if fork_name.electra_enabled() {
             IndexedAttestation::Electra(IndexedAttestationElectra {
                 attesting_indices: VariableList::new(validator_indices).unwrap(),
-                data: AttestationData {
-                    slot: Slot::new(0),
-                    index: 0,
-                    beacon_block_root: Hash256::zero(),
-                    target: Checkpoint {
-                        root: Hash256::zero(),
-                        epoch: target1.unwrap_or(fork.epoch),
-                    },
-                    source: Checkpoint {
-                        root: Hash256::zero(),
-                        epoch: source1.unwrap_or(Epoch::new(0)),
-                    },
-                },
+                data,
                 signature: AggregateSignature::infinity(),
             })
         } else {
             IndexedAttestation::Base(IndexedAttestationBase {
                 attesting_indices: VariableList::new(validator_indices).unwrap(),
-                data: AttestationData {
-                    slot: Slot::new(0),
-                    index: 0,
-                    beacon_block_root: Hash256::zero(),
-                    target: Checkpoint {
-                        root: Hash256::zero(),
-                        epoch: target1.unwrap_or(fork.epoch),
-                    },
-                    source: Checkpoint {
-                        root: Hash256::zero(),
-                        epoch: source1.unwrap_or(Epoch::new(0)),
-                    },
-                },
+                data,
                 signature: AggregateSignature::infinity(),
             })
         };
