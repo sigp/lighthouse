@@ -1994,7 +1994,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
         drop(cache_timer);
 
-        if self.spec.fork_name_at_slot::<T::EthSpec>(request_slot) >= ForkName::Electra {
+        if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(request_slot)
+            .electra_enabled()
+        {
             let mut committee_bits = BitVector::default();
             if committee_len > 0 {
                 committee_bits.set(request_index as usize, true)?;

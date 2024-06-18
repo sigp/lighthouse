@@ -1033,7 +1033,7 @@ where
             *state.get_block_root(target_slot)?
         };
 
-        if self.spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
+        if self.spec.fork_name_at_slot::<E>(slot).electra_enabled() {
             let mut committee_bits = BitVector::default();
             committee_bits.set(index as usize, true)?;
             Ok(Attestation::Electra(AttestationElectra {
@@ -1376,7 +1376,7 @@ where
 
                         let fork_name = self.spec.fork_name_at_slot::<E>(slot);
 
-                        let aggregate = if fork_name >= ForkName::Electra {
+                        let aggregate = if fork_name.electra_enabled() {
                             self.chain
                                 .get_aggregated_attestation_electra(
                                     slot,
@@ -1541,7 +1541,7 @@ where
 
         let fork_name = self.spec.fork_name_at_slot::<E>(Slot::new(0));
 
-        let mut attestation_1 = if fork_name >= ForkName::Electra {
+        let mut attestation_1 = if fork_name.electra_enabled() {
             IndexedAttestation::Electra(IndexedAttestationElectra {
                 attesting_indices: VariableList::new(validator_indices).unwrap(),
                 data: AttestationData {
@@ -1623,7 +1623,7 @@ where
             }
         }
 
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             AttesterSlashing::Electra(AttesterSlashingElectra {
                 attestation_1: attestation_1.as_electra().unwrap().clone(),
                 attestation_2: attestation_2.as_electra().unwrap().clone(),
@@ -1657,7 +1657,7 @@ where
             },
         };
 
-        let (mut attestation_1, mut attestation_2) = if fork_name >= ForkName::Electra {
+        let (mut attestation_1, mut attestation_2) = if fork_name.electra_enabled() {
             let attestation_1 = IndexedAttestationElectra {
                 attesting_indices: VariableList::new(validator_indices_1).unwrap(),
                 data: data.clone(),
@@ -1735,7 +1735,7 @@ where
             }
         }
 
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             AttesterSlashing::Electra(AttesterSlashingElectra {
                 attestation_1: attestation_1.as_electra().unwrap().clone(),
                 attestation_2: attestation_2.as_electra().unwrap().clone(),

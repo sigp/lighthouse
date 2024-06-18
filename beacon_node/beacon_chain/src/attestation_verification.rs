@@ -1341,7 +1341,10 @@ pub fn verify_committee_index<E: EthSpec>(
     attestation: AttestationRef<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if spec.fork_name_at_slot::<E>(attestation.data().slot) >= ForkName::Electra {
+    if spec
+        .fork_name_at_slot::<E>(attestation.data().slot)
+        .electra_enabled()
+    {
         // Check to ensure that the attestation is for a single committee.
         let num_committee_bits = get_committee_indices::<E>(
             attestation

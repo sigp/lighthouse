@@ -668,7 +668,7 @@ async fn invalid_signature_attester_slashing() {
         let mut snapshots = chain_segment.clone();
         let fork_name = harness.chain.spec.fork_name_at_slot::<E>(Slot::new(0));
 
-        let attester_slashing = if fork_name >= ForkName::Electra {
+        let attester_slashing = if fork_name.electra_enabled() {
             let indexed_attestation = IndexedAttestationElectra {
                 attesting_indices: vec![0].into(),
                 data: AttestationData {

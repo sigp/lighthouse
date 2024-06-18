@@ -1,5 +1,4 @@
 use crate::slot_data::SlotData;
-use crate::ForkName;
 use crate::{test_utils::TestRandom, Hash256, Slot};
 use derivative::Derivative;
 use safe_arith::ArithError;
@@ -95,7 +94,7 @@ impl<E: EthSpec> Attestation<E> {
         data: AttestationData,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        if spec.fork_name_at_slot::<E>(data.slot) >= ForkName::Electra {
+        if spec.fork_name_at_slot::<E>(data.slot).electra_enabled() {
             let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
             committee_bits
                 .set(committee_index, true)
