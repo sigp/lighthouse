@@ -528,21 +528,20 @@ mod tests {
             } else {
                 panic!("Should have sent a batch request to the peer")
             };
-            let blob_req_id = match fork_name {
-                ForkName::Deneb | ForkName::Electra => {
-                    if let Ok(NetworkMessage::SendRequest {
-                        peer_id,
-                        request: _,
-                        request_id,
-                    }) = self.network_rx.try_recv()
-                    {
-                        assert_eq!(&peer_id, expected_peer);
-                        Some(request_id)
-                    } else {
-                        panic!("Should have sent a batch request to the peer")
-                    }
+            let blob_req_id = if fork_name.deneb_enabled() {
+                if let Ok(NetworkMessage::SendRequest {
+                    peer_id,
+                    request: _,
+                    request_id,
+                }) = self.network_rx.try_recv()
+                {
+                    assert_eq!(&peer_id, expected_peer);
+                    Some(request_id)
+                } else {
+                    panic!("Should have sent a batch request to the peer")
                 }
-                _ => None,
+            } else {
+                None
             };
             (block_req_id, blob_req_id)
         }

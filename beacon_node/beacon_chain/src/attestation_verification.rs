@@ -1067,14 +1067,14 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
 
     let current_fork =
         spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
-    let earliest_permissible_slot = match current_fork {
-        ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-            one_epoch_prior
-        }
+
+    let earliest_permissible_slot = if current_fork.deneb_enabled() {
         // EIP-7045
-        ForkName::Deneb | ForkName::Electra => one_epoch_prior
+        one_epoch_prior
             .epoch(E::slots_per_epoch())
-            .start_slot(E::slots_per_epoch()),
+            .start_slot(E::slots_per_epoch())
+    } else {
+        one_epoch_prior
     };
 
     if attestation_slot < earliest_permissible_slot {
