@@ -205,7 +205,7 @@ async fn produces_attestations() {
 
             assert_eq!(
                 attestation.signature(),
-                &AggregateSignature::empty(),
+                &AggregateSignature::infinity(),
                 "bad signature"
             );
             assert_eq!(data.index, index, "bad index");
