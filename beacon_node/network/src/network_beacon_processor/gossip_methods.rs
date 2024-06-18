@@ -701,7 +701,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "index" => %index,
                             "commitment" => %commitment,
                         );
-                        // Prevent recurring behaviour by penalizing the peer slightly.
+                        // Prevent recurring behaviour by penalizing the peer.
                         self.gossip_penalize_peer(
                             peer_id,
                             PeerAction::LowToleranceError,
@@ -714,7 +714,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                     GossipBlobError::FutureSlot { .. } | GossipBlobError::RepeatBlob { .. } => {
-                        warn!(
+                        debug!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
                             "error" => ?err,
@@ -736,7 +736,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                     GossipBlobError::PastFinalizedSlot { .. } => {
-                        warn!(
+                        debug!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
                             "error" => ?err,
@@ -745,7 +745,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "index" => %index,
                             "commitment" => %commitment,
                         );
-                        // Prevent recurring behaviour by penalizing the peer slightly.
+                        // Prevent recurring behaviour by penalizing the peer. A low-tolerance
+                        // error is fine because there's no reason for peers to be propagating old
+                        // blobs on gossip, even if their view of finality is lagging.
                         self.gossip_penalize_peer(
                             peer_id,
                             PeerAction::LowToleranceError,
