@@ -6,10 +6,7 @@ use crate::{
 use crate::{KzgProofs, SignedBeaconBlock};
 use bls::Signature;
 use derivative::Derivative;
-use kzg::{
-    Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT,
-    FIELD_ELEMENTS_PER_BLOB,
-};
+use kzg::{Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT};
 use merkle_proof::{merkle_root_from_branch, verify_merkle_proof, MerkleTreeError};
 use rand::Rng;
 use safe_arith::ArithError;
