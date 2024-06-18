@@ -158,18 +158,19 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::BeaconAggregateAndProof => {
                         let signed_aggregate_and_proof =
                             match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                                Some(ForkName::Base)
-                                | Some(ForkName::Altair)
-                                | Some(ForkName::Bellatrix)
-                                | Some(ForkName::Capella)
-                                | Some(ForkName::Deneb) => SignedAggregateAndProof::Base(
-                                    SignedAggregateAndProofBase::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
-                                Some(ForkName::Electra) => SignedAggregateAndProof::Electra(
-                                    SignedAggregateAndProofElectra::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
+                                Some(&fork_name) => {
+                                    if fork_name >= ForkName::Electra {
+                                        SignedAggregateAndProof::Electra(
+                                            SignedAggregateAndProofElectra::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    } else {
+                                        SignedAggregateAndProof::Base(
+                                            SignedAggregateAndProofBase::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    }
+                                }
                                 None => {
                                     return Err(format!(
                                         "Unknown gossipsub fork digest: {:?}",
@@ -184,18 +185,19 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::Attestation(subnet_id) => {
                         let attestation =
                             match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                                Some(ForkName::Base)
-                                | Some(ForkName::Altair)
-                                | Some(ForkName::Bellatrix)
-                                | Some(ForkName::Capella)
-                                | Some(ForkName::Deneb) => Attestation::Base(
-                                    AttestationBase::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
-                                Some(ForkName::Electra) => Attestation::Electra(
-                                    AttestationElectra::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
+                                Some(&fork_name) => {
+                                    if fork_name >= ForkName::Electra {
+                                        Attestation::Electra(
+                                            AttestationElectra::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    } else {
+                                        Attestation::Base(
+                                            AttestationBase::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    }
+                                }
                                 None => {
                                     return Err(format!(
                                         "Unknown gossipsub fork digest: {:?}",
@@ -281,18 +283,19 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::AttesterSlashing => {
                         let attester_slashing =
                             match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                                Some(ForkName::Base)
-                                | Some(ForkName::Altair)
-                                | Some(ForkName::Bellatrix)
-                                | Some(ForkName::Capella)
-                                | Some(ForkName::Deneb) => AttesterSlashing::Base(
-                                    AttesterSlashingBase::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
-                                Some(ForkName::Electra) => AttesterSlashing::Electra(
-                                    AttesterSlashingElectra::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
+                                Some(&fork_name) => {
+                                    if fork_name >= ForkName::Electra {
+                                        AttesterSlashing::Electra(
+                                            AttesterSlashingElectra::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    } else {
+                                        AttesterSlashing::Base(
+                                            AttesterSlashingBase::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    }
+                                }
                                 None => {
                                     return Err(format!(
                                         "Unknown gossipsub fork digest: {:?}",
