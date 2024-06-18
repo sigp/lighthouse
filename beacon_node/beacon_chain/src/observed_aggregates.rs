@@ -473,12 +473,13 @@ where
 #[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
-    use types::{test_utils::test_random_instance, Hash256};
+    use types::{test_utils::test_random_instance, AttestationBase, Hash256};
 
     type E = types::MainnetEthSpec;
 
     fn get_attestation(slot: Slot, beacon_block_root: u64) -> Attestation<E> {
-        let mut a: Attestation<E> = test_random_instance();
+        let a: AttestationBase<E> = test_random_instance();
+        let mut a = Attestation::Base(a);
         a.data_mut().slot = slot;
         a.data_mut().beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
         a
