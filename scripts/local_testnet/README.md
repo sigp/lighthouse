@@ -53,8 +53,9 @@ kurtosis dump $OUTPUT_DIRECTORY
 This will create a folder named `$OUTPUT_DIRECTORY` in the present working directory that contains all logs and other information. If you want the logs for a particular service and saved to a file named `logs.txt`:
 
 ```bash
-kurtosis service logs local-testnet $SERVICE_NAME1 -a > logs.txt`
+kurtosis service logs local-testnet $SERVICE_NAME -a > logs.txt
 ```
+where `$SERVICE_NAME` can be viewed by running `kurtosis enclave inspect local-testnet`.
 
 Kurtosis comes with a Dora explorer which can be opened with:
 
