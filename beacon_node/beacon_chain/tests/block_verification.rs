@@ -1308,62 +1308,34 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             }
         };
 
-        match indexed_attestation {
-            IndexedAttestation::Base(indexed_attestation) => {
-                for &index in &indexed_attestation.attesting_indices {
-                    let index = index as usize;
+        for index in match indexed_attestation {
+            IndexedAttestation::Base(att) => att.attesting_indices.into_iter(),
+            IndexedAttestation::Electra(att) => att.attesting_indices.into_iter(),
+        } {
+            let index = index as usize;
 
-                    assert!(harness.chain.validator_seen_at_epoch(index, epoch));
+            assert!(harness.chain.validator_seen_at_epoch(index, epoch));
 
-                    // Check the correct beacon cache is populated
-                    assert!(harness
-                        .chain
-                        .observed_block_attesters
-                        .read()
-                        .validator_has_been_observed(epoch, index)
-                        .expect("should check if block attester was observed"));
-                    assert!(!harness
-                        .chain
-                        .observed_gossip_attesters
-                        .read()
-                        .validator_has_been_observed(epoch, index)
-                        .expect("should check if gossip attester was observed"));
-                    assert!(!harness
-                        .chain
-                        .observed_aggregators
-                        .read()
-                        .validator_has_been_observed(epoch, index)
-                        .expect("should check if gossip aggregator was observed"));
-                }
-            }
-            IndexedAttestation::Electra(indexed_attestation) => {
-                for &index in &indexed_attestation.attesting_indices {
-                    let index = index as usize;
-
-                    assert!(harness.chain.validator_seen_at_epoch(index, epoch));
-
-                    // Check the correct beacon cache is populated
-                    assert!(harness
-                        .chain
-                        .observed_block_attesters
-                        .read()
-                        .validator_has_been_observed(epoch, index)
-                        .expect("should check if block attester was observed"));
-                    assert!(!harness
-                        .chain
-                        .observed_gossip_attesters
-                        .read()
-                        .validator_has_been_observed(epoch, index)
-                        .expect("should check if gossip attester was observed"));
-                    assert!(!harness
-                        .chain
-                        .observed_aggregators
-                        .read()
-                        .validator_has_been_observed(epoch, index)
-                        .expect("should check if gossip aggregator was observed"));
-                }
-            }
-        };
+            // Check the correct beacon cache is populated
+            assert!(harness
+                .chain
+                .observed_block_attesters
+                .read()
+                .validator_has_been_observed(epoch, index)
+                .expect("should check if block attester was observed"));
+            assert!(!harness
+                .chain
+                .observed_gossip_attesters
+                .read()
+                .validator_has_been_observed(epoch, index)
+                .expect("should check if gossip attester was observed"));
+            assert!(!harness
+                .chain
+                .observed_aggregators
+                .read()
+                .validator_has_been_observed(epoch, index)
+                .expect("should check if gossip aggregator was observed"));
+        }
     }
 }
 
