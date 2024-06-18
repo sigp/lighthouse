@@ -221,13 +221,7 @@ impl<E: EthSpec> BlobSidecar<E> {
         rng.fill_bytes(&mut blob_bytes);
         // Ensure that the blob is canonical by ensuring that
         // each field element contained in the blob is < BLS_MODULUS
-        for i in 0..FIELD_ELEMENTS_PER_BLOB {
-            let Some(byte) = blob_bytes.get_mut(
-                i.checked_mul(BYTES_PER_FIELD_ELEMENT)
-                    .ok_or("overflow".to_string())?,
-            ) else {
-                return Err(format!("blob byte index out of bounds: {:?}", i));
-            };
+        for byte in blob_bytes.iter_mut().step_by(BYTES_PER_FIELD_ELEMENT) {
             *byte = 0;
         }
 
