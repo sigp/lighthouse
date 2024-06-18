@@ -143,8 +143,8 @@ pub trait EthSpec:
     type PendingBalanceDepositsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type PendingPartialWithdrawalsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type PendingConsolidationsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type MaxConsolidations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type MaxDepositReceiptsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxConsolidationRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxDepositRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxAttesterSlashingsElectra: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxAttestationsElectra: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxWithdrawalRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -325,14 +325,14 @@ pub trait EthSpec:
         Self::PendingConsolidationsLimit::to_usize()
     }
 
-    /// Returns the `MAX_CONSOLIDATIONS` constant for this specification.
-    fn max_consolidations() -> usize {
-        Self::MaxConsolidations::to_usize()
+    /// Returns the `MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD` constant for this specification.
+    fn max_consolidation_requests_per_payload() -> usize {
+        Self::MaxConsolidationRequestsPerPayload::to_usize()
     }
 
-    /// Returns the `MAX_DEPOSIT_RECEIPTS_PER_PAYLOAD` constant for this specification.
-    fn max_deposit_receipts_per_payload() -> usize {
-        Self::MaxDepositReceiptsPerPayload::to_usize()
+    /// Returns the `MAX_DEPOSIT_REQUESTS_PER_PAYLOAD` constant for this specification.
+    fn max_deposit_requests_per_payload() -> usize {
+        Self::MaxDepositRequestsPerPayload::to_usize()
     }
 
     /// Returns the `MAX_ATTESTER_SLASHINGS_ELECTRA` constant for this specification.
@@ -404,8 +404,8 @@ impl EthSpec for MainnetEthSpec {
     type PendingBalanceDepositsLimit = U134217728;
     type PendingPartialWithdrawalsLimit = U134217728;
     type PendingConsolidationsLimit = U262144;
-    type MaxConsolidations = U1;
-    type MaxDepositReceiptsPerPayload = U8192;
+    type MaxConsolidationRequestsPerPayload = U1;
+    type MaxDepositRequestsPerPayload = U8192;
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
@@ -442,7 +442,7 @@ impl EthSpec for MinimalEthSpec {
     type KzgCommitmentInclusionProofDepth = U9;
     type PendingPartialWithdrawalsLimit = U64;
     type PendingConsolidationsLimit = U64;
-    type MaxDepositReceiptsPerPayload = U4;
+    type MaxDepositRequestsPerPayload = U4;
     type MaxWithdrawalRequestsPerPayload = U2;
 
     params_from_eth_spec!(MainnetEthSpec {
@@ -468,7 +468,7 @@ impl EthSpec for MinimalEthSpec {
         MaxBlobsPerBlock,
         BytesPerFieldElement,
         PendingBalanceDepositsLimit,
-        MaxConsolidations,
+        MaxConsolidationRequestsPerPayload,
         MaxAttesterSlashingsElectra,
         MaxAttestationsElectra
     });
@@ -527,8 +527,8 @@ impl EthSpec for GnosisEthSpec {
     type PendingBalanceDepositsLimit = U134217728;
     type PendingPartialWithdrawalsLimit = U134217728;
     type PendingConsolidationsLimit = U262144;
-    type MaxConsolidations = U1;
-    type MaxDepositReceiptsPerPayload = U8192;
+    type MaxConsolidationRequestsPerPayload = U1;
+    type MaxDepositRequestsPerPayload = U8192;
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;

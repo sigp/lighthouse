@@ -115,7 +115,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Deneb, Electra))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Electra))]
-    pub consolidations: VariableList<SignedConsolidation, E::MaxConsolidations>,
+    pub consolidations: VariableList<SignedConsolidation, E::MaxConsolidationRequestsPerPayload>,
     #[superstruct(only(Base, Altair))]
     #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]

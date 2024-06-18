@@ -25,9 +25,9 @@ use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
-    BlindedPayload, Deposit, DepositReceipt, ExecutionLayerWithdrawalRequest, ExecutionPayload,
-    FullPayload, ProposerSlashing, SignedBlsToExecutionChange, SignedConsolidation,
-    SignedVoluntaryExit, SyncAggregate,
+    BlindedPayload, Deposit, DepositRequest, ExecutionPayload, FullPayload, ProposerSlashing,
+    SignedBlsToExecutionChange, SignedConsolidation, SignedVoluntaryExit, SyncAggregate,
+    WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -445,7 +445,7 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     }
 }
 
-impl<E: EthSpec> Operation<E> for ExecutionLayerWithdrawalRequest {
+impl<E: EthSpec> Operation<E> for WithdrawalRequest {
     fn handler_name() -> String {
         "execution_layer_withdrawal_request".into()
     }
@@ -468,9 +468,9 @@ impl<E: EthSpec> Operation<E> for ExecutionLayerWithdrawalRequest {
     }
 }
 
-impl<E: EthSpec> Operation<E> for DepositReceipt {
+impl<E: EthSpec> Operation<E> for DepositRequest {
     fn handler_name() -> String {
-        "deposit_receipt".into()
+        "deposit_request".into()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
