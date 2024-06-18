@@ -55,7 +55,7 @@ use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, BeaconCommittee, ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName, Hash256,
+    Attestation, BeaconCommittee, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
     IndexedAttestation, SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
 };
 

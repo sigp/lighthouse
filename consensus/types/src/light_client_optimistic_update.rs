@@ -155,16 +155,11 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
         // TODO(electra): review electra changes
-        match fork_name {
-            ForkName::Base => 0,
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
-                <LightClientOptimisticUpdateAltair<E> as Encode>::ssz_fixed_len()
-                    + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
-            }
+        if fork_name.altair_enabled() {
+            <LightClientOptimisticUpdateAltair<E> as Encode>::ssz_fixed_len()
+                + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+        } else {
+            0
         }
     }
 }
@@ -174,15 +169,16 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<E> {
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Base => Err(serde::de::Error::custom(format!(
-                "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
-                fork_name
-            ))),
-            _ => Ok(
+        if fork_name.altair_enabled() {
+            Ok(
                 serde_json::from_value::<LightClientOptimisticUpdate<E>>(value)
                     .map_err(serde::de::Error::custom),
-            )?,
+            )?
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
+                fork_name
+            )))
         }
     }
 }

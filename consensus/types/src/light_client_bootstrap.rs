@@ -98,16 +98,11 @@ impl<E: EthSpec> LightClientBootstrap<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
         // TODO(electra): review electra changes
-        match fork_name {
-            ForkName::Base => 0,
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
-                <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
-                    + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
-            }
+        if fork_name.altair_enabled() {
+            <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
+                + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+        } else {
+            0
         }
     }
 
@@ -154,13 +149,14 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientBootstrap<E> {
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Base => Err(serde::de::Error::custom(format!(
+        if fork_name.altair_enabled() {
+            Ok(serde_json::from_value::<LightClientBootstrap<E>>(value)
+                .map_err(serde::de::Error::custom))?
+        } else {
+            Err(serde::de::Error::custom(format!(
                 "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
                 fork_name
-            ))),
-            _ => Ok(serde_json::from_value::<LightClientBootstrap<E>>(value)
-                .map_err(serde::de::Error::custom))?,
+            )))
         }
     }
 }

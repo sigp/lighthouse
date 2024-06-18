@@ -569,7 +569,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
         // No FCU override tests prior to bellatrix.
         if self.handler_name == "should_override_forkchoice_update"
-            && (fork_name == ForkName::Base || fork_name == ForkName::Altair)
+            && (!fork_name.bellatrix_enabled())
         {
             return false;
         }
@@ -605,9 +605,7 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base
-            && fork_name != ForkName::Altair
-            && cfg!(not(feature = "fake_crypto"))
+        fork_name.bellatrix_enabled() && cfg!(not(feature = "fake_crypto"))
     }
 }
 
@@ -820,11 +818,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Enabled in Deneb
-        fork_name != ForkName::Base
-            && fork_name != ForkName::Altair
-            && fork_name != ForkName::Bellatrix
-            && fork_name != ForkName::Capella
+        fork_name.deneb_enabled()
     }
 }
 

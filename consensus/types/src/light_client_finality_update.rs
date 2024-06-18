@@ -169,16 +169,11 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
         // TODO(electra): review electra changes
-        match fork_name {
-            ForkName::Base => 0,
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
-                <LightClientFinalityUpdateAltair<E> as Encode>::ssz_fixed_len()
-                    + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
-            }
+        if fork_name.altair_enabled() {
+            <LightClientFinalityUpdateAltair<E> as Encode>::ssz_fixed_len()
+                + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+        } else {
+            0
         }
     }
 }
@@ -188,15 +183,14 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<E> {
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Base => Err(serde::de::Error::custom(format!(
+        if fork_name.altair_enabled() {
+            serde_json::from_value::<LightClientFinalityUpdate<E>>(value)
+                .map_err(serde::de::Error::custom)
+        } else {
+            Err(serde::de::Error::custom(format!(
                 "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
                 fork_name
-            ))),
-            _ => Ok(
-                serde_json::from_value::<LightClientFinalityUpdate<E>>(value)
-                    .map_err(serde::de::Error::custom),
-            )?,
+            )))
         }
     }
 }
