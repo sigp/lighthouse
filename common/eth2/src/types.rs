@@ -726,7 +726,7 @@ impl AttesterData {
             self.slot == attestation_data.slot && self.committee_index == attestation_data.index
         } else {
             // After electra `attestation_data.index` is set to 0 and does not match the duties
-            self.slot == attestation_data.index
+            self.slot == attestation_data.slot
         }
     }
 }
