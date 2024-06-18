@@ -9,32 +9,9 @@ use std::collections::HashSet;
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
 
-const DATA_COLUMN_SUBNET_COUNT: u64 = 32;
-
-lazy_static! {
-    static ref DATA_COLUMN_SUBNET_ID_TO_STRING: Vec<String> = {
-        let mut v = Vec::with_capacity(DATA_COLUMN_SUBNET_COUNT as usize);
-
-        for i in 0..DATA_COLUMN_SUBNET_COUNT {
-            v.push(i.to_string());
-        }
-        v
-    };
-}
-
 #[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct DataColumnSubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
-
-pub fn data_column_subnet_id_to_string(i: u64) -> &'static str {
-    if i < DATA_COLUMN_SUBNET_COUNT {
-        DATA_COLUMN_SUBNET_ID_TO_STRING
-            .get(i as usize)
-            .expect("index below DATA_COLUMN_SUBNET_COUNT")
-    } else {
-        "data column subnet id out of range"
-    }
-}
 
 impl DataColumnSubnetId {
     pub fn new(id: u64) -> Self {
@@ -139,12 +116,6 @@ impl Into<u64> for DataColumnSubnetId {
 impl Into<u64> for &DataColumnSubnetId {
     fn into(self) -> u64 {
         self.0
-    }
-}
-
-impl AsRef<str> for DataColumnSubnetId {
-    fn as_ref(&self) -> &str {
-        data_column_subnet_id_to_string(self.0)
     }
 }
 

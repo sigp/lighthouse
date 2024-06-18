@@ -1,6 +1,7 @@
 pub use lighthouse_metrics::{set_gauge, try_create_int_gauge, *};
 
 use directory::size_of_dir;
+use lazy_static::lazy_static;
 use std::path::Path;
 
 lazy_static! {

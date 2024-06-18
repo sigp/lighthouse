@@ -9,7 +9,7 @@ Usage: lighthouse [OPTIONS] [COMMAND]
 Commands:
   account_manager
           Utilities for generating and managing Ethereum 2.0 accounts. [aliases:
-          a, am, account, account_manager]
+          a, am, account]
   beacon_node
           The primary component which connects to the Ethereum 2.0 P2P network
           and downloads, verifies and stores blocks. Provides a HTTP API for
@@ -30,7 +30,7 @@ Commands:
           validator]
   validator_manager
           Utilities for managing a Lighthouse validator client via the HTTP API.
-          [aliases: vm, validator-manager, validator_manager]
+          [aliases: vm, validator-manager]
   help
           Print this message or the help of the given subcommand(s)
 

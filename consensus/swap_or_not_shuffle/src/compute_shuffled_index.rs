@@ -17,7 +17,7 @@ use std::cmp::max;
 ///  - `list_size == 0`
 ///  - `index >= list_size`
 ///  - `list_size > 2**24`
-///  - `list_size > usize::max_value() / 2`
+///  - `list_size > usize::MAX / 2`
 pub fn compute_shuffled_index(
     index: usize,
     list_size: usize,
@@ -26,7 +26,7 @@ pub fn compute_shuffled_index(
 ) -> Option<usize> {
     if list_size == 0
         || index >= list_size
-        || list_size > usize::max_value() / 2
+        || list_size > usize::MAX / 2
         || list_size > 2_usize.pow(24)
     {
         return None;
@@ -140,7 +140,7 @@ mod tests {
     fn returns_none_for_too_large_list() {
         assert_eq!(
             None,
-            compute_shuffled_index(100, usize::max_value() / 2, &[42, 42], 90)
+            compute_shuffled_index(100, usize::MAX / 2, &[42, 42], 90)
         );
     }
 }
