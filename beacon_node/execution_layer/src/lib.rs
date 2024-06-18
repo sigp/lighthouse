@@ -1843,8 +1843,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         query: Vec<BlobTransactionId>,
     ) -> Result<GetBlobsResponse<E>, Error> {
+        // FIXME(sproul): try IPC again?
+        // .ipc_request(|ipc| ipc.get_blobs(query))
         self.engine()
-            .ipc_request(|ipc| ipc.get_blobs(query))
+            .request(|engine| async move { engine.api.get_blobs(query).await })
             .await
             .map_err(Box::new)
             .map_err(Error::EngineError)
