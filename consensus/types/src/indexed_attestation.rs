@@ -239,6 +239,38 @@ mod quoted_variable_list_u64 {
     }
 }
 
+#[derive(Debug, Clone, Encode, Decode, PartialEq)]
+#[ssz(enum_behaviour = "union")]
+pub enum IndexedAttestationOnDisk<E: EthSpec> {
+    Base(IndexedAttestationBase<E>),
+    Electra(IndexedAttestationElectra<E>),
+}
+
+#[derive(Debug, Clone, Encode, PartialEq)]
+#[ssz(enum_behaviour = "union")]
+pub enum IndexedAttestationRefOnDisk<'a, E: EthSpec> {
+    Base(&'a IndexedAttestationBase<E>),
+    Electra(&'a IndexedAttestationElectra<E>),
+}
+
+impl<'a, E: EthSpec> From<&'a IndexedAttestation<E>> for IndexedAttestationRefOnDisk<'a, E> {
+    fn from(attestation: &'a IndexedAttestation<E>) -> Self {
+        match attestation {
+            IndexedAttestation::Base(attestation) => Self::Base(attestation),
+            IndexedAttestation::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
+impl<E: EthSpec> From<IndexedAttestationOnDisk<E>> for IndexedAttestation<E> {
+    fn from(attestation: IndexedAttestationOnDisk<E>) -> Self {
+        match attestation {
+            IndexedAttestationOnDisk::Base(attestation) => Self::Base(attestation),
+            IndexedAttestationOnDisk::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

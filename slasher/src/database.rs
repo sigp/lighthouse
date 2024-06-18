@@ -18,12 +18,12 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
-    Epoch, EthSpec, Hash256, IndexedAttestation, IndexedAttestationBase, ProposerSlashing,
-    SignedBeaconBlockHeader, Slot,
+    Epoch, EthSpec, Hash256, IndexedAttestation, IndexedAttestationOnDisk,
+    IndexedAttestationRefOnDisk, ProposerSlashing, SignedBeaconBlockHeader, Slot,
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
-pub const CURRENT_SCHEMA_VERSION: u64 = 3;
+pub const CURRENT_SCHEMA_VERSION: u64 = 4;
 
 /// Metadata about the slashing database itself.
 const METADATA_DB: &str = "metadata";
@@ -458,7 +458,9 @@ impl<E: EthSpec> SlasherDB<E> {
         };
 
         let attestation_key = IndexedAttestationId::new(indexed_att_id);
-        let data = indexed_attestation.as_ssz_bytes();
+        let indexed_attestation_on_disk: IndexedAttestationRefOnDisk<E> =
+            indexed_attestation.into();
+        let data = indexed_attestation_on_disk.as_ssz_bytes();
 
         cursor.put(attestation_key.as_ref(), &data)?;
         drop(cursor);
@@ -482,11 +484,8 @@ impl<E: EthSpec> SlasherDB<E> {
             .ok_or(Error::MissingIndexedAttestation {
                 id: indexed_attestation_id.as_u64(),
             })?;
-        // TODO(electra): make slasher fork-aware and return correct variant of attestation. Both
-        // Base and Electra variant can the same SSZ encoding, however the smaller list maximum of
-        // Base can error with an Electra attestation with heavy participation.
-        let indexed_attestation: IndexedAttestationBase<E> = ssz_decode(bytes)?;
-        Ok(IndexedAttestation::Base(indexed_attestation))
+        let indexed_attestation: IndexedAttestationOnDisk<E> = ssz_decode(bytes)?;
+        Ok(indexed_attestation.into())
     }
 
     fn get_attestation_data_root(
