@@ -6,9 +6,9 @@ macro_rules! impl_from_into_u64 {
             }
         }
 
-        impl Into<u64> for $main {
-            fn into(self) -> u64 {
-                self.0
+        impl From<$main> for u64 {
+            fn from(from: $main) -> u64 {
+                from.0
             }
         }
 
@@ -28,9 +28,9 @@ macro_rules! impl_from_into_usize {
             }
         }
 
-        impl Into<usize> for $main {
-            fn into(self) -> usize {
-                self.0 as usize
+        impl From<$main> for usize {
+            fn from(from: $main) -> usize {
+                from.0 as usize
             }
         }
 

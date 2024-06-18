@@ -78,15 +78,15 @@ impl From<u64> for SyncSubnetId {
     }
 }
 
-impl Into<u64> for SyncSubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<SyncSubnetId> for u64 {
+    fn from(from: SyncSubnetId) -> u64 {
+        from.0
     }
 }
 
-impl Into<u64> for &SyncSubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<&SyncSubnetId> for u64 {
+    fn from(from: &SyncSubnetId) -> u64 {
+        from.0
     }
 }
 
