@@ -1184,42 +1184,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
-    pub fn get_data_columns_checking_early_attester_cache(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
-        self.early_attester_cache
-            .get_data_columns(*block_root)
-            .map_or_else(|| self.get_data_columns(block_root), Ok)
-    }
-
-    pub fn get_selected_data_columns_checking_all_caches(
+    pub fn get_data_column_checking_all_caches(
         &self,
         block_root: Hash256,
-        indices: &[ColumnIndex],
-    ) -> Result<Vec<Arc<DataColumnSidecar<T::EthSpec>>>, Error> {
-        let columns_from_availability_cache = indices
-            .iter()
-            .copied()
-            .filter_map(|index| {
-                self.data_availability_checker
-                    .get_data_column(&DataColumnIdentifier { block_root, index })
-                    .transpose()
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        // Existence of a column in the data availability cache and downstream caches is exclusive.
-        // If there's a single match in the availability cache we can safely skip other sources.
-        if !columns_from_availability_cache.is_empty() {
-            return Ok(columns_from_availability_cache);
+        index: ColumnIndex,
+    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, Error> {
+        if let Some(column) = self
+            .data_availability_checker
+            .get_data_column(&DataColumnIdentifier { block_root, index })?
+        {
+            return Ok(Some(column));
         }
 
-        Ok(self
-            .early_attester_cache
-            .get_data_columns(block_root)
-            .map_or_else(|| self.get_data_columns(&block_root), Ok)?
-            .into_iter()
-            .filter(|dc| indices.contains(&dc.index))
-            .collect())
+        if let Some(columns) = self.early_attester_cache.get_data_columns(block_root) {
+            return Ok(columns.iter().find(|c| c.index == index).cloned());
+        }
+
+        self.get_data_column(&block_root, &index)
     }
 
     /// Returns the import status of block checking (in order) pre-import caches, fork-choice, db store
@@ -1332,14 +1313,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Errors
     /// May return a database error.
-    pub fn get_data_columns(
+    pub fn get_data_column(
         &self,
         block_root: &Hash256,
-    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
-        match self.store.get_data_columns(block_root)? {
-            Some(data_columns) => Ok(data_columns),
-            None => Ok(RuntimeVariableList::empty(self.spec.number_of_columns)),
-        }
+        column_index: &ColumnIndex,
+    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, Error> {
+        Ok(self.store.get_data_column(block_root, column_index)?)
     }
 
     pub fn get_blinded_block(
