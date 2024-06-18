@@ -72,6 +72,7 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use eth2_network_config::Eth2NetworkConfig;
+use log::{debug, info};
 use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
@@ -117,9 +118,9 @@ pub fn run<E: EthSpec>(
     let beacon_url: Option<SensitiveUrl> = parse_optional(matches, "beacon-url")?;
     let runs: usize = parse_required(matches, "runs")?;
     let config = Config {
-        no_signature_verification: matches.is_present("no-signature-verification"),
-        exclude_cache_builds: matches.is_present("exclude-cache-builds"),
-        exclude_post_block_thc: matches.is_present("exclude-post-block-thc"),
+        no_signature_verification: matches.get_flag("no-signature-verification"),
+        exclude_cache_builds: matches.get_flag("exclude-cache-builds"),
+        exclude_post_block_thc: matches.get_flag("exclude-post-block-thc"),
     };
 
     info!("Using {} spec", E::spec_name());

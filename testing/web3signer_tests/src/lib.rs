@@ -901,13 +901,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prater_base_types() {
-        test_base_types("prater", 4246).await
+    async fn mainnet_bellatrix_types() {
+        test_bellatrix_types("mainnet", 4244).await
     }
 
     #[tokio::test]
-    async fn prater_altair_types() {
-        test_altair_types("prater", 4247).await
+    async fn holesky_bellatrix_types() {
+        // web3signer does not support forks prior to Bellatrix on Holesky
+        test_bellatrix_types("holesky", 4247).await
     }
 
     #[tokio::test]

@@ -917,12 +917,23 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     /* Eth2 RPC behaviour functions */
 
     /// Send a request to a peer over RPC.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: AppReqId, request: Request) {
+    pub fn send_request(
+        &mut self,
+        peer_id: PeerId,
+        request_id: AppReqId,
+        request: Request,
+    ) -> Result<(), (AppReqId, RPCError)> {
+        // Check if the peer is connected before sending an RPC request
+        if !self.swarm.is_connected(&peer_id) {
+            return Err((request_id, RPCError::Disconnected));
+        }
+
         self.eth2_rpc_mut().send_request(
             peer_id,
             RequestId::Application(request_id),
             request.into(),
-        )
+        );
+        Ok(())
     }
 
     /// Send a successful response to a peer over RPC.
@@ -1378,19 +1389,17 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     ) -> Option<NetworkEvent<AppReqId, E>> {
         let peer_id = event.peer_id;
 
-        if !self.peer_manager().is_connected(&peer_id) {
-            // Sync expects a RPCError::Disconnected to drop associated lookups with this peer.
-            // Silencing this event breaks the API contract with RPC where every request ends with
-            // - A stream termination event, or
-            // - An RPCError event
-            if !matches!(event.event, HandlerEvent::Err(HandlerErr::Outbound { .. })) {
-                debug!(
-                    self.log,
-                    "Ignoring rpc message of disconnecting peer";
-                    event
-                );
-                return None;
-            }
+        // Do not permit Inbound events from peers that are being disconnected, or RPC requests.
+        if !self.peer_manager().is_connected(&peer_id)
+            && (matches!(event.event, HandlerEvent::Err(HandlerErr::Inbound { .. }))
+                || matches!(event.event, HandlerEvent::Ok(RPCReceived::Request(..))))
+        {
+            debug!(
+                self.log,
+                "Ignoring rpc message of disconnecting peer";
+                event
+            );
+            return None;
         }
 
         let handler_id = event.conn_id;

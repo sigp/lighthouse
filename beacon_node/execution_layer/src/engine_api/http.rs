@@ -243,7 +243,6 @@ pub mod deposit_methods {
     /// Represents an eth1 chain/network id.
     #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
     pub enum Eth1Id {
-        Goerli,
         Mainnet,
         Custom(u64),
     }
@@ -267,7 +266,6 @@ pub mod deposit_methods {
         fn into(self) -> u64 {
             match self {
                 Eth1Id::Mainnet => 1,
-                Eth1Id::Goerli => 5,
                 Eth1Id::Custom(id) => id,
             }
         }
@@ -278,7 +276,6 @@ pub mod deposit_methods {
             let into = |x: Eth1Id| -> u64 { x.into() };
             match id {
                 id if id == into(Eth1Id::Mainnet) => Eth1Id::Mainnet,
-                id if id == into(Eth1Id::Goerli) => Eth1Id::Goerli,
                 id => Eth1Id::Custom(id),
             }
         }
@@ -420,7 +417,7 @@ pub mod deposit_methods {
                     .ok_or("Block number was not string")?,
             )?;
 
-            if number <= usize::max_value() as u64 {
+            if number <= usize::MAX as u64 {
                 Ok(Block {
                     hash,
                     timestamp,

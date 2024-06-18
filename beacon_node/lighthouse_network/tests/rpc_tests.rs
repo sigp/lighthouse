@@ -98,7 +98,9 @@ fn test_tcp_status_rpc() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, 10, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, 10, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
@@ -202,7 +204,9 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, request_id, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
@@ -327,7 +331,9 @@ fn test_blobs_by_range_chunked_rpc() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, request_id, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
@@ -435,7 +441,9 @@ fn test_tcp_blocks_by_range_over_limit() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, request_id, rpc_request.clone())
+                            .unwrap();
                     }
                     // The request will fail because the sender will refuse to send anything > MAX_RPC_SIZE
                     NetworkEvent::RPCFailed { id, .. } => {
@@ -528,7 +536,9 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, request_id, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
@@ -657,7 +667,9 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, 10, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, 10, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
@@ -780,7 +792,9 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, 6, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, 6, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
@@ -911,7 +925,9 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, 10, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, 10, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
@@ -1031,7 +1047,9 @@ fn test_disconnect_triggers_rpc_error() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, 42, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, 42, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::RPCFailed { error, id: 42, .. } => match error {
                         RPCError::Disconnected => return,

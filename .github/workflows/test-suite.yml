@@ -41,7 +41,7 @@ jobs:
          LABELS: ${{ toJson(github.event.pull_request.labels) }}
        run: |
          SKIP_CI="false"
-         if [ -z "${LABELS}" ]; then
+         if [ -z "${LABELS}" ]  || [ "${LABELS}" = "null" ]; then
            LABELS="none";
          else
            LABELS=$(echo ${LABELS} | jq -r '.[].name')
@@ -52,7 +52,7 @@ jobs:
              break
            fi
          done
-         echo "::set-output name=skip_ci::$SKIP_CI"
+         echo "skip_ci=$SKIP_CI" >> $GITHUB_OUTPUT
 
   target-branch-check:
     name: target-branch-check
@@ -259,17 +259,6 @@ jobs:
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
-  dockerfile-ubuntu:
-    name: dockerfile-ubuntu
-    needs: [check-labels]
-    if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Build the root Dockerfile
-      run: docker build --build-arg FEATURES=portable -t lighthouse:local .
-    - name: Test the built image
-      run: docker run -t lighthouse:local lighthouse --version
   basic-simulator-ubuntu:
     name: basic-simulator-ubuntu
     needs: [check-labels]
@@ -298,42 +287,6 @@ jobs:
           cache-target: release
     - name: Run a beacon chain sim which tests VC fallback behaviour
       run: cargo run --release --bin simulator fallback-sim
-  doppelganger-protection-test:
-    name: doppelganger-protection-test
-    needs: [check-labels]
-    if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
-    env:
-      # Enable portable to prevent issues with caching `blst` for the wrong CPU type
-      FEATURES: jemalloc,portable
-    steps:
-    - uses: actions/checkout@v4
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Install geth
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      run: |
-          sudo add-apt-repository -y ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install ethereum
-    - name: Install lighthouse
-      run: |
-          make
-    - name: Install lcli
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      run: make install-lcli
-    - name: Run the doppelganger protection failure test script
-      run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh failure genesis.json
-    - name: Run the doppelganger protection success test script
-      run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh success genesis.json
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     needs: [check-labels]
@@ -383,6 +336,8 @@ jobs:
       run: make audit-CI
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
+    - name: Markdown-linter
+      run: make mdlint
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
@@ -464,10 +419,8 @@ jobs:
       'debug-tests-ubuntu',
       'state-transition-vectors-ubuntu',
       'ef-tests-ubuntu',
-      'dockerfile-ubuntu',
       'basic-simulator-ubuntu',
       'fallback-simulator-ubuntu',
-      'doppelganger-protection-test',
       'execution-engine-integration-ubuntu',
       'check-code',
       'check-msrv',
