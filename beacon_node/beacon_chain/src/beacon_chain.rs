@@ -122,7 +122,6 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
-use types::attestation::AttestationBase;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::payload::BlockProductionVersion;
 use types::*;
@@ -1994,40 +1993,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
         drop(cache_timer);
 
-        if self
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(request_slot)
-            .electra_enabled()
-        {
-            let mut committee_bits = BitVector::default();
-            if committee_len > 0 {
-                committee_bits.set(request_index as usize, true)?;
-            }
-            Ok(Attestation::Electra(AttestationElectra {
-                aggregation_bits: BitList::with_capacity(committee_len)?,
-                data: AttestationData {
-                    slot: request_slot,
-                    index: 0u64,
-                    beacon_block_root,
-                    source: justified_checkpoint,
-                    target,
-                },
-                committee_bits,
-                signature: AggregateSignature::empty(),
-            }))
-        } else {
-            Ok(Attestation::Base(AttestationBase {
-                aggregation_bits: BitList::with_capacity(committee_len)?,
-                data: AttestationData {
-                    slot: request_slot,
-                    index: request_index,
-                    beacon_block_root,
-                    source: justified_checkpoint,
-                    target,
-                },
-                signature: AggregateSignature::empty(),
-            }))
-        }
+        Ok(Attestation::<T::EthSpec>::empty_for_signing(
+            request_index,
+            committee_len,
+            request_slot,
+            beacon_block_root,
+            justified_checkpoint,
+            target,
+            &self.spec,
+        )?)
     }
 
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for

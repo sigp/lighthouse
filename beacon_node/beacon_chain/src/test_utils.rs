@@ -58,7 +58,6 @@ use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::TaskExecutor;
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
-use types::attestation::AttestationBase;
 use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -1033,40 +1032,18 @@ where
             *state.get_block_root(target_slot)?
         };
 
-        if self.spec.fork_name_at_slot::<E>(slot).electra_enabled() {
-            let mut committee_bits = BitVector::default();
-            committee_bits.set(index as usize, true)?;
-            Ok(Attestation::Electra(AttestationElectra {
-                aggregation_bits: BitList::with_capacity(committee_len)?,
-                committee_bits,
-                data: AttestationData {
-                    slot,
-                    index: 0u64,
-                    beacon_block_root,
-                    source: state.current_justified_checkpoint(),
-                    target: Checkpoint {
-                        epoch,
-                        root: target_root,
-                    },
-                },
-                signature: AggregateSignature::empty(),
-            }))
-        } else {
-            Ok(Attestation::Base(AttestationBase {
-                aggregation_bits: BitList::with_capacity(committee_len)?,
-                data: AttestationData {
-                    slot,
-                    index,
-                    beacon_block_root,
-                    source: state.current_justified_checkpoint(),
-                    target: Checkpoint {
-                        epoch,
-                        root: target_root,
-                    },
-                },
-                signature: AggregateSignature::empty(),
-            }))
-        }
+        Ok(Attestation::empty_for_signing(
+            index,
+            committee_len,
+            slot,
+            beacon_block_root,
+            state.current_justified_checkpoint(),
+            Checkpoint {
+                epoch,
+                root: target_root,
+            },
+            &self.spec,
+        )?)
     }
 
     /// A list of attestations for each committee for the given slot.

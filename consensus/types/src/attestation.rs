@@ -89,6 +89,7 @@ impl<E: EthSpec> Hash for Attestation<E> {
 }
 
 impl<E: EthSpec> Attestation<E> {
+    /// Produces an attestation with empty signature.
     pub fn empty_for_signing(
         committee_index: u64,
         committee_length: usize,
