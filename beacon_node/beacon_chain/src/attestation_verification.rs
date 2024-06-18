@@ -519,7 +519,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         .tree_hash_root();
 
         // [New in Electra:EIP7549]
-        verify_committee_index(attestation, &chain.spec)?;
+        verify_committee_index(attestation)?;
 
         if chain
             .observed_attestations
@@ -837,7 +837,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         }
 
         // [New in Electra:EIP7549]
-        verify_committee_index(attestation, &chain.spec)?;
+        verify_committee_index(attestation)?;
 
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
@@ -1337,20 +1337,10 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
 
 /// Verify that the `attestation` committee index is properly set for the attestation's fork.
 /// This function will only apply verification post-Electra.
-pub fn verify_committee_index<E: EthSpec>(
-    attestation: AttestationRef<E>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    if spec
-        .fork_name_at_slot::<E>(attestation.data().slot)
-        .electra_enabled()
-    {
+pub fn verify_committee_index<E: EthSpec>(attestation: AttestationRef<E>) -> Result<(), Error> {
+    if let Ok(committee_bits) = attestation.committee_bits() {
         // Check to ensure that the attestation is for a single committee.
-        let num_committee_bits = get_committee_indices::<E>(
-            attestation
-                .committee_bits()
-                .map_err(|e| Error::BeaconChainError(e.into()))?,
-        );
+        let num_committee_bits = get_committee_indices::<E>(committee_bits);
         if num_committee_bits.len() != 1 {
             return Err(Error::NotExactlyOneCommitteeBitSet(
                 num_committee_bits.len(),
