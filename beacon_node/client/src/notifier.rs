@@ -721,10 +721,10 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
     }
 }
 
-/// Returns the peer count, returning something helpful if it's `usize::max_value` (effectively a
+/// Returns the peer count, returning something helpful if it's `usize::MAX` (effectively a
 /// `None` value).
 fn peer_count_pretty(peer_count: usize) -> String {
-    if peer_count == usize::max_value() {
+    if peer_count == usize::MAX {
         String::from("--")
     } else {
         format!("{}", peer_count)
@@ -824,7 +824,7 @@ impl Speedo {
 
     /// Returns the average of the speeds between each observation.
     ///
-    /// Does not gracefully handle slots that are above `u32::max_value()`.
+    /// Does not gracefully handle slots that are above `u32::MAX`.
     pub fn slots_per_second(&self) -> Option<f64> {
         let speeds = self
             .0

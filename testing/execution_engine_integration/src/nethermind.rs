@@ -11,7 +11,7 @@ use unused_port::unused_tcp4_port;
 /// We've pinned the Nethermind version since our method of using the `master` branch to
 /// find the latest tag isn't working. It appears Nethermind don't always tag on `master`.
 /// We should fix this so we always pull the latest version of Nethermind.
-const NETHERMIND_BRANCH: &str = "release/1.21.0";
+const NETHERMIND_BRANCH: &str = "release/1.27.0";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
@@ -70,11 +70,10 @@ impl NethermindEngine {
             .join("nethermind")
             .join("src")
             .join("Nethermind")
-            .join("Nethermind.Runner")
+            .join("artifacts")
             .join("bin")
-            .join("Release")
-            .join("net7.0")
-            .join("linux-x64")
+            .join("Nethermind.Runner")
+            .join("release")
             .join("nethermind")
     }
 }

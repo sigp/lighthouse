@@ -36,8 +36,8 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
                 slashed: false,
                 activation_eligibility_epoch: Epoch::new(0),
                 activation_epoch: Epoch::new(0),
-                exit_epoch: Epoch::from(u64::max_value()),
-                withdrawable_epoch: Epoch::from(u64::max_value()),
+                exit_epoch: Epoch::from(u64::MAX),
+                withdrawable_epoch: Epoch::from(u64::MAX),
             })
             .collect(),
     )
