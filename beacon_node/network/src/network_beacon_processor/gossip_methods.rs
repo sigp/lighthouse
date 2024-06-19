@@ -105,12 +105,7 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
 
     /// Efficient clone-free implementation that moves out of the `Box`.
     fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
-        // TODO(electra): technically we shouldn't have to clone..
-        let attestation = self
-            .signed_aggregate
-            .message()
-            .aggregate()
-            .clone_as_attestation();
+        let attestation = self.signed_aggregate.into_attestation();
         let attesting_indices = self.indexed_attestation.attesting_indices_to_vec();
         (attestation, attesting_indices)
     }

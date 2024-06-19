@@ -71,8 +71,8 @@ pub fn att_slashing(
         }
         // A slashing involving an electra attestation type must return an electra AttesterSlashing type
         (_, _) => AttesterSlashing::Electra(AttesterSlashingElectra {
-            attestation_1: attestation_1.clone().to_electra().unwrap(),
-            attestation_2: attestation_2.clone().to_electra().unwrap(),
+            attestation_1: attestation_1.clone().to_electra(),
+            attestation_2: attestation_2.clone().to_electra(),
         }),
     }
 }

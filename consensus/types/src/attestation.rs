@@ -1,7 +1,7 @@
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, Hash256, Slot};
+use crate::{Checkpoint, ForkName};
 use derivative::Derivative;
-use rand::RngCore;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -22,6 +22,8 @@ pub enum Error {
     AlreadySigned(usize),
     SubnetCountIsZero(ArithError),
     IncorrectStateVariant,
+    InvalidCommitteeLength,
+    InvalidCommitteeIndex,
 }
 
 #[superstruct(
@@ -74,23 +76,6 @@ pub struct Attestation<E: EthSpec> {
     pub signature: AggregateSignature,
 }
 
-// TODO(electra): think about how to handle fork variants here
-impl<E: EthSpec> TestRandom for Attestation<E> {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let aggregation_bits = BitList::random_for_test(rng);
-        let data = AttestationData::random_for_test(rng);
-        let signature = AggregateSignature::random_for_test(rng);
-        let committee_bits = BitVector::random_for_test(rng);
-
-        Self::Electra(AttestationElectra {
-            aggregation_bits,
-            committee_bits,
-            data,
-            signature,
-        })
-    }
-}
-
 impl<E: EthSpec> Hash for Attestation<E> {
     fn hash<H>(&self, state: &mut H)
     where
@@ -104,6 +89,50 @@ impl<E: EthSpec> Hash for Attestation<E> {
 }
 
 impl<E: EthSpec> Attestation<E> {
+    /// Produces an attestation with empty signature.
+    pub fn empty_for_signing(
+        committee_index: u64,
+        committee_length: usize,
+        slot: Slot,
+        beacon_block_root: Hash256,
+        source: Checkpoint,
+        target: Checkpoint,
+        spec: &ChainSpec,
+    ) -> Result<Self, Error> {
+        if spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
+            let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
+            committee_bits
+                .set(committee_index as usize, true)
+                .map_err(|_| Error::InvalidCommitteeIndex)?;
+            Ok(Attestation::Electra(AttestationElectra {
+                aggregation_bits: BitList::with_capacity(committee_length)
+                    .map_err(|_| Error::InvalidCommitteeLength)?,
+                data: AttestationData {
+                    slot,
+                    index: 0u64,
+                    beacon_block_root,
+                    source,
+                    target,
+                },
+                committee_bits,
+                signature: AggregateSignature::infinity(),
+            }))
+        } else {
+            Ok(Attestation::Base(AttestationBase {
+                aggregation_bits: BitList::with_capacity(committee_length)
+                    .map_err(|_| Error::InvalidCommitteeLength)?,
+                data: AttestationData {
+                    slot,
+                    index: committee_index,
+                    beacon_block_root,
+                    source,
+                    target,
+                },
+                signature: AggregateSignature::infinity(),
+            }))
+        }
+    }
+
     /// Aggregate another Attestation into this one.
     ///
     /// The aggregation bitfields must be disjoint, and the data must be the same.
