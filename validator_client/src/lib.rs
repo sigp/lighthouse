@@ -13,6 +13,8 @@ mod preparation_service;
 mod signing_method;
 mod sync_committee_service;
 
+#[cfg(test)]
+mod beacon_node_test_rig;
 pub mod config;
 mod doppelganger_service;
 pub mod http_api;
@@ -320,21 +322,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                     log,
                     "Fallback endpoints are available, using optimized timeouts.";
                 );
-                Timeouts {
-                    attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
-                    attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
-                    liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
-                    proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
-                    proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
-                    sync_committee_contribution: slot_duration
-                        / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
-                    sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
-                    get_beacon_blocks_ssz: slot_duration
-                        / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
-                    get_debug_beacon_states: slot_duration / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
-                    get_deposit_snapshot: slot_duration / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
-                    get_validator_block: slot_duration / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
-                }
+                get_optimized_bn_timeouts(slot_duration)
             } else {
                 Timeouts::set_all(slot_duration)
             };
@@ -865,4 +853,21 @@ pub fn determine_graffiti(
         })
         .or(validator_definition_graffiti)
         .or(graffiti_flag)
+}
+
+pub fn get_optimized_bn_timeouts(slot_duration: Duration) -> Timeouts {
+    Timeouts {
+        attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
+        attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
+        liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
+        proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
+        proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
+        sync_committee_contribution: slot_duration
+            / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
+        sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+        get_beacon_blocks_ssz: slot_duration / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
+        get_debug_beacon_states: slot_duration / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
+        get_deposit_snapshot: slot_duration / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
+        get_validator_block: slot_duration / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
+    }
 }
