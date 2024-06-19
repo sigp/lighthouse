@@ -122,32 +122,32 @@ pub mod attesting_indices_electra {
         let committee_count_per_slot = committees.len() as u64;
         let mut participant_count = 0;
         for index in committee_indices {
-            if let Some(&beacon_committee) = committees_map.get(&index) {
-                // This check is new to the spec's `process_attestation` in Electra.
-                if index >= committee_count_per_slot {
-                    return Err(BeaconStateError::InvalidCommitteeIndex(index));
-                }
-                participant_count.safe_add_assign(beacon_committee.committee.len() as u64)?;
-                let committee_attesters = beacon_committee
-                    .committee
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, &index)| {
-                        if let Ok(aggregation_bit_index) = committee_offset.safe_add(i) {
-                            if aggregation_bits.get(aggregation_bit_index).unwrap_or(false) {
-                                return Some(index as u64);
-                            }
-                        }
-                        None
-                    })
-                    .collect::<HashSet<u64>>();
+            let beacon_committee = committees_map
+                .get(&index)
+                .ok_or(Error::NoCommitteeFound(index))?;
 
-                output.extend(committee_attesters);
-
-                committee_offset.safe_add_assign(beacon_committee.committee.len())?;
-            } else {
-                return Err(Error::NoCommitteeFound(index));
+            // This check is new to the spec's `process_attestation` in Electra.
+            if index >= committee_count_per_slot {
+                return Err(BeaconStateError::InvalidCommitteeIndex(index));
             }
+            participant_count.safe_add_assign(beacon_committee.committee.len() as u64)?;
+            let committee_attesters = beacon_committee
+                .committee
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &index)| {
+                    if let Ok(aggregation_bit_index) = committee_offset.safe_add(i) {
+                        if aggregation_bits.get(aggregation_bit_index).unwrap_or(false) {
+                            return Some(index as u64);
+                        }
+                    }
+                    None
+                })
+                .collect::<HashSet<u64>>();
+
+            output.extend(committee_attesters);
+
+            committee_offset.safe_add_assign(beacon_committee.committee.len())?;
         }
 
         // This check is new to the spec's `process_attestation` in Electra.
