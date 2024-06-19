@@ -110,8 +110,8 @@ pub struct InspectConfig {
 }
 
 fn parse_inspect_config(inspect_config: &Inspect) -> Result<InspectConfig, String> {
-    let column: DBColumn = inspect_config.column.parse().unwrap();
-    let target: InspectTarget = inspect_config.output.parse().unwrap();
+    let column: DBColumn = inspect_config.column.parse().map_err(|e| format!("Unable to parse column flag: {e:?}"))?;
+    let target: InspectTarget = inspect_config.output.parse().map_err(|e| format!("Unable to parse output flag: {e:?}"))?;
     let skip = inspect_config.skip;
     let limit = inspect_config.limit;
     let freezer = inspect_config.freezer;
