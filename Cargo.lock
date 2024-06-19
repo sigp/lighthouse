@@ -7979,6 +7979,7 @@ dependencies = [
  "strum",
  "tempfile",
  "types",
+ "zstd",
 ]
 
 [[package]]

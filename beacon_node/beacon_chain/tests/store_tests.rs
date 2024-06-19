@@ -608,7 +608,7 @@ async fn epoch_boundary_state_attestation_processing() {
         // load_epoch_boundary_state is idempotent!
         let block_root = attestation.data.beacon_block_root;
         let block = store
-            .get_blinded_block(&block_root)
+            .get_blinded_block(&block_root, None)
             .unwrap()
             .expect("block exists");
         let epoch_boundary_state = store
@@ -849,7 +849,7 @@ async fn delete_blocks_and_states() {
     );
 
     let faulty_head_block = store
-        .get_blinded_block(&faulty_head.into())
+        .get_blinded_block(&faulty_head.into(), None)
         .expect("no errors")
         .expect("faulty head block exists");
 
@@ -891,7 +891,7 @@ async fn delete_blocks_and_states() {
             break;
         }
         store.delete_block(&block_root).unwrap();
-        assert_eq!(store.get_blinded_block(&block_root).unwrap(), None);
+        assert_eq!(store.get_blinded_block(&block_root, None).unwrap(), None);
     }
 
     // Deleting frozen states should do nothing
@@ -1135,7 +1135,7 @@ fn get_state_for_block(harness: &TestHarness, block_root: Hash256) -> BeaconStat
     let head_block = harness
         .chain
         .store
-        .get_blinded_block(&block_root)
+        .get_blinded_block(&block_root, None)
         .unwrap()
         .unwrap();
     harness
@@ -2355,7 +2355,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let wss_block = harness
         .chain
         .store
-        .get_full_block(&wss_block_root)
+        .get_full_block(&wss_block_root, None)
         .unwrap()
         .unwrap();
     let wss_blobs_opt = harness.chain.store.get_blobs(&wss_block_root).unwrap();
@@ -2576,7 +2576,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .unwrap()
         .map(Result::unwrap)
     {
-        let block = store.get_blinded_block(&block_root).unwrap().unwrap();
+        let block = store.get_blinded_block(&block_root, None).unwrap().unwrap();
         if block_root != prev_block_root {
             assert_eq!(block.slot(), slot);
         }
