@@ -574,6 +574,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Some(engine_state) = check_ee_stream.next(), if check_ee => {
                     self.handle_new_execution_engine_state(engine_state);
                 }
+                Some(_) = self.network.next() => {
+                    debug!(
+                        self.log,
+                        "Completed network context poll"
+                    );
+                }
                 _ = prune_lookups_interval.tick() => {
                     self.block_lookups.prune_lookups();
                 }
@@ -951,7 +957,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.network.insert_range_blocks_and_blobs_request(
                         id,
                         resp.sender_id,
-                        BlocksAndBlobsRequestInfo::new(resp.request_type),
+                        BlocksAndBlobsRequestInfo::new(resp.request_type, peer_id),
                     );
                     // inform range that the request needs to be treated as failed
                     // With time we will want to downgrade this log

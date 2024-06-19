@@ -15,6 +15,7 @@ use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
+use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
@@ -69,6 +70,10 @@ pub enum NetworkMessage<E: EthSpec> {
     SendRequest {
         peer_id: PeerId,
         request: Request,
+        request_id: RequestId,
+    },
+    TimedOutRequest {
+        peer_id: PeerId,
         request_id: RequestId,
     },
     /// Send a successful Response to the libp2p service.
@@ -622,6 +627,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         error,
                     });
                 }
+            }
+            NetworkMessage::TimedOutRequest {
+                peer_id,
+                request_id,
+            } => {
+                self.send_to_router(RouterMessage::RPCFailed {
+                    peer_id,
+                    request_id,
+                    error: RPCError::Disconnected,
+                });
             }
             NetworkMessage::SendResponse {
                 peer_id,

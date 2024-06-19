@@ -13,20 +13,26 @@ use crate::sync::block_lookups::SingleLookupId;
 use crate::sync::manager::{BlockProcessType, SingleLookupReqId};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
-use fnv::FnvHashMap;
+use delay_map::HashMapDelay;
+use futures::prelude::*;
+use futures::Stream;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 pub use requests::LookupVerifyError;
-use slog::{debug, error, trace, warn};
-use std::collections::hash_map::Entry;
+use slog::{crit, debug, error, trace, warn};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
+
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock};
 
 mod requests;
+
+const DELAY_MAP_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct BlocksAndBlobsByRangeResponse<E: EthSpec> {
     pub sender_id: RangeRequestId,
@@ -117,14 +123,14 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     request_id: Id,
 
     /// A mapping of active BlocksByRoot requests, including both current slot and parent lookups.
-    blocks_by_root_requests: FnvHashMap<SingleLookupReqId, ActiveBlocksByRootRequest>,
+    blocks_by_root_requests: HashMapDelay<SingleLookupReqId, ActiveBlocksByRootRequest>,
 
     /// A mapping of active BlobsByRoot requests, including both current slot and parent lookups.
-    blobs_by_root_requests: FnvHashMap<SingleLookupReqId, ActiveBlobsByRootRequest<T::EthSpec>>,
+    blobs_by_root_requests: HashMapDelay<SingleLookupReqId, ActiveBlobsByRootRequest<T::EthSpec>>,
 
     /// BlocksByRange requests paired with BlobsByRange
     range_blocks_and_blobs_requests:
-        FnvHashMap<Id, (RangeRequestId, BlocksAndBlobsRequestInfo<T::EthSpec>)>,
+        HashMapDelay<Id, (RangeRequestId, BlocksAndBlobsRequestInfo<T::EthSpec>)>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
@@ -168,9 +174,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
             request_id: 1,
-            blocks_by_root_requests: <_>::default(),
-            blobs_by_root_requests: <_>::default(),
-            range_blocks_and_blobs_requests: FnvHashMap::default(),
+            blocks_by_root_requests: HashMapDelay::new(DELAY_MAP_TIMEOUT),
+            blobs_by_root_requests: HashMapDelay::new(DELAY_MAP_TIMEOUT),
+            range_blocks_and_blobs_requests: HashMapDelay::new(DELAY_MAP_TIMEOUT),
             network_beacon_processor,
             chain,
             log,
@@ -272,8 +278,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         sender_id: RangeRequestId,
     ) -> Result<Id, RpcRequestSendError> {
         let id = self.blocks_by_range_request(peer_id, batch_type, request)?;
-        self.range_blocks_and_blobs_requests
-            .insert(id, (sender_id, BlocksAndBlobsRequestInfo::new(batch_type)));
+        self.range_blocks_and_blobs_requests.insert(
+            id,
+            (
+                sender_id,
+                BlocksAndBlobsRequestInfo::new(batch_type, peer_id),
+            ),
+        );
         Ok(id)
     }
 
@@ -303,16 +314,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: Id,
         block_or_blob: BlockOrBlob<T::EthSpec>,
     ) -> Option<BlocksAndBlobsByRangeResponse<T::EthSpec>> {
-        match self.range_blocks_and_blobs_requests.entry(request_id) {
-            Entry::Occupied(mut entry) => {
-                let (_, info) = entry.get_mut();
+        match self.range_blocks_and_blobs_requests.remove(&request_id) {
+            Some((sender_id, mut info)) => {
                 match block_or_blob {
                     BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
                     BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
                 if info.is_finished() {
-                    // If the request is finished, dequeue everything
-                    let (sender_id, info) = entry.remove();
+                    // If the request is finished, don't add back everything
                     let request_type = info.get_request_type();
                     Some(BlocksAndBlobsByRangeResponse {
                         sender_id,
@@ -320,10 +329,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         responses: info.into_responses(),
                     })
                 } else {
+                    // otherwise add back the request resetting the timer
+                    self.range_blocks_and_blobs_requests
+                        .insert(request_id, (sender_id, info));
                     None
                 }
             }
-            Entry::Vacant(_) => None,
+            None => None,
         }
     }
 
@@ -375,7 +387,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
         self.blocks_by_root_requests
-            .insert(id, ActiveBlocksByRootRequest::new(request));
+            .insert(id, ActiveBlocksByRootRequest::new(request, peer_id));
 
         Ok(LookupRequestResult::RequestSent(req_id))
     }
@@ -453,7 +465,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
         self.blobs_by_root_requests
-            .insert(id, ActiveBlobsByRootRequest::new(request));
+            .insert(id, ActiveBlobsByRootRequest::new(request, peer_id));
 
         Ok(LookupRequestResult::RequestSent(req_id))
     }
@@ -568,27 +580,30 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
-        let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
+        let Some(mut request) = self.blocks_by_root_requests.remove(&request_id) else {
             return None;
         };
 
         let resp = match block {
             RpcEvent::Response(block, seen_timestamp) => {
-                match request.get_mut().add_response(block) {
-                    Ok(block) => Ok((block, seen_timestamp)),
+                match request.add_response(block) {
+                    Ok(block) => {
+                        self.blocks_by_root_requests.insert(request_id, request);
+                        Ok((block, seen_timestamp))
+                    }
                     Err(e) => {
-                        // The request must be dropped after receiving an error.
-                        request.remove();
+                        // The request is not added back after receiving an error.
                         Err(e.into())
                     }
                 }
             }
-            RpcEvent::StreamTermination => match request.remove().terminate() {
+            // request is not added back as stream termination was received
+            RpcEvent::StreamTermination => match request.terminate() {
                 Ok(_) => return None,
                 Err(e) => Err(e.into()),
             },
             RpcEvent::RPCError(e) => {
-                request.remove();
+                // request is not added back
                 Err(e.into())
             }
         };
@@ -605,27 +620,36 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<FixedBlobSidecarList<T::EthSpec>>> {
-        let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
+        let Some(mut request) = self.blobs_by_root_requests.remove(&request_id) else {
             return None;
         };
 
         let resp = match blob {
-            RpcEvent::Response(blob, seen_timestamp) => {
-                let request = request.get_mut();
-                match request.add_response(blob) {
-                    Ok(Some(blobs)) => to_fixed_blob_sidecar_list(blobs)
+            RpcEvent::Response(blob, seen_timestamp) => match request.add_response(blob) {
+                Ok(Some(blobs)) => {
+                    let resp = to_fixed_blob_sidecar_list(blobs)
                         .map(|blobs| (blobs, seen_timestamp))
-                        .map_err(|e| (e.into(), request.resolve())),
-                    Ok(None) => return None,
-                    Err(e) => Err((e.into(), request.resolve())),
+                        .map_err(|e| (e.into(), request.resolve()));
+                    // Add back request to map
+                    self.blobs_by_root_requests.insert(request_id, request);
+                    resp
                 }
-            }
-            RpcEvent::StreamTermination => match request.remove().terminate() {
+                Ok(None) => {
+                    self.blobs_by_root_requests.insert(request_id, request);
+                    return None;
+                }
+                Err(e) => {
+                    let err = (e.into(), request.resolve());
+                    self.blobs_by_root_requests.insert(request_id, request);
+                    Err(err)
+                }
+            },
+            RpcEvent::StreamTermination => match request.terminate() {
                 Ok(_) => return None,
                 // (err, false = not resolved) because terminate returns Ok() if resolved
                 Err(e) => Err((e.into(), false)),
             },
-            RpcEvent::RPCError(e) => Err((e.into(), request.remove().resolve())),
+            RpcEvent::RPCError(e) => Err((e.into(), request.resolve())),
         };
 
         match resp {
@@ -718,4 +742,107 @@ fn to_fixed_blob_sidecar_list<E: EthSpec>(
             .ok_or(LookupVerifyError::UnrequestedBlobIndex(index as u64))? = Some(blob)
     }
     Ok(fixed_list)
+}
+
+impl<T: BeaconChainTypes> Stream for SyncNetworkContext<T> {
+    type Item = ();
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.blocks_by_root_requests.poll_next_unpin(cx) {
+            Poll::Ready(Some(Ok((id, request)))) => {
+                let peer_id = request.peer_id;
+                debug!(
+                    self.log,
+                    "Resending timed out single block request";
+                    "id" => ?id,
+                    "peer_id" => %peer_id,
+                );
+                // Re-insert into requests map
+                self.blocks_by_root_requests.insert(id.clone(), request);
+                if let Err(e) = self.network_send.send(NetworkMessage::TimedOutRequest {
+                    peer_id: peer_id,
+                    request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
+                }) {
+                    crit!(
+                        self.log,
+                        "Failed to resend timed out request";
+                        "err" => ?e
+                    );
+                }
+            }
+            Poll::Ready(Some(Err(e))) => {
+                crit!(
+                    self.log,
+                    "Error polling network context delay map";
+                    "error" => ?e
+                );
+            }
+            Poll::Pending | Poll::Ready(None) => {}
+        }
+
+        match self.blobs_by_root_requests.poll_next_unpin(cx) {
+            Poll::Ready(Some(Ok((id, request)))) => {
+                let peer_id = request.peer_id;
+                debug!(
+                    self.log,
+                    "Resending timed out single blob request";
+                    "id" => ?id,
+                    "peer_id" => %peer_id,
+                );
+                self.blobs_by_root_requests.insert(id.clone(), request);
+                if let Err(e) = self.network_send.send(NetworkMessage::TimedOutRequest {
+                    peer_id: peer_id,
+                    request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
+                }) {
+                    crit!(
+                        self.log,
+                        "Failed to resend timed out request";
+                        "err" => ?e
+                    );
+                }
+            }
+            Poll::Ready(Some(Err(e))) => {
+                crit!(
+                    self.log,
+                    "Error polling network context delay map";
+                    "error" => ?e
+                );
+            }
+            Poll::Pending | Poll::Ready(None) => {}
+        }
+
+        match self.range_blocks_and_blobs_requests.poll_next_unpin(cx) {
+            Poll::Ready(Some(Ok((id, value)))) => {
+                let peer_id = value.1.peer_id;
+                debug!(
+                    self.log,
+                    "Resending timed out range request";
+                    "id" => ?id,
+                    "peer_id" => %peer_id,
+                );
+                self.range_blocks_and_blobs_requests
+                    .insert(id.clone(), value);
+                if let Err(e) = self.network_send.send(NetworkMessage::TimedOutRequest {
+                    peer_id: peer_id,
+                    request_id: RequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                }) {
+                    crit!(
+                        self.log,
+                        "Failed to resend timed out request";
+                        "err" => ?e
+                    );
+                }
+            }
+            Poll::Ready(Some(Err(e))) => {
+                crit!(
+                    self.log,
+                    "Error polling network context delay map";
+                    "error" => ?e
+                );
+            }
+            Poll::Pending | Poll::Ready(None) => {}
+        }
+
+        Poll::Pending
+    }
 }
