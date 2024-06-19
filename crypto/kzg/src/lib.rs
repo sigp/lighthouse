@@ -16,6 +16,11 @@ pub use c_kzg::{
 pub use c_kzg::{Cell, CELLS_PER_EXT_BLOB};
 use mockall::automock;
 
+pub type CellsAndKzgProofs = (
+    Box<[Cell; CELLS_PER_EXT_BLOB]>,
+    Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
+);
+
 #[derive(Debug)]
 pub enum Error {
     /// An error from the underlying kzg library.
@@ -152,17 +157,7 @@ impl Kzg {
     }
 
     /// Computes the cells and associated proofs for a given `blob` at index `index`.
-    #[allow(clippy::type_complexity)]
-    pub fn compute_cells_and_proofs(
-        &self,
-        blob: &Blob,
-    ) -> Result<
-        (
-            Box<[Cell; CELLS_PER_EXT_BLOB]>,
-            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
-        ),
-        Error,
-    > {
+    pub fn compute_cells_and_proofs(&self, blob: &Blob) -> Result<CellsAndKzgProofs, Error> {
         let (cells, proofs) = c_kzg::Cell::compute_cells_and_kzg_proofs(blob, &self.trusted_setup)
             .map_err(Into::<Error>::into)?;
         let proofs = Box::new(proofs.map(|proof| KzgProof::from(proof.to_bytes().into_inner())));
@@ -204,13 +199,7 @@ impl Kzg {
         &self,
         cell_ids: &[u64],
         cells: &[Cell],
-    ) -> Result<
-        (
-            Box<[Cell; CELLS_PER_EXT_BLOB]>,
-            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
-        ),
-        Error,
-    > {
+    ) -> Result<CellsAndKzgProofs, Error> {
         let all_cells = c_kzg::Cell::recover_all_cells(cell_ids, cells, &self.trusted_setup)?;
         let blob = self.cells_to_blob(&all_cells)?;
         self.compute_cells_and_proofs(&blob)
@@ -218,21 +207,12 @@ impl Kzg {
 }
 
 pub mod mock {
-    use crate::{Error, KzgProof};
+    use crate::{CellsAndKzgProofs, Error, KzgProof};
     use c_kzg::{Blob, Cell, CELLS_PER_EXT_BLOB};
 
     pub const MOCK_KZG_BYTES_PER_CELL: usize = 2048;
 
-    #[allow(clippy::type_complexity)]
-    pub fn compute_cells_and_proofs(
-        _blob: &Blob,
-    ) -> Result<
-        (
-            Box<[Cell; CELLS_PER_EXT_BLOB]>,
-            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
-        ),
-        Error,
-    > {
+    pub fn compute_cells_and_proofs(_blob: &Blob) -> Result<CellsAndKzgProofs, Error> {
         let empty_cell = Cell::new([0; MOCK_KZG_BYTES_PER_CELL]);
         Ok((
             Box::new([empty_cell; CELLS_PER_EXT_BLOB]),
