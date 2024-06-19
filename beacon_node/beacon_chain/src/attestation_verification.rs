@@ -650,7 +650,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                         .map_err(|e| BeaconChainError::from(e).into())
                     }
                     SignedAggregateAndProof::Electra(signed_aggregate) => {
-                        attesting_indices_electra::get_indexed_attestation_from_committees(
+                        attesting_indices_electra::get_indexed_attestation(
                             &committees,
                             &signed_aggregate.message.aggregate,
                         )

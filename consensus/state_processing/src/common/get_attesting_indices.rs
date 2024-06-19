@@ -76,24 +76,7 @@ pub mod attesting_indices_electra {
         attestation: &AttestationElectra<E>,
     ) -> Result<IndexedAttestation<E>, BlockOperationError<Invalid>> {
         let committees = beacon_state.get_beacon_committees_at_slot(attestation.data.slot)?;
-        get_indexed_attestation_from_committees(&committees, attestation)
-    }
-
-    pub fn get_indexed_attestation_from_committees<E: EthSpec>(
-        committees: &[BeaconCommittee],
-        attestation: &AttestationElectra<E>,
-    ) -> Result<IndexedAttestation<E>, BlockOperationError<Invalid>> {
-        let attesting_indices = get_attesting_indices::<E>(
-            committees,
-            &attestation.aggregation_bits,
-            &attestation.committee_bits,
-        )?;
-
-        Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
-            attesting_indices: VariableList::new(attesting_indices)?,
-            data: attestation.data.clone(),
-            signature: attestation.signature.clone(),
-        }))
+        get_indexed_attestation(&committees, attestation)
     }
 
     /// Shortcut for getting the attesting indices while fetching the committee from the state's cache.
