@@ -1,7 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use kzg::{Blob as KzgBlob, Cell};
-use kzg::{KzgProof, CELLS_PER_EXT_BLOB};
+use kzg::{Blob as KzgBlob, CellsAndKzgProofs};
 use serde::Deserialize;
 use std::marker::PhantomData;
 
@@ -62,12 +61,6 @@ impl<E: EthSpec> Case for KZGComputeCellsAndKZGProofs<E> {
                 .ok()
         });
 
-        compare_result::<
-            (
-                Box<[Cell; CELLS_PER_EXT_BLOB]>,
-                Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
-            ),
-            _,
-        >(&cells_and_proofs, &expected)
+        compare_result::<CellsAndKzgProofs, _>(&cells_and_proofs, &expected)
     }
 }
