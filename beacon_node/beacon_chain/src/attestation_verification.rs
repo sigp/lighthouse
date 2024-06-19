@@ -597,6 +597,8 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                 ))
             }
         };
+
+        // Committees must be sorted by ascending index order 0..committees_per_slot
         let get_indexed_attestation_with_committee =
             |(committees, _): (Vec<BeaconCommittee>, CommitteesPerSlot)| {
                 let (index, aggregator_index, selection_proof, data) = match signed_aggregate {
@@ -622,10 +624,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                 let slot = data.slot;
 
                 let committee = committees
-                    .iter()
-                    .filter(|&committee| committee.index == index)
-                    .at_most_one()
-                    .map_err(|_| Error::NoCommitteeForSlotAndIndex { slot, index })?
+                    .get(index as usize)
                     .ok_or(Error::NoCommitteeForSlotAndIndex { slot, index })?;
 
                 if !SelectionProof::from(selection_proof)
@@ -1422,6 +1421,8 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
 ///
 /// If the committees for an `attestation`'s slot isn't found in the `shuffling_cache`, we will read a state
 /// from disk and then update the `shuffling_cache`.
+///
+/// Committees are sorted by ascending index order 0..committees_per_slot
 fn map_attestation_committees<T, F, R>(
     chain: &BeaconChain<T>,
     attestation: AttestationRef<T::EthSpec>,

@@ -44,13 +44,16 @@ pub mod attesting_indices_base {
 }
 
 pub mod attesting_indices_electra {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
 
     use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
     use itertools::Itertools;
     use safe_arith::SafeArith;
     use types::*;
 
+    /// Compute an Electra IndexedAttestation given a list of committees.
+    ///
+    /// Committees must be sorted by ascending order 0..committees_per_slot
     pub fn get_indexed_attestation<E: EthSpec>(
         committees: &[BeaconCommittee],
         attestation: &AttestationElectra<E>,
@@ -103,6 +106,8 @@ pub mod attesting_indices_electra {
     }
 
     /// Returns validator indices which participated in the attestation, sorted by increasing index.
+    ///
+    /// Committees must be sorted by ascending order 0..committees_per_slot
     pub fn get_attesting_indices<E: EthSpec>(
         committees: &[BeaconCommittee],
         aggregation_bits: &BitList<E::MaxValidatorsPerSlot>,
@@ -114,16 +119,11 @@ pub mod attesting_indices_electra {
 
         let mut committee_offset = 0;
 
-        let committees_map: HashMap<u64, &BeaconCommittee> = committees
-            .iter()
-            .map(|committee| (committee.index, committee))
-            .collect();
-
         let committee_count_per_slot = committees.len() as u64;
         let mut participant_count = 0;
         for index in committee_indices {
-            let beacon_committee = committees_map
-                .get(&index)
+            let beacon_committee = committees
+                .get(index as usize)
                 .ok_or(Error::NoCommitteeFound(index))?;
 
             // This check is new to the spec's `process_attestation` in Electra.
