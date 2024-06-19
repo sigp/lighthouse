@@ -254,12 +254,12 @@ impl Default for Validator {
         Self {
             pubkey: PublicKeyBytes::empty(),
             withdrawal_credentials: Hash256::default(),
-            activation_eligibility_epoch: Epoch::from(std::u64::MAX),
-            activation_epoch: Epoch::from(std::u64::MAX),
-            exit_epoch: Epoch::from(std::u64::MAX),
-            withdrawable_epoch: Epoch::from(std::u64::MAX),
+            activation_eligibility_epoch: Epoch::from(u64::MAX),
+            activation_epoch: Epoch::from(u64::MAX),
+            exit_epoch: Epoch::from(u64::MAX),
+            withdrawable_epoch: Epoch::from(u64::MAX),
             slashed: false,
-            effective_balance: std::u64::MAX,
+            effective_balance: u64::MAX,
         }
     }
 }

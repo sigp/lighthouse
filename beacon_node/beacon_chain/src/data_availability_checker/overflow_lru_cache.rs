@@ -349,16 +349,11 @@ impl<E: EthSpec> PendingComponents<E> {
             block,
             blobs,
             blobs_available_timestamp,
-            // TODO(das): Update store types to prevent this conversion
             data_columns: Some(
-                RuntimeVariableList::new(
-                    verified_data_columns
-                        .into_iter()
-                        .map(|d| d.into_inner())
-                        .collect(),
-                    spec.number_of_columns,
-                )
-                .expect("data column list is within bounds"),
+                verified_data_columns
+                    .into_iter()
+                    .map(|d| d.into_inner())
+                    .collect(),
             ),
             spec: spec.clone(),
         };

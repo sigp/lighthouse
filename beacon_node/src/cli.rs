@@ -1121,6 +1121,8 @@ pub fn cli_app() -> Command {
                        [Enabled by default].")
                 .action(ArgAction::Set)
                 .default_value("true")
+                .num_args(0..=1)
+                .default_missing_value("true")
                 .display_order(0)
         )
         .arg(

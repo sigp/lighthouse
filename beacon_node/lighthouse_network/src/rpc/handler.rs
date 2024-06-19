@@ -15,7 +15,7 @@ use libp2p::swarm::handler::{
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
 };
 use libp2p::swarm::Stream;
-use slog::{crit, debug, trace, warn};
+use slog::{crit, debug, trace};
 use smallvec::SmallVec;
 use std::{
     collections::{hash_map::Entry, VecDeque},
@@ -374,6 +374,12 @@ where
                 id: outbound_info.req_id,
             })));
         }
+
+        // Also handle any events that are awaiting to be sent to the behaviour
+        if !self.events_out.is_empty() {
+            return Poll::Ready(Some(self.events_out.remove(0)));
+        }
+
         Poll::Ready(None)
     }
 
@@ -414,70 +420,44 @@ where
         }
 
         // purge expired inbound substreams and send an error
-        loop {
-            match self.inbound_substreams_delay.poll_expired(cx) {
-                Poll::Ready(Some(Ok(inbound_id))) => {
-                    // handle a stream timeout for various states
-                    if let Some(info) = self.inbound_substreams.get_mut(inbound_id.get_ref()) {
-                        // the delay has been removed
-                        info.delay_key = None;
-                        self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
-                            error: RPCError::StreamTimeout,
-                            proto: info.protocol,
-                            id: *inbound_id.get_ref(),
-                        }));
 
-                        if info.pending_items.back().map(|l| l.close_after()) == Some(false) {
-                            // if the last chunk does not close the stream, append an error
-                            info.pending_items.push_back(RPCCodedResponse::Error(
-                                RPCResponseErrorCode::ServerError,
-                                "Request timed out".into(),
-                            ));
-                        }
-                    }
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    warn!(self.log, "Inbound substream poll failed"; "error" => ?e);
-                    // drops the peer if we cannot read the delay queue
-                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                        HandlerEvent::Close(RPCError::InternalError(
-                            "Could not poll inbound stream timer",
-                        )),
+        while let Poll::Ready(Some(inbound_id)) = self.inbound_substreams_delay.poll_expired(cx) {
+            // handle a stream timeout for various states
+            if let Some(info) = self.inbound_substreams.get_mut(inbound_id.get_ref()) {
+                // the delay has been removed
+                info.delay_key = None;
+                self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                    error: RPCError::StreamTimeout,
+                    proto: info.protocol,
+                    id: *inbound_id.get_ref(),
+                }));
+
+                if info.pending_items.back().map(|l| l.close_after()) == Some(false) {
+                    // if the last chunk does not close the stream, append an error
+                    info.pending_items.push_back(RPCCodedResponse::Error(
+                        RPCResponseErrorCode::ServerError,
+                        "Request timed out".into(),
                     ));
                 }
-                Poll::Pending | Poll::Ready(None) => break,
             }
         }
 
         // purge expired outbound substreams
-        loop {
-            match self.outbound_substreams_delay.poll_expired(cx) {
-                Poll::Ready(Some(Ok(outbound_id))) => {
-                    if let Some(OutboundInfo { proto, req_id, .. }) =
-                        self.outbound_substreams.remove(outbound_id.get_ref())
-                    {
-                        let outbound_err = HandlerErr::Outbound {
-                            id: req_id,
-                            proto,
-                            error: RPCError::StreamTimeout,
-                        };
-                        // notify the user
-                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                            HandlerEvent::Err(outbound_err),
-                        ));
-                    } else {
-                        crit!(self.log, "timed out substream not in the books"; "stream_id" => outbound_id.get_ref());
-                    }
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    warn!(self.log, "Outbound substream poll failed"; "error" => ?e);
-                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                        HandlerEvent::Close(RPCError::InternalError(
-                            "Could not poll outbound stream timer",
-                        )),
-                    ));
-                }
-                Poll::Pending | Poll::Ready(None) => break,
+        while let Poll::Ready(Some(outbound_id)) = self.outbound_substreams_delay.poll_expired(cx) {
+            if let Some(OutboundInfo { proto, req_id, .. }) =
+                self.outbound_substreams.remove(outbound_id.get_ref())
+            {
+                let outbound_err = HandlerErr::Outbound {
+                    id: req_id,
+                    proto,
+                    error: RPCError::StreamTimeout,
+                };
+                // notify the user
+                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(HandlerEvent::Err(
+                    outbound_err,
+                )));
+            } else {
+                crit!(self.log, "timed out substream not in the books"; "stream_id" => outbound_id.get_ref());
             }
         }
 

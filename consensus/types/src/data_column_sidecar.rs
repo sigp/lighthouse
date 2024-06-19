@@ -1,8 +1,8 @@
 use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::test_utils::TestRandom;
 use crate::{
-    BeaconBlockHeader, ChainSpec, EthSpec, Hash256, KzgProofs, RuntimeVariableList,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockHeader, ChainSpec, EthSpec, Hash256, KzgProofs, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 use crate::{BeaconStateError, BlobsList};
 use bls::Signature;
@@ -41,7 +41,7 @@ pub struct DataColumnIdentifier {
     pub index: ColumnIndex,
 }
 
-pub type DataColumnSidecarList<E> = RuntimeVariableList<Arc<DataColumnSidecar<E>>>;
+pub type DataColumnSidecarVec<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 #[derive(
     Debug,
@@ -106,10 +106,10 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         block: &SignedBeaconBlock<E>,
         kzg: &Kzg,
         spec: &ChainSpec,
-    ) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
+    ) -> Result<DataColumnSidecarVec<E>, DataColumnSidecarError> {
         let number_of_columns = spec.number_of_columns;
         if blobs.is_empty() {
-            return Ok(RuntimeVariableList::empty(number_of_columns));
+            return Ok(vec![]);
         }
         let kzg_commitments = block
             .message()
@@ -185,7 +185,6 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                 })
             })
             .collect();
-        let sidecars = RuntimeVariableList::from_vec(sidecars, number_of_columns);
 
         Ok(sidecars)
     }

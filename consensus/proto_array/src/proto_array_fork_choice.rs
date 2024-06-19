@@ -995,7 +995,7 @@ mod test_compute_deltas {
     use super::*;
     use types::MainnetEthSpec;
 
-    /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
+    /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
     fn hash_from_index(i: usize) -> Hash256 {
         Hash256::from_low_u64_be(i as u64 + 1)
     }

@@ -412,6 +412,17 @@ impl Config {
         config.enable_latency_measurement_service =
             !cli_args.get_flag("disable-latency-measurement-service");
 
+        if cli_args
+            .get_one::<String>("latency-measurement-service")
+            .is_some()
+        {
+            warn!(
+                log,
+                "latency-measurement-service flag";
+                "note" => "deprecated flag has no effect and should be removed"
+            );
+        }
+
         config.validator_registration_batch_size =
             parse_required(cli_args, "validator-registration-batch-size")?;
         if config.validator_registration_batch_size == 0 {

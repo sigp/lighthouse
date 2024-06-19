@@ -241,7 +241,7 @@ impl futures::stream::Stream for GossipCache {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.expirations.poll_expired(cx) {
-            Poll::Ready(Some(Ok(expired))) => {
+            Poll::Ready(Some(expired)) => {
                 let expected_key = expired.key();
                 let (topic, data) = expired.into_inner();
                 match self.topic_msgs.get_mut(&topic) {
@@ -260,7 +260,6 @@ impl futures::stream::Stream for GossipCache {
                 }
                 Poll::Ready(Some(Ok(topic)))
             }
-            Poll::Ready(Some(Err(x))) => Poll::Ready(Some(Err(x.to_string()))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }

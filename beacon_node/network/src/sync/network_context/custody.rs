@@ -30,7 +30,7 @@ const FAILED_PEERS_CACHE_EXPIRY_SECONDS: u64 = 5;
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodyRequester(pub SingleLookupReqId);
 
-type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
+type DataColumnSidecarVec<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     block_root: Hash256,
@@ -107,7 +107,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         &mut self,
         peer_id: PeerId,
         req_id: DataColumnsByRootRequestId,
-        resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
+        resp: RpcResponseResult<DataColumnSidecarVec<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
         // TODO(das): Should downscore peers for verify errors here

@@ -793,9 +793,7 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
     let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     // Empty the op pool.
-    rig.chain
-        .op_pool
-        .prune_attestations(u64::max_value().into());
+    rig.chain.op_pool.prune_attestations(u64::MAX.into());
     assert_eq!(rig.chain.op_pool.num_attestations(), 0);
 
     // Send the attestation but not the block, and check that it was not imported.

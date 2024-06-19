@@ -9,6 +9,7 @@ use eth2::{
 };
 use log::{debug, error, info, warn};
 use std::collections::HashSet;
+use std::marker::PhantomData;
 use types::{BeaconBlockHeader, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 use crate::updater::{get_beacon_block, get_header, get_validators};
@@ -47,7 +48,7 @@ pub struct UpdateHandler<E: EthSpec> {
     pub blockprint: Option<WatchBlockprintClient>,
     pub config: Config,
     pub slots_per_epoch: u64,
-    pub spec: WatchSpec<E>,
+    pub _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> UpdateHandler<E> {
@@ -84,7 +85,7 @@ impl<E: EthSpec> UpdateHandler<E> {
             blockprint,
             config: config.updater,
             slots_per_epoch: spec.slots_per_epoch(),
-            spec,
+            _phantom: PhantomData,
         })
     }
 

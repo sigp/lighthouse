@@ -5,6 +5,7 @@ use beacon_chain::{
     sync_committee_verification::Error as SyncCommitteeError,
 };
 use fnv::FnvHashMap;
+use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use lighthouse_network::{
     peer_manager::peerdb::client::ClientKind, types::GossipKind, GossipTopic, Gossipsub,

@@ -7,9 +7,6 @@
 //!
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
-#[macro_use]
-extern crate lazy_static;
-
 mod chunk_writer;
 pub mod chunked_iter;
 pub mod chunked_vector;
@@ -112,9 +109,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
         Box::new(std::iter::empty())
     }
 
-    fn iter_raw_keys(&self, _column: DBColumn, _prefix: &[u8]) -> RawKeyIter {
-        Box::new(std::iter::empty())
-    }
+    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter;
 
     /// Iterate through all keys in a particular column.
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
@@ -144,6 +139,28 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
     let mut result = column.as_bytes().to_vec();
     result.extend_from_slice(key);
     result
+}
+
+pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> Vec<u8> {
+    let mut result = block_root.as_bytes().to_vec();
+    result.extend_from_slice(&column_index.to_le_bytes());
+    result
+}
+
+pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Error> {
+    if data.len() != 32 + 8 {
+        return Err(Error::InvalidKey);
+    }
+    // split_at panics if 32 < 40 which will never happen after the length check above
+    let (block_root_bytes, column_index_bytes) = data.split_at(32);
+    let block_root = Hash256::from_slice(block_root_bytes);
+    // column_index_bytes is asserted to be 8 bytes after the length check above
+    let column_index = ColumnIndex::from_le_bytes(
+        column_index_bytes
+            .try_into()
+            .expect("slice with incorrect length"),
+    );
+    Ok((block_root, column_index))
 }
 
 #[must_use]
@@ -206,13 +223,13 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
-    PutDataColumns(Hash256, DataColumnSidecarList<E>),
+    PutDataColumns(Hash256, DataColumnSidecarVec<E>),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
-    DeleteDataColumns(Hash256),
+    DeleteDataColumns(Hash256, Vec<ColumnIndex>),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
     KeyValueOp(KeyValueStoreOp),
@@ -301,7 +318,6 @@ impl DBColumn {
             | Self::BeaconBlock
             | Self::BeaconState
             | Self::BeaconBlob
-            | Self::BeaconDataColumn
             | Self::BeaconStateSummary
             | Self::BeaconStateTemporary
             | Self::ExecPayload
@@ -318,6 +334,7 @@ impl DBColumn {
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
             | Self::BeaconRandaoMixes => 8,
+            Self::BeaconDataColumn => 32 + 8,
         }
     }
 }
