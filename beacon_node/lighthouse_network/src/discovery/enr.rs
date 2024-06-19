@@ -25,7 +25,7 @@ pub const ATTESTATION_BITFIELD_ENR_KEY: &str = "attnets";
 /// The ENR field specifying the sync committee subnet bitfield.
 pub const SYNC_COMMITTEE_BITFIELD_ENR_KEY: &str = "syncnets";
 /// The ENR field specifying the peerdas custody subnet count.
-pub const PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY: &str = "custody_subnet_count";
+pub const PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY: &str = "csc";
 
 /// Extension trait for ENR's within Eth2.
 pub trait Eth2Enr {
@@ -68,7 +68,7 @@ impl Eth2Enr for Enr {
     /// defined in the spec.
     fn custody_subnet_count<E: EthSpec>(&self, spec: &ChainSpec) -> u64 {
         self.get(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
-            .and_then(|custody_bytes| u64::from_ssz_bytes(custody_bytes).ok())
+            .and_then(|custody_bytes| custody_bytes.try_into().map(u64::from_be_bytes).ok())
             .unwrap_or(spec.custody_requirement)
     }
 
@@ -243,10 +243,8 @@ pub fn build_enr<E: EthSpec>(
         spec.custody_requirement
     };
 
-    builder.add_value(
-        PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
-        &custody_subnet_count.as_ssz_bytes(),
-    );
+    let csc_bytes = custody_subnet_count.to_be_bytes().to_vec();
+    builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &csc_bytes);
 
     builder
         .build(enr_key)
