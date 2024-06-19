@@ -316,6 +316,27 @@ where
                     self.events.push(error_msg);
                 }
             }
+
+            // Replace the pending Requests to the disconnected peer
+            // with reports of failed requests.
+            self.events.iter_mut().for_each(|event| match &event {
+                ToSwarm::NotifyHandler {
+                    peer_id: p,
+                    event: RPCSend::Request(request_id, req),
+                    ..
+                } if *p == peer_id => {
+                    *event = ToSwarm::GenerateEvent(RPCMessage {
+                        peer_id,
+                        conn_id: connection_id,
+                        event: HandlerEvent::Err(HandlerErr::Outbound {
+                            id: *request_id,
+                            proto: req.versioned_protocol().protocol(),
+                            error: RPCError::Disconnected,
+                        }),
+                    });
+                }
+                _ => {}
+            });
         }
     }
 

@@ -39,9 +39,9 @@ pub enum TypeField {
     Hd,
 }
 
-impl Into<String> for TypeField {
-    fn into(self) -> String {
-        match self {
+impl From<TypeField> for String {
+    fn from(from: TypeField) -> String {
+        match from {
             TypeField::Hd => "hierarchical deterministic".into(),
         }
     }
