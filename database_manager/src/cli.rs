@@ -65,6 +65,7 @@ pub struct DatabaseManager {
 pub enum DatabaseManagerSubcommand {
     Migrate(Migrate),
     Inspect(Inspect),
+    Edit(Edit),
     Version(Version),
     PrunePayloads(PrunePayloads),
     PruneBlobs(PruneBlobs),
@@ -146,6 +147,42 @@ pub struct Inspect {
         display_order = 0
     )]
     pub output_dir: Option<PathBuf>,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Edit raw database values.")]
+pub struct Edit {
+    #[clap(
+        long,
+        value_name = "TAG",
+        help = "3-byte column ID (see `DBColumn`)",
+        display_order = 0
+    )]
+    pub column: String,
+
+    #[clap(long, value_name = "HEX", help = "Key to write", display_order = 0)]
+    pub key: String,
+
+    #[clap(long, value_name = "PATH", help = "Value to write", display_order = 0)]
+    pub value: PathBuf,
+
+    #[clap(
+        long,
+        conflicts_with = "blobs_db",
+        help = "Inspect the freezer DB rather than the hot DB",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub freezer: bool,
+
+    #[clap(
+        long,
+        conflicts_with = "freezer",
+        help = "Inspect the blobs DB rather than the hot DB",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub blobs_db: bool,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]

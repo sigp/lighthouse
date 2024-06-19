@@ -1,8 +1,6 @@
 pub mod cli;
 
-use crate::cli::DatabaseManager;
-use crate::cli::Migrate;
-use crate::cli::PruneStates;
+use crate::cli::{DatabaseManager, Edit, Migrate, PruneStates};
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, schema_change::migrate_schema,
     slot_clock::SystemTimeSlotClock,
@@ -224,6 +222,70 @@ pub fn inspect_db<E: EthSpec>(
 
     println!("Num keys: {}", num_keys);
     println!("Total: {} bytes", total);
+
+    Ok(())
+}
+
+pub struct EditConfig {
+    column: DBColumn,
+    key: Vec<u8>,
+    value: Vec<u8>,
+    freezer: bool,
+    blobs_db: bool,
+}
+
+fn parse_edit_config(edit_config: &Edit) -> Result<EditConfig, String> {
+    let column: DBColumn = edit_config.column.parse().unwrap();
+    let key = hex::decode(&edit_config.key)
+        .map_err(|_| format!("invalid hex key: {}", edit_config.key))?;
+    if key.len() != column.key_size() {
+        return Err(format!(
+            "key is the wrong length: {} != {}",
+            key.len(),
+            column.key_size()
+        ));
+    }
+    let value = std::fs::read(&edit_config.value).map_err(|e| {
+        format!(
+            "can't read value path {}: {e:?}",
+            edit_config.value.display()
+        )
+    })?;
+    let freezer = edit_config.freezer;
+    let blobs_db = edit_config.blobs_db;
+
+    Ok(EditConfig {
+        column,
+        key,
+        value,
+        freezer,
+        blobs_db,
+    })
+}
+
+pub fn edit_db<E: EthSpec>(
+    edit_config: EditConfig,
+    client_config: ClientConfig,
+) -> Result<(), String> {
+    let hot_path = client_config.get_db_path();
+    let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
+
+    let sub_db = if edit_config.freezer {
+        LevelDB::<E>::open(&cold_path).map_err(|e| format!("Unable to open freezer DB: {e:?}"))?
+    } else if edit_config.blobs_db {
+        LevelDB::<E>::open(&blobs_path).map_err(|e| format!("Unable to open blobs DB: {e:?}"))?
+    } else {
+        LevelDB::<E>::open(&hot_path).map_err(|e| format!("Unable to open hot DB: {e:?}"))?
+    };
+
+    sub_db
+        .put_bytes_sync(
+            edit_config.column.as_str(),
+            &edit_config.key,
+            &edit_config.value,
+        )
+        .map_err(|e| format!("IO error: {e:?}"))?;
 
     Ok(())
 }
@@ -482,6 +544,10 @@ pub fn run<E: EthSpec>(
         cli::DatabaseManagerSubcommand::Inspect(inspect_config) => {
             let inspect_config = parse_inspect_config(inspect_config)?;
             inspect_db::<E>(inspect_config, client_config)
+        }
+        cli::DatabaseManagerSubcommand::Edit(edit_config) => {
+            let edit_config = parse_edit_config(edit_config)?;
+            edit_db::<E>(edit_config, client_config)
         }
         cli::DatabaseManagerSubcommand::Version(_) => {
             display_db_version(client_config, &context, log).map_err(format_err)
