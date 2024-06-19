@@ -120,7 +120,8 @@ impl<E: EthSpec> IndexedAttestation<E> {
                 let extended_attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot> =
                     VariableList::new(att.attesting_indices.to_vec())
                         .expect("MaxValidatorsPerSlot must be >= MaxValidatorsPerCommittee");
-                // TODO: Add test after unstable rebase https://github.com/sigp/lighthouse/blob/474c1b44863927c588dd05ab2ac0f934298398e1/consensus/types/src/eth_spec.rs#L541
+                // Note a unit test in consensus/types/src/eth_spec.rs asserts this invariant for
+                // all known specs
 
                 IndexedAttestationElectra {
                     attesting_indices: extended_attesting_indices,

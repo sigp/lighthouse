@@ -545,10 +545,12 @@ impl EthSpec for GnosisEthSpec {
 #[cfg(test)]
 mod test {
     use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+    use ssz_types::typenum::Unsigned;
 
     fn assert_valid_spec<E: EthSpec>() {
         E::kzg_commitments_tree_depth();
         E::block_body_tree_depth();
+        assert!(E::MaxValidatorsPerSlot::to_i32() >= E::MaxValidatorsPerCommittee::to_i32());
     }
 
     #[test]
