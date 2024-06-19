@@ -159,7 +159,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                         let signed_aggregate_and_proof =
                             match fork_context.from_context_bytes(gossip_topic.fork_digest) {
                                 Some(&fork_name) => {
-                                    if fork_name >= ForkName::Electra {
+                                    if fork_name.electra_enabled() {
                                         SignedAggregateAndProof::Electra(
                                             SignedAggregateAndProofElectra::from_ssz_bytes(data)
                                                 .map_err(|e| format!("{:?}", e))?,
@@ -186,7 +186,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                         let attestation =
                             match fork_context.from_context_bytes(gossip_topic.fork_digest) {
                                 Some(&fork_name) => {
-                                    if fork_name >= ForkName::Electra {
+                                    if fork_name.electra_enabled() {
                                         Attestation::Electra(
                                             AttestationElectra::from_ssz_bytes(data)
                                                 .map_err(|e| format!("{:?}", e))?,
@@ -284,7 +284,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                         let attester_slashing =
                             match fork_context.from_context_bytes(gossip_topic.fork_digest) {
                                 Some(&fork_name) => {
-                                    if fork_name >= ForkName::Electra {
+                                    if fork_name.electra_enabled() {
                                         AttesterSlashing::Electra(
                                             AttesterSlashingElectra::from_ssz_bytes(data)
                                                 .map_err(|e| format!("{:?}", e))?,
