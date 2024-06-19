@@ -90,9 +90,9 @@ impl SyncSelectionProof {
     }
 }
 
-impl Into<Signature> for SyncSelectionProof {
-    fn into(self) -> Signature {
-        self.0
+impl From<SyncSelectionProof> for Signature {
+    fn from(from: SyncSelectionProof) -> Signature {
+        from.0
     }
 }
 

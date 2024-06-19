@@ -23,8 +23,8 @@ pub struct KdfModule {
 #[serde(try_from = "String", into = "String")]
 pub struct EmptyString;
 
-impl Into<String> for EmptyString {
-    fn into(self) -> String {
+impl From<EmptyString> for String {
+    fn from(_from: EmptyString) -> String {
         "".into()
     }
 }
@@ -91,9 +91,9 @@ pub enum KdfFunction {
     Pbkdf2,
 }
 
-impl Into<String> for KdfFunction {
-    fn into(self) -> String {
-        match self {
+impl From<KdfFunction> for String {
+    fn from(from: KdfFunction) -> String {
+        match from {
             KdfFunction::Scrypt => "scrypt".into(),
             KdfFunction::Pbkdf2 => "pbkdf2".into(),
         }

@@ -20,20 +20,20 @@ pub struct PersistedForkChoice {
     pub fork_choice_store: PersistedForkChoiceStoreV17,
 }
 
-impl Into<PersistedForkChoice> for PersistedForkChoiceV11 {
-    fn into(self) -> PersistedForkChoice {
+impl From<PersistedForkChoiceV11> for PersistedForkChoice {
+    fn from(from: PersistedForkChoiceV11) -> PersistedForkChoice {
         PersistedForkChoice {
-            fork_choice: self.fork_choice,
-            fork_choice_store: self.fork_choice_store.into(),
+            fork_choice: from.fork_choice,
+            fork_choice_store: from.fork_choice_store.into(),
         }
     }
 }
 
-impl Into<PersistedForkChoiceV11> for PersistedForkChoice {
-    fn into(self) -> PersistedForkChoiceV11 {
+impl From<PersistedForkChoice> for PersistedForkChoiceV11 {
+    fn from(from: PersistedForkChoice) -> PersistedForkChoiceV11 {
         PersistedForkChoiceV11 {
-            fork_choice: self.fork_choice,
-            fork_choice_store: self.fork_choice_store.into(),
+            fork_choice: from.fork_choice,
+            fork_choice_store: from.fork_choice_store.into(),
         }
     }
 }
