@@ -77,9 +77,9 @@ impl SelectionProof {
     }
 }
 
-impl Into<Signature> for SelectionProof {
-    fn into(self) -> Signature {
-        self.0
+impl From<SelectionProof> for Signature {
+    fn from(from: SelectionProof) -> Signature {
+        from.0
     }
 }
 
