@@ -756,6 +756,12 @@ fn kzg_verify_cell_proof_batch() {
 }
 
 #[test]
+fn kzg_recover_cells_and_proofs() {
+    KZGRecoverCellsAndKZGProofHandler::<MainnetEthSpec>::default()
+        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+}
+
+#[test]
 fn merkle_proof_validity() {
     MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
 }
