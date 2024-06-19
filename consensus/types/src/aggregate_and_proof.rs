@@ -31,7 +31,7 @@ use tree_hash_derive::TreeHash;
     ),
     ref_attributes(
         derive(Debug, PartialEq, TreeHash, Serialize,),
-        serde(bound = "E: EthSpec"),
+        serde(untagged, bound = "E: EthSpec"),
         tree_hash(enum_behaviour = "transparent")
     )
 )]
