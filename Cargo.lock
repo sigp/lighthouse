@@ -7220,7 +7220,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rust-embed-utils",
- "syn 2.0.60",
+ "syn 2.0.66",
  "walkdir",
 ]
 
