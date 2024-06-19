@@ -14,9 +14,9 @@ pub enum ChecksumFunction {
     Sha256,
 }
 
-impl Into<String> for ChecksumFunction {
-    fn into(self) -> String {
-        match self {
+impl From<ChecksumFunction> for String {
+    fn from(from: ChecksumFunction) -> String {
+        match from {
             ChecksumFunction::Sha256 => "sha256".into(),
         }
     }
@@ -38,8 +38,8 @@ impl TryFrom<String> for ChecksumFunction {
 #[serde(try_from = "Value", into = "Value")]
 pub struct EmptyMap;
 
-impl Into<Value> for EmptyMap {
-    fn into(self) -> Value {
+impl From<EmptyMap> for Value {
+    fn from(_from: EmptyMap) -> Value {
         Value::Object(Map::default())
     }
 }
