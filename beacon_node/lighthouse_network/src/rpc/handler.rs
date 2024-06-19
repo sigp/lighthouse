@@ -374,6 +374,12 @@ where
                 id: outbound_info.req_id,
             })));
         }
+
+        // Also handle any events that are awaiting to be sent to the behaviour
+        if !self.events_out.is_empty() {
+            return Poll::Ready(Some(self.events_out.remove(0)));
+        }
+
         Poll::Ready(None)
     }
 
