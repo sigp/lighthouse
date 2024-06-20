@@ -307,3 +307,48 @@ pub fn save_enr_to_disk(dir: &Path, enr: &Enr, log: &slog::Logger) {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::config::Config as NetworkConfig;
+    use types::MainnetEthSpec;
+
+    type E = MainnetEthSpec;
+
+    #[test]
+    fn custody_subnet_count_default() {
+        let keypair = libp2p::identity::secp256k1::Keypair::generate();
+        let enr_key = CombinedKey::from_secp256k1(&keypair);
+        let config = NetworkConfig {
+            subscribe_all_data_column_subnets: false,
+            ..NetworkConfig::default()
+        };
+        let enr_fork_id = EnrForkId::default();
+        let spec = E::default_spec();
+        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, &spec);
+
+        assert_eq!(
+            enr.unwrap().custody_subnet_count::<E>(&spec),
+            spec.custody_requirement,
+        );
+    }
+
+    #[test]
+    fn custody_subnet_count_all() {
+        let keypair = libp2p::identity::secp256k1::Keypair::generate();
+        let enr_key = CombinedKey::from_secp256k1(&keypair);
+        let config = NetworkConfig {
+            subscribe_all_data_column_subnets: true,
+            ..NetworkConfig::default()
+        };
+        let enr_fork_id = EnrForkId::default();
+        let spec = E::default_spec();
+        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, &spec);
+
+        assert_eq!(
+            enr.unwrap().custody_subnet_count::<E>(&spec),
+            spec.data_column_sidecar_subnet_count,
+        );
+    }
+}
