@@ -137,7 +137,7 @@ pub struct RPCRateLimiterBuilder {
     lcbootstrap_quota: Option<Quota>,
     /// Quota for the LightClientOptimisticUpdate protocol.
     lc_optimistic_update_quota: Option<Quota>,
-    /// Quota for the LightClientOptimisticUpdate protocol.
+    /// Quota for the LightClientFinalityUpdate protocol.
     lc_finality_update_quota: Option<Quota>,
 }
 
@@ -434,21 +434,33 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
     }
 }
 
-pub(super) struct InboundRequestSizeLimiter {
+/// Similar to the Limiter, but it just checks if the request is too large.
+pub(super) struct RequestSizeLimiter {
+    /// tau and t for the Ping protocol.
     ping: (Nanosecs, Nanosecs),
+    /// tau and t for the Status protocol.
     status: (Nanosecs, Nanosecs),
+    /// tau and t for the MetaData protocol.
     meta_data: (Nanosecs, Nanosecs),
+    /// tau and t for the Goodbye protocol.
     goodbye: (Nanosecs, Nanosecs),
+    /// tau and t for the BlocksByRange protocol.
     blocks_by_range: (Nanosecs, Nanosecs),
+    /// tau and t for the BlocksByRoot protocol.
     blocks_by_root: (Nanosecs, Nanosecs),
+    /// tau and t for the BlobsByRange protocol.
     blobs_by_range: (Nanosecs, Nanosecs),
+    /// tau and t for the BlobsByRoot protocol.
     blobs_by_root: (Nanosecs, Nanosecs),
+    /// tau and t for the LightClientBootstrap protocol.
     light_client_bootstrap: (Nanosecs, Nanosecs),
+    /// tau and t for the LightClientOptimisticUpdate protocol.
     light_client_optimistic_update: (Nanosecs, Nanosecs),
+    /// tau and t for the LightClientFinalityUpdate protocol.
     light_client_finality_update: (Nanosecs, Nanosecs),
 }
 
-impl InboundRequestSizeLimiter {
+impl RequestSizeLimiter {
     pub fn new_with_config(config: RateLimiterConfig) -> Result<Self, &'static str> {
         // Destructure to make sure every configuration value is used.
         let RateLimiterConfig {

@@ -25,7 +25,7 @@ pub(crate) use handler::{HandlerErr, HandlerEvent};
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
 pub(crate) use protocol::InboundRequest;
 
-use crate::rpc::rate_limiter::InboundRequestSizeLimiter;
+use crate::rpc::rate_limiter::RequestSizeLimiter;
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
@@ -126,7 +126,7 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     /// Rate limiter for our own requests.
     self_limiter: Option<SelfRateLimiter<Id, E>>,
     /// Limiter for our inbound requests, which checks the request size.
-    inbound_request_size_limiter: Option<InboundRequestSizeLimiter>,
+    inbound_request_size_limiter: Option<RequestSizeLimiter>,
     /// Queue of events to be processed.
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
@@ -164,7 +164,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         });
 
         let inbound_request_size_limiter = inbound_rate_limiter_config.map(|config| {
-            InboundRequestSizeLimiter::new_with_config(config.0)
+            RequestSizeLimiter::new_with_config(config.0)
                 .expect("Inbound limiter configuration parameters are valid")
         });
 
