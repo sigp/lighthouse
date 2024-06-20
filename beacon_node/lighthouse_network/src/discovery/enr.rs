@@ -243,8 +243,8 @@ pub fn build_enr<E: EthSpec>(
         spec.custody_requirement
     };
 
-    let csc_bytes = custody_subnet_count.to_be_bytes().to_vec();
-    builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &csc_bytes);
+    let csc_bytes = custody_subnet_count.to_be_bytes();
+    builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &csc_bytes.as_slice());
 
     builder
         .build(enr_key)
