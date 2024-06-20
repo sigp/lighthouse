@@ -27,7 +27,7 @@ pub mod bls_to_execution_change;
 pub mod builder_bid;
 pub mod chain_spec;
 pub mod checkpoint;
-pub mod consolidation;
+pub mod consolidation_request;
 pub mod consts;
 pub mod contribution_and_proof;
 pub mod deposit;
@@ -145,7 +145,7 @@ pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::{
     ConfigAndPreset, ConfigAndPresetCapella, ConfigAndPresetDeneb, ConfigAndPresetElectra,
 };
-pub use crate::consolidation::Consolidation;
+pub use crate::consolidation_request::ConsolidationRequest;
 pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;

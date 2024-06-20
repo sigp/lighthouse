@@ -58,7 +58,7 @@ type_name_generic!(BeaconState);
 type_name!(BlobIdentifier);
 type_name_generic!(BlobSidecar);
 type_name!(Checkpoint);
-type_name!(Consolidation);
+type_name!(ConsolidationRequest);
 type_name_generic!(ContributionAndProof);
 type_name!(Deposit);
 type_name!(DepositData);

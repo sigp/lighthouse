@@ -242,7 +242,7 @@ mod ssz_static {
     use types::blob_sidecar::BlobIdentifier;
     use types::historical_summary::HistoricalSummary;
     use types::{
-        AttesterSlashingBase, AttesterSlashingElectra, Consolidation, DepositRequest,
+        AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DepositRequest,
         LightClientBootstrapAltair, PendingBalanceDeposit, PendingPartialWithdrawal,
         WithdrawalRequest, *,
     };

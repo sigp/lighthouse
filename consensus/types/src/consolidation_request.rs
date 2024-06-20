@@ -19,7 +19,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
-pub struct Consolidation {
+pub struct ConsolidationRequest {
     #[serde(with = "serde_utils::quoted_u64")]
     pub source_index: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -27,11 +27,11 @@ pub struct Consolidation {
     pub epoch: Epoch,
 }
 
-impl SignedRoot for Consolidation {}
+impl SignedRoot for ConsolidationRequest {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    ssz_and_tree_hash_tests!(Consolidation);
+    ssz_and_tree_hash_tests!(ConsolidationRequest);
 }

@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Consolidation, Signature};
+use crate::{ConsolidationRequest, Signature};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -20,7 +20,7 @@ use tree_hash_derive::TreeHash;
     TestRandom,
 )]
 pub struct SignedConsolidation {
-    pub message: Consolidation,
+    pub message: ConsolidationRequest,
     pub signature: Signature,
 }
 
