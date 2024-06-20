@@ -61,10 +61,9 @@ use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttestationRef, BeaconCommittee,
-    BeaconStateError::{self, NoCommitteeFound},
-    ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName, Hash256, IndexedAttestation,
-    SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
+    Attestation, AttestationRef, BeaconCommittee, BeaconStateError::NoCommitteeFound, ChainSpec,
+    CommitteeIndex, Epoch, EthSpec, ForkName, Hash256, IndexedAttestation, SelectionProof,
+    SignedAggregateAndProof, Slot, SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -266,30 +265,9 @@ pub enum Error {
     BeaconChainError(BeaconChainError),
 }
 
-// TODO(electra) the error conversion changes here are to get a test case to pass
-// this could easily be cleaned up
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
-        match &e {
-            BeaconChainError::BeaconStateError(beacon_state_error) => {
-                if let BeaconStateError::AggregatorNotInCommittee { aggregator_index } =
-                    beacon_state_error
-                {
-                    Self::AggregatorNotInCommittee {
-                        aggregator_index: *aggregator_index,
-                    }
-                } else if let BeaconStateError::InvalidSelectionProof { aggregator_index } =
-                    beacon_state_error
-                {
-                    Self::InvalidSelectionProof {
-                        aggregator_index: *aggregator_index,
-                    }
-                } else {
-                    Error::BeaconChainError(e)
-                }
-            }
-            _ => Error::BeaconChainError(e),
-        }
+        Self::BeaconChainError(e)
     }
 }
 
