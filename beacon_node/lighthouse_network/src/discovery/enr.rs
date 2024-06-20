@@ -372,7 +372,7 @@ mod test {
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key = CombinedKey::from_secp256k1(&keypair);
         let enr_fork_id = EnrForkId::default();
-        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, &spec).unwrap();
+        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, spec).unwrap();
         (enr, enr_key)
     }
 }
