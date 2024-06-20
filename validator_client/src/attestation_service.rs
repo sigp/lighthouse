@@ -14,7 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
-use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, ForkName, Slot};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
