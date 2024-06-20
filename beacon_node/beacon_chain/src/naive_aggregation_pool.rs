@@ -241,24 +241,12 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
     fn insert(&mut self, a: AttestationRef<E>) -> Result<InsertOutcome, Error> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT);
 
-        let aggregation_bit = match a {
-            AttestationRef::Base(att) => att
-                .aggregation_bits
-                .iter()
-                .enumerate()
-                .filter_map(|(i, bit)| if bit { Some(i) } else { None })
-                .at_most_one()
-                .map_err(|iter| Error::MoreThanOneAggregationBitSet(iter.count()))?
-                .ok_or(Error::NoAggregationBitsSet)?,
-            AttestationRef::Electra(att) => att
-                .aggregation_bits
-                .iter()
-                .enumerate()
-                .filter_map(|(i, bit)| if bit { Some(i) } else { None })
-                .at_most_one()
-                .map_err(|iter| Error::MoreThanOneAggregationBitSet(iter.count()))?
-                .ok_or(Error::NoAggregationBitsSet)?,
-        };
+        let aggregation_bit = *a
+            .set_aggregation_bits()
+            .iter()
+            .at_most_one()
+            .map_err(|iter| Error::MoreThanOneAggregationBitSet(iter.count()))?
+            .ok_or(Error::NoAggregationBitsSet)?;
 
         let attestation_key = AttestationKey::from_attestation_ref(a)?;
         let attestation_key_root = attestation_key.tree_hash_root();

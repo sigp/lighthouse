@@ -195,7 +195,7 @@ pub mod attesting_indices_electra {
         aggregation_bits: &BitList<E::MaxValidatorsPerSlot>,
         committee_bits: &BitVector<E::MaxCommitteesPerSlot>,
     ) -> Result<Vec<u64>, BeaconStateError> {
-        let mut output: HashSet<u64> = HashSet::new();
+        let mut attesting_indices = vec![];
 
         let committee_indices = get_committee_indices::<E>(committee_bits);
 
@@ -229,8 +229,7 @@ pub mod attesting_indices_electra {
                     })
                     .collect::<HashSet<u64>>();
 
-                output.extend(committee_attesters);
-
+                attesting_indices.extend(committee_attesters);
                 committee_offset.safe_add_assign(beacon_committee.committee.len())?;
             } else {
                 return Err(Error::NoCommitteeFound(index));
@@ -242,10 +241,9 @@ pub mod attesting_indices_electra {
             return Err(BeaconStateError::InvalidBitfield);
         }
 
-        let mut indices = output.into_iter().collect_vec();
-        indices.sort_unstable();
+        attesting_indices.sort_unstable();
 
-        Ok(indices)
+        Ok(attesting_indices)
     }
 
     pub fn get_committee_indices<E: EthSpec>(
