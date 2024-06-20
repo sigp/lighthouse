@@ -318,7 +318,7 @@ where
         peer_id: &PeerId,
         protocol: Protocol,
         response: RPCCodedResponse<E>,
-        log: &Logger,
+        log: &slog::Logger,
     ) -> Result<(), Duration> {
         match limiter.lock().allows(peer_id, &(response, protocol)) {
             Ok(()) => Ok(()),
@@ -415,7 +415,7 @@ where
         response: RPCCodedResponse<E>,
         events_out: &mut SmallVec<[HandlerEvent<Id, E>; 4]>,
         handler_state: &HandlerState,
-        log: &Logger,
+        log: &slog::Logger,
     ) {
         // If the response we are sending is an error, report back for handling
         if let RPCCodedResponse::Error(ref code, ref reason) = response {
@@ -538,7 +538,7 @@ where
 
         if let Some((peer_id, limiter)) = self.response_limiter.as_mut() {
             // Process delayed responses that are ready to be sent.
-            if let Poll::Ready(Some(Ok(expired))) = self.next_response.poll_expired(cx) {
+            if let Poll::Ready(Some(expired)) = self.next_response.poll_expired(cx) {
                 let protocol = expired.into_inner();
                 if let Entry::Occupied(mut entry) = self.delayed_responses.entry(protocol) {
                     let queued_responses = entry.get_mut();
