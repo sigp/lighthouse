@@ -1025,7 +1025,7 @@ async fn multiple_attestations_per_block() {
         let slot = snapshot.beacon_block.slot();
         let fork_name = harness.chain.spec.fork_name_at_slot::<E>(slot);
 
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             assert_eq!(
                 snapshot
                     .beacon_block

@@ -89,6 +89,7 @@ pub enum BlockProcessingError {
         found: Hash256,
     },
     WithdrawalCredentialsInvalid,
+    PendingAttestationInElectra,
 }
 
 impl From<BeaconStateError> for BlockProcessingError {

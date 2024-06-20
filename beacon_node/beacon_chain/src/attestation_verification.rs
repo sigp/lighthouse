@@ -61,9 +61,10 @@ use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttestationRef, BeaconCommittee, BeaconStateError,
-    BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName,
-    Hash256, IndexedAttestation, SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
+    Attestation, AttestationRef, BeaconCommittee,
+    BeaconStateError::{self, NoCommitteeFound},
+    ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName, Hash256, IndexedAttestation,
+    SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -519,7 +520,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         .tree_hash_root();
 
         // [New in Electra:EIP7549]
-        verify_committee_index(attestation, &chain.spec)?;
+        verify_committee_index(attestation)?;
 
         if chain
             .observed_attestations
@@ -596,59 +597,62 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                 ))
             }
         };
+
+        // Committees must be sorted by ascending index order 0..committees_per_slot
         let get_indexed_attestation_with_committee =
             |(committees, _): (Vec<BeaconCommittee>, CommitteesPerSlot)| {
+                let (index, aggregator_index, selection_proof, data) = match signed_aggregate {
+                    SignedAggregateAndProof::Base(signed_aggregate) => (
+                        signed_aggregate.message.aggregate.data.index,
+                        signed_aggregate.message.aggregator_index,
+                        // Note: this clones the signature which is known to be a relatively slow operation.
+                        // Future optimizations should remove this clone.
+                        signed_aggregate.message.selection_proof.clone(),
+                        signed_aggregate.message.aggregate.data.clone(),
+                    ),
+                    SignedAggregateAndProof::Electra(signed_aggregate) => (
+                        signed_aggregate
+                            .message
+                            .aggregate
+                            .committee_index()
+                            .ok_or(Error::NotExactlyOneCommitteeBitSet(0))?,
+                        signed_aggregate.message.aggregator_index,
+                        signed_aggregate.message.selection_proof.clone(),
+                        signed_aggregate.message.aggregate.data.clone(),
+                    ),
+                };
+                let slot = data.slot;
+
+                let committee = committees
+                    .get(index as usize)
+                    .ok_or(Error::NoCommitteeForSlotAndIndex { slot, index })?;
+
+                if !SelectionProof::from(selection_proof)
+                    .is_aggregator(committee.committee.len(), &chain.spec)
+                    .map_err(|e| Error::BeaconChainError(e.into()))?
+                {
+                    return Err(Error::InvalidSelectionProof { aggregator_index });
+                }
+
+                // Ensure the aggregator is a member of the committee for which it is aggregating.
+                if !committee.committee.contains(&(aggregator_index as usize)) {
+                    return Err(Error::AggregatorNotInCommittee { aggregator_index });
+                }
+
+                // p2p aggregates have a single committee, we can assert that aggregation_bits is always
+                // less then MaxValidatorsPerCommittee
                 match signed_aggregate {
                     SignedAggregateAndProof::Base(signed_aggregate) => {
-                        let att = &signed_aggregate.message.aggregate;
-                        let aggregator_index = signed_aggregate.message.aggregator_index;
-                        let committee = committees
-                            .iter()
-                            .filter(|&committee| committee.index == att.data.index)
-                            .at_most_one()
-                            .map_err(|_| Error::NoCommitteeForSlotAndIndex {
-                                slot: att.data.slot,
-                                index: att.data.index,
-                            })?;
-
-                        // TODO(electra):
-                        // Note: this clones the signature which is known to be a relatively slow operation.
-                        //
-                        // Future optimizations should remove this clone.
-                        if let Some(committee) = committee {
-                            let selection_proof = SelectionProof::from(
-                                signed_aggregate.message.selection_proof.clone(),
-                            );
-
-                            if !selection_proof
-                                .is_aggregator(committee.committee.len(), &chain.spec)
-                                .map_err(|e| Error::BeaconChainError(e.into()))?
-                            {
-                                return Err(Error::InvalidSelectionProof { aggregator_index });
-                            }
-
-                            // Ensure the aggregator is a member of the committee for which it is aggregating.
-                            if !committee.committee.contains(&(aggregator_index as usize)) {
-                                return Err(Error::AggregatorNotInCommittee { aggregator_index });
-                            }
-
-                            attesting_indices_base::get_indexed_attestation(
-                                committee.committee,
-                                att,
-                            )
-                            .map_err(|e| BeaconChainError::from(e).into())
-                        } else {
-                            Err(Error::NoCommitteeForSlotAndIndex {
-                                slot: att.data.slot,
-                                index: att.data.index,
-                            })
-                        }
+                        attesting_indices_base::get_indexed_attestation(
+                            committee.committee,
+                            &signed_aggregate.message.aggregate,
+                        )
+                        .map_err(|e| BeaconChainError::from(e).into())
                     }
                     SignedAggregateAndProof::Electra(signed_aggregate) => {
-                        attesting_indices_electra::get_indexed_attestation_from_signed_aggregate(
+                        attesting_indices_electra::get_indexed_attestation(
                             &committees,
-                            signed_aggregate,
-                            &chain.spec,
+                            &signed_aggregate.message.aggregate,
                         )
                         .map_err(|e| BeaconChainError::from(e).into())
                     }
@@ -837,7 +841,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         }
 
         // [New in Electra:EIP7549]
-        verify_committee_index(attestation, &chain.spec)?;
+        verify_committee_index(attestation)?;
 
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
@@ -1337,17 +1341,10 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
 
 /// Verify that the `attestation` committee index is properly set for the attestation's fork.
 /// This function will only apply verification post-Electra.
-pub fn verify_committee_index<E: EthSpec>(
-    attestation: AttestationRef<E>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    if spec.fork_name_at_slot::<E>(attestation.data().slot) >= ForkName::Electra {
+pub fn verify_committee_index<E: EthSpec>(attestation: AttestationRef<E>) -> Result<(), Error> {
+    if let Ok(committee_bits) = attestation.committee_bits() {
         // Check to ensure that the attestation is for a single committee.
-        let num_committee_bits = get_committee_indices::<E>(
-            attestation
-                .committee_bits()
-                .map_err(|e| Error::BeaconChainError(e.into()))?,
-        );
+        let num_committee_bits = get_committee_indices::<E>(committee_bits);
         if num_committee_bits.len() != 1 {
             return Err(Error::NotExactlyOneCommitteeBitSet(
                 num_committee_bits.len(),
@@ -1423,6 +1420,8 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
 ///
 /// If the committees for an `attestation`'s slot isn't found in the `shuffling_cache`, we will read a state
 /// from disk and then update the `shuffling_cache`.
+///
+/// Committees are sorted by ascending index order 0..committees_per_slot
 fn map_attestation_committees<T, F, R>(
     chain: &BeaconChain<T>,
     attestation: AttestationRef<T::EthSpec>,

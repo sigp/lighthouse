@@ -176,7 +176,8 @@ pub use crate::fork_versioned_response::{ForkVersionDeserialize, ForkVersionedRe
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::{
-    IndexedAttestation, IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
+    IndexedAttestation, IndexedAttestationBase, IndexedAttestationElectra,
+    IndexedAttestationOnDisk, IndexedAttestationRef, IndexedAttestationRefOnDisk,
 };
 pub use crate::light_client_bootstrap::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientBootstrapCapella,

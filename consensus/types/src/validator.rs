@@ -63,7 +63,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        if current_fork >= ForkName::Electra {
+        if current_fork.electra_enabled() {
             self.is_eligible_for_activation_queue_electra(spec)
         } else {
             self.is_eligible_for_activation_queue_base(spec)
@@ -162,7 +162,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        if current_fork >= ForkName::Electra {
+        if current_fork.electra_enabled() {
             self.is_fully_withdrawable_at_electra(balance, epoch, spec)
         } else {
             self.is_fully_withdrawable_at_capella(balance, epoch, spec)
@@ -202,7 +202,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        if current_fork >= ForkName::Electra {
+        if current_fork.electra_enabled() {
             self.is_partially_withdrawable_validator_electra(balance, spec)
         } else {
             self.is_partially_withdrawable_validator_capella(balance, spec)
