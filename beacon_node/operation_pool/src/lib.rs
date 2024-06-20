@@ -286,7 +286,7 @@ impl<E: EthSpec> OperationPool<E> {
         // TODO(electra): Work out how to do this more elegantly. This is a bit of a hack.
         let mut all_attestations = self.attestations.write();
 
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             all_attestations.aggregate_across_committees(prev_epoch_key);
             all_attestations.aggregate_across_committees(curr_epoch_key);
         }
@@ -615,7 +615,7 @@ impl<E: EthSpec> OperationPool<E> {
                         })
             },
             |address_change| address_change.as_inner().clone(),
-            usize::max_value(),
+            usize::MAX,
         );
         changes.shuffle(&mut thread_rng());
         changes
@@ -1404,7 +1404,7 @@ mod release_tests {
         // Set of indices covered by previous attestations in `best_attestations`.
         let mut seen_indices = BTreeSet::<u64>::new();
         // Used for asserting that rewards are in decreasing order.
-        let mut prev_reward = u64::max_value();
+        let mut prev_reward = u64::MAX;
 
         let mut reward_cache = RewardCache::default();
         reward_cache.update(&state).unwrap();

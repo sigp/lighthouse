@@ -2067,7 +2067,7 @@ pub fn timestamp_now() -> Duration {
 }
 
 fn u64_to_i64(n: impl Into<u64>) -> i64 {
-    i64::try_from(n.into()).unwrap_or(i64::max_value())
+    i64::try_from(n.into()).unwrap_or(i64::MAX)
 }
 
 /// Returns the delay between the start of `block.slot` and `seen_timestamp`.

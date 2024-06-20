@@ -55,19 +55,19 @@ impl TryInto<SszContainer> for SszContainerV16 {
     }
 }
 
-impl Into<SszContainerV16> for SszContainer {
-    fn into(self) -> SszContainerV16 {
-        let nodes = self.nodes.into_iter().map(Into::into).collect();
+impl From<SszContainer> for SszContainerV16 {
+    fn from(from: SszContainer) -> SszContainerV16 {
+        let nodes = from.nodes.into_iter().map(Into::into).collect();
 
         SszContainerV16 {
-            votes: self.votes,
-            balances: self.balances,
-            prune_threshold: self.prune_threshold,
-            justified_checkpoint: self.justified_checkpoint,
-            finalized_checkpoint: self.finalized_checkpoint,
+            votes: from.votes,
+            balances: from.balances,
+            prune_threshold: from.prune_threshold,
+            justified_checkpoint: from.justified_checkpoint,
+            finalized_checkpoint: from.finalized_checkpoint,
             nodes,
-            indices: self.indices,
-            previous_proposer_boost: self.previous_proposer_boost,
+            indices: from.indices,
+            previous_proposer_boost: from.previous_proposer_boost,
         }
     }
 }

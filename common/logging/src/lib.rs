@@ -1,6 +1,4 @@
-#[macro_use]
-extern crate lazy_static;
-
+use lazy_static::lazy_static;
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };

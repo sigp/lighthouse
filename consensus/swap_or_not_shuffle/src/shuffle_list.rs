@@ -75,7 +75,7 @@ impl Buf {
 /// Returns `None` under any of the following conditions:
 ///  - `list_size == 0`
 ///  - `list_size > 2**24`
-///  - `list_size > usize::max_value() / 2`
+///  - `list_size > usize::MAX / 2`
 pub fn shuffle_list(
     mut input: Vec<usize>,
     rounds: u8,
@@ -84,10 +84,7 @@ pub fn shuffle_list(
 ) -> Option<Vec<usize>> {
     let list_size = input.len();
 
-    if input.is_empty()
-        || list_size > usize::max_value() / 2
-        || list_size > 2_usize.pow(24)
-        || rounds == 0
+    if input.is_empty() || list_size > usize::MAX / 2 || list_size > 2_usize.pow(24) || rounds == 0
     {
         return None;
     }

@@ -6,6 +6,7 @@ use beacon_chain::types::{
     ChainSpec, Domain, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec,
     RelativeEpoch, Slot, Vector,
 };
+use lazy_static::lazy_static;
 use ssz::Encode;
 use std::ops::Mul;
 use swap_or_not_shuffle::compute_shuffled_index;

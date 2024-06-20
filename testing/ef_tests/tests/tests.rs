@@ -247,7 +247,6 @@ mod ssz_static {
         PendingPartialWithdrawal, *,
     };
 
-    ssz_static_test!(attestation, Attestation<_>);
     ssz_static_test!(attestation_data, AttestationData);
     ssz_static_test!(beacon_block, SszStaticWithSpecHandler, BeaconBlock<_>);
     ssz_static_test!(beacon_block_header, BeaconBlockHeader);
@@ -273,6 +272,16 @@ mod ssz_static {
     ssz_static_test!(signing_data, SigningData);
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit);
+
+    #[test]
+    fn attestation() {
+        SszStaticHandler::<AttestationBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra().run();
+        SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
+        SszStaticHandler::<AttestationElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
+            .run();
+        SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
+            .run();
+    }
 
     #[test]
     fn attester_slashing() {

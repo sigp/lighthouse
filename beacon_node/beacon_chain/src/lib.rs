@@ -39,7 +39,7 @@ mod light_client_server_cache;
 pub mod metrics;
 pub mod migrate;
 mod naive_aggregation_pool;
-mod observed_aggregates;
+pub mod observed_aggregates;
 mod observed_attesters;
 mod observed_blob_sidecars;
 pub mod observed_block_producers;
