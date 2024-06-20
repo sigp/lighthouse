@@ -62,7 +62,7 @@ use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationRef, BeaconCommittee, BeaconStateError::NoCommitteeFound, ChainSpec,
-    CommitteeIndex, Epoch, EthSpec, ForkName, Hash256, IndexedAttestation, SelectionProof,
+    CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation, SelectionProof,
     SignedAggregateAndProof, Slot, SubnetId,
 };
 
@@ -1147,7 +1147,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
 
     let current_fork =
         spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
-    let earliest_permissible_slot = if current_fork < ForkName::Deneb {
+    let earliest_permissible_slot = if !current_fork.deneb_enabled() {
         one_epoch_prior
     // EIP-7045
     } else {

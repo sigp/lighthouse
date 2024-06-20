@@ -1,6 +1,6 @@
 use crate::slot_data::SlotData;
+use crate::Checkpoint;
 use crate::{test_utils::TestRandom, Hash256, Slot};
-use crate::{Checkpoint, ForkName};
 use derivative::Derivative;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
@@ -99,7 +99,7 @@ impl<E: EthSpec> Attestation<E> {
         target: Checkpoint,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        if spec.fork_name_at_slot::<E>(slot) >= ForkName::Electra {
+        if spec.fork_name_at_slot::<E>(slot).electra_enabled() {
             let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
             committee_bits
                 .set(committee_index as usize, true)
