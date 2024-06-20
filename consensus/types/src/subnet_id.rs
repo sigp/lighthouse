@@ -1,5 +1,6 @@
 //! Identifies each shard by an integer identifier.
 use crate::{AttestationData, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
+use lazy_static::lazy_static;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
@@ -149,15 +150,15 @@ impl From<u64> for SubnetId {
     }
 }
 
-impl Into<u64> for SubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<SubnetId> for u64 {
+    fn from(from: SubnetId) -> u64 {
+        from.0
     }
 }
 
-impl Into<u64> for &SubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<&SubnetId> for u64 {
+    fn from(from: &SubnetId) -> u64 {
+        from.0
     }
 }
 

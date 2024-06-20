@@ -337,6 +337,20 @@ struct PartialBeaconBlock<E: EthSpec> {
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
+pub enum BlockProcessStatus<E: EthSpec> {
+    /// Block is not in any pre-import cache. Block may be in the data-base or in the fork-choice.
+    Unknown,
+    /// Block is currently processing but not yet validated.
+    NotValidated(Arc<SignedBeaconBlock<E>>),
+    /// Block is fully valid, but not yet imported. It's cached in the da_checker while awaiting
+    /// missing block components.
+    ExecutionValidated(Arc<SignedBeaconBlock<E>>),
+}
+
+pub struct BeaconChainMetrics {
+    pub reqresp_pre_import_cache_len: usize,
+}
+
 pub type LightClientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -1235,6 +1249,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
     ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, Error> {
         Ok(self.store.get_blinded_block(block_root)?)
+    }
+
+    /// Return the status of a block as it progresses through the various caches of the beacon
+    /// chain. Used by sync to learn the status of a block and prevent repeated downloads /
+    /// processing attempts.
+    pub fn get_block_process_status(&self, block_root: &Hash256) -> BlockProcessStatus<T::EthSpec> {
+        if let Some(block) = self
+            .data_availability_checker
+            .get_execution_valid_block(block_root)
+        {
+            return BlockProcessStatus::ExecutionValidated(block);
+        }
+
+        if let Some(block) = self.reqresp_pre_import_cache.read().get(block_root) {
+            // A block is on the `reqresp_pre_import_cache` but NOT in the
+            // `data_availability_checker` only if it is actively processing. We can expect a future
+            // event with the result of processing
+            return BlockProcessStatus::NotValidated(block.clone());
+        }
+
+        BlockProcessStatus::Unknown
     }
 
     /// Returns the state at the given root, if any.
@@ -2554,6 +2589,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
         received_pre_capella: ReceivedPreCapella,
     ) -> bool {
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_bls_to_execution_change_subscribers() {
+                event_handler.register(EventKind::BlsToExecutionChange(Box::new(
+                    bls_to_execution_change.clone().into_inner(),
+                )));
+            }
+        }
+
         if self.eth1_chain.is_some() {
             self.op_pool
                 .insert_bls_to_execution_change(bls_to_execution_change, received_pre_capella)
@@ -3293,6 +3336,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "payload_verification_handle",
             )
             .await??;
+
+        // Remove block components from da_checker AFTER completing block import. Then we can assert
+        // the following invariant:
+        // > A valid unfinalized block is either in fork-choice or da_checker.
+        //
+        // If we remove the block when it becomes available, there's some time window during
+        // `import_block` where the block is nowhere. Consumers of the da_checker can handle the
+        // extend time a block may exist in the da_checker.
+        //
+        // If `import_block` errors (only errors with internal errors), the pending components will
+        // be pruned on data_availability_checker maintenance as finality advances.
+        self.data_availability_checker
+            .remove_pending_components(block_root);
+
         Ok(AvailabilityProcessingStatus::Imported(block_root))
     }
 
@@ -6385,9 +6442,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// account the current slot when accounting for skips.
     pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
         let cached_head = self.canonical_head.cached_head();
-        // Check if the merge has been finalized.
-        if let Some(finalized_hash) = cached_head.forkchoice_update_parameters().finalized_hash {
-            if ExecutionBlockHash::zero() == finalized_hash {
+        if let Some(head_hash) = cached_head.forkchoice_update_parameters().head_hash {
+            if ExecutionBlockHash::zero() == head_hash {
                 return Ok(ChainHealth::PreMerge);
             }
         } else {
@@ -6628,6 +6684,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map_err(Error::LightClientError)
             }
             ForkName::Base => Err(Error::UnsupportedFork),
+        }
+    }
+
+    pub fn metrics(&self) -> BeaconChainMetrics {
+        BeaconChainMetrics {
+            reqresp_pre_import_cache_len: self.reqresp_pre_import_cache.read().len(),
         }
     }
 }

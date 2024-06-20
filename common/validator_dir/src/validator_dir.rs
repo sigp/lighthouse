@@ -39,8 +39,6 @@ pub enum Error {
     /// generally caused by supplying an `amount` at deposit-time that is different to the one used
     /// at generation-time.
     Eth1DepositRootMismatch,
-    #[cfg(feature = "unencrypted_keys")]
-    SszKeypairError(String),
 }
 
 /// Information required to submit a deposit to the Eth1 deposit contract.

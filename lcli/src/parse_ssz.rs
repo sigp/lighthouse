@@ -1,6 +1,7 @@
 use clap::ArgMatches;
 use clap_utils::parse_required;
 use eth2_network_config::Eth2NetworkConfig;
+use log::info;
 use serde::Serialize;
 use snap::raw::Decoder;
 use ssz::Decode;
@@ -31,8 +32,12 @@ pub fn run_parse_ssz<E: EthSpec>(
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches,
 ) -> Result<(), String> {
-    let type_str = matches.value_of("type").ok_or("No type supplied")?;
-    let filename = matches.value_of("ssz-file").ok_or("No file supplied")?;
+    let type_str = matches
+        .get_one::<String>("type")
+        .ok_or("No type supplied")?;
+    let filename = matches
+        .get_one::<String>("ssz-file")
+        .ok_or("No file supplied")?;
     let format = parse_required(matches, "format")?;
 
     let bytes = if filename.ends_with("ssz_snappy") {
@@ -58,7 +63,7 @@ pub fn run_parse_ssz<E: EthSpec>(
 
     // More fork-specific decoders may need to be added in future, but shouldn't be 100% necessary,
     // as the fork-generic decoder will always be available (requires correct --network flag).
-    match type_str {
+    match type_str.as_str() {
         "SignedBeaconBlock" => decode_and_print::<SignedBeaconBlock<E>>(
             &bytes,
             |bytes| SignedBeaconBlock::from_ssz_bytes(bytes, spec),

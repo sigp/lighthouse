@@ -214,6 +214,10 @@ cli:
 cli-local:
 	make && ./scripts/cli.sh
 
+# Check for markdown files
+mdlint:
+	./scripts/mdlint.sh
+
 # Runs the entire test suite, downloading test vectors if required.
 test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
@@ -225,7 +229,6 @@ lint:
 		-D clippy::manual_let_else \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
-		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
 		-A clippy::question-mark \

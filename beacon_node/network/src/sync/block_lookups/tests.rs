@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::*;
 
-use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
+use crate::sync::block_lookups::common::ResponseType;
 use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::block_verification_types::{BlockImportData, RpcBlock};
 use beacon_chain::builder::Witness;
@@ -210,7 +210,7 @@ impl TestRig {
         self.sync_manager.handle_message(sync_message);
     }
 
-    fn active_single_lookups(&self) -> Vec<(Id, Hash256, Option<Hash256>)> {
+    fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.sync_manager.active_single_lookups()
     }
 
@@ -252,6 +252,21 @@ impl TestRig {
         }
     }
 
+    fn assert_lookup_peers(&self, block_root: Hash256, mut expected_peers: Vec<PeerId>) {
+        let mut lookup = self
+            .sync_manager
+            .active_single_lookups()
+            .into_iter()
+            .find(|l| l.1 == block_root)
+            .unwrap_or_else(|| panic!("no lookup for {block_root}"));
+        lookup.3.sort();
+        expected_peers.sort();
+        assert_eq!(
+            lookup.3, expected_peers,
+            "unexpected peers on lookup {block_root}"
+        );
+    }
+
     fn insert_failed_chain(&mut self, block_root: Hash256) {
         self.sync_manager.insert_failed_chain(block_root);
     }
@@ -270,7 +285,7 @@ impl TestRig {
     fn find_single_lookup_for(&self, block_root: Hash256) -> Id {
         self.active_single_lookups()
             .iter()
-            .find(|(_, b, _)| b == &block_root)
+            .find(|l| l.1 == block_root)
             .unwrap_or_else(|| panic!("no single block lookup found for {block_root}"))
             .0
     }
@@ -1306,6 +1321,26 @@ fn test_lookup_disconnection_peer_left() {
 }
 
 #[test]
+fn test_lookup_add_peers_to_parent() {
+    let mut r = TestRig::test_setup();
+    let peer_id_1 = r.new_connected_peer();
+    let peer_id_2 = r.new_connected_peer();
+    let blocks = r.rand_blockchain(5);
+    let last_block_root = blocks.last().unwrap().canonical_root();
+    // Create a chain of lookups
+    for block in &blocks {
+        r.trigger_unknown_parent_block(peer_id_1, block.clone());
+    }
+    r.trigger_unknown_block_from_attestation(last_block_root, peer_id_2);
+    for block in blocks.iter().take(blocks.len() - 1) {
+        // Parent has the original unknown parent event peer + new peer
+        r.assert_lookup_peers(block.canonical_root(), vec![peer_id_1, peer_id_2]);
+    }
+    // Child lookup only has the unknown attestation peer
+    r.assert_lookup_peers(last_block_root, vec![peer_id_2]);
+}
+
+#[test]
 fn test_skip_creating_failed_parent_lookup() {
     let mut rig = TestRig::test_setup();
     let (_, block, parent_root, _) = rig.rand_block_and_parent();
@@ -1452,13 +1487,16 @@ fn block_in_processing_cache_becomes_invalid() {
     let peer_id = r.new_connected_peer();
     r.insert_block_to_processing_cache(block.clone().into());
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
+    // Should trigger blob request
+    let id = r.expect_blob_lookup_request(block_root);
     // Should not trigger block request
     r.expect_empty_network();
     // Simulate invalid block, removing it from processing cache
     r.simulate_block_gossip_processing_becomes_invalid(block_root);
     // Should download block, then issue blobs request
     r.complete_lookup_block_download(block);
-    let id = r.expect_blob_lookup_request(block_root);
+    // Should not trigger block or blob request
+    r.expect_empty_network();
     r.complete_lookup_block_import_valid(block_root, false);
     // Resolve blob and expect lookup completed
     r.complete_single_lookup_blob_lookup_valid(id, peer_id, blobs, true);
@@ -1475,11 +1513,14 @@ fn block_in_processing_cache_becomes_valid_imported() {
     let peer_id = r.new_connected_peer();
     r.insert_block_to_processing_cache(block.clone().into());
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
+    // Should trigger blob request
+    let id = r.expect_blob_lookup_request(block_root);
     // Should not trigger block request
     r.expect_empty_network();
     // Resolve the block from processing step
     r.simulate_block_gossip_processing_becomes_valid_missing_components(block.into());
-    let id = r.expect_blob_lookup_request(block_root);
+    // Should not trigger block or blob request
+    r.expect_empty_network();
     // Resolve blob and expect lookup completed
     r.complete_single_lookup_blob_lookup_valid(id, peer_id, blobs, true);
     r.expect_no_active_lookups();
