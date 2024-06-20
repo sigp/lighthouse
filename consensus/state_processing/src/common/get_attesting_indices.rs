@@ -47,7 +47,6 @@ pub mod attesting_indices_electra {
     use std::collections::HashSet;
 
     use crate::per_block_processing::errors::{AttestationInvalid as Invalid, BlockOperationError};
-    use itertools::Itertools;
     use safe_arith::SafeArith;
     use types::*;
 
@@ -128,8 +127,7 @@ pub mod attesting_indices_electra {
                 })
                 .collect::<HashSet<u64>>();
 
-            output.extend(committee_attesters);
-
+            attesting_indices.extend(committee_attesters);
             committee_offset.safe_add_assign(beacon_committee.committee.len())?;
         }
 
