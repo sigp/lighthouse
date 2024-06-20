@@ -41,6 +41,8 @@ type_name_generic!(AggregateAndProof);
 type_name_generic!(AggregateAndProofBase, "AggregateAndProof");
 type_name_generic!(AggregateAndProofElectra, "AggregateAndProof");
 type_name_generic!(Attestation);
+type_name_generic!(AttestationBase, "Attestation");
+type_name_generic!(AttestationElectra, "Attestation");
 type_name!(AttestationData);
 type_name_generic!(AttesterSlashing);
 type_name_generic!(AttesterSlashingBase, "AttesterSlashing");
