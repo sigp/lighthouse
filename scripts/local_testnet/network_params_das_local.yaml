@@ -1,0 +1,22 @@
+participants:
+  - cl_type: lighthouse
+    cl_image: lighthouse:local
+    cl_max_mem: 4096
+    cl_extra_params:
+      - --subscribe-all-data-column-subnets
+      - --target-peers 2
+    count: 2
+  - cl_type: lighthouse
+    cl_image: lighthouse:local
+    cl_max_mem: 2048
+    cl_extra_params:
+      - --target-peers 2`
+    count: 1
+network_params:
+  eip7594_fork_epoch: 0
+  seconds_per_slot: 6
+global_log_level: debug
+snooper_enabled: false
+additional_services:
+  - dora
+  - prometheus_grafana

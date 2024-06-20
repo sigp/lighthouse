@@ -1,0 +1,32 @@
+participants:
+  - cl_type: prysm
+    cl_image: ethpandaops/prysm-beacon-chain:peerDAS
+
+  - cl_type: lighthouse
+    cl_extra_params: [
+      --subscribe-all-data-column-subnets,
+    ]
+    cl_image: ethpandaops/lighthouse:das
+
+  - cl_type: lighthouse
+    cl_image: ethpandaops/lighthouse:das
+
+  - cl_type: teku
+    cl_image: ethpandaops/teku:nashatyrev-das
+
+  - cl_type: nimbus
+    cl_image: ethpandaops/nimbus-eth2:kzgpeerdas
+
+  - cl_type: grandine
+    cl_image: ethpandaops/grandine:das
+
+  # - cl_type: lodestar
+  #   cl_image: ethpandaops/lodestar:peerDAS
+network_params:
+  eip7594_fork_epoch: 0
+  eip7594_fork_version: "0x50000038"
+snooper_enabled: true
+global_log_level: debug
+additional_services:
+  - dora
+  - goomy_blob
