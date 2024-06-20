@@ -72,6 +72,7 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use eth2_network_config::Eth2NetworkConfig;
+use log::{debug, info};
 use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{

@@ -820,6 +820,11 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
 }
 
 impl<E: EthSpec> BeaconBlockBody<E> {
+    /// Returns the name of the fork pertaining to `self`.
+    pub fn fork_name(&self) -> ForkName {
+        self.to_ref().fork_name()
+    }
+
     pub fn block_body_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
         let field_index = match generalized_index {
             light_client_update::EXECUTION_PAYLOAD_INDEX => {
@@ -834,22 +839,16 @@ impl<E: EthSpec> BeaconBlockBody<E> {
             _ => return Err(Error::IndexNotSupported(generalized_index)),
         };
 
-        let attestations_root = match self {
-            BeaconBlockBody::Base(_)
-            | BeaconBlockBody::Altair(_)
-            | BeaconBlockBody::Bellatrix(_)
-            | BeaconBlockBody::Capella(_)
-            | BeaconBlockBody::Deneb(_) => self.attestations_base()?.tree_hash_root(),
-            BeaconBlockBody::Electra(_) => self.attestations_electra()?.tree_hash_root(),
+        let attestations_root = if self.fork_name() > ForkName::Electra {
+            self.attestations_electra()?.tree_hash_root()
+        } else {
+            self.attestations_base()?.tree_hash_root()
         };
 
-        let attester_slashings_root = match self {
-            BeaconBlockBody::Base(_)
-            | BeaconBlockBody::Altair(_)
-            | BeaconBlockBody::Bellatrix(_)
-            | BeaconBlockBody::Capella(_)
-            | BeaconBlockBody::Deneb(_) => self.attester_slashings_base()?.tree_hash_root(),
-            BeaconBlockBody::Electra(_) => self.attester_slashings_electra()?.tree_hash_root(),
+        let attester_slashings_root = if self.fork_name() > ForkName::Electra {
+            self.attester_slashings_electra()?.tree_hash_root()
+        } else {
+            self.attester_slashings_base()?.tree_hash_root()
         };
 
         let mut leaves = vec![

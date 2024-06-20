@@ -376,7 +376,7 @@ impl ChainSpec {
         state: &BeaconState<E>,
     ) -> u64 {
         let fork_name = state.fork_name_unchecked();
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             self.min_slashing_penalty_quotient_electra
         } else if fork_name >= ForkName::Bellatrix {
             self.min_slashing_penalty_quotient_bellatrix
