@@ -372,16 +372,7 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
         if quota.max_tokens == 0 {
             return Err("Max number of tokens should be positive");
         }
-        let tau = quota.replenish_all_every.as_nanos();
-        if tau == 0 {
-            return Err("Replenish time must be positive");
-        }
-        let t = (tau / quota.max_tokens as u128)
-            .try_into()
-            .map_err(|_| "total replenish time is too long")?;
-        let tau = tau
-            .try_into()
-            .map_err(|_| "total replenish time is too long")?;
+        let (tau, t) = tau_and_t(&quota)?;
         Ok(Limiter {
             tau,
             t,
@@ -477,20 +468,6 @@ impl RequestSizeLimiter {
             light_client_finality_update_quota,
         } = config;
 
-        let tau_and_t = |quota: &Quota| {
-            let tau = quota.replenish_all_every.as_nanos();
-            if tau == 0 {
-                return Err("Replenish time must be positive");
-            }
-            let t = (tau / quota.max_tokens as u128)
-                .try_into()
-                .map_err(|_| "total replenish time is too long")?;
-            let tau = tau
-                .try_into()
-                .map_err(|_| "total replenish time is too long")?;
-            Ok((tau, t))
-        };
-
         Ok(Self {
             ping: tau_and_t(&ping_quota)?,
             meta_data: tau_and_t(&meta_data_quota)?,
@@ -532,6 +509,20 @@ impl RequestSizeLimiter {
         }
         true
     }
+}
+
+fn tau_and_t(quota: &Quota) -> Result<(Nanosecs, Nanosecs), &'static str> {
+    let tau = quota.replenish_all_every.as_nanos();
+    if tau == 0 {
+        return Err("Replenish time must be positive");
+    }
+    let t = (tau / quota.max_tokens as u128)
+        .try_into()
+        .map_err(|_| "total replenish time is too long")?;
+    let tau = tau
+        .try_into()
+        .map_err(|_| "total replenish time is too long")?;
+    Ok((tau, t))
 }
 
 #[cfg(test)]
