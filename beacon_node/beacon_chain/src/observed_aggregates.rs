@@ -6,11 +6,14 @@ use ssz_types::{BitList, BitVector};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
 };
 use types::slot_data::SlotData;
-use types::{Attestation, AttestationRef, EthSpec, Hash256, Slot, SyncCommitteeContribution};
+use types::{
+    Attestation, AttestationData, AttestationRef, EthSpec, Hash256, Slot, SyncCommitteeContribution,
+};
 
 pub type ObservedSyncContributions<E> = ObservedAggregates<
     SyncCommitteeContribution<E>,
@@ -19,6 +22,17 @@ pub type ObservedSyncContributions<E> = ObservedAggregates<
 >;
 pub type ObservedAggregateAttestations<E> =
     ObservedAggregates<Attestation<E>, E, BitList<<E as types::EthSpec>::MaxValidatorsPerSlot>>;
+
+/// Attestation data augmented with committee index
+///
+/// This is hashed and used to key the map of observed aggregate attestations. This is important
+/// post-Electra where the attestation data committee index is 0 and we want to avoid accidentally
+/// comparing aggregation bits for *different* committees.
+#[derive(TreeHash)]
+pub struct ObservedAttestationKey {
+    pub committee_index: u64,
+    pub attestation_data: AttestationData,
+}
 
 /// A trait use to associate capacity constants with the type being stored in `ObservedAggregates`.
 pub trait Consts {
@@ -92,11 +106,11 @@ pub trait SubsetItem {
 
     /// Returns the item that gets stored in `ObservedAggregates` for later subset
     /// comparison with incoming aggregates.
-    fn get_item(&self) -> Self::Item;
+    fn get_item(&self) -> Result<Self::Item, Error>;
 
     /// Returns a unique value that keys the object to the item that is being stored
     /// in `ObservedAggregates`.
-    fn root(&self) -> Hash256;
+    fn root(&self) -> Result<Hash256, Error>;
 }
 
 impl<'a, E: EthSpec> SubsetItem for AttestationRef<'a, E> {
@@ -126,19 +140,22 @@ impl<'a, E: EthSpec> SubsetItem for AttestationRef<'a, E> {
     }
 
     /// Returns the sync contribution aggregation bits.
-    fn get_item(&self) -> Self::Item {
+    fn get_item(&self) -> Result<Self::Item, Error> {
         match self {
-            Self::Base(att) => {
-                // TODO(electra) fix unwrap
-                att.extend_aggregation_bits().unwrap()
-            }
-            Self::Electra(att) => att.aggregation_bits.clone(),
+            Self::Base(att) => att
+                .extend_aggregation_bits()
+                .map_err(|_| Error::GetItemError),
+            Self::Electra(att) => Ok(att.aggregation_bits.clone()),
         }
     }
 
-    /// Returns the hash tree root of the attestation data.
-    fn root(&self) -> Hash256 {
-        self.data().tree_hash_root()
+    /// Returns the hash tree root of the attestation data augmented with the committee index.
+    fn root(&self) -> Result<Hash256, Error> {
+        Ok(ObservedAttestationKey {
+            committee_index: self.committee_index().ok_or(Error::RootError)?,
+            attestation_data: self.data().clone(),
+        }
+        .tree_hash_root())
     }
 }
 
@@ -153,19 +170,19 @@ impl<'a, E: EthSpec> SubsetItem for &'a SyncCommitteeContribution<E> {
     }
 
     /// Returns the sync contribution aggregation bits.
-    fn get_item(&self) -> Self::Item {
-        self.aggregation_bits.clone()
+    fn get_item(&self) -> Result<Self::Item, Error> {
+        Ok(self.aggregation_bits.clone())
     }
 
     /// Returns the hash tree root of the root, slot and subcommittee index
     /// of the sync contribution.
-    fn root(&self) -> Hash256 {
-        SyncCommitteeData {
+    fn root(&self) -> Result<Hash256, Error> {
+        Ok(SyncCommitteeData {
             root: self.beacon_block_root,
             slot: self.slot,
             subcommittee_index: self.subcommittee_index,
         }
-        .tree_hash_root()
+        .tree_hash_root())
     }
 }
 
@@ -192,6 +209,8 @@ pub enum Error {
         expected: Slot,
         attestation: Slot,
     },
+    GetItemError,
+    RootError,
 }
 
 /// A `HashMap` that contains entries related to some `Slot`.
@@ -234,7 +253,7 @@ impl<I> SlotHashSet<I> {
                 // If true, we replace the new item with its existing subset. This allows us
                 // to hold fewer items in the list.
                 } else if item.is_superset(existing) {
-                    *existing = item.get_item();
+                    *existing = item.get_item()?;
                     return Ok(ObserveOutcome::New);
                 }
             }
@@ -252,7 +271,7 @@ impl<I> SlotHashSet<I> {
             return Err(Error::ReachedMaxObservationsPerSlot(self.max_capacity));
         }
 
-        let item = item.get_item();
+        let item = item.get_item()?;
         self.map.entry(root).or_default().push(item);
         Ok(ObserveOutcome::New)
     }
@@ -345,7 +364,7 @@ where
         root_opt: Option<Hash256>,
     ) -> Result<ObserveOutcome, Error> {
         let index = self.get_set_index(item.get_slot())?;
-        let root = root_opt.unwrap_or_else(|| item.root());
+        let root = root_opt.map_or_else(|| item.root(), Ok)?;
 
         self.sets
             .get_mut(index)
@@ -454,12 +473,13 @@ where
 #[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
-    use types::{test_utils::test_random_instance, Hash256};
+    use types::{test_utils::test_random_instance, AttestationBase, Hash256};
 
     type E = types::MainnetEthSpec;
 
     fn get_attestation(slot: Slot, beacon_block_root: u64) -> Attestation<E> {
-        let mut a: Attestation<E> = test_random_instance();
+        let a: AttestationBase<E> = test_random_instance();
+        let mut a = Attestation::Base(a);
         a.data_mut().slot = slot;
         a.data_mut().beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
         a
@@ -487,7 +507,10 @@ mod tests {
 
                     for a in &items {
                         assert_eq!(
-                            store.is_known_subset(a.as_reference(), a.as_reference().root()),
+                            store.is_known_subset(
+                                a.as_reference(),
+                                a.as_reference().root().unwrap()
+                            ),
                             Ok(false),
                             "should indicate an unknown attestation is unknown"
                         );
@@ -500,12 +523,18 @@ mod tests {
 
                     for a in &items {
                         assert_eq!(
-                            store.is_known_subset(a.as_reference(), a.as_reference().root()),
+                            store.is_known_subset(
+                                a.as_reference(),
+                                a.as_reference().root().unwrap()
+                            ),
                             Ok(true),
                             "should indicate a known attestation is known"
                         );
                         assert_eq!(
-                            store.observe_item(a.as_reference(), Some(a.as_reference().root())),
+                            store.observe_item(
+                                a.as_reference(),
+                                Some(a.as_reference().root().unwrap())
+                            ),
                             Ok(ObserveOutcome::Subset),
                             "should acknowledge an existing attestation"
                         );

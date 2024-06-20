@@ -258,8 +258,8 @@ impl<E: EthSpec> StoreItem for PersistedOperationPool<E> {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
         // Default deserialization to the latest variant.
-        PersistedOperationPoolV15::from_ssz_bytes(bytes)
-            .map(Self::V15)
+        PersistedOperationPoolV20::from_ssz_bytes(bytes)
+            .map(Self::V20)
             .map_err(Into::into)
     }
 }

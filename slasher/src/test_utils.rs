@@ -39,7 +39,6 @@ pub fn indexed_att(
     target_epoch: u64,
     target_root: u64,
 ) -> IndexedAttestation<E> {
-    // TODO(electra) make fork-agnostic
     IndexedAttestation::Base(IndexedAttestationBase {
         attesting_indices: attesting_indices.as_ref().to_vec().into(),
         data: AttestationData {
@@ -63,7 +62,6 @@ pub fn att_slashing(
     attestation_1: &IndexedAttestation<E>,
     attestation_2: &IndexedAttestation<E>,
 ) -> AttesterSlashing<E> {
-    // TODO(electra): fix this one we superstruct IndexedAttestation (return the correct type)
     match (attestation_1, attestation_2) {
         (IndexedAttestation::Base(att1), IndexedAttestation::Base(att2)) => {
             AttesterSlashing::Base(AttesterSlashingBase {
@@ -71,13 +69,11 @@ pub fn att_slashing(
                 attestation_2: att2.clone(),
             })
         }
-        (IndexedAttestation::Electra(att1), IndexedAttestation::Electra(att2)) => {
-            AttesterSlashing::Electra(AttesterSlashingElectra {
-                attestation_1: att1.clone(),
-                attestation_2: att2.clone(),
-            })
-        }
-        _ => panic!("attestations must be of the same type"),
+        // A slashing involving an electra attestation type must return an electra AttesterSlashing type
+        (_, _) => AttesterSlashing::Electra(AttesterSlashingElectra {
+            attestation_1: attestation_1.clone().to_electra(),
+            attestation_2: attestation_2.clone().to_electra(),
+        }),
     }
 }
 
@@ -124,11 +120,9 @@ pub fn slashed_validators_from_attestations(
                 continue;
             }
 
-            // TODO(electra) in a nested loop, copying to vecs feels bad
-            let attesting_indices_1 = att1.attesting_indices_to_vec();
-            let attesting_indices_2 = att2.attesting_indices_to_vec();
-
             if att1.is_double_vote(att2) || att1.is_surround_vote(att2) {
+                let attesting_indices_1 = att1.attesting_indices_to_vec();
+                let attesting_indices_2 = att2.attesting_indices_to_vec();
                 slashed_validators.extend(hashset_intersection(
                     &attesting_indices_1,
                     &attesting_indices_2,

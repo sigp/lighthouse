@@ -162,7 +162,7 @@ smallvec = "1.11.2"
 snap = "1"
 ssz_types = "0.6"
 strum = { version = "0.24", features = ["derive"] }
-superstruct = { git = "https://github.com/sigp/superstruct", rev = "45eecbfb9708c9fe11dbb6a6a5bd8d618f02269e" }
+superstruct = "0.8"
 syn = "1"
 sysinfo = "0.26"
 tempfile = "3"

@@ -1,4 +1,5 @@
 use crate::SlotClock;
+use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use types::{EthSpec, Slot};
 
