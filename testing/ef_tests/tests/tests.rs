@@ -107,9 +107,7 @@ fn operations_deposit_requests() {
 
 #[test]
 fn operations_consolidations() {
-    OperationsHandler::<MinimalEthSpec, SignedConsolidation>::default().run();
-    //TODO(electra): re-enable mainnet once they make tests for this
-    //OperationsHandler::<MainnetEthSpec, SignedConsolidation>::default().run();
+    todo!("implement once el triggered consolidations are good");
 }
 
 #[test]
@@ -635,12 +633,6 @@ mod ssz_static {
     fn pending_partial_withdrawal() {
         SszStaticHandler::<PendingPartialWithdrawal, MinimalEthSpec>::electra_and_later().run();
         SszStaticHandler::<PendingPartialWithdrawal, MainnetEthSpec>::electra_and_later().run();
-    }
-
-    #[test]
-    fn signed_consolidation() {
-        SszStaticHandler::<SignedConsolidation, MinimalEthSpec>::electra_and_later().run();
-        SszStaticHandler::<SignedConsolidation, MainnetEthSpec>::electra_and_later().run();
     }
 }
 

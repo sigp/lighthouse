@@ -7,7 +7,8 @@ use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::process_operations::{
-    process_consolidations, process_deposit_receipts, process_execution_layer_withdrawal_requests,
+    process_consolidation_requests, process_deposit_receipts,
+    process_execution_layer_withdrawal_requests,
 };
 use state_processing::{
     per_block_processing::{
@@ -26,8 +27,7 @@ use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
     BlindedPayload, Deposit, DepositRequest, ExecutionPayload, FullPayload, ProposerSlashing,
-    SignedBlsToExecutionChange, SignedConsolidation, SignedVoluntaryExit, SyncAggregate,
-    WithdrawalRequest,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -488,29 +488,6 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         process_deposit_receipts(state, &[self.clone()], spec)
-    }
-}
-
-impl<E: EthSpec> Operation<E> for SignedConsolidation {
-    fn handler_name() -> String {
-        "consolidation".into()
-    }
-
-    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name >= ForkName::Electra
-    }
-
-    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file(path)
-    }
-
-    fn apply_to(
-        &self,
-        state: &mut BeaconState<E>,
-        spec: &ChainSpec,
-        _extra: &Operations<E, Self>,
-    ) -> Result<(), BlockProcessingError> {
-        process_consolidations(state, &[self.clone()], VerifySignatures::True, spec)
     }
 }
 

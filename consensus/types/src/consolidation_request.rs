@@ -1,5 +1,4 @@
-use crate::Epoch;
-use crate::{test_utils::TestRandom, SignedRoot};
+use crate::{test_utils::TestRandom, Address, PublicKeyBytes, SignedRoot};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -20,11 +19,9 @@ use tree_hash_derive::TreeHash;
     TestRandom,
 )]
 pub struct ConsolidationRequest {
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub source_index: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub target_index: u64,
-    pub epoch: Epoch,
+    pub source_address: Address,
+    pub source_pubkey: PublicKeyBytes,
+    pub target_pubkey: PublicKeyBytes,
 }
 
 impl SignedRoot for ConsolidationRequest {}
