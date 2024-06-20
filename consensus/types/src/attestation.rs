@@ -277,16 +277,6 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
 }
 
 impl<E: EthSpec> AttestationElectra<E> {
-    /// Are the aggregation bitfields of these attestations disjoint?
-    // TODO(electra): check whether the definition from CompactIndexedAttestation::should_aggregate
-    // is useful where this is used, i.e. only consider attestations disjoint when their committees
-    // match AND their aggregation bits do not intersect.
-    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
-        self.aggregation_bits
-            .intersection(&other.aggregation_bits)
-            .is_zero()
-    }
-
     pub fn committee_index(&self) -> Option<u64> {
         self.get_committee_indices().first().cloned()
     }
@@ -304,7 +294,6 @@ impl<E: EthSpec> AttestationElectra<E> {
     /// The aggregation bitfields must be disjoint, and the data must be the same.
     pub fn aggregate(&mut self, other: &Self) {
         debug_assert_eq!(self.data, other.data);
-        debug_assert!(self.signers_disjoint_from(other));
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
     }
@@ -358,19 +347,11 @@ impl<E: EthSpec> AttestationElectra<E> {
 }
 
 impl<E: EthSpec> AttestationBase<E> {
-    /// Are the aggregation bitfields of these attestations disjoint?
-    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
-        self.aggregation_bits
-            .intersection(&other.aggregation_bits)
-            .is_zero()
-    }
-
     /// Aggregate another Attestation into this one.
     ///
     /// The aggregation bitfields must be disjoint, and the data must be the same.
     pub fn aggregate(&mut self, other: &Self) {
         debug_assert_eq!(self.data, other.data);
-        debug_assert!(self.signers_disjoint_from(other));
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
     }
