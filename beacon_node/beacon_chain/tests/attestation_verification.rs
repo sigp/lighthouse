@@ -233,7 +233,6 @@ fn get_non_aggregator<T: BeaconChainTypes>(
     let state = &head.beacon_state;
     let current_slot = chain.slot().expect("should get slot");
 
-    // TODO(electra) make fork-agnostic
     let committee = state
         .get_beacon_committee(
             current_slot,

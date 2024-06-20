@@ -326,7 +326,6 @@ where
         genesis_validators_root,
     );
 
-    // TODO(electra), signing root isnt unique in the case of electra
     let message = indexed_attestation.data().signing_root(domain);
 
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
