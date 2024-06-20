@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
-
 mod manual_slot_clock;
 mod metrics;
 mod system_time_slot_clock;

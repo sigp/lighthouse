@@ -716,6 +716,21 @@ pub struct AttesterData {
     pub slot: Slot,
 }
 
+impl AttesterData {
+    pub fn match_attestation_data<E: EthSpec>(
+        &self,
+        attestation_data: &AttestationData,
+        spec: &ChainSpec,
+    ) -> bool {
+        if spec.fork_name_at_slot::<E>(attestation_data.slot) < ForkName::Electra {
+            self.slot == attestation_data.slot && self.committee_index == attestation_data.index
+        } else {
+            // After electra `attestation_data.index` is set to 0 and does not match the duties
+            self.slot == attestation_data.slot
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProposerData {
     pub pubkey: PublicKeyBytes,
@@ -1702,11 +1717,11 @@ impl<E: EthSpec> ForkVersionDeserialize for FullBlockContents<E> {
     }
 }
 
-impl<E: EthSpec> Into<BeaconBlock<E>> for FullBlockContents<E> {
-    fn into(self) -> BeaconBlock<E> {
-        match self {
-            Self::BlockContents(block_and_sidecars) => block_and_sidecars.block,
-            Self::Block(block) => block,
+impl<E: EthSpec> From<FullBlockContents<E>> for BeaconBlock<E> {
+    fn from(from: FullBlockContents<E>) -> BeaconBlock<E> {
+        match from {
+            FullBlockContents::<E>::BlockContents(block_and_sidecars) => block_and_sidecars.block,
+            FullBlockContents::<E>::Block(block) => block,
         }
     }
 }
