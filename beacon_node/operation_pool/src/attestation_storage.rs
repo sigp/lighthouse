@@ -169,16 +169,18 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
         }
     }
 
-    pub fn aggregate(&mut self, other: &Self) -> Option<()> {
+    /// Returns `true` if aggregated, otherwise `false`.
+    pub fn aggregate(&mut self, other: &Self) -> bool {
         match (self, other) {
             (CompactIndexedAttestation::Base(this), CompactIndexedAttestation::Base(other)) => {
-                this.aggregate(other)
+                this.aggregate(other);
+                true
             }
             (
                 CompactIndexedAttestation::Electra(this),
                 CompactIndexedAttestation::Electra(other),
             ) => this.aggregate_same_committee(other),
-            _ => None,
+            _ => false,
         }
     }
 }
@@ -190,7 +192,7 @@ impl<E: EthSpec> CompactIndexedAttestationBase<E> {
             .is_zero()
     }
 
-    pub fn aggregate(&mut self, other: &Self) -> Option<()> {
+    pub fn aggregate(&mut self, other: &Self) {
         self.attesting_indices = self
             .attesting_indices
             .drain(..)
@@ -199,8 +201,6 @@ impl<E: EthSpec> CompactIndexedAttestationBase<E> {
             .collect();
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
-
-        Some(())
     }
 }
 
@@ -214,9 +214,10 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
                 .is_zero()
     }
 
-    pub fn aggregate_same_committee(&mut self, other: &Self) -> Option<()> {
+    /// Returns `true` if aggregated, otherwise `false`.
+    pub fn aggregate_same_committee(&mut self, other: &Self) -> bool {
         if self.committee_bits != other.committee_bits {
-            return None;
+            return false;
         }
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.attesting_indices = self
@@ -226,7 +227,7 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
             .dedup()
             .collect();
         self.signature.add_assign_aggregate(&other.signature);
-        Some(())
+        true
     }
 
     pub fn aggregate_with_disjoint_committees(&mut self, other: &Self) -> Option<()> {
@@ -316,8 +317,7 @@ impl<E: EthSpec> AttestationMap<E> {
 
         for existing_attestation in attestations.iter_mut() {
             if existing_attestation.should_aggregate(&indexed) {
-                existing_attestation.aggregate(&indexed);
-                aggregated = true;
+                aggregated = existing_attestation.aggregate(&indexed);
             } else if *existing_attestation == indexed {
                 aggregated = true;
             }
