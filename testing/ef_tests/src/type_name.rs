@@ -76,6 +76,8 @@ type_name!(Fork);
 type_name!(ForkData);
 type_name_generic!(HistoricalBatch);
 type_name_generic!(IndexedAttestation);
+type_name_generic!(IndexedAttestationBase, "IndexedAttestation");
+type_name_generic!(IndexedAttestationElectra, "IndexedAttestation");
 type_name_generic!(LightClientBootstrap);
 type_name_generic!(LightClientBootstrapAltair, "LightClientBootstrap");
 type_name_generic!(LightClientBootstrapCapella, "LightClientBootstrap");
