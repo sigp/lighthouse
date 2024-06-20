@@ -133,7 +133,6 @@ where
     #[superstruct(only(Electra))]
     pub earliest_consolidation_epoch: Epoch,
 
-    // TODO(electra) should these be optional?
     #[superstruct(only(Electra))]
     pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
     #[superstruct(only(Electra))]

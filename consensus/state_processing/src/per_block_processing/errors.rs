@@ -129,6 +129,7 @@ pub enum BlockProcessingError {
         target_address: Address,
     },
     InavlidConsolidationSignature,
+    PendingAttestationInElectra,
 }
 
 impl From<BeaconStateError> for BlockProcessingError {

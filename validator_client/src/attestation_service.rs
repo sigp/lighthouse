@@ -14,11 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
-use types::ForkName;
-use types::{
-    attestation::AttestationBase, AggregateSignature, Attestation, AttestationData,
-    AttestationElectra, BitList, BitVector, ChainSpec, CommitteeIndex, EthSpec, Slot,
-};
+use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
@@ -367,17 +363,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let duty = &duty_and_proof.duty;
             let attestation_data = attestation_data_ref;
 
-            let fork_name = self
-                .context
-                .eth2_config
-                .spec
-                .fork_name_at_slot::<E>(attestation_data.slot);
-
             // Ensure that the attestation matches the duties.
-            #[allow(clippy::suspicious_operation_groupings)]
-            if duty.slot != attestation_data.slot
-                || (fork_name < ForkName::Electra && duty.committee_index != attestation_data.index)
-            {
+            if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
                 crit!(
                     log,
                     "Inconsistent validator duties during signing";
@@ -390,25 +377,26 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 return None;
             }
 
-            let mut attestation = if fork_name >= ForkName::Electra {
-                let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
-                committee_bits
-                    .set(duty.committee_index as usize, true)
-                    .unwrap();
-                Attestation::Electra(AttestationElectra {
-                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
-                        .unwrap(),
-                    data: attestation_data.clone(),
-                    committee_bits,
-                    signature: AggregateSignature::infinity(),
-                })
-            } else {
-                Attestation::Base(AttestationBase {
-                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
-                        .unwrap(),
-                    data: attestation_data.clone(),
-                    signature: AggregateSignature::infinity(),
-                })
+            let mut attestation = match Attestation::<E>::empty_for_signing(
+                duty.committee_index,
+                duty.committee_length as usize,
+                attestation_data.slot,
+                attestation_data.beacon_block_root,
+                attestation_data.source,
+                attestation_data.target,
+                &self.context.eth2_config.spec,
+            ) {
+                Ok(attestation) => attestation,
+                Err(err) => {
+                    crit!(
+                        log,
+                        "Invalid validator duties during signing";
+                        "validator" => ?duty.pubkey,
+                        "duty" => ?duty,
+                        "err" => ?err,
+                    );
+                    return None;
+                }
             };
 
             match self
@@ -577,23 +565,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
             .map_err(|e| e.to_string())?;
 
-        let fork_name = self
-            .context
-            .eth2_config
-            .spec
-            .fork_name_at_slot::<E>(attestation_data.slot);
-
         // Create futures to produce the signed aggregated attestations.
         let signing_futures = validator_duties.iter().map(|duty_and_proof| async move {
             let duty = &duty_and_proof.duty;
             let selection_proof = duty_and_proof.selection_proof.as_ref()?;
 
-            let slot = attestation_data.slot;
-            let committee_index = attestation_data.index;
-
-            if duty.slot != slot
-                || (fork_name < ForkName::Electra && duty.committee_index != committee_index)
-            {
+            if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
                 crit!(log, "Inconsistent validator duties during signing");
                 return None;
             }
