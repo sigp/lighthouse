@@ -165,7 +165,6 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
                 CompactIndexedAttestation::Electra(this),
                 CompactIndexedAttestation::Electra(other),
             ) => this.should_aggregate(other),
-            // TODO(electra) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
             _ => false,
         }
     }
@@ -179,7 +178,6 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
                 CompactIndexedAttestation::Electra(this),
                 CompactIndexedAttestation::Electra(other),
             ) => this.aggregate_same_committee(other),
-            // TODO(electra) is a mix of electra and base compact indexed attestations an edge case we need to deal with?
             _ => None,
         }
     }
