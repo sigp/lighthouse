@@ -69,6 +69,8 @@ impl Eth2Enr for Enr {
     fn custody_subnet_count<E: EthSpec>(&self, spec: &ChainSpec) -> u64 {
         self.get(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
             .and_then(|custody_bytes| custody_bytes.try_into().map(u64::from_be_bytes).ok())
+            // If value supplied in ENR is invalid, fallback to `custody_requirement`
+            .filter(|csc| csc <= &spec.data_column_sidecar_subnet_count)
             .unwrap_or(spec.custody_requirement)
     }
 
@@ -318,37 +320,59 @@ mod test {
 
     #[test]
     fn custody_subnet_count_default() {
-        let keypair = libp2p::identity::secp256k1::Keypair::generate();
-        let enr_key = CombinedKey::from_secp256k1(&keypair);
         let config = NetworkConfig {
             subscribe_all_data_column_subnets: false,
             ..NetworkConfig::default()
         };
-        let enr_fork_id = EnrForkId::default();
         let spec = E::default_spec();
-        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, &spec);
+        let enr = build_enr_with_config(config, &spec).0;
 
         assert_eq!(
-            enr.unwrap().custody_subnet_count::<E>(&spec),
+            enr.custody_subnet_count::<E>(&spec),
             spec.custody_requirement,
         );
     }
 
     #[test]
     fn custody_subnet_count_all() {
-        let keypair = libp2p::identity::secp256k1::Keypair::generate();
-        let enr_key = CombinedKey::from_secp256k1(&keypair);
         let config = NetworkConfig {
             subscribe_all_data_column_subnets: true,
             ..NetworkConfig::default()
         };
-        let enr_fork_id = EnrForkId::default();
         let spec = E::default_spec();
-        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, &spec);
+        let enr = build_enr_with_config(config, &spec).0;
 
         assert_eq!(
-            enr.unwrap().custody_subnet_count::<E>(&spec),
+            enr.custody_subnet_count::<E>(&spec),
             spec.data_column_sidecar_subnet_count,
         );
+    }
+
+    #[test]
+    fn custody_subnet_count_fallback_default() {
+        let config = NetworkConfig::default();
+        let spec = E::default_spec();
+        let (mut enr, enr_key) = build_enr_with_config(config, &spec);
+        let invalid_subnet_count = 999u64;
+
+        enr.insert(
+            PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
+            &invalid_subnet_count.to_be_bytes().as_slice(),
+            &enr_key,
+        )
+        .unwrap();
+
+        assert_eq!(
+            enr.custody_subnet_count::<E>(&spec),
+            spec.custody_requirement,
+        );
+    }
+
+    fn build_enr_with_config(config: NetworkConfig, spec: &ChainSpec) -> (Enr, CombinedKey) {
+        let keypair = libp2p::identity::secp256k1::Keypair::generate();
+        let enr_key = CombinedKey::from_secp256k1(&keypair);
+        let enr_fork_id = EnrForkId::default();
+        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, &spec).unwrap();
+        (enr, enr_key)
     }
 }
