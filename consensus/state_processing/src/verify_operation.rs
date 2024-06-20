@@ -48,7 +48,6 @@ pub trait TransformPersist {
 pub struct SigVerifiedOp<T: TransformPersist, E: EthSpec> {
     op: T,
     verified_against: VerifiedAgainst,
-    //#[ssz(skip_serializing, skip_deserializing)]
     _phantom: PhantomData<E>,
 }
 
