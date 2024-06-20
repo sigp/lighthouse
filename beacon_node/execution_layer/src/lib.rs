@@ -2010,6 +2010,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawalRequests)?;
+                let n_consolidations = electra_block.consolidation_requests.len();
+                let consolidation_requests =
+                    VariableList::new(electra_block.consolidation_requests)
+                        .map_err(|_| ApiError::TooManyConsolidationRequests(n_consolidations))?;
                 ExecutionPayload::Electra(ExecutionPayloadElectra {
                     parent_hash: electra_block.parent_hash,
                     fee_recipient: electra_block.fee_recipient,
@@ -2030,6 +2034,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     excess_blob_gas: electra_block.excess_blob_gas,
                     deposit_requests,
                     withdrawal_requests,
+                    consolidation_requests: consolidation_requests,
                 })
             }
         };

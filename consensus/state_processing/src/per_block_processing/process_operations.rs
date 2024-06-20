@@ -47,8 +47,10 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         if let Some(receipts) = receipts {
             process_deposit_receipts(state, &receipts, spec)?;
         }
-        todo!("implement process_consolidation_requests")
-        //process_consolidation_requests(state, block_body.consolidations()?, verify_signatures, spec)?;
+        let consolidations = block_body.execution_payload()?.consolidation_requests()?;
+        if let Some(consolidations) = consolidations {
+            process_consolidation_requests(state, &consolidations, spec)?;
+        }
     }
 
     Ok(())

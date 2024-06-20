@@ -45,6 +45,12 @@ pub trait ExecPayload<E: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn deposit_requests(
         &self,
     ) -> Result<Option<VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>>, Error>;
+    fn consolidation_requests(
+        &self,
+    ) -> Result<
+        Option<VariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>>,
+        Error,
+    >;
 
     /// Is this a default payload with 0x0 roots for transactions and withdrawals?
     fn is_default_with_zero_roots(&self) -> bool;
@@ -311,6 +317,24 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
         }
     }
 
+    fn consolidation_requests(
+        &self,
+    ) -> Result<
+        Option<
+            VariableList<ConsolidationRequest, <E as EthSpec>::MaxConsolidationRequestsPerPayload>,
+        >,
+        Error,
+    > {
+        match self {
+            FullPayload::Bellatrix(_) | FullPayload::Capella(_) | FullPayload::Deneb(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
+            FullPayload::Electra(inner) => {
+                Ok(Some(inner.execution_payload.consolidation_requests.clone()))
+            }
+        }
+    }
+
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
@@ -466,6 +490,24 @@ impl<'b, E: EthSpec> ExecPayload<E> for FullPayloadRef<'b, E> {
             | FullPayloadRef::Deneb(_) => Err(Error::IncorrectStateVariant),
             FullPayloadRef::Electra(inner) => {
                 Ok(Some(inner.execution_payload.deposit_requests.clone()))
+            }
+        }
+    }
+
+    fn consolidation_requests(
+        &self,
+    ) -> Result<
+        Option<
+            VariableList<ConsolidationRequest, <E as EthSpec>::MaxConsolidationRequestsPerPayload>,
+        >,
+        Error,
+    > {
+        match self {
+            FullPayloadRef::Bellatrix(_)
+            | FullPayloadRef::Capella(_)
+            | FullPayloadRef::Deneb(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Electra(inner) => {
+                Ok(Some(inner.execution_payload.consolidation_requests.clone()))
             }
         }
     }
@@ -663,6 +705,17 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
         Ok(None)
     }
 
+    fn consolidation_requests(
+        &self,
+    ) -> Result<
+        Option<
+            VariableList<ConsolidationRequest, <E as EthSpec>::MaxConsolidationRequestsPerPayload>,
+        >,
+        Error,
+    > {
+        Ok(None)
+    }
+
     fn is_default_with_zero_roots(&self) -> bool {
         self.to_ref().is_default_with_zero_roots()
     }
@@ -777,6 +830,17 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
         Ok(None)
     }
 
+    fn consolidation_requests(
+        &self,
+    ) -> Result<
+        Option<
+            VariableList<ConsolidationRequest, <E as EthSpec>::MaxConsolidationRequestsPerPayload>,
+        >,
+        Error,
+    > {
+        Ok(None)
+    }
+
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_blinded_payload_ref!(&'b _, self, move |payload, cons| {
             cons(payload);
@@ -805,7 +869,8 @@ macro_rules! impl_exec_payload_common {
      $g:block,
      $h:block,
      $i:block,
-     $j:block) => {
+     $j:block,
+     $k:block) => {
         impl<E: EthSpec> ExecPayload<E> for $wrapper_type<E> {
             fn block_type() -> BlockType {
                 BlockType::$block_type_variant
@@ -885,6 +950,13 @@ macro_rules! impl_exec_payload_common {
                 let j = $j;
                 j(self)
             }
+
+            fn consolidation_requests(
+                &self,
+            ) -> Result<Option<VariableList<ConsolidationRequest, <E as EthSpec>::MaxConsolidationRequestsPerPayload>>, Error> {
+                let k = $k;
+                k(self)
+            }
         }
 
         impl<E: EthSpec> From<$wrapped_type<E>> for $wrapper_type<E> {
@@ -931,6 +1003,7 @@ macro_rules! impl_exec_payload_for_fork {
                     };
                 c
             },
+            { |_| { Ok(None) } },
             { |_| { Ok(None) } },
             { |_| { Ok(None) } }
         );
@@ -1041,6 +1114,23 @@ macro_rules! impl_exec_payload_for_fork {
                 > = |payload: &$wrapper_type_full<E>| {
                     let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
                     wrapper_ref_type.deposit_requests()
+                };
+                c
+            },
+            {
+                let c: for<'a> fn(
+                    &'a $wrapper_type_full<E>,
+                ) -> Result<
+                    Option<
+                        VariableList<
+                            ConsolidationRequest,
+                            <E as EthSpec>::MaxConsolidationRequestsPerPayload,
+                        >,
+                    >,
+                    Error,
+                > = |payload: &$wrapper_type_full<E>| {
+                    let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
+                    wrapper_ref_type.consolidation_requests()
                 };
                 c
             }

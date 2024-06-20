@@ -106,6 +106,9 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     #[superstruct(only(V4))]
     pub withdrawal_requests:
         VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
+    #[superstruct(only(V4))]
+    pub consolidation_requests:
+        VariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>,
 }
 
 impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadV1<E> {
@@ -218,6 +221,11 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
                 .withdrawal_requests
                 .into_iter()
                 .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            consolidation_requests: payload
+                .consolidation_requests
+                .into_iter()
                 .collect::<Vec<_>>()
                 .into(),
         }
@@ -348,6 +356,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            consolidation_requests: payload.consolidation_requests.into(),
         }
     }
 }

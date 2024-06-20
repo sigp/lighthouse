@@ -89,6 +89,8 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     pub deposit_requests_root: Hash256,
     #[superstruct(only(Electra), partial_getter(copy))]
     pub withdrawal_requests_root: Hash256,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    pub consolidation_requests_root: Hash256,
 }
 
 impl<E: EthSpec> ExecutionPayloadHeader<E> {
@@ -208,6 +210,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
             excess_blob_gas: self.excess_blob_gas,
             deposit_requests_root: Hash256::zero(),
             withdrawal_requests_root: Hash256::zero(),
+            consolidation_requests_root: Hash256::zero(),
         }
     }
 }
@@ -301,6 +304,7 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
             excess_blob_gas: payload.excess_blob_gas,
             deposit_requests_root: payload.deposit_requests.tree_hash_root(),
             withdrawal_requests_root: payload.withdrawal_requests.tree_hash_root(),
+            consolidation_requests_root: payload.consolidation_requests.tree_hash_root(),
         }
     }
 }

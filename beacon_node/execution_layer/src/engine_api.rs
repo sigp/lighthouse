@@ -20,11 +20,11 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::execution_payload::{DepositRequests, WithdrawalRequests};
+use types::execution_payload::{ConsolidationRequests, DepositRequests, WithdrawalRequests};
 pub use types::{
-    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
-    Withdrawal, Withdrawals,
+    Address, BeaconBlockRef, ConsolidationRequest, EthSpec, ExecutionBlockHash, ExecutionPayload,
+    ExecutionPayloadHeader, ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions,
+    Uint256, VariableList, Withdrawal, Withdrawals,
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -75,6 +75,7 @@ pub enum Error {
     UnsupportedForkVariant(String),
     InvalidClientVersion(String),
     RlpDecoderError(rlp::DecoderError),
+    TooManyConsolidationRequests(usize),
 }
 
 impl From<reqwest::Error> for Error {
@@ -207,6 +208,9 @@ pub struct ExecutionBlockWithTransactions<E: EthSpec> {
     pub deposit_requests: Vec<JsonDepositRequest>,
     #[superstruct(only(Electra))]
     pub withdrawal_requests: Vec<JsonWithdrawalRequest>,
+    #[superstruct(only(Electra))]
+    // TODO(electra): I don't think we need a JsonConsolidationRequest here because the bytes should be little-endian but we need to confirm
+    pub consolidation_requests: Vec<ConsolidationRequest>,
 }
 
 impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions<E> {
@@ -324,6 +328,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions
                         .into_iter()
                         .map(|withdrawal| withdrawal.into())
                         .collect(),
+                    consolidation_requests: block.consolidation_requests.to_vec(),
                 })
             }
         };
@@ -666,6 +671,8 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     excess_blob_gas: header.excess_blob_gas,
                     deposit_requests,
                     withdrawal_requests,
+                    // TODO(electra): gonna need to superstruct this thing to do it properly..
+                    consolidation_requests: Vec::new().into(),
                 }))
             }
         }
