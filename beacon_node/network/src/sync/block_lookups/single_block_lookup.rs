@@ -261,6 +261,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     fn use_rand_available_peer(&mut self) -> Option<PeerId> {
         self.peers.iter().choose(&mut rand::thread_rng()).copied()
     }
+    /// Checks if the peer is disconnected.
+    ///
+    /// Returns true if the lookup should be dropped.
+    pub fn should_drop_lookup_on_disconnected_peer(&mut self, peer_id: &PeerId) -> bool {
+        self.remove_peer(peer_id);
+
+        return self.has_no_peers();
+    }
 }
 
 /// The state of the blob request component of a `SingleBlockLookup`.

@@ -410,20 +410,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Error responses */
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
-        self.single_block_lookups.retain(|_, lookup| {
-            lookup.remove_peer(peer_id);
+        /* Check disconnection for single lookups */
+        self.single_block_lookups.retain(|_, req| {
+            let should_drop_lookup =
+                req.should_drop_lookup_on_disconnected_peer(peer_id );
 
-            // Note: this condition should be removed in the future. It's not strictly necessary to drop a
-            // lookup if there are no peers left. Lookup should only be dropped if it can not make progress
-            if lookup.has_no_peers() {
-                debug!(self.log,
-                    "Dropping single lookup after peer disconnection";
-                    "block_root" => ?lookup.block_root()
-                );
-                false
-            } else {
-                true
+            if should_drop_lookup {
+                debug!(self.log, "Dropping single lookup after peer disconnection"; "block_root" => %req.block_root());
             }
+
+            !should_drop_lookup
         });
     }
 
