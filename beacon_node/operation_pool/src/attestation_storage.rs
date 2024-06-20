@@ -217,7 +217,6 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
     }
 
     pub fn aggregate_same_committee(&mut self, other: &Self) -> Option<()> {
-        // TODO(electra): remove assert in favour of Result
         if self.committee_bits != other.committee_bits {
             return None;
         }

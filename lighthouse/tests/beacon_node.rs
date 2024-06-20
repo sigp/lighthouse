@@ -58,13 +58,22 @@ impl CommandLineTest {
 
     fn run_with_zero_port(&mut self) -> CompletedTest<Config> {
         // Required since Deneb was enabled on mainnet.
-        self.cmd.arg("--allow-insecure-genesis-sync");
-        self.run_with_zero_port_and_no_genesis_sync()
+        self.set_allow_insecure_genesis_sync()
+            .run_with_zero_port_and_no_genesis_sync()
     }
 
     fn run_with_zero_port_and_no_genesis_sync(&mut self) -> CompletedTest<Config> {
+        self.set_zero_port().run()
+    }
+
+    fn set_allow_insecure_genesis_sync(&mut self) -> &mut Self {
+        self.cmd.arg("--allow-insecure-genesis-sync");
+        self
+    }
+
+    fn set_zero_port(&mut self) -> &mut Self {
         self.cmd.arg("-z");
-        self.run()
+        self
     }
 }
 
@@ -101,9 +110,20 @@ fn staking_flag() {
 }
 
 #[test]
-#[should_panic]
 fn allow_insecure_genesis_sync_default() {
-    CommandLineTest::new().run_with_zero_port_and_no_genesis_sync();
+    CommandLineTest::new()
+        .run_with_zero_port_and_no_genesis_sync()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, false);
+        });
+}
+
+#[test]
+#[should_panic]
+fn insecure_genesis_sync_should_panic() {
+    CommandLineTest::new()
+        .set_zero_port()
+        .run_with_immediate_shutdown(false);
 }
 
 #[test]
@@ -2252,7 +2272,9 @@ fn ensure_panic_on_failed_launch() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-chunk-size", Some("10"))
-        .run_with_zero_port()
+        .set_allow_insecure_genesis_sync()
+        .set_zero_port()
+        .run_with_immediate_shutdown(false)
         .with_config(|config| {
             let slasher_config = config
                 .slasher

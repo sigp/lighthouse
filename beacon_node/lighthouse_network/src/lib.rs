@@ -2,9 +2,6 @@
 /// all required libp2p functionality.
 ///
 /// This crate builds and manages the libp2p services required by the beacon node.
-#[macro_use]
-extern crate lazy_static;
-
 mod config;
 pub mod service;
 

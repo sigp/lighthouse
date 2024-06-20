@@ -685,7 +685,7 @@ mod test {
     fn get_eth1_data(i: u64) -> Eth1Data {
         Eth1Data {
             block_hash: Hash256::from_low_u64_be(i),
-            deposit_root: Hash256::from_low_u64_be(u64::max_value() - i),
+            deposit_root: Hash256::from_low_u64_be(u64::MAX - i),
             deposit_count: i,
         }
     }

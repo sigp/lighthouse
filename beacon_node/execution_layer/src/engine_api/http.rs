@@ -261,9 +261,9 @@ pub mod deposit_methods {
         Latest,
     }
 
-    impl Into<u64> for Eth1Id {
-        fn into(self) -> u64 {
-            match self {
+    impl From<Eth1Id> for u64 {
+        fn from(from: Eth1Id) -> u64 {
+            match from {
                 Eth1Id::Mainnet => 1,
                 Eth1Id::Custom(id) => id,
             }
@@ -416,7 +416,7 @@ pub mod deposit_methods {
                     .ok_or("Block number was not string")?,
             )?;
 
-            if number <= usize::max_value() as u64 {
+            if number <= usize::MAX as u64 {
                 Ok(Block {
                     hash,
                     timestamp,

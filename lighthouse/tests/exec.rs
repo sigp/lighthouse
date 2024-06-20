@@ -21,12 +21,19 @@ pub trait CommandLineTestExec {
         self
     }
 
+    fn run(&mut self) -> CompletedTest<Self::Config> {
+        self.run_with_immediate_shutdown(true)
+    }
+
     /// Executes the `Command` returned by `Self::cmd_mut` with temporary data directory, dumps
-    /// the configuration and shuts down immediately.
+    /// the configuration and shuts down immediately if `immediate_shutdown` is set to true.
     ///
     /// Options `--datadir`, `--dump-config`, `--dump-chain-config` and `--immediate-shutdown` must
     /// not be set on the command.
-    fn run(&mut self) -> CompletedTest<Self::Config> {
+    fn run_with_immediate_shutdown(
+        &mut self,
+        immediate_shutdown: bool,
+    ) -> CompletedTest<Self::Config> {
         // Setup temp directory.
         let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
         let tmp_config_path: PathBuf = tmp_dir.path().join("config.json");
@@ -39,8 +46,11 @@ pub trait CommandLineTestExec {
             .arg(format!("--{}", "dump-config"))
             .arg(tmp_config_path.as_os_str())
             .arg(format!("--{}", "dump-chain-config"))
-            .arg(tmp_chain_config_path.as_os_str())
-            .arg("--immediate-shutdown");
+            .arg(tmp_chain_config_path.as_os_str());
+
+        if immediate_shutdown {
+            cmd.arg("--immediate-shutdown");
+        }
 
         // Run the command.
         let output = output_result(cmd);

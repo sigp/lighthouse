@@ -1,9 +1,7 @@
 use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
 use core::slice::Iter;
 use derivative::Derivative;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::hash::{Hash, Hasher};
@@ -116,11 +114,14 @@ impl<E: EthSpec> IndexedAttestation<E> {
         }
     }
 
-    pub fn to_electra(self) -> Result<IndexedAttestationElectra<E>, ssz_types::Error> {
-        Ok(match self {
+    pub fn to_electra(self) -> IndexedAttestationElectra<E> {
+        match self {
             Self::Base(att) => {
                 let extended_attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot> =
-                    VariableList::new(att.attesting_indices.to_vec())?;
+                    VariableList::new(att.attesting_indices.to_vec())
+                        .expect("MaxValidatorsPerSlot must be >= MaxValidatorsPerCommittee");
+                // Note a unit test in consensus/types/src/eth_spec.rs asserts this invariant for
+                // all known specs
 
                 IndexedAttestationElectra {
                     attesting_indices: extended_attesting_indices,
@@ -129,7 +130,7 @@ impl<E: EthSpec> IndexedAttestation<E> {
                 }
             }
             Self::Electra(att) => att,
-        })
+        }
     }
 }
 
@@ -186,43 +187,6 @@ impl<'a, E: EthSpec> IndexedAttestationRef<'a, E> {
     }
 }
 
-impl<E: EthSpec> Decode for IndexedAttestation<E> {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        if let Ok(result) = IndexedAttestationBase::from_ssz_bytes(bytes) {
-            return Ok(IndexedAttestation::Base(result));
-        }
-
-        if let Ok(result) = IndexedAttestationElectra::from_ssz_bytes(bytes) {
-            return Ok(IndexedAttestation::Electra(result));
-        }
-
-        Err(ssz::DecodeError::BytesInvalid(String::from(
-            "bytes not valid for any fork variant",
-        )))
-    }
-}
-
-// TODO(electra): think about how to handle fork variants here
-impl<E: EthSpec> TestRandom for IndexedAttestation<E> {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let attesting_indices = VariableList::random_for_test(rng);
-        // let committee_bits: BitList<E::MaxCommitteesPerSlot> = BitList::random_for_test(rng);
-        let data = AttestationData::random_for_test(rng);
-        let signature = AggregateSignature::random_for_test(rng);
-
-        Self::Base(IndexedAttestationBase {
-            attesting_indices,
-            // committee_bits,
-            data,
-            signature,
-        })
-    }
-}
-
 /// Implementation of non-crypto-secure `Hash`, for use with `HashMap` and `HashSet`.
 ///
 /// Guarantees `att1 == att2 -> hash(att1) == hash(att2)`.
@@ -273,6 +237,38 @@ mod quoted_variable_list_u64 {
                 VariableList::new(vec)
                     .map_err(|e| serde::de::Error::custom(format!("invalid length: {:?}", e)))
             })
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode, PartialEq)]
+#[ssz(enum_behaviour = "union")]
+pub enum IndexedAttestationOnDisk<E: EthSpec> {
+    Base(IndexedAttestationBase<E>),
+    Electra(IndexedAttestationElectra<E>),
+}
+
+#[derive(Debug, Clone, Encode, PartialEq)]
+#[ssz(enum_behaviour = "union")]
+pub enum IndexedAttestationRefOnDisk<'a, E: EthSpec> {
+    Base(&'a IndexedAttestationBase<E>),
+    Electra(&'a IndexedAttestationElectra<E>),
+}
+
+impl<'a, E: EthSpec> From<&'a IndexedAttestation<E>> for IndexedAttestationRefOnDisk<'a, E> {
+    fn from(attestation: &'a IndexedAttestation<E>) -> Self {
+        match attestation {
+            IndexedAttestation::Base(attestation) => Self::Base(attestation),
+            IndexedAttestation::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
+impl<E: EthSpec> From<IndexedAttestationOnDisk<E>> for IndexedAttestation<E> {
+    fn from(attestation: IndexedAttestationOnDisk<E>) -> Self {
+        match attestation {
+            IndexedAttestationOnDisk::Base(attestation) => Self::Base(attestation),
+            IndexedAttestationOnDisk::Electra(attestation) => Self::Electra(attestation),
+        }
     }
 }
 
@@ -331,14 +327,22 @@ mod tests {
         assert!(!indexed_vote_first.is_surround_vote(&indexed_vote_second));
     }
 
-    ssz_and_tree_hash_tests!(IndexedAttestation<MainnetEthSpec>);
+    mod base {
+        use super::*;
+        ssz_and_tree_hash_tests!(IndexedAttestationBase<MainnetEthSpec>);
+    }
+    mod electra {
+        use super::*;
+        ssz_and_tree_hash_tests!(IndexedAttestationElectra<MainnetEthSpec>);
+    }
 
     fn create_indexed_attestation(
         target_epoch: u64,
         source_epoch: u64,
     ) -> IndexedAttestation<MainnetEthSpec> {
         let mut rng = XorShiftRng::from_seed([42; 16]);
-        let mut indexed_vote = IndexedAttestation::random_for_test(&mut rng);
+        let mut indexed_vote =
+            IndexedAttestation::Base(IndexedAttestationBase::random_for_test(&mut rng));
 
         indexed_vote.data_mut().source.epoch = Epoch::new(source_epoch);
         indexed_vote.data_mut().target.epoch = Epoch::new(target_epoch);
