@@ -819,7 +819,7 @@ impl<E: EthSpec> SlasherDB<E> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::{Checkpoint, MainnetEthSpec};
+    use types::{Checkpoint, MainnetEthSpec, Unsigned};
 
     type E = MainnetEthSpec;
 
@@ -830,6 +830,7 @@ mod test {
             AttestationData,
             AggregateSignature,
         ) -> IndexedAttestation<E>,
+        committee_len: u64,
     ) {
         let attestation_data = AttestationData {
             slot: Slot::new(1000),
@@ -845,7 +846,7 @@ mod test {
             },
         };
 
-        let attesting_indices = vec![1, 14, 160, 812737];
+        let attesting_indices = (0..committee_len).collect::<Vec<_>>();
         let signature = AggregateSignature::infinity();
 
         let fork_attestation = make_attestation(
@@ -880,7 +881,11 @@ mod test {
                 signature,
             })
         };
-        indexed_attestation_on_disk_roundtrip_test(&spec, make_attestation)
+        indexed_attestation_on_disk_roundtrip_test(
+            &spec,
+            make_attestation,
+            <E as EthSpec>::MaxValidatorsPerCommittee::to_u64(),
+        )
     }
 
     #[test]
@@ -893,6 +898,10 @@ mod test {
                 signature,
             })
         };
-        indexed_attestation_on_disk_roundtrip_test(&spec, make_attestation)
+        indexed_attestation_on_disk_roundtrip_test(
+            &spec,
+            make_attestation,
+            <E as EthSpec>::MaxValidatorsPerSlot::to_u64(),
+        )
     }
 }
