@@ -52,7 +52,12 @@ pub enum RpcEvent<T> {
     RPCError(RPCError),
 }
 
-pub type RpcResponseResult<T> = Result<(T, Duration), RpcResponseError>;
+pub enum RpcResponseResult<T> {
+    Response(Result<(T, Duration), RpcResponseError>),
+    StreamTermination,
+    RequestNotFound,
+    NoOp,
+}
 
 pub enum RpcResponseError {
     RpcError(RPCError),
@@ -582,36 +587,36 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: SingleLookupReqId,
         peer_id: PeerId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
+    ) -> RpcResponseResult<Arc<SignedBeaconBlock<T::EthSpec>>> {
         let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
-            return None;
+            return RpcResponseResult::RequestNotFound;
         };
 
         let resp = match block {
             RpcEvent::Response(block, seen_timestamp) => {
                 match request.get_mut().add_response(block) {
-                    Ok(block) => Ok((block, seen_timestamp)),
+                    Ok(block) => RpcResponseResult::Response(Ok((block, seen_timestamp))),
                     Err(e) => {
                         // The request must be dropped after receiving an error.
                         request.remove();
-                        Err(e.into())
+                        RpcResponseResult::Response(Err(e.into()))
                     }
                 }
             }
             RpcEvent::StreamTermination => match request.remove().terminate() {
-                Ok(_) => return None,
-                Err(e) => Err(e.into()),
+                Ok(_) => return RpcResponseResult::StreamTermination,
+                Err(e) => RpcResponseResult::Response(Err(e.into())),
             },
             RpcEvent::RPCError(e) => {
                 request.remove();
-                Err(e.into())
+                RpcResponseResult::Response(Err(e.into()))
             }
         };
 
-        if let Err(RpcResponseError::VerifyError(e)) = &resp {
+        if let RpcResponseResult::Response(Err(RpcResponseError::VerifyError(e))) = &resp {
             self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
         }
-        Some(resp)
+        resp
     }
 
     pub fn on_single_blob_response(
@@ -619,9 +624,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: SingleLookupReqId,
         peer_id: PeerId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<FixedBlobSidecarList<T::EthSpec>>> {
+    ) -> RpcResponseResult<FixedBlobSidecarList<T::EthSpec>> {
         let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
-            return None;
+            return RpcResponseResult::RequestNotFound;
         };
 
         let resp = match blob {
@@ -631,12 +636,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     Ok(Some(blobs)) => to_fixed_blob_sidecar_list(blobs)
                         .map(|blobs| (blobs, seen_timestamp))
                         .map_err(|e| (e.into(), request.resolve())),
-                    Ok(None) => return None,
+                    Ok(None) => return RpcResponseResult::NoOp,
                     Err(e) => Err((e.into(), request.resolve())),
                 }
             }
             RpcEvent::StreamTermination => match request.remove().terminate() {
-                Ok(_) => return None,
+                Ok(_) => return RpcResponseResult::StreamTermination,
                 // (err, false = not resolved) because terminate returns Ok() if resolved
                 Err(e) => Err((e.into(), false)),
             },
@@ -644,7 +649,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         match resp {
-            Ok(resp) => Some(Ok(resp)),
+            Ok(resp) => RpcResponseResult::Response(Ok(resp)),
             // Track if this request has already returned some value downstream. Ensure that
             // downstream code only receives a single Result per request. If the serving peer does
             // multiple penalizable actions per request, downscore and return None. This allows to
@@ -655,9 +660,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
                 }
                 if resolved {
-                    None
+                    RpcResponseResult::NoOp
                 } else {
-                    Some(Err(e))
+                    RpcResponseResult::Response(Err(e))
                 }
             }
         }
