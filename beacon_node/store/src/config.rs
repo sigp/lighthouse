@@ -41,8 +41,6 @@ pub struct StoreConfig {
     pub compact_on_prune: bool,
     /// Whether to prune payloads on initialization and finalization.
     pub prune_payloads: bool,
-    /// Whether to store finalized blocks compressed and linearised in the freezer database.
-    pub linear_blocks: bool,
     /// Whether to store finalized states compressed and linearised in the freezer database.
     pub linear_restore_points: bool,
     /// State diff hierarchy.
@@ -60,7 +58,6 @@ pub struct StoreConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 // FIXME(sproul): schema migration
 pub struct OnDiskStoreConfig {
-    pub linear_blocks: bool,
     pub hierarchy_config: HierarchyConfig,
 }
 
@@ -96,7 +93,6 @@ impl Default for StoreConfig {
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,
-            linear_blocks: true,
             linear_restore_points: true,
             hierarchy_config: HierarchyConfig::default(),
             prune_blobs: true,
@@ -109,7 +105,6 @@ impl Default for StoreConfig {
 impl StoreConfig {
     pub fn as_disk_config(&self) -> OnDiskStoreConfig {
         OnDiskStoreConfig {
-            linear_blocks: self.linear_blocks,
             hierarchy_config: self.hierarchy_config.clone(),
         }
     }
@@ -122,8 +117,7 @@ impl StoreConfig {
     ) -> Result<(), StoreConfigError> {
         let db_config = self.as_disk_config();
         // Allow changing the hierarchy exponents if no historic states are stored.
-        if db_config.linear_blocks == on_disk_config.linear_blocks
-            && (db_config.hierarchy_config == on_disk_config.hierarchy_config
+             (db_config.hierarchy_config == on_disk_config.hierarchy_config
                 || anchor.map_or(false, |anchor| anchor.no_historic_states_stored(split.slot)))
         {
             Ok(())
@@ -231,11 +225,9 @@ mod test {
     #[test]
     fn check_compatibility_ok() {
         let store_config = StoreConfig {
-            linear_blocks: true,
             ..Default::default()
         };
         let on_disk_config = OnDiskStoreConfig {
-            linear_blocks: true,
             hierarchy_config: store_config.hierarchy_config.clone(),
         };
         let split = Split::default();
@@ -244,30 +236,13 @@ mod test {
             .is_ok());
     }
 
-    #[test]
-    fn check_compatibility_linear_blocks_mismatch() {
-        let store_config = StoreConfig {
-            linear_blocks: true,
-            ..Default::default()
-        };
-        let on_disk_config = OnDiskStoreConfig {
-            linear_blocks: false,
-            hierarchy_config: store_config.hierarchy_config.clone(),
-        };
-        let split = Split::default();
-        assert!(store_config
-            .check_compatibility(&on_disk_config, &split, None)
-            .is_err());
-    }
 
     #[test]
     fn check_compatibility_hierarchy_config_incompatible() {
         let store_config = StoreConfig {
-            linear_blocks: true,
             ..Default::default()
         };
         let on_disk_config = OnDiskStoreConfig {
-            linear_blocks: true,
             hierarchy_config: HierarchyConfig {
                 exponents: vec![5, 8, 11, 13, 16, 18, 21],
             },
@@ -281,11 +256,9 @@ mod test {
     #[test]
     fn check_compatibility_hierarchy_config_update() {
         let store_config = StoreConfig {
-            linear_blocks: true,
             ..Default::default()
         };
         let on_disk_config = OnDiskStoreConfig {
-            linear_blocks: true,
             hierarchy_config: HierarchyConfig {
                 exponents: vec![5, 8, 11, 13, 16, 18, 21],
             },

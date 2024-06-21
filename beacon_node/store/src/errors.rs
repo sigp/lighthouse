@@ -62,7 +62,6 @@ pub enum Error {
     },
     AddPayloadLogicError,
     SlotClockUnavailableForMigration,
-    MissingImmutableValidator(usize),
     MissingValidator(usize),
     V9MigrationFailure(Hash256),
     ValidatorPubkeyCacheError(String),
