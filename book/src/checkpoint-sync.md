@@ -146,8 +146,8 @@ For more information on historic state storage see the
 
 To manually specify a checkpoint use the following two flags:
 
-* `--checkpoint-state`: accepts an SSZ-encoded `BeaconState` blob
-* `--checkpoint-block`: accepts an SSZ-encoded `SignedBeaconBlock` blob
+* `--checkpoint-state`: accepts an SSZ-encoded `BeaconState` file
+* `--checkpoint-block`: accepts an SSZ-encoded `SignedBeaconBlock` file
 
 _Both_ the state and block must be provided and the state **must** match the block. The
 state may be from the same slot as the block (unadvanced), or advanced to an epoch boundary,
