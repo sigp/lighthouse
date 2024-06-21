@@ -1392,7 +1392,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
 /// Runs the `map_fn` with the committee and committee count per slot for the given `attestation`.
 ///
 /// This function exists in this odd "map" pattern because efficiently obtaining the committees for
-/// an attestations slot can be complex. It might involve reading straight from the
+/// an attestation's slot can be complex. It might involve reading straight from the
 /// `beacon_chain.shuffling_cache` or it might involve reading it from a state from the DB. Due to
 /// the complexities of `RwLock`s on the shuffling cache, a simple `Cow` isn't suitable here.
 ///
