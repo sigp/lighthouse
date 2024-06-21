@@ -654,5 +654,90 @@ pub fn process_consolidation_requests<E: EthSpec>(
     consolidation_requests: &[ConsolidationRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    todo!("implement process_consolidation_requests");
+    if consolidation_requests.is_empty() {
+        return Ok(());
+    }
+
+    state.update_pubkey_cache()?;
+    for request in consolidation_requests {
+        process_consolidation_request(state, request, spec)?;
+    }
+
+    Ok(())
+}
+
+pub fn process_consolidation_request<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    consolidation_request: &ConsolidationRequest,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    // If the pending consolidations queue is full, consolidation requests are ignored
+    if state.pending_consolidations()?.len() == E::PendingConsolidationsLimit::to_usize() {
+        return Ok(());
+    }
+    // If there is too little available consolidation churn limit, consolidation requests are ignored
+    if state.get_consolidation_churn_limit(spec)? <= spec.min_activation_balance {
+        return Ok(());
+    }
+
+    let Some(source_index) = state
+        .pubkey_cache()
+        .get(&consolidation_request.source_pubkey)
+    else {
+        // source validator doesn't exist
+        return Ok(());
+    };
+    let Some(target_index) = state
+        .pubkey_cache()
+        .get(&consolidation_request.target_pubkey)
+    else {
+        // target validator doesn't exist
+        return Ok(());
+    };
+    // Verify that source != target, so a consolidation cannot be used as an exit.
+    if source_index == target_index {
+        return Ok(());
+    }
+
+    let source_validator = state.get_validator(source_index)?;
+    // Verify the source withdrawal credentials
+    if let Some(withdrawal_address) = source_validator.get_execution_withdrawal_address(spec) {
+        if withdrawal_address != consolidation_request.source_address {
+            return Ok(());
+        }
+    } else {
+        // Source doen't have execution withdrawal credentials
+        return Ok(());
+    }
+
+    let target_validator = state.get_validator(target_index)?;
+    // Verify the target has execution withdrawal credentials
+    if !target_validator.has_execution_withdrawal_credential(spec) {
+        return Ok(());
+    }
+
+    // Verify the source and target are active
+    let current_epoch = state.current_epoch();
+    if !source_validator.is_active_at(current_epoch)
+        || !target_validator.is_active_at(current_epoch)
+    {
+        return Ok(());
+    }
+    // Verify exits for source and target have not been initiated
+    if source_validator.exit_epoch != spec.far_future_epoch
+        || target_validator.exit_epoch != spec.far_future_epoch
+    {
+        return Ok(());
+    }
+
+    // Initiate source validator exit and append pending consolidation
+    initiate_validator_exit(state, source_index, spec)?;
+    state
+        .pending_consolidations_mut()?
+        .push(PendingConsolidation {
+            source_index: source_index as u64,
+            target_index: target_index as u64,
+        })?;
+
+    Ok(())
 }
