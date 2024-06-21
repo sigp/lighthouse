@@ -560,6 +560,8 @@ impl TestRig {
                 error: RPCError::Disconnected,
             });
         }
+    }
+
     fn peer_disconnected(&mut self, peer_id: PeerId) {
         self.send_sync_message(SyncMessage::Disconnect(peer_id));
     }
