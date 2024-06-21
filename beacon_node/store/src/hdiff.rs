@@ -16,10 +16,28 @@ pub enum Error {
     UnableToComputeDiff,
     UnableToApplyDiff,
     Compression(std::io::Error),
+    InvalidSSZState(ssz::DecodeError),
+    InvalidBalancesLength,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct HierarchyConfig {
+    /// A sequence of powers of two to define how frequently to store each layer of state diffs.
+    /// The last value always represents the frequency of full state snapshots. Adding more
+    /// exponents increases the number of diff layers. This value allows to customize the trade-off
+    /// between reconstruction speed and disk space.
+    ///
+    /// Consider an example `exponents value of `[5,13,21]`. This means we have 3 layers:
+    /// - Full state stored every 2^21 slots (2097152 slots or 291 days)
+    /// - First diff layer stored every 2^13 slots (8192 slots or 2.3 hours)
+    /// - Second diff layer stored every 2^5 slots (32 slots or 1 epoch)
+    ///
+    /// To reconstruct a state at slot 3,000,003 we load each closest layer
+    /// - Layer 0: 3000003 - (3000003 mod 2^21) = 2097152
+    /// - Layer 1: 3000003 - (3000003 mod 2^13) = 2998272
+    /// - Layer 2: 3000003 - (3000003 mod 2^5)  = 3000000
+    /// Layer 0 is full state snaphost, apply layer 1 diff, then apply layer 2 diff and then replay
+    /// blocks 3,000,001 to 3,000,003.
     pub exponents: Vec<u8>,
 }
 
@@ -63,6 +81,19 @@ pub struct HDiffBuffer {
 }
 
 /// Hierarchical state diff.
+///
+/// Splits the diff into two data sections:
+///
+/// - **balances**: The balance of each active validator is almost certain to change every epoch.
+///   So this is the field in the state with most entropy. However the balance changes are small.
+///   We can optimize the diff significantly by computing the balance difference first and then
+///   compressing the result to squash those leading zero bytes.
+///
+/// - **everything else**: Instead of trying to apply heuristics and be clever on each field,
+///   running a generic binary diff algorithm on the rest of fields yields very good results. With
+///   this strategy the HDiff code is easily mantainable across forks, as new fields are covered
+///   automatically. xdelta3 algorithm showed diff compute and apply times of ~200 ms on a mainnet
+///   state from Apr 2023 (570k indexes), and a 92kB diff size.
 #[derive(Debug, Encode, Decode)]
 pub struct HDiff {
     state_diff: BytesDiff,
