@@ -1,10 +1,7 @@
 # Configuration
 
 Siren requires a connection to both a Lighthouse Validator Client
-and a Lighthouse Beacon Node. Upon running you will first be greeted by the
-following configuration screen.
-
-![ui-configuration](./imgs/ui-configuration.png)
+and a Lighthouse Beacon Node. To enable connection, you must generate .env file based on the provided .env.example
 
 ## Connecting to the Clients
 
@@ -41,13 +38,3 @@ client. The default path is
 
 The contents of this file for the desired validator client needs to be
 entered.
-
-## Name
-
-This is your name, it can be modified and is solely used for aesthetics.
-
-## Device
-
-This is a name that can be associated with the validator client/beacon
-node pair. Multiple such pairs can be remembered for quick swapping between
-them.
