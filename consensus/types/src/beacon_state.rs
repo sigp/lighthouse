@@ -892,6 +892,12 @@ impl<E: EthSpec> BeaconState<E> {
             return Err(Error::InsufficientValidators);
         }
 
+        let max_effective_balance = if self.fork_name_unchecked() >= ForkName::Electra {
+            spec.max_effective_balance_electra
+        } else {
+            spec.max_effective_balance
+        };
+
         let mut i = 0;
         loop {
             let shuffled_index = compute_shuffled_index(
@@ -907,9 +913,7 @@ impl<E: EthSpec> BeaconState<E> {
             let random_byte = Self::shuffling_random_byte(i, seed)?;
             let effective_balance = self.get_effective_balance(candidate_index)?;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= spec
-                    .max_effective_balance
-                    .safe_mul(u64::from(random_byte))?
+                >= max_effective_balance.safe_mul(u64::from(random_byte))?
             {
                 return Ok(candidate_index);
             }
@@ -1091,6 +1095,12 @@ impl<E: EthSpec> BeaconState<E> {
 
         let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
 
+        let max_effective_balance = if self.fork_name_unchecked() >= ForkName::Electra {
+            spec.max_effective_balance_electra
+        } else {
+            spec.max_effective_balance
+        };
+
         let mut i = 0;
         let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
         while sync_committee_indices.len() < E::SyncCommitteeSize::to_usize() {
@@ -1107,9 +1117,7 @@ impl<E: EthSpec> BeaconState<E> {
             let random_byte = Self::shuffling_random_byte(i, seed.as_bytes())?;
             let effective_balance = self.get_validator(candidate_index)?.effective_balance;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= spec
-                    .max_effective_balance
-                    .safe_mul(u64::from(random_byte))?
+                >= max_effective_balance.safe_mul(u64::from(random_byte))?
             {
                 sync_committee_indices.push(candidate_index);
             }
