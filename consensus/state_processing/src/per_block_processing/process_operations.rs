@@ -39,16 +39,14 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     }
 
     if state.fork_name_unchecked() >= ForkName::Electra {
-        let requests = block_body.execution_payload()?.withdrawal_requests()?;
-        if let Some(requests) = requests {
-            process_execution_layer_withdrawal_requests(state, &requests, spec)?;
+        state.update_pubkey_cache()?;
+        if let Some(deposit_requests) = block_body.execution_payload()?.deposit_requests()? {
+            process_deposit_requests(state, &deposit_requests, spec)?;
         }
-        let receipts = block_body.execution_payload()?.deposit_requests()?;
-        if let Some(receipts) = receipts {
-            process_deposit_receipts(state, &receipts, spec)?;
+        if let Some(withdrawal_requests) = block_body.execution_payload()?.withdrawal_requests()? {
+            process_withdrawal_requests(state, &withdrawal_requests, spec)?;
         }
-        let consolidations = block_body.execution_payload()?.consolidation_requests()?;
-        if let Some(consolidations) = consolidations {
+        if let Some(consolidations) = block_body.execution_payload()?.consolidation_requests()? {
             process_consolidation_requests(state, &consolidations, spec)?;
         }
     }
@@ -373,10 +371,11 @@ pub fn process_deposits<E: EthSpec>(
 ) -> Result<(), BlockProcessingError> {
     // [Modified in Electra:EIP6110]
     // Disable former deposit mechanism once all prior deposits are processed
-    //
-    // If `deposit_requests_start_index` does not exist as a field on `state`, electra is disabled
-    // which means we always want to use the old check, so this field defaults to `u64::MAX`.
-    let eth1_deposit_index_limit = state.deposit_requests_start_index().unwrap_or(u64::MAX);
+    let deposit_requests_start_index = state.deposit_requests_start_index().unwrap_or(u64::MAX);
+    let eth1_deposit_index_limit = std::cmp::min(
+        deposit_requests_start_index,
+        state.eth1_data().deposit_count,
+    );
 
     if state.eth1_deposit_index() < eth1_deposit_index_limit {
         let expected_deposit_len = std::cmp::min(
@@ -530,7 +529,8 @@ pub fn apply_deposit<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
+// Make sure to build the pubkey cache before calling this function
+pub fn process_withdrawal_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
     requests: &[WithdrawalRequest],
     spec: &ChainSpec,
@@ -547,13 +547,11 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
         }
 
         // Verify pubkey exists
-        let index_opt = state.get_validator_index(&request.validator_pubkey)?;
-        let Some(index) = index_opt else {
+        let Some(index) = state.pubkey_cache().get(&request.validator_pubkey) else {
             continue;
         };
 
         let validator = state.get_validator(index)?;
-
         // Verify withdrawal credentials
         let has_correct_credential = validator.has_execution_withdrawal_credential(spec);
         let is_correct_source_address = validator
@@ -627,21 +625,21 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_receipts<E: EthSpec>(
+pub fn process_deposit_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
-    receipts: &[DepositRequest],
+    deposit_requests: &[DepositRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    for receipt in receipts {
+    for request in deposit_requests {
         // Set deposit receipt start index
         if state.deposit_requests_start_index()? == spec.unset_deposit_requests_start_index {
-            *state.deposit_requests_start_index_mut()? = receipt.index
+            *state.deposit_requests_start_index_mut()? = request.index
         }
         let deposit_data = DepositData {
-            pubkey: receipt.pubkey,
-            withdrawal_credentials: receipt.withdrawal_credentials,
-            amount: receipt.amount,
-            signature: receipt.signature.clone().into(),
+            pubkey: request.pubkey,
+            withdrawal_credentials: request.withdrawal_credentials,
+            amount: request.amount,
+            signature: request.signature.clone().into(),
         };
         apply_deposit(state, deposit_data, None, false, spec)?
     }
@@ -649,16 +647,12 @@ pub fn process_deposit_receipts<E: EthSpec>(
     Ok(())
 }
 
+// Make sure to build the pubkey cache before calling this function
 pub fn process_consolidation_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
     consolidation_requests: &[ConsolidationRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    if consolidation_requests.is_empty() {
-        return Ok(());
-    }
-
-    state.update_pubkey_cache()?;
     for request in consolidation_requests {
         process_consolidation_request(state, request, spec)?;
     }

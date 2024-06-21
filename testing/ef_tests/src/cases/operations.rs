@@ -7,8 +7,7 @@ use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::process_operations::{
-    process_consolidation_requests, process_deposit_receipts,
-    process_execution_layer_withdrawal_requests,
+    process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
 };
 use state_processing::{
     per_block_processing::{
@@ -464,7 +463,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalRequest {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_execution_layer_withdrawal_requests(state, &[self.clone()], spec)
+        process_withdrawal_requests(state, &[self.clone()], spec)
     }
 }
 
@@ -487,7 +486,7 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposit_receipts(state, &[self.clone()], spec)
+        process_deposit_requests(state, &[self.clone()], spec)
     }
 }
 
