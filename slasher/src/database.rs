@@ -19,9 +19,9 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, AttestationData, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
-    IndexedAttestation, IndexedAttestationBase, IndexedAttestationElectra, ProposerSlashing,
-    SignedBeaconBlockHeader, Slot, VariableList,
+    AggregateSignature, AttestationData, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
+    IndexedAttestationBase, IndexedAttestationElectra, ProposerSlashing, SignedBeaconBlockHeader,
+    Slot, VariableList,
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
@@ -819,7 +819,7 @@ impl<E: EthSpec> SlasherDB<E> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::{Checkpoint, MainnetEthSpec, Unsigned};
+    use types::{Checkpoint, ForkName, MainnetEthSpec, Unsigned};
 
     type E = MainnetEthSpec;
 
