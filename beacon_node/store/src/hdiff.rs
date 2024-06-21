@@ -282,34 +282,35 @@ impl HierarchyConfig {
 
 impl HierarchyModuli {
     pub fn storage_strategy(&self, slot: Slot) -> Result<StorageStrategy, Error> {
+        // last = full snapshot interval
         let last = self.moduli.last().copied().ok_or(Error::InvalidHierarchy)?;
+        // first = most frequent diff layer, need to replay blocks from this layer
         let first = self
             .moduli
             .first()
             .copied()
             .ok_or(Error::InvalidHierarchy)?;
-        let replay_from = slot / first * first;
 
         if slot % last == 0 {
             return Ok(StorageStrategy::Snapshot);
         }
 
-        let diff_from = self
+        Ok(self
             .moduli
             .iter()
             .rev()
             .tuple_windows()
             .find_map(|(&n_big, &n_small)| {
-                (slot % n_small == 0).then(|| {
+                if slot % n_small == 0 {
                     // Diff from the previous layer.
-                    slot / n_big * n_big
-                })
-            });
-
-        Ok(diff_from.map_or(
-            StorageStrategy::ReplayFrom(replay_from),
-            StorageStrategy::DiffFrom,
-        ))
+                    StorageStrategy::DiffFrom(slot / n_big * n_big)
+                } else {
+                    // Keep trying with next layer
+                    None
+                }
+            })
+            // Exhausted layers, need to replay from most frequent layer
+            .unwrap_or(StorageStrategy::ReplayFrom(slot / first * first)))
     }
 
     /// Return the smallest slot greater than or equal to `slot` at which a full snapshot should
