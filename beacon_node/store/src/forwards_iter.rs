@@ -78,10 +78,24 @@ impl<E: EthSpec> Root<E> for StateRoots {
     fn freezer_upper_limit<Hot: ItemStore<E>, Cold: ItemStore<E>>(
         store: &HotColdDB<E, Hot, Cold>,
     ) -> Option<Slot> {
-        // State roots are stored for all slots up to the latest restore point (exclusive).
-        // There may not be a latest restore point if state pruning is enabled, in which
-        // case this function will return `None`.
-        store.get_latest_restore_point_slot()
+        let split_slot = store.get_split_slot();
+        let anchor_info = store.get_anchor_info();
+        // There are no historic states stored if the state upper limit lies in the hot
+        // database. It hasn't been reached yet, and may never be.
+        if anchor_info.as_ref().map_or(false, |a| {
+            a.state_upper_limit >= split_slot && a.state_lower_limit == 0
+        }) {
+            None
+        } else if let Some(lower_limit) = anchor_info
+            .map(|a| a.state_lower_limit)
+            .filter(|limit| *limit > 0)
+        {
+            Some(lower_limit)
+        } else {
+            // Otherwise if the state upper limit lies in the freezer or all states are
+            // reconstructed then state roots are available up to the split slot.
+            Some(split_slot)
+        }
     }
 }
 

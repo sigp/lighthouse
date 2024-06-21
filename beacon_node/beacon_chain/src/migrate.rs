@@ -24,6 +24,10 @@ const MAX_COMPACTION_PERIOD_SECONDS: u64 = 604800;
 const MIN_COMPACTION_PERIOD_SECONDS: u64 = 7200;
 /// Compact after a large finality gap, if we respect `MIN_COMPACTION_PERIOD_SECONDS`.
 const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
+/// Maximum number of blocks applied in each reconstruction burst.
+///
+/// This limits the amount of time that the finalization migration is paused for.
+const BLOCKS_PER_RECONSTRUCTION: usize = 8192 * 4;
 
 /// Default number of epochs to wait between finalization migrations.
 pub const DEFAULT_EPOCHS_PER_MIGRATION: u64 = 1;
@@ -201,7 +205,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     }
 
     pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
-        if let Err(e) = db.reconstruct_historic_states() {
+        // FIXME(sproul): still need to port more changes here
+        if let Err(e) = db.reconstruct_historic_states(Some(BLOCKS_PER_RECONSTRUCTION)) {
             error!(
                 log,
                 "State reconstruction failed";

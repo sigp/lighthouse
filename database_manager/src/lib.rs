@@ -2,7 +2,7 @@ use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, schema_change::migrate_schema,
     slot_clock::SystemTimeSlotClock,
 };
-use beacon_node::{get_data_dir, get_slots_per_restore_point, ClientConfig};
+use beacon_node::{get_data_dir, ClientConfig};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::{get_color_style, FLAG_HEADER};
 use environment::{Environment, RuntimeContext};
@@ -250,10 +250,6 @@ fn parse_client_config<E: EthSpec>(
     if let Some(blobs_db_dir) = clap_utils::parse_optional(cli_args, "blobs-dir")? {
         client_config.blobs_db_path = Some(blobs_db_dir);
     }
-
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
-    client_config.store.slots_per_restore_point = sprp;
-    client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
 
     if let Some(blob_prune_margin_epochs) =
         clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?

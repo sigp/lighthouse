@@ -18,13 +18,13 @@ pub mod consensus_context;
 pub mod errors;
 mod forwards_iter;
 mod garbage_collection;
+pub mod hdiff;
 pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
-mod partial_beacon_state;
 pub mod reconstruct;
 pub mod state_cache;
 
@@ -36,7 +36,6 @@ pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
-pub use self::partial_beacon_state::PartialBeaconState;
 pub use crate::metadata::BlobInfo;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
@@ -222,13 +221,24 @@ pub enum DBColumn {
     /// For data related to the database itself.
     #[strum(serialize = "bma")]
     BeaconMeta,
+    /// Data related to blocks.
+    ///
+    /// - Key: `Hash256` block root.
+    /// - Value in hot DB: SSZ-encoded blinded block.
+    /// - Value in cold DB: 8-byte slot of block.
     #[strum(serialize = "blk")]
     BeaconBlock,
     #[strum(serialize = "blb")]
     BeaconBlob,
-    /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
+    /// For full `BeaconState`s in the hot database (epoch boundary states).
     #[strum(serialize = "ste")]
     BeaconState,
+    /// For beacon state snapshots in the freezer DB.
+    #[strum(serialize = "bsn")]
+    BeaconStateSnapshot,
+    /// For compact `BeaconStateDiff`s in the freezer DB.
+    #[strum(serialize = "bsd")]
+    BeaconStateDiff,
     /// For the mapping from state roots to their slots or summaries.
     #[strum(serialize = "bss")]
     BeaconStateSummary,
@@ -250,7 +260,7 @@ pub enum DBColumn {
     ForkChoice,
     #[strum(serialize = "pkc")]
     PubkeyCache,
-    /// For the table mapping restore point numbers to state roots.
+    /// For the legacy table mapping restore point numbers to state roots.
     #[strum(serialize = "brp")]
     BeaconRestorePoint,
     #[strum(serialize = "bbr")]
@@ -312,7 +322,9 @@ impl DBColumn {
             | Self::BeaconStateRoots
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
-            | Self::BeaconRandaoMixes => 8,
+            | Self::BeaconRandaoMixes
+            | Self::BeaconStateSnapshot
+            | Self::BeaconStateDiff => 8,
         }
     }
 }

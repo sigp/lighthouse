@@ -1,9 +1,10 @@
 use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
+use crate::hdiff;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
+use types::{milhouse, BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -42,21 +43,40 @@ pub enum Error {
         expected: Hash256,
         computed: Hash256,
     },
+    MissingStateRoot(Slot),
+    MissingState(Hash256),
+    MissingSnapshot(Slot),
+    NoBaseStateFound(Hash256),
     BlockReplayError(BlockReplayError),
-    AddPayloadLogicError,
-    SlotClockUnavailableForMigration,
-    InvalidKey,
-    InvalidBytes,
-    UnableToDowngrade,
-    InconsistentFork(InconsistentFork),
-    CacheBuildError(EpochCacheError),
-    RandaoMixOutOfBounds,
+    MilhouseError(milhouse::Error),
+    Compression(std::io::Error),
+    MissingPersistedBeaconChain,
+    SlotIsBeforeSplit {
+        slot: Slot,
+    },
     FinalizedStateDecreasingSlot,
     FinalizedStateUnaligned,
     StateForCacheHasPendingUpdates {
         state_root: Hash256,
         slot: Slot,
     },
+    AddPayloadLogicError,
+    SlotClockUnavailableForMigration,
+    MissingImmutableValidator(usize),
+    MissingValidator(usize),
+    V9MigrationFailure(Hash256),
+    ValidatorPubkeyCacheError(String),
+    DuplicateValidatorPublicKey,
+    InvalidValidatorPubkeyBytes(bls::Error),
+    ValidatorPubkeyCacheUninitialized,
+    InvalidKey,
+    InvalidBytes,
+    UnableToDowngrade,
+    Hdiff(hdiff::Error),
+    InconsistentFork(InconsistentFork),
+    ZeroCacheSize,
+    CacheBuildError(EpochCacheError),
+    MissingBlock(Hash256),
 }
 
 pub trait HandleUnavailable<T> {
@@ -106,6 +126,18 @@ impl From<DBError> for Error {
 impl From<StoreConfigError> for Error {
     fn from(e: StoreConfigError) -> Error {
         Error::ConfigError(e)
+    }
+}
+
+impl From<milhouse::Error> for Error {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
+    }
+}
+
+impl From<hdiff::Error> for Error {
+    fn from(e: hdiff::Error) -> Self {
+        Self::Hdiff(e)
     }
 }
 

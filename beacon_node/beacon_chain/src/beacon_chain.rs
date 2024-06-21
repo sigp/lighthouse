@@ -779,7 +779,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             start_slot,
             local_head.beacon_state.clone(),
             local_head.beacon_block_root,
-            &self.spec,
         )?;
 
         Ok(iter.map(|result| result.map_err(Into::into)))
@@ -804,12 +803,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         self.with_head(move |head| {
-            let iter = self.store.forwards_block_roots_iterator_until(
-                start_slot,
-                end_slot,
-                || Ok((head.beacon_state.clone(), head.beacon_block_root)),
-                &self.spec,
-            )?;
+            let iter =
+                self.store
+                    .forwards_block_roots_iterator_until(start_slot, end_slot, || {
+                        Ok((head.beacon_state.clone(), head.beacon_block_root))
+                    })?;
             Ok(iter
                 .map(|result| result.map_err(Into::into))
                 .take_while(move |result| {
@@ -879,7 +877,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             start_slot,
             local_head.beacon_state_root(),
             local_head.beacon_state.clone(),
-            &self.spec,
         )?;
 
         Ok(iter.map(|result| result.map_err(Into::into)))
@@ -896,12 +893,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         end_slot: Slot,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
         self.with_head(move |head| {
-            let iter = self.store.forwards_state_roots_iterator_until(
-                start_slot,
-                end_slot,
-                || Ok((head.beacon_state.clone(), head.beacon_state_root())),
-                &self.spec,
-            )?;
+            let iter =
+                self.store
+                    .forwards_state_roots_iterator_until(start_slot, end_slot, || {
+                        Ok((head.beacon_state.clone(), head.beacon_state_root()))
+                    })?;
             Ok(iter
                 .map(|result| result.map_err(Into::into))
                 .take_while(move |result| {

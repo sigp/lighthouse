@@ -108,6 +108,11 @@ impl AnchorInfo {
     pub fn block_backfill_complete(&self, target_slot: Slot) -> bool {
         self.oldest_block_slot <= target_slot
     }
+
+    /// Return true if no historic states other than genesis are stored in the database.
+    pub fn no_historic_states_stored(&self, split_slot: Slot) -> bool {
+        self.state_lower_limit == 0 && self.state_upper_limit >= split_slot
+    }
 }
 
 impl StoreItem for AnchorInfo {

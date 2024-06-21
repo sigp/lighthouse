@@ -402,9 +402,7 @@ pub fn get_config<E: EthSpec>(
         client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
     }
 
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
-    client_config.store.slots_per_restore_point = sprp;
-    client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
+    // FIXME(sproul): port hierarchy config
 
     if let Some(block_cache_size) = cli_args.get_one::<String>("block-cache-size") {
         client_config.store.block_cache_size = block_cache_size
@@ -1470,25 +1468,6 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// Get the `slots_per_restore_point` value to use for the database.
-///
-/// Return `(sprp, set_explicitly)` where `set_explicitly` is `true` if the user provided the value.
-pub fn get_slots_per_restore_point<E: EthSpec>(
-    cli_args: &ArgMatches,
-) -> Result<(u64, bool), String> {
-    if let Some(slots_per_restore_point) =
-        clap_utils::parse_optional(cli_args, "slots-per-restore-point")?
-    {
-        Ok((slots_per_restore_point, true))
-    } else {
-        let default = std::cmp::min(
-            E::slots_per_historical_root() as u64,
-            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
-        );
-        Ok((default, false))
-    }
 }
 
 /// Parses the `cli_value` as a comma-separated string of values to be parsed with `parser`.
