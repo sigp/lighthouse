@@ -258,7 +258,7 @@ impl IndexedAttestationOnDisk {
         spec: &ChainSpec,
     ) -> Result<IndexedAttestation<E>, Error> {
         let fork_at_target_epoch = spec.fork_name_at_epoch(self.data.target.epoch);
-        if fork_at_target_epoch >= ForkName::Electra {
+        if fork_at_target_epoch.electra_enabled() {
             let attesting_indices = VariableList::new(self.attesting_indices)?;
             Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
                 attesting_indices,
