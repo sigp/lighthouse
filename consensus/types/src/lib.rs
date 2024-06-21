@@ -181,22 +181,24 @@ pub use crate::indexed_attestation::{
 };
 pub use crate::light_client_bootstrap::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientBootstrapCapella,
-    LightClientBootstrapDeneb,
+    LightClientBootstrapDeneb, LightClientBootstrapElectra,
 };
 pub use crate::light_client_finality_update::{
     LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientFinalityUpdateCapella,
-    LightClientFinalityUpdateDeneb,
+    LightClientFinalityUpdateDeneb, LightClientFinalityUpdateElectra,
 };
 pub use crate::light_client_header::{
     LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+    LightClientHeaderElectra,
 };
 pub use crate::light_client_optimistic_update::{
     LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair,
     LightClientOptimisticUpdateCapella, LightClientOptimisticUpdateDeneb,
+    LightClientOptimisticUpdateElectra,
 };
 pub use crate::light_client_update::{
     Error as LightClientError, LightClientUpdate, LightClientUpdateAltair,
-    LightClientUpdateCapella, LightClientUpdateDeneb,
+    LightClientUpdateCapella, LightClientUpdateDeneb, LightClientUpdateElectra,
 };
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
