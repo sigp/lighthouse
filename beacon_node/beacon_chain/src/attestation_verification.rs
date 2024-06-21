@@ -1396,7 +1396,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
 /// `beacon_chain.shuffling_cache` or it might involve reading it from a state from the DB. Due to
 /// the complexities of `RwLock`s on the shuffling cache, a simple `Cow` isn't suitable here.
 ///
-/// If the committees for an `attestation`'s slot isn't found in the `shuffling_cache`, we will read a state
+/// If the committees for an `attestation`'s slot aren't found in the `shuffling_cache`, we will read a state
 /// from disk and then update the `shuffling_cache`.
 ///
 /// Committees are sorted by ascending index order 0..committees_per_slot
