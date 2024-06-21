@@ -372,11 +372,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             Err(_) => self.update_sync_state(),
                         },
                     }
+                } else {
+                    debug!(
+                        self.log,
+                        "RPC error for range request has no associated entry in network context, ungraceful disconnect";
+                        "peer_id" => %peer_id,
+                        "request_id" => %id,
+                        "error" => ?error,
+                    );
                 }
             }
         }
     }
 
+    /// Handles a peer disconnect.
+    ///
+    /// It is important that a peer disconnect retries all the batches/lookups as
+    /// there is no way to guarantee that libp2p always emits a error along with
+    /// the disconnect.
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
         self.block_lookups.peer_disconnected(peer_id);
@@ -384,6 +397,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let _ = self
             .backfill_sync
             .peer_disconnected(peer_id, &mut self.network);
+        // Note: the order is important here, we should only remove the requests
+        // from network context's maps after we have initiated the retries for
+        // the associated batches/lookups
+        self.network.peer_disconnected(peer_id.clone());
         self.update_sync_state();
     }
 
@@ -851,6 +868,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     resp,
                     &mut self.network,
                 )
+        } else {
+            debug!(
+                self.log,
+                "RPC error for block lookup has no associated entry in network context, ungraceful disconnect";
+                "peer_id" => %peer_id,
+                "request_id" => ?id,
+            );
         }
     }
 
@@ -893,6 +917,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     resp,
                     &mut self.network,
                 )
+        } else {
+            debug!(
+                self.log,
+                "RPC error for blob lookup has no associated entry in network context, ungraceful disconnect";
+                "peer_id" => %peer_id,
+                "request_id" => ?id,
+            );
         }
     }
 
@@ -953,7 +984,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.network.insert_range_blocks_and_blobs_request(
                         id,
                         resp.sender_id,
-                        BlocksAndBlobsRequestInfo::new(resp.request_type),
+                        BlocksAndBlobsRequestInfo::new(resp.request_type, peer_id),
                     );
                     // inform range that the request needs to be treated as failed
                     // With time we will want to downgrade this log

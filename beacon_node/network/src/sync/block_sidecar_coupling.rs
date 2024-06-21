@@ -1,4 +1,5 @@
 use beacon_chain::block_verification_types::RpcBlock;
+use lighthouse_network::PeerId;
 use ssz_types::VariableList;
 use std::{collections::VecDeque, sync::Arc};
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
@@ -17,16 +18,19 @@ pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
     is_sidecars_stream_terminated: bool,
     /// Used to determine if this accumulator should wait for a sidecars stream termination
     request_type: ByRangeRequestType,
+    /// TODO(pawan): would this be multiple peer ids?
+    pub(crate) peer_id: PeerId,
 }
 
 impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
-    pub fn new(request_type: ByRangeRequestType) -> Self {
+    pub fn new(request_type: ByRangeRequestType, peer_id: PeerId) -> Self {
         Self {
             accumulated_blocks: <_>::default(),
             accumulated_sidecars: <_>::default(),
             is_blocks_stream_terminated: <_>::default(),
             is_sidecars_stream_terminated: <_>::default(),
             request_type,
+            peer_id,
         }
     }
 
