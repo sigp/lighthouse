@@ -865,7 +865,7 @@ mod test {
         let decoded_on_disk = IndexedAttestationOnDisk::from_ssz_bytes(&encoded).unwrap();
         assert_eq!(decoded_on_disk, on_disk);
 
-        let decoded = on_disk.into_indexed_attestation(&spec).unwrap();
+        let decoded = on_disk.into_indexed_attestation(spec).unwrap();
         assert_eq!(decoded, fork_attestation);
     }
 
