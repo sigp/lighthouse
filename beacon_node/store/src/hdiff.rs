@@ -112,6 +112,7 @@ pub struct CompressedU64Diff {
 
 impl HDiffBuffer {
     pub fn from_state<E: EthSpec>(mut beacon_state: BeaconState<E>) -> Self {
+        // Set state.balances to empty list, and then serialize state as ssz
         let balances_list = std::mem::take(beacon_state.balances_mut());
 
         let state = beacon_state.as_ssz_bytes();
@@ -121,8 +122,10 @@ impl HDiffBuffer {
     }
 
     pub fn into_state<E: EthSpec>(self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
-        let mut state = BeaconState::from_ssz_bytes(&self.state, spec).unwrap();
-        *state.balances_mut() = List::new(self.balances).unwrap();
+        let mut state =
+            BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSSZState)?;
+        *state.balances_mut() =
+            List::new(self.balances).map_err(|_| Error::InvalidBalancesLength)?;
         Ok(state)
     }
 }
