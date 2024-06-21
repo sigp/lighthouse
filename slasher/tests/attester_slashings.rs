@@ -6,7 +6,8 @@ use rayon::prelude::*;
 use slasher::{
     config::DEFAULT_CHUNK_SIZE,
     test_utils::{
-        att_slashing, indexed_att, indexed_att_electra, slashed_validators_from_slashings, E,
+        att_slashing, chain_spec, indexed_att, indexed_att_electra,
+        slashed_validators_from_slashings, E,
     },
     Config, Slasher,
 };
@@ -270,7 +271,8 @@ fn slasher_test(
 ) {
     let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
-    let slasher = Slasher::open(config, test_logger()).unwrap();
+    let spec = chain_spec();
+    let slasher = Slasher::open(config, spec, test_logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);
 
     for (i, attestation) in attestations.iter().enumerate() {
@@ -299,7 +301,8 @@ fn parallel_slasher_test(
 ) {
     let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
-    let slasher = Slasher::open(config, test_logger()).unwrap();
+    let spec = chain_spec();
+    let slasher = Slasher::open(config, spec, test_logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);
 
     attestations

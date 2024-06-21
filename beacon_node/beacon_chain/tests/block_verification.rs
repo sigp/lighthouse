@@ -2,7 +2,9 @@
 
 use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    test_utils::{
+        test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    },
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutionPendingBlock,
 };
 use beacon_chain::{
@@ -1210,8 +1212,14 @@ async fn block_gossip_verification() {
 #[tokio::test]
 async fn verify_block_for_gossip_slashing_detection() {
     let slasher_dir = tempdir().unwrap();
+    let spec = Arc::new(test_spec::<E>());
     let slasher = Arc::new(
-        Slasher::open(SlasherConfig::new(slasher_dir.path().into()), test_logger()).unwrap(),
+        Slasher::open(
+            SlasherConfig::new(slasher_dir.path().into()),
+            spec,
+            test_logger(),
+        )
+        .unwrap(),
     );
 
     let inner_slasher = slasher.clone();
