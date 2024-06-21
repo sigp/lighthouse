@@ -150,6 +150,16 @@ To manually specify a checkpoint use the following two flags:
 * `--checkpoint-block`: accepts an SSZ-encoded `SignedBeaconBlock` file
 * `--checkpoint-blobs`: accepts an SSZ-encoded `Blobs` file
 
+The command is as following:
+
+```bash
+curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v2/debug/beacon/states/$SLOT" > state.ssz
+curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v2/beacon/blocks/$SLOT" > block.ssz
+curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v1/beacon/blob_sidecars/$SLOT" > blobs.ssz
+```
+
+where `$SLOT` is the slot number. It can be specified as `head` or `finalized` as well.
+
 _Both_ the state and block must be provided and the state **must** match the block. The
 state may be from the same slot as the block (unadvanced), or advanced to an epoch boundary,
 in which case it will be assumed to be finalized at that epoch.
