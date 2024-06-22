@@ -1254,7 +1254,9 @@ fn test_delayed_rpc_response() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         debug!(log, "Sending RPC request"; "request_id" => request_id);
-                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, request_id, rpc_request.clone())
+                            .unwrap();
                         request_sent_at = Instant::now();
                     }
                     NetworkEvent::ResponseReceived {
@@ -1284,7 +1286,9 @@ fn test_delayed_rpc_response() {
 
                         request_id += 1;
                         debug!(log, "Sending RPC request"; "request_id" => request_id);
-                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, request_id, rpc_request.clone())
+                            .unwrap();
                         request_sent_at = Instant::now();
                     }
                     NetworkEvent::RPCFailed {
@@ -1391,7 +1395,7 @@ fn test_request_too_large() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         let request = rpc_requests.pop().unwrap();
                         debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
-                        sender.send_request(peer_id, request_id, request);
+                        sender.send_request(peer_id, request_id, request).unwrap();
                     }
                     NetworkEvent::ResponseReceived { id, response, .. } => {
                         debug!(log, "Received response"; "request_id" => id, "response" => ?response);
@@ -1410,7 +1414,7 @@ fn test_request_too_large() {
                         if let Some(request) = rpc_requests.pop() {
                             request_id += 1;
                             debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
-                            sender.send_request(peer_id, request_id, request);
+                            sender.send_request(peer_id, request_id, request).unwrap();
                         } else {
                             assert_eq!(failed_request_ids.len(), requests_to_be_failed);
                             return
