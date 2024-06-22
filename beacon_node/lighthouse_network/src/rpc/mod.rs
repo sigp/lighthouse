@@ -119,8 +119,6 @@ pub struct NetworkParams {
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<Id: ReqId, E: EthSpec> {
-    /// Rate limiter
-    limiter: Option<RateLimiter>,
     /// Rate limiter for our responses. This is shared with RPCHandlers.
     response_limiter: Option<Arc<Mutex<RateLimiter>>>,
     /// Rate limiter for our own requests.
@@ -148,13 +146,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
-        // let inbound_limiter = inbound_rate_limiter_config.map(|config| {
-        //     debug!(log, "Using inbound rate limiting params"; "config" => ?config);
-        //     RateLimiter::new_with_config(config.0)
-        //         .expect("Inbound limiter configuration parameters are valid")
-        // });
-        let inbound_limiter = None; // TODO
-
         let response_limiter = inbound_rate_limiter_config.clone().map(|config| {
             debug!(log, "Using response rate limiting params"; "config" => ?config);
             Arc::new(Mutex::new(
@@ -173,7 +164,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         });
 
         RPC {
-            limiter: inbound_limiter,
             response_limiter,
             self_limiter,
             inbound_request_size_limiter,
@@ -441,10 +431,6 @@ where
 
     fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         // let the rate limiter prune.
-        if let Some(limiter) = self.limiter.as_mut() {
-            let _ = limiter.poll_unpin(cx);
-        }
-
         if let Some(response_limiter) = self.response_limiter.as_ref() {
             let _ = response_limiter.lock().poll_unpin(cx);
         }
