@@ -7,7 +7,11 @@ use crate::{
     Error, Hash256, ZeroizeHash, INFINITY_SIGNATURE,
 };
 pub use blst::min_pk as blst_core;
-use blst::{blst_scalar, BLST_ERROR};
+use blst::{
+    blst_p1, blst_scalar,
+    min_pk::{AggregatePublicKey, PublicKey},
+    BLST_ERROR,
+};
 use rand::Rng;
 
 pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
@@ -95,10 +99,12 @@ pub fn verify_signature_sets<'a>(
             .iter()
             .map(|pk| pk.point())
             .collect::<Vec<_>>();
-
         // Aggregate all the public keys.
         // Public keys have already been checked for subgroup and infinity
-        let Ok(agg_pk) = blst_core::AggregatePublicKey::aggregate(&signing_keys, false) else {
+        let agg_scalars: Vec<_> = (0..signing_keys.len())
+            .map(|_| Scalar::from_u64(1))
+            .collect(); // TODO: can optimize this away since its always 1
+        let Ok(agg_pk) = public_key_aggregation(signing_keys, &agg_scalars) else {
             return false;
         };
         pks.push(agg_pk.to_public_key());
@@ -114,6 +120,91 @@ pub fn verify_signature_sets<'a>(
     );
 
     err == blst::BLST_ERROR::BLST_SUCCESS
+}
+
+struct Scalar(blst::blst_scalar);
+
+impl Scalar {
+    fn from_u64(val: u64) -> Scalar {
+        // The below is copied from verify_signature_set
+
+        let mut scalar = std::mem::MaybeUninit::<blst_scalar>::uninit();
+
+        let val_be_array = [val, 0, 0, 0];
+        unsafe {
+            blst::blst_scalar_from_uint64(scalar.as_mut_ptr(), val_be_array.as_ptr());
+            Scalar(scalar.assume_init())
+        }
+    }
+
+    fn to_bytes(&self) -> [u8; 32] {
+        self.0.b
+    }
+}
+
+// Safety:
+// This method assumes that none of the points are the point at infinity.
+// The blst `mult` method will unconditionally return the point at infinity
+// if any of the points are the point at infinity.
+// TODO: We could check points are not infinity before using the method, but
+// TODO: might not be worth it.
+fn public_key_aggregation(
+    pubkeys: Vec<&PublicKey>,
+    scalars: &[Scalar],
+) -> Result<AggregatePublicKey, BLST_ERROR> {
+    if pubkeys.len() != scalars.len() {
+        // TODO: Replace with an error
+        panic!("number of public keys should be equal to the number of scalars")
+    }
+
+    let blst_p1 = convert_pubkeys_to_raw_blst_types(pubkeys);
+    let sum = p1_linear_combination(&blst_p1, scalars);
+
+    // Serialize the result and then deserialize it with the public key struct
+    let mut sum_serialized = [0u8; 96];
+    unsafe {
+        blst::blst_p1_serialize(sum_serialized.as_mut_ptr(), &sum);
+    }
+
+    PublicKey::from_bytes(&sum_serialized)
+        .map(|pubkey| AggregatePublicKey::from_public_key(&pubkey))
+}
+
+fn p1_linear_combination(points: &[blst::blst_p1], scalars: &[Scalar]) -> blst::blst_p1 {
+    let p1_affines = blst::p1_affines::from(&points);
+
+    // Each scalar holds 64 bit values
+    const NUM_BITS_IN_SCALAR: usize = 64;
+
+    let scalars_flattened_bytes: Vec<_> = scalars
+        .iter()
+        .flat_map(|scalar| scalar.to_bytes())
+        .collect();
+
+    p1_affines.mult(scalars_flattened_bytes.as_slice(), NUM_BITS_IN_SCALAR)
+}
+
+fn convert_pubkeys_to_raw_blst_types(pubkeys: Vec<&PublicKey>) -> Vec<blst::blst_p1> {
+    let mut blst_p1s = Vec::with_capacity(pubkeys.len());
+
+    for pubkey in pubkeys {
+        let mut affine = blst::blst_p1_affine::default();
+        let success = unsafe {
+            blst::blst_p1_deserialize(&mut affine, pubkey.serialize().as_ptr())
+                == BLST_ERROR::BLST_SUCCESS
+        };
+
+        // It should be impossible for success to be false here since we ar just serializing and deserializing
+        assert!(success, "success should be true since we are just doing a serialization and deserialization roundtrip");
+
+        // Convert the affine representation to projective
+        let mut projective: blst_p1 = blst_p1::default();
+        unsafe { blst::blst_p1_from_affine(&mut projective, &affine) };
+
+        blst_p1s.push(projective);
+    }
+
+    blst_p1s
 }
 
 impl TPublicKey for blst_core::PublicKey {
