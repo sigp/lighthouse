@@ -8,10 +8,11 @@ use crate::{
 };
 pub use blst::min_pk as blst_core;
 use blst::{
-    blst_p1, blst_scalar,
+    blst_scalar,
     min_pk::{AggregatePublicKey, PublicKey},
-    BLST_ERROR,
+    MultiPoint, BLST_ERROR,
 };
+
 use rand::Rng;
 
 pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
@@ -101,13 +102,15 @@ pub fn verify_signature_sets<'a>(
             .collect::<Vec<_>>();
         // Aggregate all the public keys.
         // Public keys have already been checked for subgroup and infinity
-        let agg_scalars: Vec<_> = (0..signing_keys.len())
-            .map(|_| Scalar::from_u64(1))
-            .collect(); // TODO: can optimize this away since its always 1
+        let agg_scalars: Vec<_> = (0..signing_keys.len()).map(|_| Scalar::one()).collect(); // TODO: can optimize this away since its always 1
         let Ok(agg_pk) = public_key_aggregation(signing_keys, &agg_scalars) else {
             return false;
         };
-        pks.push(agg_pk.to_public_key());
+        pks.push(agg_pk);
+        // let Ok(agg_pk) = AggregatePublicKey::aggregate(&signing_keys, false) else {
+        //     return false;
+        // };
+        // pks.push(agg_pk.to_public_key());
     }
 
     let (sig_refs, pks_refs): (Vec<_>, Vec<_>) = sigs.iter().zip(pks.iter()).unzip();
@@ -137,8 +140,18 @@ impl Scalar {
         }
     }
 
-    fn to_bytes(&self) -> [u8; 32] {
-        self.0.b
+    fn one() -> Scalar {
+        let mut one = [0u8; 32];
+        one[0] = 1;
+        Scalar(blst_scalar { b: one })
+    }
+
+    fn to_bytes_le(&self) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+
+        unsafe { blst::blst_lendian_from_scalar(bytes.as_mut_ptr(), &self.0) }
+
+        bytes
     }
 }
 
@@ -151,10 +164,14 @@ impl Scalar {
 fn public_key_aggregation(
     pubkeys: Vec<&PublicKey>,
     scalars: &[Scalar],
-) -> Result<AggregatePublicKey, BLST_ERROR> {
+) -> Result<PublicKey, BLST_ERROR> {
     if pubkeys.len() != scalars.len() {
         // TODO: Replace with an error
         panic!("number of public keys should be equal to the number of scalars")
+    }
+
+    if pubkeys.len() == 0 {
+        return Err(BLST_ERROR::BLST_AGGR_TYPE_MISMATCH);
     }
 
     let blst_p1 = convert_pubkeys_to_raw_blst_types(pubkeys);
@@ -167,44 +184,37 @@ fn public_key_aggregation(
     }
 
     PublicKey::from_bytes(&sum_serialized)
-        .map(|pubkey| AggregatePublicKey::from_public_key(&pubkey))
 }
 
-fn p1_linear_combination(points: &[blst::blst_p1], scalars: &[Scalar]) -> blst::blst_p1 {
-    let p1_affines = blst::p1_affines::from(&points);
-
+fn p1_linear_combination(points: &[blst::blst_p1_affine], scalars: &[Scalar]) -> blst::blst_p1 {
     // Each scalar holds 64 bit values
     const NUM_BITS_IN_SCALAR: usize = 64;
 
-    let scalars_flattened_bytes: Vec<_> = scalars
-        .iter()
-        .flat_map(|scalar| scalar.to_bytes())
-        .collect();
+    let mut scalar_bytes = Vec::with_capacity(32 * scalars.len());
+    for scalar in scalars {
+        scalar_bytes.extend_from_slice(&scalar.to_bytes_le())
+    }
 
-    p1_affines.mult(scalars_flattened_bytes.as_slice(), NUM_BITS_IN_SCALAR)
+    points.mult(scalar_bytes.as_slice(), NUM_BITS_IN_SCALAR)
 }
 
-fn convert_pubkeys_to_raw_blst_types(pubkeys: Vec<&PublicKey>) -> Vec<blst::blst_p1> {
-    let mut blst_p1s = Vec::with_capacity(pubkeys.len());
+fn convert_pubkeys_to_raw_blst_types(pubkeys: Vec<&PublicKey>) -> Vec<blst::blst_p1_affine> {
+    let mut blst_p1_affines = Vec::with_capacity(pubkeys.len());
 
     for pubkey in pubkeys {
         let mut affine = blst::blst_p1_affine::default();
         let success = unsafe {
-            blst::blst_p1_deserialize(&mut affine, pubkey.serialize().as_ptr())
-                == BLST_ERROR::BLST_SUCCESS
+            let serialized = pubkey.serialize();
+            blst::blst_p1_deserialize(&mut affine, serialized.as_ptr()) == BLST_ERROR::BLST_SUCCESS
         };
 
         // It should be impossible for success to be false here since we ar just serializing and deserializing
         assert!(success, "success should be true since we are just doing a serialization and deserialization roundtrip");
 
-        // Convert the affine representation to projective
-        let mut projective: blst_p1 = blst_p1::default();
-        unsafe { blst::blst_p1_from_affine(&mut projective, &affine) };
-
-        blst_p1s.push(projective);
+        blst_p1_affines.push(affine);
     }
 
-    blst_p1s
+    blst_p1_affines
 }
 
 impl TPublicKey for blst_core::PublicKey {
