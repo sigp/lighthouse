@@ -1026,6 +1026,7 @@ version = "0.2.0"
 dependencies = [
  "arbitrary",
  "blst",
+ "criterion",
  "ethereum-types 0.14.1",
  "ethereum_hashing",
  "ethereum_serde_utils",

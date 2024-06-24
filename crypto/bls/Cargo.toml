@@ -24,3 +24,11 @@ fake_crypto = []
 supranational = ["blst"]
 supranational-portable = ["supranational", "blst/portable"]
 supranational-force-adx = ["supranational", "blst/force-adx"]
+
+[dev-dependencies]
+criterion = "0.5.1"
+rand = "0.8.4"
+
+[[bench]]
+name = "benchmark"
+harness = false
