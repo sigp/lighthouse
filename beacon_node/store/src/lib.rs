@@ -213,6 +213,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     DeleteBlobs(Hash256),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
 

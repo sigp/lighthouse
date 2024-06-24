@@ -363,7 +363,8 @@ async fn light_client_updates_test() {
         .unwrap();
 
     let lc_bootstrap = beacon_chain
-        .get_light_client_bootstrap(&block_root).unwrap();
+        .get_light_client_bootstrap(&block_root)
+        .unwrap();
 
     println!("{:?}", lc_bootstrap);
 

@@ -950,6 +950,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
                 }
 
+                StoreOp::DeleteSyncCommitteeBranch(block_root) => {
+                    let key = get_key_for_col(
+                        DBColumn::SyncCommitteeBranch.into(),
+                        block_root.as_bytes(),
+                    );
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
+                }
+
                 StoreOp::KeyValueOp(kv_op) => {
                     key_value_batch.push(kv_op);
                 }
@@ -1054,6 +1062,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::DeleteBlobs(_) => (),
 
                 StoreOp::DeleteExecutionPayload(_) => (),
+
+                StoreOp::DeleteSyncCommitteeBranch(_) => (),
 
                 StoreOp::KeyValueOp(_) => (),
             }
