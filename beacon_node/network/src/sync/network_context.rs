@@ -184,7 +184,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .iter()
                 .filter_map(|(id, request)| {
                     if request.1.peer_id == *peer_id {
-                        Some(SyncRequestId::RangeBlockAndBlobs { id: id.clone() })
+                        Some(SyncRequestId::RangeBlockAndBlobs { id: *id })
                     } else {
                         None
                     }
@@ -195,7 +195,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .iter()
             .filter_map(|(id, request)| {
                 if request.peer_id == *peer_id {
-                    Some(SyncRequestId::SingleBlock { id: id.clone() })
+                    Some(SyncRequestId::SingleBlock { id: *id })
                 } else {
                     None
                 }
@@ -205,7 +205,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .iter()
             .filter_map(|(id, request)| {
                 if request.peer_id == *peer_id {
-                    Some(SyncRequestId::SingleBlob { id: id.clone() })
+                    Some(SyncRequestId::SingleBlob { id: *id })
                 } else {
                     None
                 }
