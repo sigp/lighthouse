@@ -1039,8 +1039,11 @@ fn test_single_block_lookup_peer_disconnected_then_rpc_error() {
 
     // The peer disconnect event reaches sync before the rpc error
     rig.peer_disconnected(peer_id);
+    // Only peer and no progress on lookup, so lookup should be removed
+    rig.expect_no_active_lookups();
     // The request fails
     rig.single_lookup_failed(id, peer_id, RPCError::Disconnected);
+    rig.expect_block_lookup_request(block_hash);
     // The request should be removed from the network context on disconnection
     rig.expect_empty_network();
 }
