@@ -1027,6 +1027,25 @@ fn test_single_block_lookup_failure() {
 }
 
 #[test]
+fn test_single_block_lookup_peer_disconnected_then_rpc_error() {
+    let mut rig = TestRig::test_setup();
+
+    let block_hash = Hash256::random();
+    let peer_id = rig.new_connected_peer();
+
+    // Trigger the request
+    rig.trigger_unknown_block_from_attestation(block_hash, peer_id);
+    let id = rig.expect_block_lookup_request(block_hash);
+
+    // The peer disconnect event reaches sync before the rpc error
+    rig.peer_disconnected(peer_id);
+    // The request fails
+    rig.single_lookup_failed(id, peer_id, RPCError::Disconnected);
+    // The request should be removed from the network context on disconnection
+    rig.expect_empty_network();
+}
+
+#[test]
 fn test_single_block_lookup_becomes_parent_request() {
     let mut rig = TestRig::test_setup();
 
@@ -1289,19 +1308,10 @@ fn test_lookup_peer_disconnected_no_peers_left_while_request() {
     rig.trigger_unknown_parent_block(peer_id, trigger_block.into());
     rig.peer_disconnected(peer_id);
     rig.rpc_error_all_active_requests(peer_id);
-    rig.expect_no_active_lookups();
-}
-
-#[test]
-fn test_lookup_peer_disconnected_no_peers_left_not_while_request() {
-    let mut rig = TestRig::test_setup();
-    let peer_id = rig.new_connected_peer();
-    let trigger_block = rig.rand_block();
-    rig.trigger_unknown_parent_block(peer_id, trigger_block.into());
-    rig.peer_disconnected(peer_id);
-    // Note: this test case may be removed in the future. It's not strictly necessary to drop a
-    // lookup if there are no peers left. Lookup should only be dropped if it can not make progress
-    rig.expect_no_active_lookups();
+    // Erroring all rpc requests and disconnecting the peer shouldn't remove the active
+    // request as we can still progress.
+    // The parent lookup trigger in this case can still be progressed so it shouldn't be removed.
+    rig.assert_single_lookups_count(1);
 }
 
 #[test]
