@@ -2,6 +2,7 @@
 mod migration_schema_v17;
 mod migration_schema_v18;
 mod migration_schema_v19;
+mod migration_schema_v20;
 
 use crate::beacon_chain::BeaconChainTypes;
 use crate::types::ChainSpec;
@@ -76,6 +77,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         (SchemaVersion(19), SchemaVersion(18)) => {
             let ops = migration_schema_v19::downgrade_from_v19::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(19), SchemaVersion(20)) => {
+            let ops = migration_schema_v20::upgrade_to_v20::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(20), SchemaVersion(19)) => {
+            let ops = migration_schema_v20::downgrade_from_v20::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.

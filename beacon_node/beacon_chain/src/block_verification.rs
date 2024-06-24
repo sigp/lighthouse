@@ -1625,7 +1625,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         }
 
         // Register each attestation in the block with fork choice.
-        for (i, attestation) in block.message().body().attestations().iter().enumerate() {
+        for (i, attestation) in block.message().body().attestations().enumerate() {
             let _fork_choice_attestation_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
