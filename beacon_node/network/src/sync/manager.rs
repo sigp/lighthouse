@@ -35,9 +35,7 @@
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
-use super::network_context::{
-    BlockOrBlob, RangeRequestId, RpcEvent, RpcResponseResult, SyncNetworkContext,
-};
+use super::network_context::{BlockOrBlob, RangeRequestId, RpcEvent, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
@@ -866,24 +864,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        match self.network.on_single_block_response(id, peer_id, block) {
-            RpcResponseResult::Response(resp) => self
-                .block_lookups
+        if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
+            self.block_lookups
                 .on_download_response::<BlockRequestState<T::EthSpec>>(
                     id,
                     peer_id,
                     resp,
                     &mut self.network,
-                ),
-            RpcResponseResult::RequestNotFound => {
-                debug!(
-                    self.log,
-                    "RPC error for block lookup has no associated entry in network context, ungraceful disconnect";
-                    "peer_id" => %peer_id,
-                    "request_id" => ?id,
-                );
-            }
-            RpcResponseResult::NoOp | RpcResponseResult::StreamTermination => {}
+                )
         }
     }
 
@@ -918,24 +906,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
-        match self.network.on_single_blob_response(id, peer_id, blob) {
-            RpcResponseResult::Response(resp) => self
-                .block_lookups
+        if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
+            self.block_lookups
                 .on_download_response::<BlobRequestState<T::EthSpec>>(
                     id,
                     peer_id,
                     resp,
                     &mut self.network,
-                ),
-            RpcResponseResult::RequestNotFound => {
-                debug!(
-                    self.log,
-                    "RPC error for blob lookup has no associated entry in network context, ungraceful disconnect";
-                    "peer_id" => %peer_id,
-                    "request_id" => ?id,
-                );
-            }
-            RpcResponseResult::NoOp | RpcResponseResult::StreamTermination => {}
+                )
         }
     }
 
