@@ -63,6 +63,8 @@ pub trait EthSpec:
      * Misc
      */
     type MaxValidatorsPerCommittee: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
+    type MaxValidatorsPerSlot: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
+    type MaxCommitteesPerSlot: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
     /*
      * Time parameters
      */
@@ -365,6 +367,8 @@ impl EthSpec for MainnetEthSpec {
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;
+    type MaxCommitteesPerSlot = U64;
+    type MaxValidatorsPerSlot = U131072;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U32;
     type EpochsPerEth1VotingPeriod = U64;
@@ -420,6 +424,8 @@ impl EthSpec for MainnetEthSpec {
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
+    type MaxCommitteesPerSlot = U4;
+    type MaxValidatorsPerSlot = U8192;
     type SlotsPerEpoch = U8;
     type EpochsPerEth1VotingPeriod = U4;
     type SlotsPerHistoricalRoot = U64;
@@ -484,6 +490,8 @@ impl EthSpec for GnosisEthSpec {
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;
+    type MaxCommitteesPerSlot = U64;
+    type MaxValidatorsPerSlot = U131072;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U16;
     type EpochsPerEth1VotingPeriod = U64;
@@ -537,10 +545,12 @@ impl EthSpec for GnosisEthSpec {
 #[cfg(test)]
 mod test {
     use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+    use ssz_types::typenum::Unsigned;
 
     fn assert_valid_spec<E: EthSpec>() {
         E::kzg_commitments_tree_depth();
         E::block_body_tree_depth();
+        assert!(E::MaxValidatorsPerSlot::to_i32() >= E::MaxValidatorsPerCommittee::to_i32());
     }
 
     #[test]

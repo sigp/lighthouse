@@ -2162,7 +2162,7 @@ fn verify_builder_bid<E: EthSpec>(
         .ok()
         .cloned()
         .map(|withdrawals| Withdrawals::<E>::from(withdrawals).tree_hash_root());
-    let payload_withdrawals_root = header.withdrawals_root().ok().copied();
+    let payload_withdrawals_root = header.withdrawals_root().ok();
 
     if header.parent_hash() != parent_hash {
         Err(Box::new(InvalidBuilderPayload::ParentHash {

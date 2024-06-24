@@ -85,7 +85,9 @@ use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
 use kzg::Kzg;
-use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella};
+use operation_pool::{
+    CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
+};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
@@ -1643,14 +1645,49 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((duties, dependent_root, execution_status))
     }
 
+    pub fn get_aggregated_attestation(
+        &self,
+        attestation: AttestationRef<T::EthSpec>,
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        match attestation {
+            AttestationRef::Base(att) => self.get_aggregated_attestation_base(&att.data),
+            AttestationRef::Electra(att) => self.get_aggregated_attestation_electra(
+                att.data.slot,
+                &att.data.tree_hash_root(),
+                att.committee_index()
+                    .ok_or(Error::AttestationCommitteeIndexNotSet)?,
+            ),
+        }
+    }
+
     /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.
     ///
     /// The attestation will be obtained from `self.naive_aggregation_pool`.
-    pub fn get_aggregated_attestation(
+    pub fn get_aggregated_attestation_base(
         &self,
         data: &AttestationData,
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
-        if let Some(attestation) = self.naive_aggregation_pool.read().get(data) {
+        let attestation_key = crate::naive_aggregation_pool::AttestationKey::new_base(data);
+        if let Some(attestation) = self.naive_aggregation_pool.read().get(&attestation_key) {
+            self.filter_optimistic_attestation(attestation)
+                .map(Option::Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_aggregated_attestation_electra(
+        &self,
+        slot: Slot,
+        attestation_data_root: &Hash256,
+        committee_index: CommitteeIndex,
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        let attestation_key = crate::naive_aggregation_pool::AttestationKey::new_electra(
+            slot,
+            *attestation_data_root,
+            committee_index,
+        );
+        if let Some(attestation) = self.naive_aggregation_pool.read().get(&attestation_key) {
             self.filter_optimistic_attestation(attestation)
                 .map(Option::Some)
         } else {
@@ -1662,16 +1699,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `attestation.data.tree_hash_root()`.
     ///
     /// The attestation will be obtained from `self.naive_aggregation_pool`.
-    pub fn get_aggregated_attestation_by_slot_and_root(
+    ///
+    /// NOTE: This function will *only* work with pre-electra attestations and it only
+    ///       exists to support the pre-electra validator API method.
+    pub fn get_pre_electra_aggregated_attestation_by_slot_and_root(
         &self,
         slot: Slot,
         attestation_data_root: &Hash256,
     ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
-        if let Some(attestation) = self
-            .naive_aggregation_pool
-            .read()
-            .get_by_slot_and_root(slot, attestation_data_root)
-        {
+        let attestation_key =
+            crate::naive_aggregation_pool::AttestationKey::new_base_from_slot_and_root(
+                slot,
+                *attestation_data_root,
+            );
+
+        if let Some(attestation) = self.naive_aggregation_pool.read().get(&attestation_key) {
             self.filter_optimistic_attestation(attestation)
                 .map(Option::Some)
         } else {
@@ -1685,7 +1727,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestation: Attestation<T::EthSpec>,
     ) -> Result<Attestation<T::EthSpec>, Error> {
-        let beacon_block_root = attestation.data.beacon_block_root;
+        let beacon_block_root = attestation.data().beacon_block_root;
         match self
             .canonical_head
             .fork_choice_read_lock()
@@ -1951,17 +1993,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
         drop(cache_timer);
 
-        Ok(Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)?,
-            data: AttestationData {
-                slot: request_slot,
-                index: request_index,
-                beacon_block_root,
-                source: justified_checkpoint,
-                target,
-            },
-            signature: AggregateSignature::empty(),
-        })
+        Ok(Attestation::<T::EthSpec>::empty_for_signing(
+            request_index,
+            committee_len,
+            request_slot,
+            beacon_block_root,
+            justified_checkpoint,
+            target,
+            &self.spec,
+        )?)
     }
 
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for
@@ -1999,8 +2039,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
                 if let Some(event_handler) = self.event_handler.as_ref() {
                     if event_handler.has_attestation_subscribers() {
-                        event_handler
-                            .register(EventKind::Attestation(Box::new(v.attestation().clone())));
+                        event_handler.register(EventKind::Attestation(Box::new(
+                            v.attestation().clone_as_attestation(),
+                        )));
                     }
                 }
                 metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
@@ -2036,8 +2077,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // This method is called for API and gossip attestations, so this covers all aggregated attestation events
             if let Some(event_handler) = self.event_handler.as_ref() {
                 if event_handler.has_attestation_subscribers() {
-                    event_handler
-                        .register(EventKind::Attestation(Box::new(v.attestation().clone())));
+                    event_handler.register(EventKind::Attestation(Box::new(
+                        v.attestation().clone_as_attestation(),
+                    )));
                 }
             }
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
@@ -2146,7 +2188,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_write_lock()
             .on_attestation(
                 self.slot()?,
-                verified.indexed_attestation(),
+                verified.indexed_attestation().to_ref(),
                 AttestationFromBlock::False,
             )
             .map_err(Into::into)
@@ -2173,8 +2215,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.log,
                 "Stored unaggregated attestation";
                 "outcome" => ?outcome,
-                "index" => attestation.data.index,
-                "slot" => attestation.data.slot.as_u64(),
+                "index" => attestation.committee_index(),
+                "slot" => attestation.data().slot.as_u64(),
             ),
             Err(NaiveAggregationError::SlotTooLow {
                 slot,
@@ -2192,8 +2234,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to store unaggregated attestation";
                         "error" => ?e,
-                        "index" => attestation.data.index,
-                        "slot" => attestation.data.slot.as_u64(),
+                        "index" => attestation.committee_index(),
+                        "slot" => attestation.data().slot.as_u64(),
                 );
                 return Err(Error::from(e).into());
             }
@@ -2317,7 +2359,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn filter_op_pool_attestation(
         &self,
         filter_cache: &mut HashMap<(Hash256, Epoch), bool>,
-        att: &AttestationRef<T::EthSpec>,
+        att: &CompactAttestationRef<T::EthSpec>,
         state: &BeaconState<T::EthSpec>,
     ) -> bool {
         *filter_cache
@@ -2508,7 +2550,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Add to fork choice.
         self.canonical_head
             .fork_choice_write_lock()
-            .on_attester_slashing(attester_slashing.as_inner());
+            .on_attester_slashing(attester_slashing.as_inner().to_ref());
 
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_attester_slashing_subscribers() {
@@ -3786,7 +3828,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to get indexed attestation";
                         "purpose" => "validator monitor",
-                        "attestation_slot" => attestation.data.slot,
+                        "attestation_slot" => attestation.data().slot,
                         "error" => ?e,
                     );
                     continue;
@@ -3842,7 +3884,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to register observed attestation";
                         "error" => ?e,
-                        "epoch" => a.data.target.epoch
+                        "epoch" => a.data().target.epoch
                     );
                 }
             }
@@ -3854,7 +3896,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Failed to get indexed attestation";
                         "purpose" => "observation",
-                        "attestation_slot" => a.data.slot,
+                        "attestation_slot" => a.data().slot,
                         "error" => ?e,
                     );
                     continue;
@@ -3863,15 +3905,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let mut observed_block_attesters = self.observed_block_attesters.write();
 
-            for &validator_index in &indexed_attestation.attesting_indices {
+            for &validator_index in indexed_attestation.attesting_indices_iter() {
                 if let Err(e) = observed_block_attesters
-                    .observe_validator(a.data.target.epoch, validator_index as usize)
+                    .observe_validator(a.data().target.epoch, validator_index as usize)
                 {
                     debug!(
                         self.log,
                         "Failed to register observed block attester";
                         "error" => ?e,
-                        "epoch" => a.data.target.epoch,
+                        "epoch" => a.data().target.epoch,
                         "validator_index" => validator_index,
                     )
                 }
@@ -3895,13 +3937,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             self.log,
                             "Failed to get indexed attestation";
                             "purpose" => "slasher",
-                            "attestation_slot" => attestation.data.slot,
+                            "attestation_slot" => attestation.data().slot,
                             "error" => ?e,
                         );
                         continue;
                     }
                 };
-                slasher.accept_attestation(indexed_attestation.clone());
+                slasher.accept_attestation(indexed_attestation.clone_as_indexed_attestation());
             }
         }
     }
@@ -3920,7 +3962,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if block.slot() + 2 * T::EthSpec::slots_per_epoch() >= current_slot {
             metrics::observe(
                 &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
-                block.body().attestations().len() as f64,
+                block.body().attestations_len() as f64,
             );
 
             if let Ok(sync_aggregate) = block.body().sync_aggregate() {
@@ -4934,7 +4976,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
         for attestation in self.naive_aggregation_pool.read().iter() {
             let import = |attestation: &Attestation<T::EthSpec>| {
-                let attesting_indices = get_attesting_indices_from_state(&state, attestation)?;
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, attestation.to_ref())?;
                 self.op_pool
                     .insert_attestation(attestation.clone(), attesting_indices)
             };
@@ -4957,11 +5000,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         initialize_epoch_cache(&mut state, &self.spec)?;
 
         let mut prev_filter_cache = HashMap::new();
-        let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+        let prev_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
             self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
         };
         let mut curr_filter_cache = HashMap::new();
-        let curr_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+        let curr_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
             self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
         };
 
@@ -4984,7 +5027,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             attestations.retain(|att| {
                 verify_attestation_for_block_inclusion(
                     &state,
-                    att,
+                    att.to_ref(),
                     &mut tmp_ctxt,
                     VerifySignatures::True,
                     &self.spec,
@@ -5115,6 +5158,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
+        let (attester_slashings_base, attester_slashings_electra) =
+            attester_slashings.into_iter().fold(
+                (Vec::new(), Vec::new()),
+                |(mut base, mut electra), slashing| {
+                    match slashing {
+                        AttesterSlashing::Base(slashing) => base.push(slashing),
+                        AttesterSlashing::Electra(slashing) => electra.push(slashing),
+                    }
+                    (base, electra)
+                },
+            );
+        let (attestations_base, attestations_electra) = attestations.into_iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut base, mut electra), attestation| {
+                match attestation {
+                    Attestation::Base(attestation) => base.push(attestation),
+                    Attestation::Electra(attestation) => electra.push(attestation),
+                }
+                (base, electra)
+            },
+        );
+
         let (inner_block, maybe_blobs_and_proofs, execution_payload_value) = match &state {
             BeaconState::Base(_) => (
                 BeaconBlock::Base(BeaconBlockBase {
@@ -5127,8 +5192,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         eth1_data,
                         graffiti,
                         proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings.into(),
-                        attestations: attestations.into(),
+                        attester_slashings: attester_slashings_base.into(),
+                        attestations: attestations_base.into(),
                         deposits: deposits.into(),
                         voluntary_exits: voluntary_exits.into(),
                         _phantom: PhantomData,
@@ -5148,8 +5213,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         eth1_data,
                         graffiti,
                         proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings.into(),
-                        attestations: attestations.into(),
+                        attester_slashings: attester_slashings_base.into(),
+                        attestations: attestations_base.into(),
                         deposits: deposits.into(),
                         voluntary_exits: voluntary_exits.into(),
                         sync_aggregate: sync_aggregate
@@ -5175,8 +5240,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             eth1_data,
                             graffiti,
                             proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
+                            attester_slashings: attester_slashings_base.into(),
+                            attestations: attestations_base.into(),
                             deposits: deposits.into(),
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate
@@ -5207,8 +5272,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             eth1_data,
                             graffiti,
                             proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
+                            attester_slashings: attester_slashings_base.into(),
+                            attestations: attestations_base.into(),
                             deposits: deposits.into(),
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate
@@ -5241,8 +5306,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             eth1_data,
                             graffiti,
                             proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
+                            attester_slashings: attester_slashings_base.into(),
+                            attestations: attestations_base.into(),
                             deposits: deposits.into(),
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate
@@ -5279,8 +5344,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             eth1_data,
                             graffiti,
                             proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
+                            attester_slashings: attester_slashings_electra.into(),
+                            attestations: attestations_electra.into(),
                             deposits: deposits.into(),
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate
@@ -5291,6 +5356,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                            // TODO(electra): finish consolidations when they're more spec'd out
+                            consolidations: Vec::new().into(),
                         },
                     }),
                     maybe_blobs_and_proofs,
@@ -5396,7 +5463,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.log,
             "Produced beacon block";
             "parent" => ?block.parent_root(),
-            "attestations" => block.body().attestations().len(),
+            "attestations" => block.body().attestations_len(),
             "slot" => block.slot()
         );
 

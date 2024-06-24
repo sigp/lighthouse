@@ -80,7 +80,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
-            .chain_spec(spec)
+            .chain_spec(spec.clone())
             .beacon_processor(client_config.beacon_processor.clone())
             .http_api_config(client_config.http_api.clone())
             .disk_store(
@@ -113,8 +113,12 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 _ => {}
             }
             let slasher = Arc::new(
-                Slasher::open(slasher_config, log.new(slog::o!("service" => "slasher")))
-                    .map_err(|e| format!("Slasher open error: {:?}", e))?,
+                Slasher::open(
+                    slasher_config,
+                    Arc::new(spec),
+                    log.new(slog::o!("service" => "slasher")),
+                )
+                .map_err(|e| format!("Slasher open error: {:?}", e))?,
             );
             builder.slasher(slasher)
         } else {
