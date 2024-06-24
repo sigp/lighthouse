@@ -1382,8 +1382,8 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 });
 
                 let is_first_inclusion = validator
-                    .get_from_epoch_summary(epoch, |opt_summary| {
-                        if let Some(summary) = opt_summary {
+                    .get_from_epoch_summary(epoch, |summary_opt| {
+                        if let Some(summary) = summary_opt {
                             Some(summary.attestation_aggregate_inclusions == 0)
                         } else {
                             // No data for this validator: no inclusion.
