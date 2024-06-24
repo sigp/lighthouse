@@ -539,10 +539,6 @@ impl TestRig {
         })
     }
 
-    fn peer_disconnected(&mut self, disconnected_peer_id: PeerId) {
-        self.send_sync_message(SyncMessage::Disconnect(disconnected_peer_id));
-    }
-
     /// Return RPCErrors for all active requests of peer
     fn rpc_error_all_active_requests(&mut self, disconnected_peer_id: PeerId) {
         self.drain_network_rx();

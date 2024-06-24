@@ -402,7 +402,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // Note: the order is important here, we should only remove the requests
         // from network context's maps after we have initiated the retries for
         // the associated batches/lookups
-        self.network.peer_disconnected(peer_id.clone());
+        self.network.peer_disconnected(peer_id);
         self.update_sync_state();
     }
 

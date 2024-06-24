@@ -183,13 +183,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Remove all active requests associated with the peer.
-    pub fn peer_disconnected(&mut self, peer_id: PeerId) {
+    pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
         self.blocks_by_root_requests
-            .retain(|_, request| request.peer_id != peer_id);
+            .retain(|_, request| request.peer_id != *peer_id);
         self.blobs_by_root_requests
-            .retain(|_, request| request.peer_id != peer_id);
+            .retain(|_, request| request.peer_id != *peer_id);
         self.range_blocks_and_blobs_requests
-            .retain(|_, request| request.1.peer_id != peer_id);
+            .retain(|_, request| request.1.peer_id != *peer_id);
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {

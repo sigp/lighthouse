@@ -18,7 +18,7 @@ pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
     is_sidecars_stream_terminated: bool,
     /// Used to determine if this accumulator should wait for a sidecars stream termination
     request_type: ByRangeRequestType,
-    /// TODO(pawan): would this be multiple peer ids?
+    /// The peer the request was made to.
     pub(crate) peer_id: PeerId,
 }
 
@@ -113,12 +113,14 @@ mod tests {
     use super::BlocksAndBlobsRequestInfo;
     use crate::sync::range_sync::ByRangeRequestType;
     use beacon_chain::test_utils::{generate_rand_block_and_blobs, NumBlobs};
+    use lighthouse_network::PeerId;
     use rand::SeedableRng;
     use types::{test_utils::XorShiftRng, ForkName, MinimalEthSpec as E};
 
     #[test]
     fn no_blobs_into_responses() {
-        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::Blocks);
+        let peer_id = PeerId::random();
+        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::Blocks, peer_id);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng).0)
@@ -137,7 +139,9 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
-        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::BlocksAndBlobs);
+        let peer_id = PeerId::random();
+        let mut info =
+            BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::BlocksAndBlobs, peer_id);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
