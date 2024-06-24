@@ -336,7 +336,18 @@ impl<E: EthSpec> KzgVerifiedBlobList<E> {
     ) -> Result<Self, KzgError> {
         let blobs = blob_list.into_iter().collect::<Vec<_>>();
         verify_kzg_for_blob_list(blobs.iter(), kzg)?;
-        Ok(Self {
+        Ok(Self::from_verified(blobs, seen_timestamp))
+    }
+
+    /// Create a `KzgVerifiedBlobList` from `blobs` that are already KZG verified.
+    ///
+    /// This should be used with caution, as used incorrectly it could result in KZG verification
+    /// being skipped and invalid blobs being deemed valid.
+    pub fn from_verified<I: IntoIterator<Item = Arc<BlobSidecar<E>>>>(
+        blobs: I,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
             verified_blobs: blobs
                 .into_iter()
                 .map(|blob| KzgVerifiedBlob {
@@ -344,7 +355,7 @@ impl<E: EthSpec> KzgVerifiedBlobList<E> {
                     seen_timestamp,
                 })
                 .collect(),
-        })
+        }
     }
 }
 

@@ -2979,6 +2979,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.remove_notified(&block_root, r)
     }
 
+    pub async fn process_engine_blobs(
+        self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its blobs again.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+        }
+
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_blob_sidecar_subscribers() {
+                for blob in blobs.iter().filter_map(|maybe_blob| maybe_blob.as_ref()) {
+                    event_handler.register(EventKind::BlobSidecar(
+                        SseBlobSidecar::from_blob_sidecar(blob),
+                    ));
+                }
+            }
+        }
+
+        let r = self
+            .check_engine_blob_availability_and_import(slot, block_root, blobs)
+            .await;
+        self.remove_notified(&block_root, r)
+    }
+
     /// Remove any block components from the *processing cache* if we no longer require them. If the
     /// block was imported full or erred, we no longer require them.
     fn remove_notified(
@@ -3231,6 +3263,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.process_availability(slot, availability).await
     }
 
+    fn check_blobs_for_slashability(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        blobs: &FixedBlobSidecarList<T::EthSpec>,
+    ) -> Result<(), BlockError<T::EthSpec>> {
+        let mut slashable_cache = self.observed_slashable.write();
+        for header in blobs
+            .into_iter()
+            .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
+            .unique()
+        {
+            if verify_header_signature::<T, BlockError<T::EthSpec>>(self, &header).is_ok() {
+                slashable_cache
+                    .observe_slashable(
+                        header.message.slot,
+                        header.message.proposer_index,
+                        block_root,
+                    )
+                    .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                if let Some(slasher) = self.slasher.as_ref() {
+                    slasher.accept_block_header(header);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Checks if the provided blobs can make any cached blocks available, and imports immediately
     /// if so, otherwise caches the blob in the data availability checker.
     async fn check_rpc_blob_availability_and_import(
@@ -3239,32 +3298,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        // Need to scope this to ensure the lock is dropped before calling `process_availability`
-        // Even an explicit drop is not enough to convince the borrow checker.
-        {
-            let mut slashable_cache = self.observed_slashable.write();
-            for header in blobs
-                .into_iter()
-                .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
-                .unique()
-            {
-                if verify_header_signature::<T, BlockError<T::EthSpec>>(self, &header).is_ok() {
-                    slashable_cache
-                        .observe_slashable(
-                            header.message.slot,
-                            header.message.proposer_index,
-                            block_root,
-                        )
-                        .map_err(|e| BlockError::BeaconChainError(e.into()))?;
-                    if let Some(slasher) = self.slasher.as_ref() {
-                        slasher.accept_block_header(header);
-                    }
-                }
-            }
-        }
+        self.check_blobs_for_slashability(block_root, &blobs)?;
         let availability = self
             .data_availability_checker
             .put_rpc_blobs(block_root, blobs)?;
+
+        self.process_availability(slot, availability).await
+    }
+
+    async fn check_engine_blob_availability_and_import(
+        self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        self.check_blobs_for_slashability(block_root, &blobs)?;
+        let availability = self
+            .data_availability_checker
+            .put_engine_blobs(block_root, blobs)?;
 
         self.process_availability(slot, availability).await
     }

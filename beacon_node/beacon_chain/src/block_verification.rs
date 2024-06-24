@@ -1372,6 +1372,9 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     "num_blob_tx" => num_fetched_tx
                 );
             }
+            let (signed_block_header, kzg_commitments_proof) =
+                block.signed_block_header_and_kzg_commitments_proof()?;
+
             let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
             for (i, (blob, kzg_proof)) in blob_start_indices
                 .into_iter()
@@ -1385,7 +1388,14 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                         .map(move |(i, v)| (start_index + i, v))
                 })
             {
-                match BlobSidecar::new(i, blob, &block, kzg_proof) {
+                match BlobSidecar::new_efficiently(
+                    i,
+                    blob,
+                    &block,
+                    signed_block_header.clone(),
+                    &kzg_commitments_proof,
+                    kzg_proof,
+                ) {
                     Ok(blob) => {
                         if let Some(blob_mut) = fixed_blob_sidecar_list.get_mut(i) {
                             *blob_mut = Some(Arc::new(blob));
