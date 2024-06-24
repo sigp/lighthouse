@@ -1,4 +1,4 @@
-#![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
+#![cfg(any(feature = "lmdb", feature = "redb"))]
 
 use slasher::{config::MDBX_DATA_FILENAME, Config, DatabaseBackend, DatabaseBackendOverride};
 use std::fs::File;
