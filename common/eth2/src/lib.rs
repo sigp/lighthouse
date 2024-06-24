@@ -1083,7 +1083,8 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         indices: Option<&[u64]>,
-    ) -> Result<Option<GenericResponse<BlobSidecarList<E>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedForkVersionedResponse<BlobSidecarList<E>>>, Error>
+    {
         let mut path = self.get_blobs_path(block_id)?;
         if let Some(indices) = indices {
             let indices_string = indices

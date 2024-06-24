@@ -1,9 +1,10 @@
 use crate::test_utils::TestRandom;
+use crate::ForkName;
 use crate::{
     beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, BeaconStateError, Blob,
     EthSpec, FixedVector, Hash256, SignedBeaconBlockHeader, Slot, VariableList,
 };
-use crate::{KzgProofs, SignedBeaconBlock};
+use crate::{ForkVersionDeserialize, KzgProofs, SignedBeaconBlock};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::{Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT};
@@ -266,3 +267,12 @@ pub type BlobSidecarList<E> = VariableList<Arc<BlobSidecar<E>>, <E as EthSpec>::
 pub type FixedBlobSidecarList<E> =
     FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>;
 pub type BlobsList<E> = VariableList<Blob<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+
+impl<E: EthSpec> ForkVersionDeserialize for BlobSidecarList<E> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        _: ForkName,
+    ) -> Result<Self, D::Error> {
+        serde_json::from_value::<BlobSidecarList<E>>(value).map_err(serde::de::Error::custom)
+    }
+}
