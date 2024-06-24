@@ -1393,7 +1393,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     .unwrap_or(true);
 
                 if self.individual_tracking() {
-                    if is_first_inclusion == true {
+                    if is_first_inclusion {
                         info!(
                             self.log,
                             "Attestation included in aggregate";
@@ -1413,8 +1413,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             "Attestation included in aggregate";
                             "index" => %data.index,
                             "delay_ms" => %delay.as_millis(),
-                            "epoch" => %epoch,
-                            "slot" => %data.slot,
                             "slot" => %data.slot,
                             "src" => src,
                         )
