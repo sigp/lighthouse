@@ -9,13 +9,13 @@ use crate::{
 
 /// Provides the externally-facing, core BLS types.
 pub mod types {
-    pub use super::verify_signature_sets;
     pub use super::AggregatePublicKey;
     pub use super::AggregateSignature;
     pub use super::PublicKey;
     pub use super::SecretKey;
     pub use super::Signature;
     pub use super::SignatureSet;
+    pub use super::{verify_signature_sets, verify_signature_sets_new};
 }
 
 pub type SignatureSet<'a> = crate::generic_signature_set::GenericSignatureSet<
@@ -27,6 +27,12 @@ pub type SignatureSet<'a> = crate::generic_signature_set::GenericSignatureSet<
 >;
 
 pub fn verify_signature_sets<'a>(
+    _signature_sets: impl ExactSizeIterator<Item = &'a SignatureSet<'a>>,
+) -> bool {
+    true
+}
+
+pub fn verify_signature_sets_new<'a>(
     _signature_sets: impl ExactSizeIterator<Item = &'a SignatureSet<'a>>,
 ) -> bool {
     true

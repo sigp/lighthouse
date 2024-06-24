@@ -88,7 +88,7 @@ macro_rules! define_mod {
 
             use crate::generics::*;
 
-            pub use bls_variant::{verify_signature_sets, SignatureSet};
+            pub use bls_variant::{verify_signature_sets, verify_signature_sets_new, SignatureSet};
 
             pub type PublicKey = GenericPublicKey<bls_variant::PublicKey>;
             pub type PublicKeyBytes = GenericPublicKeyBytes<bls_variant::PublicKey>;
