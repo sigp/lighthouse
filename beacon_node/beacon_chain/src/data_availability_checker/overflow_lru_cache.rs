@@ -35,9 +35,8 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
-use crate::metrics;
 use crate::store::{DBColumn, KeyValueStore};
-use crate::BeaconChainTypes;
+use crate::{metrics, BeaconChainTypes};
 use kzg::Kzg;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
@@ -49,11 +48,9 @@ use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
 use types::data_column_sidecar::DataColumnIdentifier;
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarVec, Epoch, EthSpec,
+    Hash256, RuntimeVariableList, SignedBeaconBlock,
 };
-
-pub type DataColumnsToPublish<E> = Option<Vec<Arc<DataColumnSidecar<E>>>>;
 
 /// This represents the components of a partially available block
 ///
@@ -67,7 +64,6 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
     pub verified_data_columns: RuntimeVariableList<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
-    pub reconstruction_started: bool,
 }
 
 pub enum BlockImportRequirement {
@@ -281,7 +277,6 @@ impl<E: EthSpec> PendingComponents<E> {
             verified_blobs: FixedVector::default(),
             verified_data_columns: RuntimeVariableList::empty(spec.number_of_columns),
             executed_block: None,
-            reconstruction_started: false,
         }
     }
 
@@ -360,10 +355,6 @@ impl<E: EthSpec> PendingComponents<E> {
         Ok(Availability::Available(Box::new(
             AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome),
         )))
-    }
-
-    pub fn reconstruction_started(&mut self) {
-        self.reconstruction_started = true;
     }
 
     /// Returns the epoch of the block if it is cached, otherwise returns the epoch of the first blob.
@@ -654,11 +645,11 @@ impl<T: BeaconChainTypes> Critical<T> {
     pub fn peek_data_column(
         &self,
         data_column_id: &DataColumnIdentifier,
-    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+    ) -> Option<Arc<DataColumnSidecar<T::EthSpec>>> {
         if let Some(pending_components) = self.in_memory.peek(&data_column_id.block_root) {
-            Ok(pending_components.get_cached_data_column(data_column_id.index))
+            pending_components.get_cached_data_column(data_column_id.index)
         } else {
-            Ok(None)
+            None
         }
     }
 
@@ -753,6 +744,8 @@ pub struct OverflowLRUCache<T: BeaconChainTypes> {
     capacity: NonZeroUsize,
     /// The number of data columns the node is custodying.
     custody_column_count: usize,
+    /// The block root of data columns currently being reconstructed, if any.
+    reconstructing_block_root: Mutex<Option<Hash256>>,
     log: Logger,
     spec: Arc<ChainSpec>,
 }
@@ -775,6 +768,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             maintenance_lock: Mutex::new(()),
             capacity,
             custody_column_count,
+            reconstructing_block_root: Mutex::new(None),
             log,
             spec,
         })
@@ -826,7 +820,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         data_column_id: &DataColumnIdentifier,
     ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
         let read_lock = self.critical.read();
-        if let Some(data_column) = read_lock.peek_data_column(data_column_id)? {
+        if let Some(data_column) = read_lock.peek_data_column(data_column_id) {
             Ok(Some(data_column))
         } else if read_lock.store_keys.contains(&data_column_id.block_root) {
             drop(read_lock);
@@ -855,15 +849,95 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     }
 
     #[allow(clippy::type_complexity)]
+    pub fn reconstruct_data_columns(
+        &self,
+        kzg: &Kzg,
+        block_root: Hash256,
+    ) -> Result<
+        Option<(Availability<T::EthSpec>, DataColumnSidecarVec<T::EthSpec>)>,
+        AvailabilityCheckError,
+    > {
+        // Clone the pending components, so we don't hold the read lock during reconstruction
+        let Some(pending_components) = self
+            .peek_pending_components(&block_root, |pending_components_opt| {
+                pending_components_opt.cloned()
+            })
+        else {
+            // Block may have been imported as it does not exist in availability cache.
+            return Ok(None);
+        };
+
+        let should_reconstruct = self
+            .block_import_requirement(&pending_components)
+            .map(|r| self.should_reconstruct(&r, &pending_components))?;
+
+        if should_reconstruct {
+            *self.reconstructing_block_root.lock() = Some(block_root);
+
+            let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
+
+            // Will only return an error if:
+            // - < 50% of columns
+            // - There are duplicates
+            let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
+                kzg,
+                pending_components.verified_data_columns.as_slice(),
+                &self.spec,
+            )?;
+
+            // Check indices from cache again to make sure we don't publish components we've already received.
+            let Some(existing_column_indices) =
+                self.peek_pending_components(&block_root, |pending_components_opt| {
+                    pending_components_opt.map(|pending_components| {
+                        pending_components
+                            .verified_data_columns
+                            .iter()
+                            .map(|d| d.index())
+                            .collect::<HashSet<_>>()
+                    })
+                })
+            else {
+                // If block is already imported (no longer in cache), abort publishing data columns
+                return Ok(None);
+            };
+
+            let data_columns_to_publish = all_data_columns
+                .into_iter()
+                .filter(|d| !existing_column_indices.contains(&d.index()))
+                .collect::<Vec<_>>();
+
+            metrics::stop_timer(timer);
+            metrics::inc_counter_by(
+                &metrics::DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS,
+                data_columns_to_publish.len() as u64,
+            );
+            debug!(self.log, "Reconstructed columns"; "count" => data_columns_to_publish.len());
+
+            // There is data columns to import and publish
+            self.put_kzg_verified_data_columns(block_root, data_columns_to_publish.clone())
+                .map(|availability| {
+                    (
+                        availability,
+                        data_columns_to_publish
+                            .into_iter()
+                            .map(|d| d.clone_arc())
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
     pub fn put_kzg_verified_data_columns<
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     >(
         &self,
-        kzg: &Kzg,
         block_root: Hash256,
         kzg_verified_data_columns: I,
-    ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
-    {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
 
         // Grab existing entry or create a new entry.
@@ -876,51 +950,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         let block_import_requirement = self.block_import_requirement(&pending_components)?;
 
-        // Potentially trigger reconstruction if:
-        // - Our custody requirement is all columns
-        // - We >= 50% of columns
-        let data_columns_to_publish =
-            if self.should_reconstruct(&block_import_requirement, &pending_components) {
-                pending_components.reconstruction_started();
-
-                let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
-
-                let existing_column_indices = pending_components
-                    .verified_data_columns
-                    .iter()
-                    .map(|d| d.index())
-                    .collect::<HashSet<_>>();
-
-                // Will only return an error if:
-                // - < 50% of columns
-                // - There are duplicates
-                let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
-                    kzg,
-                    pending_components.verified_data_columns.as_slice(),
-                    &self.spec,
-                )?;
-
-                let data_columns_to_publish = all_data_columns
-                    .iter()
-                    .filter(|d| !existing_column_indices.contains(&d.index()))
-                    .map(|d| d.clone_arc())
-                    .collect::<Vec<_>>();
-
-                pending_components.verified_data_columns =
-                    RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns);
-
-                metrics::stop_timer(timer);
-                metrics::inc_counter_by(
-                    &metrics::DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS,
-                    data_columns_to_publish.len() as u64,
-                );
-                debug!(self.log, "Reconstructed columns"; "count" => data_columns_to_publish.len());
-
-                Some(data_columns_to_publish)
-            } else {
-                None
-            };
-
         if pending_components.is_available(&block_import_requirement, &self.log) {
             write_lock.put_pending_components(
                 block_root,
@@ -929,21 +958,16 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             )?;
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components
-                .make_available(&self.spec, |diet_block| {
-                    self.state_cache.recover_pending_executed_block(diet_block)
-                })
-                .map(|availability| (availability, data_columns_to_publish))
+            pending_components.make_available(&self.spec, |diet_block| {
+                self.state_cache.recover_pending_executed_block(diet_block)
+            })
         } else {
             write_lock.put_pending_components(
                 block_root,
                 pending_components,
                 &self.overflow_store,
             )?;
-            Ok((
-                Availability::MissingComponents(block_root),
-                data_columns_to_publish,
-            ))
+            Ok(Availability::MissingComponents(block_root))
         }
     }
 
@@ -964,7 +988,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let has_missing_columns = pending_components.verified_data_columns.len() < num_of_columns;
 
         has_missing_columns
-            && !pending_components.reconstruction_started
+            // for simplicity now, we only reconstruct columns for one block at a time.
+            && self.reconstructing_block_root.lock().is_none()
             && *num_expected_columns == num_of_columns
             && pending_components.verified_data_columns.len() >= num_of_columns / 2
     }

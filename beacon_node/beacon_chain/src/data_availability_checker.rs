@@ -23,6 +23,7 @@ mod error;
 mod overflow_lru_cache;
 mod state_lru_cache;
 
+use crate::data_availability_checker::error::Error;
 use crate::data_column_verification::{
     verify_kzg_for_data_column_list, CustodyDataColumn, GossipVerifiedDataColumn,
     KzgVerifiedCustodyDataColumn,
@@ -30,8 +31,6 @@ use crate::data_column_verification::{
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::data_column_sidecar::DataColumnIdentifier;
 use types::non_zero_usize::new_non_zero_usize;
-
-pub use self::overflow_lru_cache::DataColumnsToPublish;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
 /// `MAX_BLOBS_PER_BLOCK = 6` blobs each. A `BlobSidecar` is 0.131256 MB. So
@@ -159,6 +158,24 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.peek_data_column(data_column_id)
     }
 
+    #[allow(clippy::type_complexity)]
+    pub fn reconstruct_data_columns(
+        &self,
+        block_root: Hash256,
+    ) -> Result<
+        Option<(
+            Availability<<T as BeaconChainTypes>::EthSpec>,
+            DataColumnSidecarVec<<T as BeaconChainTypes>::EthSpec>,
+        )>,
+        Error,
+    > {
+        let Some(kzg) = self.kzg.as_ref() else {
+            return Err(AvailabilityCheckError::KzgNotInitialized);
+        };
+        self.availability_cache
+            .reconstruct_data_columns(kzg, block_root)
+    }
+
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
     pub fn put_rpc_blobs(
@@ -190,8 +207,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
-    ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
-    {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let Some(kzg) = self.kzg.as_ref() else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
@@ -203,11 +219,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(|c| KzgVerifiedCustodyDataColumn::new(c, kzg))
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.availability_cache.put_kzg_verified_data_columns(
-            kzg,
-            block_root,
-            verified_custody_columns,
-        )
+        self.availability_cache
+            .put_kzg_verified_data_columns(block_root, verified_custody_columns)
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -232,11 +245,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_gossip_data_columns(
         &self,
         gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
-    ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
-    {
-        let Some(kzg) = self.kzg.as_ref() else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let block_root = gossip_data_columns
             .first()
             .ok_or(AvailabilityCheckError::MissingCustodyColumns)?
@@ -248,7 +257,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .collect::<Vec<_>>();
 
         self.availability_cache
-            .put_kzg_verified_data_columns(kzg, block_root, custody_columns)
+            .put_kzg_verified_data_columns(block_root, custody_columns)
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -314,12 +323,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     block,
                     blobs: None,
                     blobs_available_timestamp: None,
-                    data_columns: Some(
-                        data_column_list
-                            .into_iter()
-                            .map(|d| d.clone_arc())
-                            .collect(),
-                    ),
+                    data_columns: Some(data_column_list.iter().map(|d| d.clone_arc()).collect()),
                     spec: self.spec.clone(),
                 }))
             } else {

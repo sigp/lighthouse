@@ -446,7 +446,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     let (expects_blobs, expects_custody_columns) = info.get_requirements();
                     Some(BlocksAndBlobsByRangeResponse {
                         sender_id,
-                        responses: info.into_responses(&self.chain.spec),
+                        responses: info.into_responses(),
                         expects_blobs,
                         expects_custody_columns,
                     })

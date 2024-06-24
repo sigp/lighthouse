@@ -239,8 +239,6 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     }
 }
 
-pub type CustodyDataColumnList<E> = RuntimeVariableList<CustodyDataColumn<E>>;
-
 /// Data column that we must custody
 #[derive(Debug, Derivative, Clone, Encode, Decode)]
 #[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
