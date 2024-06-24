@@ -393,16 +393,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// there is no way to guarantee that libp2p always emits a error along with
     /// the disconnect.
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
+        // Inject a Disconnected error on all requests associated with the disconnected peer
+        // to retry all batches/lookups
+        for request_id in self.network.peer_disconnected(peer_id) {
+            self.inject_error(*peer_id, request_id, RPCError::Disconnected);
+        }
+
+        // Remove peer from all data structures
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
-        self.block_lookups.peer_disconnected(peer_id);
-        // Regardless of the outcome, we update the sync status.
         let _ = self
             .backfill_sync
             .peer_disconnected(peer_id, &mut self.network);
-        // Note: the order is important here, we should only remove the requests
-        // from network context's maps after we have initiated the retries for
-        // the associated batches/lookups
-        self.network.peer_disconnected(peer_id);
+        self.block_lookups.peer_disconnected(peer_id);
+
+        // Regardless of the outcome, we update the sync status.
         self.update_sync_state();
     }
 

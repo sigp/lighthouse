@@ -182,14 +182,44 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    /// Remove all active requests associated with the peer.
-    pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
-        self.blocks_by_root_requests
-            .retain(|_, request| request.peer_id != *peer_id);
-        self.blobs_by_root_requests
-            .retain(|_, request| request.peer_id != *peer_id);
-        self.range_blocks_and_blobs_requests
-            .retain(|_, request| request.1.peer_id != *peer_id);
+    /// Returns all ids that were requested to the given peer_id
+    pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Vec<SyncRequestId> {
+        let failed_range_ids =
+            self.range_blocks_and_blobs_requests
+                .iter()
+                .filter_map(|(id, request)| {
+                    if request.1.peer_id == *peer_id {
+                        Some(SyncRequestId::RangeBlockAndBlobs { id: id.clone() })
+                    } else {
+                        None
+                    }
+                });
+
+        let failed_block_ids = self
+            .blocks_by_root_requests
+            .iter()
+            .filter_map(|(id, request)| {
+                if request.peer_id == *peer_id {
+                    Some(SyncRequestId::SingleBlock { id: id.clone() })
+                } else {
+                    None
+                }
+            });
+        let failed_blob_ids = self
+            .blobs_by_root_requests
+            .iter()
+            .filter_map(|(id, request)| {
+                if request.peer_id == *peer_id {
+                    Some(SyncRequestId::SingleBlob { id: id.clone() })
+                } else {
+                    None
+                }
+            });
+
+        failed_range_ids
+            .chain(failed_block_ids)
+            .chain(failed_blob_ids)
+            .collect()
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
