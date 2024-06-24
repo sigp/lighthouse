@@ -738,14 +738,11 @@ impl<E: EthSpec> SlasherDB<E> {
             Ok(false)
         };
 
-        let indexed_attestation_ids: Vec<IndexedAttestationId> = cursor
+        let indexed_attestation_ids = cursor
             .delete_while(should_delete)?
             .into_iter()
-            .map(IndexedAttestationId::parse)
-            .collect::<Result<Vec<u64>, Error>>()?
-            .into_iter()
-            .map(IndexedAttestationId::new)
-            .collect();
+            .map(|id| IndexedAttestationId::parse(id).map(IndexedAttestationId::new))
+            .collect::<Result<Vec<IndexedAttestationId>, Error>>()?;
         drop(cursor);
 
         // Delete the indexed attestations.

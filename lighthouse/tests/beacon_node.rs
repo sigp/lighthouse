@@ -2178,6 +2178,21 @@ fn slasher_broadcast_flag_no_default() {
         });
 }
 #[test]
+fn slasher_broadcast_flag_no_argument() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-broadcast", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
+        });
+}
+#[test]
 fn slasher_broadcast_flag_true() {
     CommandLineTest::new()
         .flag("slasher", None)
