@@ -120,6 +120,10 @@ impl ForkName {
         }
     }
 
+    pub fn deneb_enabled(self) -> bool {
+        self >= ForkName::Deneb
+    }
+
     pub fn electra_enabled(self) -> bool {
         self >= ForkName::Electra
     }
