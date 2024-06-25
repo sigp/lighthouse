@@ -779,12 +779,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             };
 
             if stuck_lookup.id == ancestor_stuck_lookup.id {
-                warn!(self.log, "Notify the devs, a sync lookup is stuck";
+                warn!(self.log, "Notify the devs a sync lookup is stuck";
                     "block_root" => ?stuck_lookup.block_root(),
                     "lookup" => ?stuck_lookup,
                 );
             } else {
-                warn!(self.log, "Notify the devs, a sync lookup is stuck";
+                warn!(self.log, "Notify the devs a sync lookup is stuck";
                     "block_root" => ?stuck_lookup.block_root(),
                     "lookup" => ?stuck_lookup,
                     "ancestor_block_root" => ?ancestor_stuck_lookup.block_root(),
