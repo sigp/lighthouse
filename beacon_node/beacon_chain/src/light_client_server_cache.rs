@@ -111,25 +111,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             attested_block.slot(),
         )?;
 
-        let attested_slot = attested_block.slot();
-
-        // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
-        // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
-        let is_latest_optimistic = match &self.latest_optimistic_update.read().clone() {
-            Some(latest_optimistic_update) => {
-                latest_optimistic_update.is_latest_optimistic_update(attested_slot, signature_slot)
-            }
-            None => true,
-        };
-        if is_latest_optimistic {
-            // can create an optimistic update, that is more recent
-            *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate::new(
-                &attested_block,
-                sync_aggregate.clone(),
-                signature_slot,
-                chain_spec,
-            )?);
-        };
+        let attested_slot = attested_block.slot();   
 
         let maybe_finalized_block = store.get_full_block(&cached_parts.finalized_block_root)?;
 
@@ -148,6 +130,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .epoch(T::EthSpec::slots_per_epoch())
             .sync_committee_period(chain_spec)?;
 
+        // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update) 
+        // for each sync committee period
         let prev_light_client_update = match &self.latest_light_client_update.read().clone() {
             Some(prev_light_client_update) => Some(prev_light_client_update.clone()),
             None => self.get_light_client_update(&store, sync_period, chain_spec)?,
@@ -164,6 +148,24 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         if should_persist_light_client_update {
             self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
         }
+
+        // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
+        // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
+        let is_latest_optimistic = match &self.latest_optimistic_update.read().clone() {
+            Some(latest_optimistic_update) => {
+                latest_optimistic_update.is_latest_optimistic_update(attested_slot, signature_slot)
+            }
+            None => true,
+        };
+        if is_latest_optimistic {
+            // can create an optimistic update, that is more recent
+            *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate::new(
+                &attested_block,
+                sync_aggregate.clone(),
+                signature_slot,
+                chain_spec,
+            )?);
+        };
 
         // Spec: Full nodes SHOULD provide the LightClientFinalityUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
