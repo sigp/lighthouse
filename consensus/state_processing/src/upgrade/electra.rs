@@ -131,7 +131,7 @@ pub fn upgrade_state_to_electra<E: EthSpec>(
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         historical_summaries: pre.historical_summaries.clone(),
         // Electra
-        deposit_receipts_start_index: spec.unset_deposit_receipts_start_index,
+        deposit_requests_start_index: spec.unset_deposit_requests_start_index,
         deposit_balance_to_consume: 0,
         exit_balance_to_consume: 0,
         earliest_exit_epoch,

@@ -1994,14 +1994,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
-                let deposit_receipts = VariableList::new(
+                let deposit_requests = VariableList::new(
                     electra_block
-                        .deposit_receipts
+                        .deposit_requests
                         .into_iter()
                         .map(Into::into)
                         .collect(),
                 )
-                .map_err(ApiError::DeserializeDepositReceipts)?;
+                .map_err(ApiError::DeserializeDepositRequests)?;
                 let withdrawal_requests = VariableList::new(
                     electra_block
                         .withdrawal_requests
@@ -2010,6 +2010,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawalRequests)?;
+                let n_consolidations = electra_block.consolidation_requests.len();
+                let consolidation_requests =
+                    VariableList::new(electra_block.consolidation_requests)
+                        .map_err(|_| ApiError::TooManyConsolidationRequests(n_consolidations))?;
                 ExecutionPayload::Electra(ExecutionPayloadElectra {
                     parent_hash: electra_block.parent_hash,
                     fee_recipient: electra_block.fee_recipient,
@@ -2028,8 +2032,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     withdrawals,
                     blob_gas_used: electra_block.blob_gas_used,
                     excess_blob_gas: electra_block.excess_blob_gas,
-                    deposit_receipts,
+                    deposit_requests,
                     withdrawal_requests,
+                    consolidation_requests: consolidation_requests,
                 })
             }
         };
