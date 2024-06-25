@@ -290,6 +290,7 @@ impl TestRig {
             .0
     }
 
+    #[track_caller]
     fn expect_no_active_single_lookups(&self) {
         assert!(
             self.active_single_lookups().is_empty(),
@@ -298,6 +299,7 @@ impl TestRig {
         );
     }
 
+    #[track_caller]
     fn expect_no_active_lookups(&self) {
         self.expect_no_active_single_lookups();
     }
@@ -1039,8 +1041,8 @@ fn test_single_block_lookup_peer_disconnected_then_rpc_error() {
 
     // The peer disconnect event reaches sync before the rpc error.
     rig.peer_disconnected(peer_id);
-    // Only peer and no progress on lookup, so lookup should be removed.
-    rig.expect_no_active_lookups();
+    // The lookup is not removed as it can still potentially make progress.
+    rig.assert_single_lookups_count(1);
     // The request fails.
     rig.single_lookup_failed(id, peer_id, RPCError::Disconnected);
     rig.expect_block_lookup_request(block_hash);
@@ -1311,10 +1313,9 @@ fn test_lookup_peer_disconnected_no_peers_left_while_request() {
     rig.trigger_unknown_parent_block(peer_id, trigger_block.into());
     rig.peer_disconnected(peer_id);
     rig.rpc_error_all_active_requests(peer_id);
-    // Erroring all rpc requests and disconnecting the peer shouldn't remove the active
-    // request as we can still progress.
-    // The parent lookup trigger in this case can still be progressed so it shouldn't be removed.
-    rig.assert_single_lookups_count(1);
+    // Erroring all rpc requests and disconnecting the peer shouldn't remove the requests
+    // from the lookups map as they can still progress.
+    rig.assert_single_lookups_count(2);
 }
 
 #[test]

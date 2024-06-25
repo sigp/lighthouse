@@ -254,12 +254,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.peers.remove(peer_id);
     }
 
-    /// Returns true if a lookup has some downloaded components that can be processed.
-    pub fn can_progress_without_peer(&self) -> bool {
-        self.block_request_state.state.can_progress_without_peer()
-            || self.blob_request_state.state.can_progress_without_peer()
-    }
-
     /// Returns true if this lookup has zero peers
     pub fn has_no_peers(&self) -> bool {
         self.peers.is_empty()
@@ -354,15 +348,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
             | State::AwaitingProcess { .. }
             | State::Processing { .. }
             | State::Processed { .. } => false,
-        }
-    }
-
-    pub fn can_progress_without_peer(&self) -> bool {
-        match self.state {
-            State::AwaitingDownload { .. } | State::Downloading { .. } => false,
-            State::AwaitingProcess { .. } | State::Processing { .. } | State::Processed { .. } => {
-                true
-            }
         }
     }
 
