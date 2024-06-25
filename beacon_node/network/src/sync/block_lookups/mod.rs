@@ -432,13 +432,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Error responses */
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
-        /* Check disconnection for single lookups */
-        self.single_block_lookups.retain(|_, lookup| {
+        for (_, lookup) in self.single_block_lookups.iter_mut() {
             lookup.remove_peer(peer_id);
-            // Keep the lookup if it was some peers that can drive progress
-            // or if it has some downloaded components that can be processed
-            !lookup.has_no_peers() || lookup.can_progress_without_peer()
-        })
+        }
     }
 
     /* Processing responses */
@@ -801,12 +797,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             };
 
             if stuck_lookup.id == ancestor_stuck_lookup.id {
-                warn!(self.log, "Notify the devs, a sync lookup is stuck";
+                warn!(self.log, "Notify the devs a sync lookup is stuck";
                     "block_root" => ?stuck_lookup.block_root(),
                     "lookup" => ?stuck_lookup,
                 );
             } else {
-                warn!(self.log, "Notify the devs, a sync lookup is stuck";
+                warn!(self.log, "Notify the devs a sync lookup is stuck";
                     "block_root" => ?stuck_lookup.block_root(),
                     "lookup" => ?stuck_lookup,
                     "ancestor_block_root" => ?ancestor_stuck_lookup.block_root(),

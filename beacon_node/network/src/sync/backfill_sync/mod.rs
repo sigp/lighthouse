@@ -320,7 +320,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         }
 
         if let Some(batch_ids) = self.active_requests.remove(peer_id) {
-            // fail the batches
+            // fail the batches.
             for id in batch_ids {
                 if let Some(batch) = self.batches.get_mut(&id) {
                     match batch.download_failed(false) {
@@ -335,7 +335,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // If we have run out of peers in which to retry this batch, the backfill state
                     // transitions to a paused state.
                     // We still need to reset the state for all the affected batches, so we should not
-                    // short circuit early
+                    // short circuit early.
                     if self.retry_batch_download(network, id).is_err() {
                         debug!(
                             self.log,

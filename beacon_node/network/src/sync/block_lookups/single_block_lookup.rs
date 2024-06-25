@@ -203,6 +203,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 // Lookup sync event safety: If a lookup requires peers to make progress, and does
                 // not receive any new peers for some time it will be dropped. If it receives a new
                 // peer it must attempt to make progress.
+                R::request_state_mut(self)
+                    .get_state_mut()
+                    .update_awaiting_download_status("no peers");
                 return Ok(());
             };
 
@@ -273,12 +276,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Remove peer from available peers.
     pub fn remove_peer(&mut self, peer_id: &PeerId) {
         self.peers.remove(peer_id);
-    }
-
-    /// Returns true if a lookup has some downloaded components that can be processed.
-    pub fn can_progress_without_peer(&self) -> bool {
-        self.block_request_state.state.can_progress_without_peer()
-            || self.blob_request_state.state.can_progress_without_peer()
     }
 
     /// Returns true if this lookup has zero peers
@@ -375,15 +372,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
             | State::AwaitingProcess { .. }
             | State::Processing { .. }
             | State::Processed { .. } => false,
-        }
-    }
-
-    pub fn can_progress_without_peer(&self) -> bool {
-        match self.state {
-            State::AwaitingDownload { .. } | State::Downloading { .. } => false,
-            State::AwaitingProcess { .. } | State::Processing { .. } | State::Processed { .. } => {
-                true
-            }
         }
     }
 
