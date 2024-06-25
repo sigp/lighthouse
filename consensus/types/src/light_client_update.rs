@@ -302,13 +302,10 @@ impl<E: EthSpec> LightClientUpdate<E> {
 
         let new_attested_header_sync_committee_period =
             compute_sync_committee_period_at_slot::<E>(new_attested_header_slot, chain_spec)?;
-
         let new_signature_slot_sync_committee_period =
             compute_sync_committee_period_at_slot::<E>(*new.signature_slot(), chain_spec)?;
-
         let prev_attested_header_sync_committee_period =
             compute_sync_committee_period_at_slot::<E>(prev_attested_header_slot, chain_spec)?;
-
         let prev_signature_slot_sync_committee_period =
             compute_sync_committee_period_at_slot::<E>(*self.signature_slot(), chain_spec)?;
 
