@@ -5,7 +5,7 @@
 //! is recursive in nature, as we may discover that this attested head block root has a parent that
 //! is also unknown to us.
 //!
-//! Block lookup is implemented as an event driven state machine. It sends events to the network and
+//! Block lookup is implemented as an event-driven state machine. It sends events to the network and
 //! beacon processor, and expects some set of events back. A discrepancy in the expected event API
 //! will result in lookups getting "stuck". A lookup becomes stuck when there is no future event
 //! that will trigger the lookup to make progress. There's a fallback mechanism that drops lookups
@@ -13,6 +13,12 @@
 //!
 //! The expected event API is documented in the code paths that are making assumptions  with the
 //! comment prefix "Lookup sync event safety:"
+//!
+//! Block lookup sync attempts to not re-download or re-process data that we already have. Block
+//! components are cached temporarily in multiple places before they are imported into fork-choice.
+//! Therefore, block lookup sync must peek these caches correctly to decide when to skip a download
+//! or consider a lookup complete. These caches are read from the `SyncNetworkContext` and its state
+//! returned to this module as `LookupRequestResult` variants.
 
 use self::parent_chain::{compute_parent_chains, NodeChain};
 pub use self::single_block_lookup::DownloadResult;
