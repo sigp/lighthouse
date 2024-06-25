@@ -199,6 +199,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             let Some(peer_id) = self.use_rand_available_peer() else {
                 // Allow lookup to not have any peers. In that case do nothing. If the lookup does
                 // not have peers for some time, it will be dropped.
+                R::request_state_mut(self)
+                    .get_state_mut()
+                    .update_awaiting_download_status("no peers");
                 return Ok(());
             };
 
