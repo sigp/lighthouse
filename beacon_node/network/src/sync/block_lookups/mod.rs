@@ -1,3 +1,19 @@
+//! Implements block lookup sync.
+//!
+//! Block lookup sync is triggered when a peer claims to have imported a block we don't know about.
+//! For example, a peer attesting to a head block root that is not in our fork-choice. Lookup sync
+//! is recursive in nature, as we may discover that this attested head block root has a parent that
+//! is also unknown to us.
+//!
+//! Block lookup is implemented as an event driven state machine. It sends events to the network and
+//! beacon processor, and expects some set of events back. A discrepancy in the expected event API
+//! will result in lookups getting "stuck". A lookup becomes stuck when there is no future event
+//! that will trigger the lookup to make progress. There's a fallback mechanism that drops lookups
+//! that live for too long, logging the line "Notify the devs a sync lookup is stuck".
+//!
+//! The expected event API is documented in the code paths that are making assumptions  with the
+//! comment prefix "Lookup sync event safety:"
+
 use self::parent_chain::{compute_parent_chains, NodeChain};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
