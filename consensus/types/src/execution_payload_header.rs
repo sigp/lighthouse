@@ -120,12 +120,8 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         // Matching here in case variable fields are added in future forks.
         match fork_name {
-            ForkName::Base
-            | ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
+            ForkName::Base | ForkName::Altair => 0,
+            ForkName::Bellatrix | ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                 // Max size of variable length `extra_data` field
                 E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
             }

@@ -120,6 +120,22 @@ impl ForkName {
         }
     }
 
+    pub fn altair_enabled(self) -> bool {
+        self >= ForkName::Altair
+    }
+
+    pub fn bellatrix_enabled(self) -> bool {
+        self >= ForkName::Bellatrix
+    }
+
+    pub fn capella_enabled(self) -> bool {
+        self >= ForkName::Capella
+    }
+
+    pub fn deneb_enabled(self) -> bool {
+        self >= ForkName::Deneb
+    }
+
     pub fn electra_enabled(self) -> bool {
         self >= ForkName::Electra
     }

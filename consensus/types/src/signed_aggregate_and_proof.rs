@@ -34,7 +34,9 @@ use tree_hash_derive::TreeHash;
         ),
         serde(bound = "E: EthSpec"),
         arbitrary(bound = "E: EthSpec"),
-    )
+    ),
+    map_into(Attestation),
+    map_ref_into(AggregateAndProofRef)
 )]
 #[derive(
     arbitrary::Arbitrary, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, TreeHash,
@@ -102,19 +104,17 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
         }
     }
 
-    pub fn message(&self) -> AggregateAndProofRef<E> {
-        match self {
-            SignedAggregateAndProof::Base(message) => AggregateAndProofRef::Base(&message.message),
-            SignedAggregateAndProof::Electra(message) => {
-                AggregateAndProofRef::Electra(&message.message)
-            }
-        }
+    pub fn message<'a>(&'a self) -> AggregateAndProofRef<'a, E> {
+        map_signed_aggregate_and_proof_ref_into_aggregate_and_proof_ref!(
+            &'a _,
+            self.to_ref(),
+            |inner, cons| { cons(&inner.message) }
+        )
     }
 
     pub fn into_attestation(self) -> Attestation<E> {
-        match self {
-            Self::Base(att) => Attestation::Base(att.message.aggregate),
-            Self::Electra(att) => Attestation::Electra(att.message.aggregate),
-        }
+        map_signed_aggregate_and_proof_into_attestation!(self, |inner, cons| {
+            cons(inner.message.aggregate)
+        })
     }
 }
