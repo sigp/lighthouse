@@ -131,8 +131,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             )?);
         };
 
-        let maybe_finalized_block =
-            store.get_full_block(&cached_parts.finalized_block_root)?;
+        let maybe_finalized_block = store.get_full_block(&cached_parts.finalized_block_root)?;
 
         let new_light_client_update = LightClientUpdate::new(
             sync_aggregate,
@@ -150,12 +149,10 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .sync_committee_period(chain_spec)?;
 
         let prev_light_client_update = match &self.latest_light_client_update.read().clone() {
-            Some(prev_light_client_update) => {
-                Some(prev_light_client_update.clone())
-            },
+            Some(prev_light_client_update) => Some(prev_light_client_update.clone()),
             None => self.get_light_client_update(&store, sync_period, chain_spec)?,
         };
-            
+
         let should_persist_light_client_update =
             if let Some(prev_light_client_update) = prev_light_client_update {
                 prev_light_client_update

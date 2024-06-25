@@ -232,7 +232,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             }
             ForkName::Electra => {
                 let attested_header =
-                LightClientHeaderElectra::block_to_light_client_header(attested_block)?;
+                    LightClientHeaderElectra::block_to_light_client_header(attested_block)?;
 
                 let finalized_header = if let Some(finalized_block) = finalized_block {
                     LightClientHeaderElectra::block_to_light_client_header(finalized_block)?
@@ -240,7 +240,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     LightClientHeaderElectra::default()
                 };
 
-               Self::Electra(LightClientUpdateElectra {
+                Self::Electra(LightClientUpdateElectra {
                     attested_header,
                     next_sync_committee,
                     next_sync_committee_branch,
@@ -293,31 +293,41 @@ impl<E: EthSpec> LightClientUpdate<E> {
         }
     }
 
-    pub fn attested_header_sync_committee_period(&self, chain_spec: &ChainSpec) -> Result<Epoch, Error> {
+    fn attested_header_sync_committee_period(
+        &self,
+        chain_spec: &ChainSpec,
+    ) -> Result<Epoch, Error> {
         compute_sync_committee_period_at_slot::<E>(self.attested_header_slot(), chain_spec)
             .map_err(Error::ArithError)
     }
 
-    pub fn signature_slot_sync_committee_period(&self, chain_spec: &ChainSpec) -> Result<Epoch, Error> {
+    fn signature_slot_sync_committee_period(&self, chain_spec: &ChainSpec) -> Result<Epoch, Error> {
         compute_sync_committee_period_at_slot::<E>(*self.signature_slot(), chain_spec)
             .map_err(Error::ArithError)
     }
 
-    pub fn is_sync_committee_update(&self, chain_spec: &ChainSpec) -> Result<bool, Error> {     
+    fn is_sync_committee_update(&self, chain_spec: &ChainSpec) -> Result<bool, Error> {
         let new_has_relevant_sync_committee = !self.is_next_sync_committee_branch_empty()
-        && (self.attested_header_sync_committee_period(chain_spec)?
-            == self.signature_slot_sync_committee_period(chain_spec)?);
+            && (self.attested_header_sync_committee_period(chain_spec)?
+                == self.signature_slot_sync_committee_period(chain_spec)?);
 
         Ok(new_has_relevant_sync_committee)
     }
 
+    fn has_sync_committee_finality(&self, chain_spec: &ChainSpec) -> Result<bool, Error> {
+        let has_sync_committee_finality =
+            compute_sync_committee_period_at_slot::<E>(self.finalized_header_slot(), chain_spec)?
+                == self.attested_header_sync_committee_period(chain_spec)?;
+
+        Ok(has_sync_committee_finality)
+    }
 
     // Implements spec prioritization rules:
     // Full nodes SHOULD provide the best derivable LightClientUpdate for each sync committee period
     // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_update
     pub fn is_better_light_client_update(
         &self,
-        new: &LightClientUpdate<E>,
+        new: &Self,
         chain_spec: &ChainSpec,
     ) -> Result<bool, Error> {
         // Compare super majority (> 2/3) sync committee participation
@@ -339,14 +349,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
             return Ok(new_active_participants > prev_active_participants);
         }
 
-        let new_attested_header_slot = new.attested_header_slot();
-        let new_finalized_header_slot = new.finalized_header_slot();
-        let prev_attested_header_slot = self.attested_header_slot();
-        let prev_finalized_header_slot = self.finalized_header_slot();
-
         // Compare presence of relevant sync committee
         let new_has_relevant_sync_committee = new.is_sync_committee_update(chain_spec)?;
-
         let prev_has_relevant_sync_committee = !self.is_sync_committee_update(chain_spec)?;
 
         if new_has_relevant_sync_committee != prev_has_relevant_sync_committee {
@@ -362,13 +366,9 @@ impl<E: EthSpec> LightClientUpdate<E> {
 
         // Compare sync committee finality
         if new_has_finality {
-            let new_has_sync_committee_finality =
-                compute_sync_committee_period_at_slot::<E>(new_finalized_header_slot, chain_spec)?
-                    == new.attested_header_sync_committee_period(chain_spec)?;
+            let new_has_sync_committee_finality = new.has_sync_committee_finality(chain_spec)?;
 
-            let prev_has_sync_committee_finality =
-                compute_sync_committee_period_at_slot::<E>(prev_finalized_header_slot, chain_spec)?
-                    == self.attested_header_sync_committee_period(chain_spec)?;
+            let prev_has_sync_committee_finality = self.has_sync_committee_finality(chain_spec)?;
 
             if new_has_sync_committee_finality != prev_has_sync_committee_finality {
                 return Ok(new_has_sync_committee_finality);
@@ -379,6 +379,9 @@ impl<E: EthSpec> LightClientUpdate<E> {
         if new_active_participants != prev_active_participants {
             return Ok(new_active_participants > prev_active_participants);
         }
+
+        let new_attested_header_slot = new.attested_header_slot();
+        let prev_attested_header_slot = self.attested_header_slot();
 
         // Tiebreaker 2: Prefer older data (fewer changes to best)
         if new_attested_header_slot != prev_attested_header_slot {
