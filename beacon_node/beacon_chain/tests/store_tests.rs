@@ -296,8 +296,8 @@ async fn light_client_updates_test() {
     assert_eq!(lc_updates.len(), 1);
     assert_eq!(lc_updates.first().unwrap().clone(), lc_update);
 
-    // advance a bunch of slots & extend the chain
-    for _i in 0..1000 {
+    // Advance to the next sync committee period
+    for _i in 0..(E::slots_per_epoch() * u64::from(spec.epochs_per_sync_committee_period)) {
         harness.advance_slot();
     }
 
