@@ -410,11 +410,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Error responses */
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
-        /* Check disconnection for single lookups */
+        // Check disconnection for single lookups.
         self.single_block_lookups.retain(|_, lookup| {
             lookup.remove_peer(peer_id);
             // Keep the lookup if it was some peers that can drive progress
-            // or if it has some downloaded components that can be processed
+            // or if it has some downloaded components that can be processed.
             !lookup.has_no_peers() || lookup.can_progress_without_peer()
         })
     }

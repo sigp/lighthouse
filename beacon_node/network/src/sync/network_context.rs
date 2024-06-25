@@ -177,7 +177,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    /// Returns all ids that were requested to the given peer_id
+    /// Returns the ids of all the requests made to the given peer_id.
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Vec<SyncRequestId> {
         let failed_range_ids =
             self.range_blocks_and_blobs_requests

@@ -1033,18 +1033,18 @@ fn test_single_block_lookup_peer_disconnected_then_rpc_error() {
     let block_hash = Hash256::random();
     let peer_id = rig.new_connected_peer();
 
-    // Trigger the request
+    // Trigger the request.
     rig.trigger_unknown_block_from_attestation(block_hash, peer_id);
     let id = rig.expect_block_lookup_request(block_hash);
 
-    // The peer disconnect event reaches sync before the rpc error
+    // The peer disconnect event reaches sync before the rpc error.
     rig.peer_disconnected(peer_id);
-    // Only peer and no progress on lookup, so lookup should be removed
+    // Only peer and no progress on lookup, so lookup should be removed.
     rig.expect_no_active_lookups();
-    // The request fails
+    // The request fails.
     rig.single_lookup_failed(id, peer_id, RPCError::Disconnected);
     rig.expect_block_lookup_request(block_hash);
-    // The request should be removed from the network context on disconnection
+    // The request should be removed from the network context on disconnection.
     rig.expect_empty_network();
 }
 
