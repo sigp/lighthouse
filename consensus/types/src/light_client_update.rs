@@ -293,6 +293,24 @@ impl<E: EthSpec> LightClientUpdate<E> {
         }
     }
 
+    pub fn attested_header_sync_committee_period(&self, chain_spec: &ChainSpec) -> Result<Epoch, Error> {
+        compute_sync_committee_period_at_slot::<E>(self.attested_header_slot(), chain_spec)
+            .map_err(Error::ArithError)
+    }
+
+    pub fn signature_slot_sync_committee_period(&self, chain_spec: &ChainSpec) -> Result<Epoch, Error> {
+        compute_sync_committee_period_at_slot::<E>(*self.signature_slot(), chain_spec)
+            .map_err(Error::ArithError)
+    }
+
+    pub fn is_sync_committee_update(&self, chain_spec: &ChainSpec) -> Result<bool, Error> {     
+        let new_has_relevant_sync_committee = !self.is_next_sync_committee_branch_empty()
+        && (self.attested_header_sync_committee_period(chain_spec)?
+            == self.signature_slot_sync_committee_period(chain_spec)?);
+
+        Ok(new_has_relevant_sync_committee)
+    }
+
 
     // Implements spec prioritization rules:
     // Full nodes SHOULD provide the best derivable LightClientUpdate for each sync committee period
@@ -314,7 +332,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             prev_active_participants.safe_mul(3)? >= max_active_participants.safe_mul(2)?;
 
         if new_has_super_majority != prev_has_super_majority {
-            return Ok(new_has_super_majority & !prev_has_super_majority);
+            return Ok(new_has_super_majority);
         }
 
         if !new_has_super_majority && new_active_participants != prev_active_participants {
@@ -326,26 +344,10 @@ impl<E: EthSpec> LightClientUpdate<E> {
         let prev_attested_header_slot = self.attested_header_slot();
         let prev_finalized_header_slot = self.finalized_header_slot();
 
-        let new_attested_header_sync_committee_period =
-            compute_sync_committee_period_at_slot::<E>(new_attested_header_slot, chain_spec)?;
-
-        let new_signature_slot_sync_committee_period =
-            compute_sync_committee_period_at_slot::<E>(*new.signature_slot(), chain_spec)?;
-
-        let prev_attested_header_sync_committee_period =
-            compute_sync_committee_period_at_slot::<E>(prev_attested_header_slot, chain_spec)?;
-
-        let prev_signature_slot_sync_committee_period =
-            compute_sync_committee_period_at_slot::<E>(*self.signature_slot(), chain_spec)?;
-
         // Compare presence of relevant sync committee
-        let new_has_relevant_sync_committee = !new.is_next_sync_committee_branch_empty()
-            && (new_attested_header_sync_committee_period
-                == new_signature_slot_sync_committee_period);
+        let new_has_relevant_sync_committee = new.is_sync_committee_update(chain_spec)?;
 
-        let prev_has_relevant_sync_committee = !self.is_next_sync_committee_branch_empty()
-            && (prev_attested_header_sync_committee_period
-                == prev_signature_slot_sync_committee_period);
+        let prev_has_relevant_sync_committee = !self.is_sync_committee_update(chain_spec)?;
 
         if new_has_relevant_sync_committee != prev_has_relevant_sync_committee {
             return Ok(new_has_relevant_sync_committee);
@@ -362,11 +364,11 @@ impl<E: EthSpec> LightClientUpdate<E> {
         if new_has_finality {
             let new_has_sync_committee_finality =
                 compute_sync_committee_period_at_slot::<E>(new_finalized_header_slot, chain_spec)?
-                    == new_attested_header_sync_committee_period;
+                    == new.attested_header_sync_committee_period(chain_spec)?;
 
             let prev_has_sync_committee_finality =
                 compute_sync_committee_period_at_slot::<E>(prev_finalized_header_slot, chain_spec)?
-                    == prev_attested_header_sync_committee_period;
+                    == self.attested_header_sync_committee_period(chain_spec)?;
 
             if new_has_sync_committee_finality != prev_has_sync_committee_finality {
                 return Ok(new_has_sync_committee_finality);
