@@ -39,7 +39,7 @@ use std::ptr;
 use types::{
     sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, AbstractExecPayload,
     Attestation, AttestationData, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    Epoch, EthSpec, ForkName, ProposerSlashing, SignedBeaconBlock, SignedBlsToExecutionChange,
+    Epoch, EthSpec, ProposerSlashing, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
 };
 
@@ -316,10 +316,10 @@ impl<E: EthSpec> OperationPool<E> {
             )
             .inspect(|_| num_curr_valid += 1);
 
-        let curr_epoch_limit = if fork_name < ForkName::Electra {
-            E::MaxAttestations::to_usize()
-        } else {
+        let curr_epoch_limit = if fork_name.electra_enabled() {
             E::MaxAttestationsElectra::to_usize()
+        } else {
+            E::MaxAttestations::to_usize()
         };
         let prev_epoch_limit = if let BeaconState::Base(base_state) = state {
             std::cmp::min(

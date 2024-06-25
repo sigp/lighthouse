@@ -13,7 +13,8 @@ use slog::{debug, error, info, Logger};
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
-    AttesterSlashing, Epoch, EthSpec, IndexedAttestation, ProposerSlashing, SignedBeaconBlockHeader,
+    AttesterSlashing, ChainSpec, Epoch, EthSpec, IndexedAttestation, ProposerSlashing,
+    SignedBeaconBlockHeader,
 };
 
 #[derive(Debug)]
@@ -28,10 +29,10 @@ pub struct Slasher<E: EthSpec> {
 }
 
 impl<E: EthSpec> Slasher<E> {
-    pub fn open(config: Config, log: Logger) -> Result<Self, Error> {
+    pub fn open(config: Config, spec: Arc<ChainSpec>, log: Logger) -> Result<Self, Error> {
         config.validate()?;
         let config = Arc::new(config);
-        let db = SlasherDB::open(config.clone(), log.clone())?;
+        let db = SlasherDB::open(config.clone(), spec, log.clone())?;
         let attester_slashings = Mutex::new(HashSet::new());
         let proposer_slashings = Mutex::new(HashSet::new());
         let attestation_queue = AttestationQueue::default();

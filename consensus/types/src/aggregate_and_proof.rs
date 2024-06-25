@@ -33,7 +33,8 @@ use tree_hash_derive::TreeHash;
         derive(Debug, PartialEq, TreeHash, Serialize,),
         serde(untagged, bound = "E: EthSpec"),
         tree_hash(enum_behaviour = "transparent")
-    )
+    ),
+    map_ref_into(AttestationRef)
 )]
 #[derive(
     arbitrary::Arbitrary, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, TreeHash,
@@ -59,19 +60,17 @@ pub struct AggregateAndProof<E: EthSpec> {
 impl<'a, E: EthSpec> AggregateAndProofRef<'a, E> {
     /// Returns `true` if `validator_pubkey` signed over `self.aggregate.data.slot`.
     pub fn aggregate(self) -> AttestationRef<'a, E> {
-        match self {
-            AggregateAndProofRef::Base(a) => AttestationRef::Base(&a.aggregate),
-            AggregateAndProofRef::Electra(a) => AttestationRef::Electra(&a.aggregate),
-        }
+        map_aggregate_and_proof_ref_into_attestation_ref!(&'a _, self, |inner, cons| {
+            cons(&inner.aggregate)
+        })
     }
 }
 impl<E: EthSpec> AggregateAndProof<E> {
     /// Returns `true` if `validator_pubkey` signed over `self.aggregate.data.slot`.
-    pub fn aggregate(&self) -> AttestationRef<E> {
-        match self {
-            AggregateAndProof::Base(a) => AttestationRef::Base(&a.aggregate),
-            AggregateAndProof::Electra(a) => AttestationRef::Electra(&a.aggregate),
-        }
+    pub fn aggregate<'a>(&'a self) -> AttestationRef<'a, E> {
+        map_aggregate_and_proof_ref_into_attestation_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(&inner.aggregate)
+        })
     }
 }
 
