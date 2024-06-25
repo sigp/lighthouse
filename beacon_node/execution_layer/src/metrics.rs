@@ -81,7 +81,7 @@ lazy_static::lazy_static! {
     );
     pub static ref EXECUTION_LAYER_PAYLOAD_BIDS: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "execution_layer_payload_bids",
-        "The gwei bid value of payloads received by local EEs or builders. Only shows values up to i64::max_value.",
+        "The gwei bid value of payloads received by local EEs or builders. Only shows values up to i64::MAX.",
         &["source"]
     );
 }
