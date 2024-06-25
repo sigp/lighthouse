@@ -1393,7 +1393,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     .unwrap();
 
                 if self.individual_tracking() {
-                    if is_first_inclusion == false {
+                    if is_first_inclusion {
                         info!(
                             self.log,
                             "Attestation included in aggregate";
