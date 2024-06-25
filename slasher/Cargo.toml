@@ -29,6 +29,7 @@ tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 types = { workspace = true }
 strum = { workspace = true }
+ssz_types = { workspace = true }
 
 # MDBX is pinned at the last version with Windows and macOS support.
 mdbx = { package = "libmdbx", git = "https://github.com/sigp/libmdbx-rs", tag = "v0.1.4", optional = true }

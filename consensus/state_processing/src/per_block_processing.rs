@@ -626,6 +626,7 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
             // Update pending partial withdrawals [New in Electra:EIP7251]
             if let Some(partial_withdrawals_count) = partial_withdrawals_count {
+                // TODO(electra): Use efficient pop_front after milhouse release https://github.com/sigp/milhouse/pull/38
                 let new_partial_withdrawals = state
                     .pending_partial_withdrawals()?
                     .iter_from(partial_withdrawals_count)?

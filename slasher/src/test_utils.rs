@@ -1,9 +1,10 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 use types::{
     indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra},
     AggregateSignature, AttestationData, AttesterSlashing, AttesterSlashingBase,
-    AttesterSlashingElectra, BeaconBlockHeader, Checkpoint, Epoch, Hash256, IndexedAttestation,
-    MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
+    AttesterSlashingElectra, BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256,
+    IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
@@ -144,4 +145,8 @@ pub fn block(slot: u64, proposer_index: u64, block_root: u64) -> SignedBeaconBlo
         },
         signature: Signature::empty(),
     }
+}
+
+pub fn chain_spec() -> Arc<ChainSpec> {
+    Arc::new(E::default_spec())
 }
