@@ -61,10 +61,9 @@ use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttestationRef, BeaconCommittee,
-    BeaconStateError::{self, NoCommitteeFound},
-    ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName, Hash256, IndexedAttestation,
-    SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
+    Attestation, AttestationRef, BeaconCommittee, BeaconStateError::NoCommitteeFound, ChainSpec,
+    CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation, SelectionProof,
+    SignedAggregateAndProof, Slot, SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -266,30 +265,9 @@ pub enum Error {
     BeaconChainError(BeaconChainError),
 }
 
-// TODO(electra) the error conversion changes here are to get a test case to pass
-// this could easily be cleaned up
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
-        match &e {
-            BeaconChainError::BeaconStateError(beacon_state_error) => {
-                if let BeaconStateError::AggregatorNotInCommittee { aggregator_index } =
-                    beacon_state_error
-                {
-                    Self::AggregatorNotInCommittee {
-                        aggregator_index: *aggregator_index,
-                    }
-                } else if let BeaconStateError::InvalidSelectionProof { aggregator_index } =
-                    beacon_state_error
-                {
-                    Self::InvalidSelectionProof {
-                        aggregator_index: *aggregator_index,
-                    }
-                } else {
-                    Error::BeaconChainError(e)
-                }
-            }
-            _ => Error::BeaconChainError(e),
-        }
+        Self::BeaconChainError(e)
     }
 }
 
@@ -1169,7 +1147,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
 
     let current_fork =
         spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
-    let earliest_permissible_slot = if current_fork < ForkName::Deneb {
+    let earliest_permissible_slot = if !current_fork.deneb_enabled() {
         one_epoch_prior
     // EIP-7045
     } else {
@@ -1414,11 +1392,11 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
 /// Runs the `map_fn` with the committee and committee count per slot for the given `attestation`.
 ///
 /// This function exists in this odd "map" pattern because efficiently obtaining the committees for
-/// an attestations slot can be complex. It might involve reading straight from the
+/// an attestation's slot can be complex. It might involve reading straight from the
 /// `beacon_chain.shuffling_cache` or it might involve reading it from a state from the DB. Due to
 /// the complexities of `RwLock`s on the shuffling cache, a simple `Cow` isn't suitable here.
 ///
-/// If the committees for an `attestation`'s slot isn't found in the `shuffling_cache`, we will read a state
+/// If the committees for an `attestation`'s slot aren't found in the `shuffling_cache`, we will read a state
 /// from disk and then update the `shuffling_cache`.
 ///
 /// Committees are sorted by ascending index order 0..committees_per_slot
