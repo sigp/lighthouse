@@ -223,11 +223,7 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
-            consolidation_requests: payload
-                .consolidation_requests
-                .into_iter()
-                .collect::<Vec<_>>()
-                .into(),
+            consolidation_requests: payload.consolidation_requests,
         }
     }
 }
@@ -356,7 +352,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
-            consolidation_requests: payload.consolidation_requests.into(),
+            consolidation_requests: payload.consolidation_requests,
         }
     }
 }

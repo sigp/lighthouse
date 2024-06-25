@@ -2034,7 +2034,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     excess_blob_gas: electra_block.excess_blob_gas,
                     deposit_requests,
                     withdrawal_requests,
-                    consolidation_requests: consolidation_requests,
+                    consolidation_requests,
                 })
             }
         };

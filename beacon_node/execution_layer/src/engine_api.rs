@@ -20,7 +20,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::execution_payload::{ConsolidationRequests, DepositRequests, WithdrawalRequests};
+use types::execution_payload::{DepositRequests, WithdrawalRequests};
 pub use types::{
     Address, BeaconBlockRef, ConsolidationRequest, EthSpec, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadHeader, ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions,
