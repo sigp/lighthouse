@@ -16,6 +16,7 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
+| v5.2.0             | Jun 2024     | v19            | yes before Deneb     |
 | v5.1.0             | Mar 2024     | v19            | yes before Deneb     |
 | v5.0.0             | Feb 2024     | v19            | yes before Deneb     |
 | v4.6.0             | Dec 2023     | v19            | yes before Deneb     |

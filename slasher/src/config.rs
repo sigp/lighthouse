@@ -11,7 +11,7 @@ pub const DEFAULT_VALIDATOR_CHUNK_SIZE: usize = 256;
 pub const DEFAULT_HISTORY_LENGTH: usize = 4096;
 pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
 pub const DEFAULT_SLOT_OFFSET: f64 = 10.5;
-pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
+pub const DEFAULT_MAX_DB_SIZE: usize = 512 * 1024; // 512 GiB
 pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(100_000);
 pub const DEFAULT_BROADCAST: bool = false;
 
