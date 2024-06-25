@@ -42,6 +42,8 @@ pub struct LightClientServerCache<T: BeaconChainTypes> {
     latest_finality_update: RwLock<Option<LightClientFinalityUpdate<T::EthSpec>>>,
     /// Tracks a single global latest optimistic update out of all imported blocks.
     latest_optimistic_update: RwLock<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
+    /// Caches the most recent light client update
+    latest_light_client_update: RwLock<Option<LightClientUpdate<T::EthSpec>>>,
     /// Caches state proofs by block root
     prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData<T::EthSpec>>>,
 }
@@ -51,6 +53,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         Self {
             latest_finality_update: None.into(),
             latest_optimistic_update: None.into(),
+            latest_light_client_update: None.into(),
             prev_block_cache: lru::LruCache::new(PREV_BLOCK_CACHE_SIZE).into(),
         }
     }
@@ -120,7 +123,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .epoch
             .sync_committee_period(chain_spec)?;
 
-        let attested_slot = attested_block.slot();
 
         self.store_current_sync_committee_branch(
             &store,
@@ -129,6 +131,44 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         )?;
 
         self.store_sync_committee(&store, &cached_parts, sync_period, finalized_period)?;
+
+        let attested_slot = attested_block.slot();   
+
+        let maybe_finalized_block = store.get_full_block(&cached_parts.finalized_block_root)?;
+
+        let new_light_client_update = LightClientUpdate::new(
+            sync_aggregate,
+            block_slot,
+            cached_parts.next_sync_committee,
+            cached_parts.next_sync_committee_branch,
+            cached_parts.finality_branch.clone(),
+            &attested_block,
+            maybe_finalized_block.as_ref(),
+            chain_spec,
+        )?;
+
+        let sync_period = block_slot
+            .epoch(T::EthSpec::slots_per_epoch())
+            .sync_committee_period(chain_spec)?;
+
+        // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update) 
+        // for each sync committee period
+        let prev_light_client_update = match &self.latest_light_client_update.read().clone() {
+            Some(prev_light_client_update) => Some(prev_light_client_update.clone()),
+            None => self.get_light_client_update(&store, sync_period, chain_spec)?,
+        };
+
+        let should_persist_light_client_update =
+            if let Some(prev_light_client_update) = prev_light_client_update {
+                prev_light_client_update
+                    .is_better_light_client_update(&new_light_client_update, chain_spec)?
+            } else {
+                true
+            };
+
+        if should_persist_light_client_update {
+            self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
+        }
 
         // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
@@ -148,35 +188,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             )?);
         };
 
-        let maybe_finalized_block_root =
-            store.get_full_block(&cached_parts.finalized_block_root)?;
-
-        let new_light_client_update = LightClientUpdate::new(
-            sync_aggregate,
-            block_slot,
-            cached_parts.next_sync_committee,
-            cached_parts.next_sync_committee_branch,
-            cached_parts.finality_branch.clone(),
-            &attested_block,
-            maybe_finalized_block_root.as_ref(),
-            chain_spec,
-        )?;
-
-        let prev_light_client_update =
-            self.get_light_client_update(&store, sync_period, chain_spec)?;
-
-        let should_persist_light_client_update =
-            if let Some(prev_light_client_update) = prev_light_client_update {
-                prev_light_client_update
-                    .is_better_light_client_update(&new_light_client_update, chain_spec)?
-            } else {
-                true
-            };
-
-        if should_persist_light_client_update {
-            self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
-        }
-
         // Spec: Full nodes SHOULD provide the LightClientFinalityUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
         let is_latest_finality = match &self.latest_finality_update.read().clone() {
@@ -188,7 +199,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         if is_latest_finality & !cached_parts.finalized_block_root.is_zero() {
             // Immediately after checkpoint sync the finalized block may not be available yet.
-            if let Some(finalized_block) = maybe_finalized_block_root {
+            if let Some(finalized_block) = maybe_finalized_block {
                 *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
                     &attested_block,
                     &finalized_block,
@@ -266,6 +277,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             &sync_committee_period.to_le_bytes(),
             &light_client_update.as_ssz_bytes(),
         )?;
+
+        *self.latest_light_client_update.write() = Some(light_client_update.clone());
 
         Ok(())
     }

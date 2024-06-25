@@ -141,7 +141,7 @@ pub fn insert_beacon_block<E: EthSpec>(
     let parent_root = WatchHash::from_hash(block.parent_root());
     let proposer_index = block_message.proposer_index() as i32;
     let graffiti = block_message.body().graffiti().as_utf8_lossy();
-    let attestation_count = block_message.body().attestations().len() as i32;
+    let attestation_count = block_message.body().attestations_len() as i32;
 
     let full_payload = block_message.execution_payload().ok();
 
