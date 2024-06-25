@@ -197,8 +197,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             }
 
             let Some(peer_id) = self.use_rand_available_peer() else {
-                // Allow lookup to not have any peers. In that case do nothing. If the lookup does
-                // not have peers for some time, it will be dropped.
+                // Allow lookup to not have any peers and do nothing. This is an optimization to not
+                // lose progress of lookups created from a block with unknown parent before we receive
+                // attestations for said block.
+                // Lookup sync event safety: If a lookup requires peers to make progress, and does
+                // not receive any new peers for some time it will be dropped. If it receives a new
+                // peer it must attempt to make progress.
                 return Ok(());
             };
 
