@@ -1384,16 +1384,16 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 let is_first_inclusion = validator
                     .get_from_epoch_summary(epoch, |summary_opt| {
                         if let Some(summary) = summary_opt {
-                            Some(summary.attestation_aggregate_inclusions == 0)
+                            Some(summary.attestation_aggregate_inclusions == 1)
                         } else {
                             // No data for this validator: no inclusion.
-                            Some(true)
+                            Some(false)
                         }
                     })
                     .unwrap();
 
                 if self.individual_tracking() {
-                    if is_first_inclusion {
+                    if is_first_inclusion == false {
                         info!(
                             self.log,
                             "Attestation included in aggregate";
