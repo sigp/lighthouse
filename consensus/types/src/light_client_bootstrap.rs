@@ -133,8 +133,13 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                 current_sync_committee,
                 current_sync_committee_branch,
             }),
-            ForkName::Deneb | ForkName::Electra => Self::Deneb(LightClientBootstrapDeneb {
+            ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb {
                 header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
+                current_sync_committee,
+                current_sync_committee_branch,
+            }),
+            ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
+                header: LightClientHeaderElectra::block_to_light_client_header(block)?,
                 current_sync_committee,
                 current_sync_committee_branch,
             }),

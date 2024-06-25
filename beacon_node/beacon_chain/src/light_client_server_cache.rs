@@ -44,6 +44,8 @@ pub struct LightClientServerCache<T: BeaconChainTypes> {
     latest_optimistic_update: RwLock<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
     /// Caches the most recent light client update
     latest_light_client_update: RwLock<Option<LightClientUpdate<T::EthSpec>>>,
+    /// Caches the current sync committee,
+    latest_sync_committee: RwLock<Option<Arc<SyncCommittee<T::EthSpec>>>>,
     /// Caches state proofs by block root
     prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData<T::EthSpec>>>,
 }
@@ -54,6 +56,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             latest_finality_update: None.into(),
             latest_optimistic_update: None.into(),
             latest_light_client_update: None.into(),
+            latest_sync_committee: None.into(),
             prev_block_cache: lru::LruCache::new(PREV_BLOCK_CACHE_SIZE).into(),
         }
     }
@@ -123,7 +126,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .epoch
             .sync_committee_period(chain_spec)?;
 
-
         self.store_current_sync_committee_branch(
             &store,
             &cached_parts,
@@ -132,7 +134,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         self.store_sync_committee(&store, &cached_parts, sync_period, finalized_period)?;
 
-        let attested_slot = attested_block.slot();   
+        let attested_slot = attested_block.slot();
 
         let maybe_finalized_block = store.get_full_block(&cached_parts.finalized_block_root)?;
 
@@ -151,7 +153,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .epoch(T::EthSpec::slots_per_epoch())
             .sync_committee_period(chain_spec)?;
 
-        // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update) 
+        // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update)
         // for each sync committee period
         let prev_light_client_update = match &self.latest_light_client_update.read().clone() {
             Some(prev_light_client_update) => Some(prev_light_client_update.clone()),
@@ -242,16 +244,13 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         sync_committee_period: u64,
         finalized_period: u64,
     ) -> Result<(), BeaconChainError> {
-        let column = DBColumn::SyncCommittee;
+        if let Some(latest_sync_committee) = self.latest_sync_committee.read().clone() {
+            if latest_sync_committee == cached_parts.current_sync_committee {
+                return Ok(())
+            }
+        };
 
-        // TODO should i always write to db, even if a record already exists?
-        if finalized_period >= sync_committee_period {
-            store.hot_db.put_bytes(
-                column.into(),
-                &(sync_committee_period + 1).to_le_bytes(),
-                &cached_parts.next_sync_committee.as_ssz_bytes(),
-            )?;
-        }
+        let column = DBColumn::SyncCommittee;
 
         if finalized_period >= sync_committee_period - 1 {
             store.hot_db.put_bytes(
@@ -260,6 +259,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 &cached_parts.current_sync_committee.as_ssz_bytes(),
             )?;
         }
+
+        *self.latest_sync_committee.write() = Some(cached_parts.current_sync_committee.clone());
 
         Ok(())
     }
@@ -433,7 +434,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         chain_spec: &ChainSpec,
     ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, BeaconChainError> {
         if let Some(block) = store.get_full_block(block_root)? {
-            let (state_root, slot) = (block.state_root(), block.slot());
+            let (_, slot) = (block.state_root(), block.slot());
 
             let fork_name = chain_spec.fork_name_at_slot::<T::EthSpec>(slot);
 
@@ -447,19 +448,14 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             // TODO unwrap
             // db.current_sync_committee_branch.get(block_root)
 
-            let current_sync_committee = if sync_committee_period <= finalized_period {
-                // fetch the header current sync committee from the db, since its not cached
-                // TODO unwrap
-                Arc::new(
-                    self.get_sync_committee(store, sync_committee_period)?
-                        .unwrap(),
-                )
-            } else {
-                // were at the current finalized period, so this data should be easily retrievable from the currently cached state
-                // TODO unwrap
-                let state = store.get_state(&state_root, Some(slot))?.unwrap();
-                state.current_sync_committee()?.clone()
-            };
+            if sync_committee_period > finalized_period {
+                return Ok(None);
+            }
+
+            let current_sync_committee = Arc::new(
+                self.get_sync_committee(store, sync_committee_period)?
+                    .unwrap(),
+            );
 
             let light_client_bootstrap = LightClientBootstrap::new(
                 &block,
