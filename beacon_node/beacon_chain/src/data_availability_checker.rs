@@ -33,7 +33,7 @@ pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(1024);
 pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(2);
 pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
-/// Cache to hold fully valid data that can't be imported to fork-choice yet. After dencun hard-fork
+/// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
 /// blocks have a sidecar of data that is received separately from the network. We call the concept
 /// of a block "becoming available" when all of its import dependencies are inserted into this
 /// cache.
@@ -41,18 +41,20 @@ pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 /// Usually a block becomes available on its slot within a second of receiving its first component
 /// over gossip. However, a block may never become available if a malicious proposer does not
 /// publish its data, or there are network issues that prevent us from receiving it. If the block
-/// does not become available after some time we can safely forget about it. Consider this two
+/// does not become available after some time we can safely forget about it. Consider these two
 /// cases:
 ///
 /// - Global unavailability: If nobody has received the block components it's likely that the
 ///   proposer never made the block available. So we can safely forget about the block as it will
 ///   never become available.
-/// - Local unavailability: Some of our peers will attest to a descendant of the dropped block and
-///   lookup sync will eventually fetch its components
+/// - Local unavailability: Some fraction of the network has received all block components, but not us.
+///   Some of our peers will eventually attest to a descendant of that block and lookup sync will
+///   fetch its components. Therefore it's not strictly necessary to hold to the partially available
+///   block for too long as we can recover from other peers.
 ///
 /// Even in periods of non-finality, the proposer is expected to publish the block's data
-/// immediately. Because this cache only holds fully valid data, its capacity is bounded to 1 block
-/// per slot and fork: before inserting into this cache we check proposer signature and correct
+/// immediately. Because this cache only holds fully valid data, its capacity is bound to 1 block
+/// per slot and fork: before inserting into this cache we check the proposer signature and correct
 /// proposer. Having a capacity > 1 is an optimization to prevent sync lookup from having re-fetch
 /// data during moments of unstable network conditions.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
