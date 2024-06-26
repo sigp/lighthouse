@@ -195,6 +195,7 @@ impl Kzg {
     /// Here, `coordinates` correspond to the (row, col) coordinate of the cell in the extended
     /// blob "matrix". In the 1D extension, row corresponds to the blob index, and col corresponds
     /// to the data column index.
+    #[allow(clippy::needless_lifetimes)]
     pub fn verify_cell_proof_batch<'a>(
         &self,
         cells: &[CellRef<'a>],
@@ -227,6 +228,7 @@ impl Kzg {
         }
     }
 
+    #[allow(clippy::needless_lifetimes)]
     pub fn recover_cells_and_compute_kzg_proofs<'a>(
         &self,
         cell_ids: &[u64],
