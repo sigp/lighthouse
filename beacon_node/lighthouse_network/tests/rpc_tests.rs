@@ -1417,6 +1417,7 @@ fn test_request_too_large() {
                             sender.send_request(peer_id, request_id, request).unwrap();
                         } else {
                             assert_eq!(failed_request_ids.len(), requests_to_be_failed);
+                            // End the test.
                             return
                         }
                     }
@@ -1445,4 +1446,94 @@ fn test_request_too_large() {
             }
         }
     });
+}
+
+// Test whether a request using the same protocol as another active request on the receiver
+// triggers a rate-limited error.
+#[test]
+fn test_active_requests() {
+    let rt = Arc::new(Runtime::new().unwrap());
+    let log = logging::test_logger();
+    let spec = E::default_spec();
+
+    rt.block_on(async {
+        // Get sender/receiver.
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        // Dummy STATUS RPC message.
+        let rpc_request = Request::Status(StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        });
+
+        // Build the sender future.
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        debug!(log, "Sending RPC request");
+                        // Send requests in quick succession to intentionally trigger a rate-limited error.
+                        sender
+                            .send_request(peer_id, 1, rpc_request.clone())
+                            .unwrap();
+                        sender
+                            .send_request(peer_id, 2, rpc_request.clone())
+                            .unwrap();
+                    }
+                    NetworkEvent::ResponseReceived { .. } => {
+                        unreachable!();
+                    }
+                    NetworkEvent::RPCFailed {
+                        id,
+                        peer_id: _,
+                        error,
+                    } => {
+                        debug!(log, "RPC Failed"; "request_id" => id, "error" => ?error);
+                        // Verify that the sender received a rate-limited error.
+                        assert!(matches!(
+                            error,
+                            RPCError::ErrorResponse(RPCResponseErrorCode::RateLimited, ..)
+                        ));
+                        // End the test.
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        // Build the receiver future.
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived { id, .. } => {
+                        debug!(log, "Receiver received request"; "request_id" => ?id);
+                        // Do not send a response to intentionally trigger the RPC error.
+                        continue;
+                    }
+                    _ => {} // Ignore other events.
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
 }

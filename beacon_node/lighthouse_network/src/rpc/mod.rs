@@ -25,6 +25,7 @@ pub(crate) use handler::{HandlerErr, HandlerEvent};
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
 pub(crate) use protocol::InboundRequest;
 
+use crate::rpc::active_requests_limiter::ActiveRequestsLimiter;
 use crate::rpc::rate_limiter::RequestSizeLimiter;
 pub use handler::SubstreamId;
 pub use methods::{
@@ -38,6 +39,7 @@ use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use self::protocol::RPCProtocol;
 use self::self_limiter::SelfRateLimiter;
 
+mod active_requests_limiter;
 pub(crate) mod codec;
 pub mod config;
 mod handler;
@@ -125,6 +127,9 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     self_limiter: Option<SelfRateLimiter<Id, E>>,
     /// Limiter for our inbound requests, which checks the request size.
     inbound_request_size_limiter: Option<RequestSizeLimiter>,
+    /// Limiter for our inbound requests, which restricts more than two requests from running
+    /// simultaneously on the same protocol per peer.
+    active_inbound_requests_limiter: ActiveRequestsLimiter,
     /// Queue of events to be processed.
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
@@ -167,6 +172,9 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             response_limiter,
             self_limiter,
             inbound_request_size_limiter,
+            active_inbound_requests_limiter: ActiveRequestsLimiter::new(
+                network_params.resp_timeout,
+            ),
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
@@ -184,6 +192,8 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         id: (ConnectionId, SubstreamId),
         event: RPCCodedResponse<E>,
     ) {
+        self.active_inbound_requests_limiter
+            .remove_request(peer_id, &id.0, &id.1);
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
             handler: NotifyHandler::One(id.0),
@@ -366,7 +376,25 @@ where
     ) {
         match event {
             HandlerEvent::Ok(RPCReceived::Request(ref id, ref req)) => {
-                // TODO: Send error response if there is ongoing request with the same protocol.
+                if !self.active_inbound_requests_limiter.allows(
+                    peer_id,
+                    req.versioned_protocol().protocol(),
+                    &conn_id,
+                    id,
+                ) {
+                    // There is already an active request with the same protocol. Send an error code to the peer.
+                    debug!(self.log, "There is an active request with the same protocol"; "peer_id" => peer_id.to_string(), "request" => %req, "protocol" => %req.versioned_protocol().protocol());
+                    self.send_response(
+                        peer_id,
+                        (conn_id, *id),
+                        RPCCodedResponse::Error(
+                            RPCResponseErrorCode::RateLimited,
+                            "Rate limited. There is an active request with the same protocol"
+                                .into(),
+                        ),
+                    );
+                    return;
+                }
 
                 if let Some(limiter) = self.inbound_request_size_limiter.as_ref() {
                     // Check if the request is conformant to the quota
@@ -414,6 +442,7 @@ where
             }
             HandlerEvent::Close(_) => {
                 // Handle the close event here.
+                self.active_inbound_requests_limiter.remove_peer(&peer_id);
                 self.events.push(ToSwarm::CloseConnection {
                     peer_id,
                     connection: CloseConnection::All,
