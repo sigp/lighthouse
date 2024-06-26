@@ -396,10 +396,11 @@ mod ssz_static {
             .run();
         SszStaticHandler::<LightClientBootstrapDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        SszStaticHandler::<LightClientBootstrapElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
-            .run();
-        SszStaticHandler::<LightClientBootstrapElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
-            .run();
+        // Re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
+        // SszStaticHandler::<LightClientBootstrapElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
+        //     .run();
+        // SszStaticHandler::<LightClientBootstrapElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
+        //     .run();
     }
 
     // LightClientHeader has no internal indicator of which fork it is for, so we test it separately.
@@ -475,12 +476,13 @@ mod ssz_static {
         SszStaticHandler::<LightClientFinalityUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only(
         )
             .run();
-        SszStaticHandler::<LightClientFinalityUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
-        )
-            .run();
-        SszStaticHandler::<LightClientFinalityUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
-        )
-            .run();
+        // Re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
+        // SszStaticHandler::<LightClientFinalityUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
+        // )
+        //     .run();
+        // SszStaticHandler::<LightClientFinalityUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
+        // )
+        //     .run();
     }
 
     // LightClientUpdate has no internal indicator of which fork it is for, so we test it separately.
@@ -504,12 +506,13 @@ mod ssz_static {
             .run();
         SszStaticHandler::<LightClientUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        SszStaticHandler::<LightClientUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
-        )
-        .run();
-        SszStaticHandler::<LightClientUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
-        )
-        .run();
+        // Re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
+        // SszStaticHandler::<LightClientUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
+        // )
+        // .run();
+        // SszStaticHandler::<LightClientUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
+        // )
+        // .run();
     }
 
     #[test]

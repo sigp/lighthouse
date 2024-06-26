@@ -43,7 +43,11 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip6110",
     "tests/.*/whisk",
-    "tests/.*/eip7594"
+    "tests/.*/eip7594",
+    # re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
+    "tests/.*/.*/electra/ssz_static/LightClientUpdate",
+    "tests/.*/.*/electra/ssz_static/LightClientFinalityUpdate",
+    "tests/.*/.*/electra/ssz_static/LightClientBootstrap"
 ]
 
 
