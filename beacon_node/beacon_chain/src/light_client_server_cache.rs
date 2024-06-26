@@ -218,12 +218,24 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         Ok(())
     }
 
-    pub fn get_light_client_update(
+    // Used to fetch the most recently persisted "best" light client update.
+    // Should not be used outside the light client server, as it also caches the fetched 
+    // light client update.
+    fn get_light_client_update(
         &self,
         store: &BeaconStore<T>,
         sync_committee_period: u64,
         chain_spec: &ChainSpec,
     ) -> Result<Option<LightClientUpdate<T::EthSpec>>, BeaconChainError> {
+        if let Some(latest_light_client_update) = self.latest_light_client_update.read().clone() {
+            let latest_lc_update_sync_committee_period = latest_light_client_update.signature_slot()
+                .epoch(T::EthSpec::slots_per_epoch())
+                .sync_committee_period(chain_spec)?;
+            if latest_lc_update_sync_committee_period == sync_committee_period {
+                return Ok(Some(latest_light_client_update));
+            }
+        }
+        
         let column = DBColumn::LightClientUpdate;
         let res = store
             .hot_db
@@ -239,6 +251,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
                     .map_err(store::errors::Error::SszDecodeError)?;
 
+            *self.latest_light_client_update.write() = Some(light_client_update.clone());
             return Ok(Some(light_client_update));
         }
 
