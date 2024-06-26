@@ -46,13 +46,16 @@ pub mod base {
     ///
     /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
     /// an `Err` describing the invalid object or cause of failure.
-    pub fn process_attestations<E: EthSpec>(
+    pub fn process_attestations<'a, E: EthSpec, I>(
         state: &mut BeaconState<E>,
-        attestations: &[Attestation<E>],
+        attestations: I,
         verify_signatures: VerifySignatures,
         ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
-    ) -> Result<(), BlockProcessingError> {
+    ) -> Result<(), BlockProcessingError>
+    where
+        I: Iterator<Item = AttestationRef<'a, E>>,
+    {
         // Ensure required caches are all built. These should be no-ops during regular operation.
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
@@ -63,7 +66,7 @@ pub mod base {
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
 
         // Verify and apply each attestation.
-        for (i, attestation) in attestations.iter().enumerate() {
+        for (i, attestation) in attestations.enumerate() {
             verify_attestation_for_block_inclusion(
                 state,
                 attestation,
@@ -72,6 +75,12 @@ pub mod base {
                 spec,
             )
             .map_err(|e| e.into_with_index(i))?;
+
+            let AttestationRef::Base(attestation) = attestation else {
+                // Pending attestations have been deprecated in a altair, this branch should
+                // never happen
+                return Err(BlockProcessingError::PendingAttestationInElectra);
+            };
 
             let pending_attestation = PendingAttestation {
                 aggregation_bits: attestation.aggregation_bits.clone(),
@@ -101,24 +110,24 @@ pub mod altair_deneb {
     use super::*;
     use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
 
-    pub fn process_attestations<E: EthSpec>(
+    pub fn process_attestations<'a, E: EthSpec, I>(
         state: &mut BeaconState<E>,
-        attestations: &[Attestation<E>],
+        attestations: I,
         verify_signatures: VerifySignatures,
         ctxt: &mut ConsensusContext<E>,
         spec: &ChainSpec,
-    ) -> Result<(), BlockProcessingError> {
-        attestations
-            .iter()
-            .enumerate()
-            .try_for_each(|(i, attestation)| {
-                process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
-            })
+    ) -> Result<(), BlockProcessingError>
+    where
+        I: Iterator<Item = AttestationRef<'a, E>>,
+    {
+        attestations.enumerate().try_for_each(|(i, attestation)| {
+            process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
+        })
     }
 
     pub fn process_attestation<E: EthSpec>(
         state: &mut BeaconState<E>,
-        attestation: &Attestation<E>,
+        attestation: AttestationRef<E>,
         att_index: usize,
         ctxt: &mut ConsensusContext<E>,
         verify_signatures: VerifySignatures,
@@ -128,26 +137,24 @@ pub mod altair_deneb {
         let previous_epoch = ctxt.previous_epoch;
         let current_epoch = ctxt.current_epoch;
 
-        let attesting_indices = verify_attestation_for_block_inclusion(
+        let indexed_att = verify_attestation_for_block_inclusion(
             state,
             attestation,
             ctxt,
             verify_signatures,
             spec,
         )
-        .map_err(|e| e.into_with_index(att_index))?
-        .attesting_indices
-        .clone();
+        .map_err(|e| e.into_with_index(att_index))?;
 
         // Matching roots, participation flag indices
-        let data = &attestation.data;
+        let data = attestation.data();
         let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
         let participation_flag_indices =
             get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
 
         // Update epoch participation flags.
         let mut proposer_reward_numerator = 0;
-        for index in &attesting_indices {
+        for index in indexed_att.attesting_indices_iter() {
             let index = *index as usize;
 
             let validator_effective_balance = state.epoch_cache().get_effective_balance(index)?;
@@ -231,16 +238,19 @@ pub fn process_proposer_slashings<E: EthSpec>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-pub fn process_attester_slashings<E: EthSpec>(
+pub fn process_attester_slashings<'a, E: EthSpec, I>(
     state: &mut BeaconState<E>,
-    attester_slashings: &[AttesterSlashing<E>],
+    attester_slashings: I,
     verify_signatures: VerifySignatures,
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
+) -> Result<(), BlockProcessingError>
+where
+    I: Iterator<Item = AttesterSlashingRef<'a, E>>,
+{
     state.build_slashings_cache()?;
 
-    for (i, attester_slashing) in attester_slashings.iter().enumerate() {
+    for (i, attester_slashing) in attester_slashings.enumerate() {
         let slashable_indices =
             verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(i))?;

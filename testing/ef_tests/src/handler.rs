@@ -229,6 +229,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Deneb])
     }
 
+    pub fn electra_only() -> Self {
+        Self::for_forks(vec![ForkName::Electra])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
@@ -239,6 +243,10 @@ impl<T, E> SszStaticHandler<T, E> {
 
     pub fn capella_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[3..].to_vec())
+    }
+
+    pub fn pre_electra() -> Self {
+        Self::for_forks(ForkName::list_all()[0..5].to_vec())
     }
 }
 
