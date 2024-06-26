@@ -199,7 +199,7 @@ impl Kzg {
         &self,
         cell_ids: &[u64],
         cells: &[Cell],
-        _kzg_proofs : &[KzgProof],
+        _kzg_proofs: &[KzgProof],
     ) -> Result<CellsAndKzgProofs, Error> {
         let all_cells = c_kzg::Cell::recover_all_cells(cell_ids, cells, &self.trusted_setup)?;
         let blob = self.cells_to_blob(&all_cells)?;
