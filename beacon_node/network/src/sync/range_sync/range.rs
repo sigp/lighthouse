@@ -278,8 +278,9 @@ where
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain.
     fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
-        for (removed_chain, sync_type, remove_reason) in
-            self.chains.call_all(|chain| chain.remove_peer(peer_id))
+        for (removed_chain, sync_type, remove_reason) in self
+            .chains
+            .call_all(|chain| chain.remove_peer(peer_id, network))
         {
             self.on_chain_removed(
                 removed_chain,
