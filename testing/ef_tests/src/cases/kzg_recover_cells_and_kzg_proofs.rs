@@ -58,7 +58,7 @@ impl<E: EthSpec> Case for KZGRecoverCellsAndKZGProofs<E> {
 
         let result =
             parse_input(&self.input).and_then(|(input_proofs, input_cells, cell_indices)| {
-                let input_cells_ref : Vec<_>= input_cells.iter().map(|cell| &**cell).collect();
+                let input_cells_ref: Vec<_> = input_cells.iter().map(|cell| &**cell).collect();
                 let (cells, proofs) = KZG
                     .recover_cells_and_compute_kzg_proofs(
                         cell_indices.as_slice(),
