@@ -478,7 +478,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 match self
                     .beacon_nodes
                     .broadcast(
-                        RequireSynced::Yes,
+                        RequireSynced::No,
                         OfflineOnFailure::No,
                         |beacon_node| async move {
                             beacon_node.post_validator_register_validator(batch).await
