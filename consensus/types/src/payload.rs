@@ -39,6 +39,15 @@ pub trait ExecPayload<E: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     /// fork-specific fields
     fn withdrawals_root(&self) -> Result<Hash256, Error>;
     fn blob_gas_used(&self) -> Result<u64, Error>;
+    fn withdrawal_requests(
+        &self,
+    ) -> Result<
+        Option<VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
+        Error,
+    >;
+    fn deposit_receipts(
+        &self,
+    ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error>;
 
     /// Is this a default payload with 0x0 roots for transactions and withdrawals?
     fn is_default_with_zero_roots(&self) -> bool;
@@ -278,6 +287,35 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
         }
     }
 
+    fn withdrawal_requests(
+        &self,
+    ) -> Result<
+        Option<VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
+        Error,
+    > {
+        match self {
+            FullPayload::Bellatrix(_) | FullPayload::Capella(_) | FullPayload::Deneb(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
+            FullPayload::Electra(inner) => {
+                Ok(Some(inner.execution_payload.withdrawal_requests.clone()))
+            }
+        }
+    }
+
+    fn deposit_receipts(
+        &self,
+    ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error> {
+        match self {
+            FullPayload::Bellatrix(_) | FullPayload::Capella(_) | FullPayload::Deneb(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
+            FullPayload::Electra(inner) => {
+                Ok(Some(inner.execution_payload.deposit_receipts.clone()))
+            }
+        }
+    }
+
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
@@ -407,6 +445,35 @@ impl<'b, E: EthSpec> ExecPayload<E> for FullPayloadRef<'b, E> {
             }
             FullPayloadRef::Deneb(inner) => Ok(inner.execution_payload.blob_gas_used),
             FullPayloadRef::Electra(inner) => Ok(inner.execution_payload.blob_gas_used),
+        }
+    }
+
+    fn withdrawal_requests(
+        &self,
+    ) -> Result<
+        Option<VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
+        Error,
+    > {
+        match self {
+            FullPayloadRef::Bellatrix(_)
+            | FullPayloadRef::Capella(_)
+            | FullPayloadRef::Deneb(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Electra(inner) => {
+                Ok(Some(inner.execution_payload.withdrawal_requests.clone()))
+            }
+        }
+    }
+
+    fn deposit_receipts(
+        &self,
+    ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error> {
+        match self {
+            FullPayloadRef::Bellatrix(_)
+            | FullPayloadRef::Capella(_)
+            | FullPayloadRef::Deneb(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Electra(inner) => {
+                Ok(Some(inner.execution_payload.deposit_receipts.clone()))
+            }
         }
     }
 
@@ -590,6 +657,21 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
         }
     }
 
+    fn withdrawal_requests(
+        &self,
+    ) -> Result<
+        Option<VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
+        Error,
+    > {
+        Ok(None)
+    }
+
+    fn deposit_receipts(
+        &self,
+    ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error> {
+        Ok(None)
+    }
+
     fn is_default_with_zero_roots(&self) -> bool {
         self.to_ref().is_default_with_zero_roots()
     }
@@ -691,6 +773,21 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
         }
     }
 
+    fn withdrawal_requests(
+        &self,
+    ) -> Result<
+        Option<VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
+        Error,
+    > {
+        Ok(None)
+    }
+
+    fn deposit_receipts(
+        &self,
+    ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error> {
+        Ok(None)
+    }
+
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_blinded_payload_ref!(&'b _, self, move |payload, cons| {
             cons(payload);
@@ -717,7 +814,9 @@ macro_rules! impl_exec_payload_common {
      $is_default_with_empty_roots:block,
      $f:block,
      $g:block,
-     $h:block) => {
+     $h:block,
+     $i:block,
+     $j:block) => {
         impl<E: EthSpec> ExecPayload<E> for $wrapper_type<E> {
             fn block_type() -> BlockType {
                 BlockType::$block_type_variant
@@ -780,6 +879,23 @@ macro_rules! impl_exec_payload_common {
                 let h = $h;
                 h(self)
             }
+
+            fn withdrawal_requests(
+                &self,
+            ) -> Result<
+                Option<VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
+                Error,
+            > {
+                let i = $i;
+                i(self)
+            }
+
+            fn deposit_receipts(
+                &self,
+            ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error> {
+                let j = $j;
+                j(self)
+            }
         }
 
         impl<E: EthSpec> From<$wrapped_type<E>> for $wrapper_type<E> {
@@ -825,7 +941,9 @@ macro_rules! impl_exec_payload_for_fork {
                         wrapper_ref_type.blob_gas_used()
                     };
                 c
-            }
+            },
+            { |_| { Ok(None) } },
+            { |_| { Ok(None) } }
         );
 
         impl<E: EthSpec> TryInto<$wrapper_type_header<E>> for BlindedPayload<E> {
@@ -911,6 +1029,35 @@ macro_rules! impl_exec_payload_for_fork {
                         let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
                         wrapper_ref_type.blob_gas_used()
                     };
+                c
+            },
+            {
+                let c: for<'a> fn(
+                    &'a $wrapper_type_full<E>,
+                ) -> Result<
+                    Option<
+                        VariableList<
+                            ExecutionLayerWithdrawalRequest,
+                            E::MaxWithdrawalRequestsPerPayload,
+                        >,
+                    >,
+                    Error,
+                > = |payload: &$wrapper_type_full<E>| {
+                    let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
+                    wrapper_ref_type.withdrawal_requests()
+                };
+                c
+            },
+            {
+                let c: for<'a> fn(
+                    &'a $wrapper_type_full<E>,
+                ) -> Result<
+                    Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>,
+                    Error,
+                > = |payload: &$wrapper_type_full<E>| {
+                    let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
+                    wrapper_ref_type.deposit_receipts()
+                };
                 c
             }
         );

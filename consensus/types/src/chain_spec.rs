@@ -387,6 +387,19 @@ impl ChainSpec {
         }
     }
 
+    /// For a given `BeaconState`, return the whistleblower reward quotient associated with its variant.
+    pub fn whistleblower_reward_quotient_for_state<E: EthSpec>(
+        &self,
+        state: &BeaconState<E>,
+    ) -> u64 {
+        let fork_name = state.fork_name_unchecked();
+        if fork_name >= ForkName::Electra {
+            self.whistleblower_reward_quotient_electra
+        } else {
+            self.whistleblower_reward_quotient
+        }
+    }
+
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);

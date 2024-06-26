@@ -5471,7 +5471,9 @@ impl ApiTester {
                 &self.chain.spec,
             );
         }
-        let expected_withdrawals = get_expected_withdrawals(&state, &self.chain.spec).unwrap();
+        let expected_withdrawals = get_expected_withdrawals(&state, &self.chain.spec)
+            .unwrap()
+            .0;
 
         // fetch expected withdrawals from the client
         let result = self.client.get_expected_withdrawals(&state_id).await;
