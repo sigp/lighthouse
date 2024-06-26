@@ -1390,7 +1390,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             Some(true)
                         }
                     })
-                    .unwrap();
+                    .unwrap_or(true);
 
                 if self.individual_tracking() {
                     if is_first_inclusion {
