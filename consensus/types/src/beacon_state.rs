@@ -892,11 +892,7 @@ impl<E: EthSpec> BeaconState<E> {
             return Err(Error::InsufficientValidators);
         }
 
-        let max_effective_balance = if self.fork_name_unchecked() >= ForkName::Electra {
-            spec.max_effective_balance_electra
-        } else {
-            spec.max_effective_balance
-        };
+        let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
 
         let mut i = 0;
         loop {
@@ -1095,11 +1091,7 @@ impl<E: EthSpec> BeaconState<E> {
 
         let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
 
-        let max_effective_balance = if self.fork_name_unchecked() >= ForkName::Electra {
-            spec.max_effective_balance_electra
-        } else {
-            spec.max_effective_balance
-        };
+        let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
 
         let mut i = 0;
         let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
