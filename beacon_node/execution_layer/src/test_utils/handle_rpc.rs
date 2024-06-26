@@ -638,6 +638,10 @@ pub async fn handle_rpc<E: EthSpec>(
                             )
                         })?;
 
+                        // TODO(electra): add testing for:
+                        // deposit_requests
+                        // withdrawal_requests
+                        // consolidation_requests
                         response.push(Some(JsonExecutionPayloadBodyV2::<E> {
                             transactions,
                             withdrawals: block
