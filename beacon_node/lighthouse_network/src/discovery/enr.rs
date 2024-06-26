@@ -67,8 +67,8 @@ impl Eth2Enr for Enr {
     /// if the custody value is non-existent in the ENR, then we assume the minimum custody value
     /// defined in the spec.
     fn custody_subnet_count<E: EthSpec>(&self, spec: &ChainSpec) -> u64 {
-        self.get(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
-            .and_then(|custody_bytes| custody_bytes.try_into().map(u64::from_be_bytes).ok())
+        self.get_decodable::<u64>(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
+            .and_then(|r| r.ok())
             // If value supplied in ENR is invalid, fallback to `custody_requirement`
             .filter(|csc| csc <= &spec.data_column_sidecar_subnet_count)
             .unwrap_or(spec.custody_requirement)
@@ -245,8 +245,7 @@ pub fn build_enr<E: EthSpec>(
         spec.custody_requirement
     };
 
-    let csc_bytes = custody_subnet_count.to_be_bytes();
-    builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &csc_bytes.as_slice());
+    builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &custody_subnet_count);
 
     builder
         .build(enr_key)
@@ -353,11 +352,11 @@ mod test {
         let config = NetworkConfig::default();
         let spec = E::default_spec();
         let (mut enr, enr_key) = build_enr_with_config(config, &spec);
-        let invalid_subnet_count = 999u64;
+        let invalid_subnet_count = 99u64;
 
         enr.insert(
             PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
-            &invalid_subnet_count.to_be_bytes().as_slice(),
+            &invalid_subnet_count,
             &enr_key,
         )
         .unwrap();
