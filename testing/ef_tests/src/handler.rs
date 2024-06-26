@@ -888,6 +888,26 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct KZGRecoverCellsAndKZGProofHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
+    type Case = cases::KZGRecoverCellsAndKZGProofs<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "recover_cells_and_kzg_proofs".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {

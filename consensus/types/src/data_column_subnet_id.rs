@@ -107,15 +107,15 @@ impl From<u64> for DataColumnSubnetId {
     }
 }
 
-impl Into<u64> for DataColumnSubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<DataColumnSubnetId> for u64 {
+    fn from(val: DataColumnSubnetId) -> Self {
+        val.0
     }
 }
 
-impl Into<u64> for &DataColumnSubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<&DataColumnSubnetId> for u64 {
+    fn from(val: &DataColumnSubnetId) -> Self {
+        val.0
     }
 }
 
