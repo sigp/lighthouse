@@ -268,6 +268,8 @@ pub enum DBColumn {
     OptimisticTransitionBlock,
     #[strum(serialize = "bhs")]
     BeaconHistoricalSummaries,
+    #[strum(serialize = "olc")]
+    OverflowLRUCache,
 }
 
 /// A block from the database, which might have an execution payload or not.
