@@ -393,7 +393,7 @@ impl ChainSpec {
         state: &BeaconState<E>,
     ) -> u64 {
         let fork_name = state.fork_name_unchecked();
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             self.whistleblower_reward_quotient_electra
         } else {
             self.whistleblower_reward_quotient
@@ -401,7 +401,7 @@ impl ChainSpec {
     }
 
     pub fn max_effective_balance_for_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             self.max_effective_balance_electra
         } else {
             self.max_effective_balance
