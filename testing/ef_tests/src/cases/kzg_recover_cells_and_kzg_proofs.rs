@@ -62,6 +62,7 @@ impl<E: EthSpec> Case for KZGRecoverCellsAndKZGProofs<E> {
                     .recover_cells_and_compute_kzg_proofs(
                         cell_indices.as_slice(),
                         input_cells.as_slice(),
+                        input_proofs.as_slice(),
                     )
                     .map_err(|e| {
                         Error::InternalError(format!(

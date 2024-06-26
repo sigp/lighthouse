@@ -215,6 +215,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             .map(|row_index| {
                 let mut cells: Vec<KzgCell> = vec![];
                 let mut cell_ids: Vec<u64> = vec![];
+                let mut proofs = vec![];
                 for data_column in data_columns {
                     let cell = data_column.column.get(row_index).ok_or(
                         KzgError::InconsistentArrayLength(format!(
@@ -224,8 +225,13 @@ impl<E: EthSpec> DataColumnSidecar<E> {
 
                     cells.push(ssz_cell_to_crypto_cell::<E>(cell)?);
                     cell_ids.push(data_column.index);
+                    proofs.push(*data_column.kzg_proofs.get(row_index).ok_or(
+                    KzgError::InconsistentArrayLength(format!(
+                        "Missing data column proof at index {row_index}"
+                    )),
+                    )?);
                 }
-                kzg.recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
+                kzg.recover_cells_and_compute_kzg_proofs(&cell_ids, &cells, proofs.as_slice())
             })
             .collect::<Result<Vec<_>, KzgError>>()?;
 
