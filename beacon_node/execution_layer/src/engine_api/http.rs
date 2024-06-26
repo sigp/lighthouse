@@ -34,6 +34,7 @@ pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
+pub const ENGINE_NEW_PAYLOAD_WITH_WITNESS_V3: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
@@ -66,6 +67,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V1,
     ENGINE_NEW_PAYLOAD_V2,
     ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_NEW_PAYLOAD_WITH_WITNESS_V3,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3,
@@ -849,6 +851,27 @@ impl HttpJsonRpc {
             .await?;
 
         Ok(response.into())
+    }
+
+    pub async fn new_payload_with_witness_v3<E: EthSpec>(
+        &self,
+        new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
+    ) -> Result<JsonPayloadStatusWithWitnessV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
+            new_payload_request_deneb.versioned_hashes,
+            new_payload_request_deneb.parent_beacon_block_root,
+        ]);
+
+        let response: JsonPayloadStatusWithWitnessV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_WITH_WITNESS_V3,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response)
     }
 
     pub async fn get_payload_v1<E: EthSpec>(

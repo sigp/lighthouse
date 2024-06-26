@@ -786,3 +786,46 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
         })
     }
 }
+
+/*
+// statelessWitnessV1 is the witness data necessary to execute an ExecutableData
+// without any local data being present.
+var statelessWitnessV1 = {
+    headers: ["0xhrlp1", "0xhrlp2", ...],
+    codes:   ["0xcode1", "0xcode2", ...],
+    state:   ["0xnode1", "0xnode2", ...]
+}
+
+// statelessPayloadStatusV1 is the result of a stateless payload execution.
+var statelessPayloadStatusV1 = {
+    status:          "same as payloadStatusV1.status",
+    stateRoot:       "0x0000000000000000000000000000000000000000000000000000000000000000",
+    receiptsRoot:    "0x0000000000000000000000000000000000000000000000000000000000000000",
+    validationError: "same as payloadStatusV1.validationError",
+}
+*/
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonStatelessWitnessV1 {
+    headers: Vec<serde_json::Value>,
+    codes: Vec<serde_json::Value>,
+    state: Vec<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonStatelessPayloadStatusV1 {
+    status: JsonPayloadStatusV1Status,
+    state_root: ExecutionBlockHash,
+    receipts_root: ExecutionBlockHash,
+    validation_error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonPayloadStatusWithWitnessV1 {
+    #[serde(flatten)]
+    payload_status: JsonPayloadStatusV1,
+    witness: JsonStatelessWitnessV1,
+}
