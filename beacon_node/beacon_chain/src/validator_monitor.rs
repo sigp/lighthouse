@@ -1405,9 +1405,9 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             "src" => src,
                             "validator" => %id,
                         );
-                        // Will be downgrade to debug once tested working
+                        // Downgrade to Debug for second and onwards of logging to reduce verbosity
                     } else {
-                        warn!(
+                        debug!(
                             self.log,
                             "Attestation included in aggregate";
                             "head" => ?data.beacon_block_root,
