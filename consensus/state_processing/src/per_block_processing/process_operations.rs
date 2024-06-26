@@ -38,7 +38,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
     }
 
-    if state.fork_name_unchecked() >= ForkName::Electra {
+    if state.fork_name_unchecked().electra_enabled() {
         state.update_pubkey_cache()?;
         if let Some(deposit_requests) = block_body.execution_payload()?.deposit_requests()? {
             process_deposit_requests(state, &deposit_requests, spec)?;
