@@ -1381,7 +1381,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     );
                 });
 
-                let is_first_inclusion = validator
+                let is_first_inclusion_aggregate = validator
                     .get_from_epoch_summary(epoch, |summary_opt| {
                         if let Some(summary) = summary_opt {
                             Some(summary.attestation_aggregate_inclusions == 0)
@@ -1393,7 +1393,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     .unwrap_or(true);
 
                 if self.individual_tracking() {
-                    if is_first_inclusion {
+                    if is_first_inclusion_aggregate {
                         info!(
                             self.log,
                             "Attestation included in aggregate";
@@ -1460,6 +1460,17 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     );
                 });
 
+                let is_first_inclusion_block = validator
+                    .get_from_epoch_summary(epoch, |summary_opt| {
+                        if let Some(summary) = summary_opt {
+                            Some(summary.attestation_block_inclusions == 0)
+                        } else {
+                            // No data for this validator: no inclusion.
+                            Some(true)
+                        }
+                    })
+                    .unwrap_or(true);
+
                 if self.individual_tracking() {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_DELAY_SLOTS,
@@ -1467,16 +1478,29 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                         delay.as_u64() as i64,
                     );
 
-                    info!(
-                        self.log,
-                        "Attestation included in block";
-                        "head" => ?data.beacon_block_root,
-                        "index" => %data.index,
-                        "inclusion_lag" => format!("{} slot(s)", delay),
-                        "epoch" => %epoch,
-                        "slot" => %data.slot,
-                        "validator" => %id,
-                    );
+                    if is_first_inclusion_block {
+                        info!(
+                            self.log,
+                            "Attestation included in block";
+                            "head" => ?data.beacon_block_root,
+                            "index" => %data.index,
+                            "inclusion_lag" => format!("{} slot(s)", delay),
+                            "epoch" => %epoch,
+                            "slot" => %data.slot,
+                            "validator" => %id,
+                        );
+                    } else {
+                        debug!(
+                            self.log,
+                            "Attestation included in block";
+                            "head" => ?data.beacon_block_root,
+                            "index" => %data.index,
+                            "inclusion_lag" => format!("{} slot(s)", delay),
+                            "epoch" => %epoch,
+                            "slot" => %data.slot,
+                            "validator" => %id,
+                        );
+                    }
                 }
 
                 validator.with_epoch_summary(epoch, |summary| {
