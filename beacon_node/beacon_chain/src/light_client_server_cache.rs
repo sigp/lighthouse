@@ -45,7 +45,7 @@ pub struct LightClientServerCache<T: BeaconChainTypes> {
     /// Caches the most recent light client update
     latest_light_client_update: RwLock<Option<LightClientUpdate<T::EthSpec>>>,
     /// Caches the current sync committee,
-    latest_sync_committee: RwLock<Option<Arc<SyncCommittee<T::EthSpec>>>>,
+    latest_current_sync_committee: RwLock<Option<Arc<SyncCommittee<T::EthSpec>>>>,
     /// Caches state proofs by block root
     prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData<T::EthSpec>>>,
 }
@@ -56,7 +56,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             latest_finality_update: None.into(),
             latest_optimistic_update: None.into(),
             latest_light_client_update: None.into(),
-            latest_sync_committee: None.into(),
+            latest_current_sync_committee: None.into(),
             prev_block_cache: lru::LruCache::new(PREV_BLOCK_CACHE_SIZE).into(),
         }
     }
@@ -244,9 +244,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         sync_committee_period: u64,
         finalized_period: u64,
     ) -> Result<(), BeaconChainError> {
-        if let Some(latest_sync_committee) = self.latest_sync_committee.read().clone() {
+        if let Some(latest_sync_committee) = self.latest_current_sync_committee.read().clone() {
             if latest_sync_committee == cached_parts.current_sync_committee {
-                return Ok(())
+                return Ok(());
             }
         };
 
@@ -260,7 +260,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             )?;
         }
 
-        *self.latest_sync_committee.write() = Some(cached_parts.current_sync_committee.clone());
+        *self.latest_current_sync_committee.write() =
+            Some(cached_parts.current_sync_committee.clone());
 
         Ok(())
     }
@@ -433,41 +434,42 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         finalized_period: u64,
         chain_spec: &ChainSpec,
     ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, BeaconChainError> {
-        if let Some(block) = store.get_full_block(block_root)? {
-            let (_, slot) = (block.state_root(), block.slot());
+        let Some(block) = store.get_full_block(block_root)? else {
+            return Ok(None);
+        };
+        
+        let (_, slot) = (block.state_root(), block.slot());
 
-            let fork_name = chain_spec.fork_name_at_slot::<T::EthSpec>(slot);
+        let fork_name = chain_spec.fork_name_at_slot::<T::EthSpec>(slot);
 
-            let sync_committee_period = block
-                .slot()
-                .epoch(T::EthSpec::slots_per_epoch())
-                .sync_committee_period(chain_spec)?;
+        let sync_committee_period = block
+            .slot()
+            .epoch(T::EthSpec::slots_per_epoch())
+            .sync_committee_period(chain_spec)?;
 
-            let current_sync_committee_branch =
-                self.get_sync_committee_branch(store, block_root)?.unwrap();
-            // TODO unwrap
-            // db.current_sync_committee_branch.get(block_root)
+        let Some(current_sync_committee_branch) =
+            self.get_sync_committee_branch(store, block_root)?
+        else {
+            return Ok(None);
+        };
 
-            if sync_committee_period > finalized_period {
-                return Ok(None);
-            }
-
-            let current_sync_committee = Arc::new(
-                self.get_sync_committee(store, sync_committee_period)?
-                    .unwrap(),
-            );
-
-            let light_client_bootstrap = LightClientBootstrap::new(
-                &block,
-                current_sync_committee,
-                current_sync_committee_branch,
-                chain_spec,
-            )?;
-
-            return Ok(Some((light_client_bootstrap, fork_name)));
+        if sync_committee_period > finalized_period {
+            return Ok(None);
         }
 
-        Ok(None)
+        let Some(current_sync_committee) = self.get_sync_committee(store, sync_committee_period)?
+        else {
+            return Ok(None);
+        };
+
+        let light_client_bootstrap = LightClientBootstrap::new(
+            &block,
+            Arc::new(current_sync_committee),
+            current_sync_committee_branch,
+            chain_spec,
+        )?;
+
+        return Ok(Some((light_client_bootstrap, fork_name)));
     }
 }
 
