@@ -1345,6 +1345,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     gossip_bls_to_execution_change_queue.len() as i64,
                 );
                 metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_STATUS_QUEUE_TOTAL,
+                    status_queue.len() as i64,
+                );
+                metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_API_REQUEST_P0_QUEUE_TOTAL,
                     api_request_p0_queue.len() as i64,
                 );

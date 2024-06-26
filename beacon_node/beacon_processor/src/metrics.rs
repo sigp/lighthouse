@@ -110,6 +110,11 @@ lazy_static::lazy_static! {
         "beacon_processor_sync_contribution_queue_total",
         "Count of sync committee contributions waiting to be processed."
     );
+    // Status messages.
+    pub static ref BEACON_PROCESSOR_STATUS_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_status_queue_total",
+        "Count of status messages waiting to be processed."
+    );
     // HTTP API requests.
     pub static ref BEACON_PROCESSOR_API_REQUEST_P0_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_api_request_p0_queue_total",
