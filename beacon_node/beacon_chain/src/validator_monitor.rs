@@ -1384,10 +1384,10 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 let is_first_inclusion = validator
                     .get_from_epoch_summary(epoch, |summary_opt| {
                         if let Some(summary) = summary_opt {
-                            Some(summary.attestation_aggregate_inclusions == 1)
+                            Some(summary.attestation_aggregate_inclusions == 0)
                         } else {
                             // No data for this validator: no inclusion.
-                            Some(false)
+                            Some(true)
                         }
                     })
                     .unwrap();
@@ -1405,16 +1405,18 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             "src" => src,
                             "validator" => %id,
                         );
-                    // As a first step, reduce the logging to make sure that it works, because completely remove it may not be obvious that it works
-                    // (e.g., when there is only 1 inclusion)
+                        // Will be downgrade to debug once tested working
                     } else {
-                        info!(
+                        warn!(
                             self.log,
                             "Attestation included in aggregate";
+                            "head" => ?data.beacon_block_root,
                             "index" => %data.index,
                             "delay_ms" => %delay.as_millis(),
+                            "epoch" => %epoch,
                             "slot" => %data.slot,
                             "src" => src,
+                            "validator" => %id,
                         )
                     };
                 }
