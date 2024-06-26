@@ -111,7 +111,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             attested_block.slot(),
         )?;
 
-        let attested_slot = attested_block.slot();   
+        let attested_slot = attested_block.slot();
 
         let maybe_finalized_block = store.get_full_block(&cached_parts.finalized_block_root)?;
 
@@ -130,7 +130,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .epoch(T::EthSpec::slots_per_epoch())
             .sync_committee_period(chain_spec)?;
 
-        // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update) 
+        // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update)
         // for each sync committee period
         let prev_light_client_update = match &self.latest_light_client_update.read().clone() {
             Some(prev_light_client_update) => Some(prev_light_client_update.clone()),
@@ -219,7 +219,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     }
 
     // Used to fetch the most recently persisted "best" light client update.
-    // Should not be used outside the light client server, as it also caches the fetched 
+    // Should not be used outside the light client server, as it also caches the fetched
     // light client update.
     fn get_light_client_update(
         &self,
@@ -228,14 +228,15 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         chain_spec: &ChainSpec,
     ) -> Result<Option<LightClientUpdate<T::EthSpec>>, BeaconChainError> {
         if let Some(latest_light_client_update) = self.latest_light_client_update.read().clone() {
-            let latest_lc_update_sync_committee_period = latest_light_client_update.signature_slot()
+            let latest_lc_update_sync_committee_period = latest_light_client_update
+                .signature_slot()
                 .epoch(T::EthSpec::slots_per_epoch())
                 .sync_committee_period(chain_spec)?;
             if latest_lc_update_sync_committee_period == sync_committee_period {
                 return Ok(Some(latest_light_client_update));
             }
         }
-        
+
         let column = DBColumn::LightClientUpdate;
         let res = store
             .hot_db

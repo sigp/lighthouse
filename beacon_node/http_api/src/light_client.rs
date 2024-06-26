@@ -120,7 +120,10 @@ fn map_light_client_update_to_ssz_chunk<T: BeaconChainTypes>(
         .spec
         .fork_name_at_slot::<T::EthSpec>(*light_client_update.signature_slot());
 
-    let fork_digest =ChainSpec::compute_fork_digest(chain.spec.fork_version_for_name(fork_name), chain.genesis_validators_root);
+    let fork_digest = ChainSpec::compute_fork_digest(
+        chain.spec.fork_version_for_name(fork_name),
+        chain.genesis_validators_root,
+    );
 
     LightClientUpdateResponseChunk {
         context: fork_digest,
