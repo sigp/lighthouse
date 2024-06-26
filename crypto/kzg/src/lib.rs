@@ -15,11 +15,11 @@ pub use c_kzg::{
 };
 use mockall::automock;
 
-pub use eip7594::{
+pub use peerdas_kzg::{
     constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
     Cell, CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
-use eip7594::{prover::ProverError, verifier::VerifierError, PeerDASContext};
+use peerdas_kzg::{prover::ProverError, verifier::VerifierError, PeerDASContext};
 pub type CellsAndKzgProofs = ([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]);
 
 #[derive(Debug)]
