@@ -358,7 +358,7 @@ impl GossipTester {
     }
 
     pub fn earliest_valid_attestation_slot(&self) -> Slot {
-        if self
+        let offset = if self
             .harness
             .spec
             .fork_name_at_epoch(self.epoch())
@@ -376,7 +376,7 @@ impl GossipTester {
             // Subtract an additional slot since the harness will be exactly on the start of the
             // slot and the propagation tolerance will allow an extra slot.
             E::slots_per_epoch() + 1
-        }
+        };
 
         self.slot()
             .as_u64()
