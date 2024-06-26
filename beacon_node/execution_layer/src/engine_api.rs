@@ -2,7 +2,8 @@ use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
     ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
 };
@@ -20,7 +21,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::execution_payload::{DepositRequests, WithdrawalRequests};
+use types::execution_payload::{ConsolidationRequests, DepositRequests, WithdrawalRequests};
 pub use types::{
     Address, BeaconBlockRef, ConsolidationRequest, EthSpec, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadHeader, ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions,
@@ -547,27 +548,106 @@ impl<E: EthSpec> GetPayloadResponse<E> {
     }
 }
 
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Clone, Debug),),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
 #[derive(Clone, Debug)]
-pub struct ExecutionPayloadBodyV1<E: EthSpec> {
+pub struct ExecutionPayloadBody<E: EthSpec> {
     pub transactions: Transactions<E>,
     pub withdrawals: Option<Withdrawals<E>>,
+    #[superstruct(only(V2))]
     pub deposit_requests: Option<DepositRequests<E>>,
+    #[superstruct(only(V2))]
     pub withdrawal_requests: Option<WithdrawalRequests<E>>,
+    #[superstruct(only(V2))]
+    pub consolidation_requests: Option<ConsolidationRequests<E>>,
 }
 
-impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
+impl<E: EthSpec> ExecutionPayloadBody<E> {
+    #[allow(clippy::type_complexity)]
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Transactions<E>,
+        Option<Withdrawals<E>>,
+        Option<DepositRequests<E>>,
+        Option<WithdrawalRequests<E>>,
+        Option<ConsolidationRequests<E>>,
+    ) {
+        match self {
+            ExecutionPayloadBody::V1(body) => {
+                (body.transactions, body.withdrawals, None, None, None)
+            }
+            ExecutionPayloadBody::V2(body) => (
+                body.transactions,
+                body.withdrawals,
+                body.deposit_requests,
+                body.withdrawal_requests,
+                body.consolidation_requests,
+            ),
+        }
+    }
     pub fn to_payload(
         self,
         header: ExecutionPayloadHeader<E>,
     ) -> Result<ExecutionPayload<E>, String> {
-        match header {
-            ExecutionPayloadHeader::Bellatrix(header) => {
-                if self.withdrawals.is_some() {
+        let header_fork = header.fork_name_unchecked();
+        match &self {
+            Self::V1(_) => {
+                if header_fork.electra_enabled() {
                     return Err(format!(
-                        "block {} is merge but payload body has withdrawals",
-                        header.block_hash
+                        "block {} is {} but response is ExecutionPayloadBodyV1. Does the EL support {}?",
+                        header.block_hash(),
+                        header_fork,
+                        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
                     ));
                 }
+            }
+            Self::V2(_) => {}
+        }
+
+        let (
+            transactions,
+            withdrawals,
+            deposit_requests,
+            withdrawal_requests,
+            consolidation_requests,
+        ) = self.deconstruct();
+        if !header_fork.capella_enabled() && withdrawals.is_some() {
+            return Err(format!(
+                "block {} is {} but payload body has withdrawals",
+                header.block_hash(),
+                header_fork
+            ));
+        }
+        if !header_fork.electra_enabled() {
+            if deposit_requests.is_some() {
+                return Err(format!(
+                    "block {} is {} but payload body has deposit_requests",
+                    header.block_hash(),
+                    header_fork
+                ));
+            }
+            if withdrawal_requests.is_some() {
+                return Err(format!(
+                    "block {} is {} but payload body has withdrawal_requests",
+                    header.block_hash(),
+                    header_fork
+                ));
+            }
+            if consolidation_requests.is_some() {
+                return Err(format!(
+                    "block {} is {} but payload body has consolidation_requests",
+                    header.block_hash(),
+                    header_fork
+                ));
+            }
+        }
+
+        match header {
+            ExecutionPayloadHeader::Bellatrix(header) => {
                 Ok(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                     parent_hash: header.parent_hash,
                     fee_recipient: header.fee_recipient,
@@ -582,75 +662,86 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     extra_data: header.extra_data,
                     base_fee_per_gas: header.base_fee_per_gas,
                     block_hash: header.block_hash,
-                    transactions: self.transactions,
+                    transactions,
                 }))
             }
             ExecutionPayloadHeader::Capella(header) => {
-                if let Some(withdrawals) = self.withdrawals {
-                    Ok(ExecutionPayload::Capella(ExecutionPayloadCapella {
-                        parent_hash: header.parent_hash,
-                        fee_recipient: header.fee_recipient,
-                        state_root: header.state_root,
-                        receipts_root: header.receipts_root,
-                        logs_bloom: header.logs_bloom,
-                        prev_randao: header.prev_randao,
-                        block_number: header.block_number,
-                        gas_limit: header.gas_limit,
-                        gas_used: header.gas_used,
-                        timestamp: header.timestamp,
-                        extra_data: header.extra_data,
-                        base_fee_per_gas: header.base_fee_per_gas,
-                        block_hash: header.block_hash,
-                        transactions: self.transactions,
-                        withdrawals,
-                    }))
-                } else {
-                    Err(format!(
-                        "block {} is capella but payload body doesn't have withdrawals",
-                        header.block_hash
-                    ))
-                }
+                let withdrawals = withdrawals.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has withdrawals set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                Ok(ExecutionPayload::Capella(ExecutionPayloadCapella {
+                    parent_hash: header.parent_hash,
+                    fee_recipient: header.fee_recipient,
+                    state_root: header.state_root,
+                    receipts_root: header.receipts_root,
+                    logs_bloom: header.logs_bloom,
+                    prev_randao: header.prev_randao,
+                    block_number: header.block_number,
+                    gas_limit: header.gas_limit,
+                    gas_used: header.gas_used,
+                    timestamp: header.timestamp,
+                    extra_data: header.extra_data,
+                    base_fee_per_gas: header.base_fee_per_gas,
+                    block_hash: header.block_hash,
+                    transactions,
+                    withdrawals,
+                }))
             }
             ExecutionPayloadHeader::Deneb(header) => {
-                if let Some(withdrawals) = self.withdrawals {
-                    Ok(ExecutionPayload::Deneb(ExecutionPayloadDeneb {
-                        parent_hash: header.parent_hash,
-                        fee_recipient: header.fee_recipient,
-                        state_root: header.state_root,
-                        receipts_root: header.receipts_root,
-                        logs_bloom: header.logs_bloom,
-                        prev_randao: header.prev_randao,
-                        block_number: header.block_number,
-                        gas_limit: header.gas_limit,
-                        gas_used: header.gas_used,
-                        timestamp: header.timestamp,
-                        extra_data: header.extra_data,
-                        base_fee_per_gas: header.base_fee_per_gas,
-                        block_hash: header.block_hash,
-                        transactions: self.transactions,
-                        withdrawals,
-                        blob_gas_used: header.blob_gas_used,
-                        excess_blob_gas: header.excess_blob_gas,
-                    }))
-                } else {
-                    Err(format!(
-                        "block {} is post-capella but payload body doesn't have withdrawals",
-                        header.block_hash
-                    ))
-                }
+                let withdrawals = withdrawals.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has withdrawals set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                Ok(ExecutionPayload::Deneb(ExecutionPayloadDeneb {
+                    parent_hash: header.parent_hash,
+                    fee_recipient: header.fee_recipient,
+                    state_root: header.state_root,
+                    receipts_root: header.receipts_root,
+                    logs_bloom: header.logs_bloom,
+                    prev_randao: header.prev_randao,
+                    block_number: header.block_number,
+                    gas_limit: header.gas_limit,
+                    gas_used: header.gas_used,
+                    timestamp: header.timestamp,
+                    extra_data: header.extra_data,
+                    base_fee_per_gas: header.base_fee_per_gas,
+                    block_hash: header.block_hash,
+                    transactions,
+                    withdrawals,
+                    blob_gas_used: header.blob_gas_used,
+                    excess_blob_gas: header.excess_blob_gas,
+                }))
             }
             ExecutionPayloadHeader::Electra(header) => {
-                let (Some(withdrawals), Some(deposit_requests), Some(withdrawal_requests)) = (
-                    self.withdrawals,
-                    self.deposit_requests,
-                    self.withdrawal_requests,
-                ) else {
-                    return Err(format!(
-                        "block {} is post-electra but payload body doesn't have withdrawals/deposit_requests/withdrawal_requests \
-                        Check that ELs are returning receipts and withdrawal_requests in getPayloadBody requests",
-                        header.block_hash
-                    ));
-                };
+                let withdrawals = withdrawals.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has withdrawals set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                let deposit_requests = deposit_requests.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has deposit_requests set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                let withdrawal_requests = withdrawal_requests.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has withdrawal_requests set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                let consolidation_requests = consolidation_requests.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has consolidation_requests set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
                 Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
                     parent_hash: header.parent_hash,
                     fee_recipient: header.fee_recipient,
@@ -665,14 +756,13 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     extra_data: header.extra_data,
                     base_fee_per_gas: header.base_fee_per_gas,
                     block_hash: header.block_hash,
-                    transactions: self.transactions,
+                    transactions,
                     withdrawals,
                     blob_gas_used: header.blob_gas_used,
                     excess_blob_gas: header.excess_blob_gas,
                     deposit_requests,
                     withdrawal_requests,
-                    // TODO(electra): gonna need to superstruct this thing to do it properly..
-                    consolidation_requests: Vec::new().into(),
+                    consolidation_requests,
                 }))
             }
         }
@@ -690,6 +780,8 @@ pub struct EngineCapabilities {
     pub forkchoice_updated_v3: bool,
     pub get_payload_bodies_by_hash_v1: bool,
     pub get_payload_bodies_by_range_v1: bool,
+    pub get_payload_bodies_by_hash_v2: bool,
+    pub get_payload_bodies_by_range_v2: bool,
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
@@ -726,6 +818,12 @@ impl EngineCapabilities {
         }
         if self.get_payload_bodies_by_range_v1 {
             response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
+        }
+        if self.get_payload_bodies_by_hash_v2 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2);
+        }
+        if self.get_payload_bodies_by_range_v2 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2);
         }
         if self.get_payload_v1 {
             response.push(ENGINE_GET_PAYLOAD_V1);

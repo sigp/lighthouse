@@ -719,45 +719,70 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Clone, Debug, Serialize, Deserialize),),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(bound = "E: EthSpec")]
 #[serde(rename_all = "camelCase")]
-pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
+#[serde(untagged)]
+pub struct JsonExecutionPayloadBody<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+    #[superstruct(only(V2))]
     pub deposit_requests: Option<VariableList<JsonDepositRequest, E::MaxDepositRequestsPerPayload>>,
+    #[superstruct(only(V2))]
     pub withdrawal_requests:
         Option<VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
+    #[superstruct(only(V2))]
+    pub consolidation_requests:
+        Option<VariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>>,
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
-    fn from(value: JsonExecutionPayloadBodyV1<E>) -> Self {
-        Self {
-            transactions: value.transactions,
-            withdrawals: value.withdrawals.map(|json_withdrawals| {
-                Withdrawals::<E>::from(
-                    json_withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
+impl<E: EthSpec> From<JsonExecutionPayloadBody<E>> for ExecutionPayloadBody<E> {
+    fn from(value: JsonExecutionPayloadBody<E>) -> Self {
+        match value {
+            JsonExecutionPayloadBody::V1(body_v1) => Self::V1(ExecutionPayloadBodyV1 {
+                transactions: body_v1.transactions,
+                withdrawals: body_v1.withdrawals.map(|json_withdrawals| {
+                    Withdrawals::<E>::from(
+                        json_withdrawals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect::<Vec<_>>(),
+                    )
+                }),
             }),
-            deposit_requests: value.deposit_requests.map(|json_receipts| {
-                DepositRequests::<E>::from(
-                    json_receipts
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
-            }),
-            withdrawal_requests: value.withdrawal_requests.map(|json_withdrawal_requests| {
-                WithdrawalRequests::<E>::from(
-                    json_withdrawal_requests
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
+            JsonExecutionPayloadBody::V2(body_v2) => Self::V2(ExecutionPayloadBodyV2 {
+                transactions: body_v2.transactions,
+                withdrawals: body_v2.withdrawals.map(|json_withdrawals| {
+                    Withdrawals::<E>::from(
+                        json_withdrawals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect::<Vec<_>>(),
+                    )
+                }),
+                deposit_requests: body_v2.deposit_requests.map(|json_receipts| {
+                    DepositRequests::<E>::from(
+                        json_receipts
+                            .into_iter()
+                            .map(Into::into)
+                            .collect::<Vec<_>>(),
+                    )
+                }),
+                withdrawal_requests: body_v2.withdrawal_requests.map(|json_withdrawal_requests| {
+                    WithdrawalRequests::<E>::from(
+                        json_withdrawal_requests
+                            .into_iter()
+                            .map(Into::into)
+                            .collect::<Vec<_>>(),
+                    )
+                }),
+                consolidation_requests: body_v2.consolidation_requests,
             }),
         }
     }

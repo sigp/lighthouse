@@ -1771,10 +1771,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_payload_bodies_by_hash(
         &self,
         hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
         self.engine()
             .request(|engine: &Engine| async move {
-                engine.api.get_payload_bodies_by_hash_v1(hashes).await
+                engine.api.get_payload_bodies_by_hash(hashes).await
             })
             .await
             .map_err(Box::new)
@@ -1785,7 +1785,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         start: u64,
         count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
         self.engine()
             .request(|engine: &Engine| async move {

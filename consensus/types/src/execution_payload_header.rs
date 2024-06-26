@@ -127,6 +127,15 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
             }
         }
     }
+
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        match self {
+            ExecutionPayloadHeader::Bellatrix(_) => ForkName::Bellatrix,
+            ExecutionPayloadHeader::Capella(_) => ForkName::Capella,
+            ExecutionPayloadHeader::Deneb(_) => ForkName::Deneb,
+            ExecutionPayloadHeader::Electra(_) => ForkName::Electra,
+        }
+    }
 }
 
 impl<'a, E: EthSpec> ExecutionPayloadHeaderRef<'a, E> {
