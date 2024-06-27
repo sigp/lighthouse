@@ -1381,18 +1381,18 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     );
                 });
 
-                let is_first_inclusion_aggregate = validator
-                    .get_from_epoch_summary(epoch, |summary_opt| {
-                        if let Some(summary) = summary_opt {
-                            Some(summary.attestation_aggregate_inclusions == 0)
-                        } else {
-                            // No data for this validator: no inclusion.
-                            Some(true)
-                        }
-                    })
-                    .unwrap_or(true);
-
                 if self.individual_tracking() {
+                    let is_first_inclusion_aggregate = validator
+                        .get_from_epoch_summary(epoch, |summary_opt| {
+                            if let Some(summary) = summary_opt {
+                                Some(summary.attestation_aggregate_inclusions == 0)
+                            } else {
+                                // No data for this validator: no inclusion.
+                                Some(true)
+                            }
+                        })
+                        .unwrap_or(true);
+
                     if is_first_inclusion_aggregate {
                         info!(
                             self.log,
@@ -1405,8 +1405,8 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             "src" => src,
                             "validator" => %id,
                         );
-                        // Downgrade to Debug for second and onwards of logging to reduce verbosity
                     } else {
+                        // Downgrade to Debug for second and onwards of logging to reduce verbosity
                         debug!(
                             self.log,
                             "Attestation included in aggregate";
@@ -1459,24 +1459,23 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                         &["block", label],
                     );
                 });
-
-                let is_first_inclusion_block = validator
-                    .get_from_epoch_summary(epoch, |summary_opt| {
-                        if let Some(summary) = summary_opt {
-                            Some(summary.attestation_block_inclusions == 0)
-                        } else {
-                            // No data for this validator: no inclusion.
-                            Some(true)
-                        }
-                    })
-                    .unwrap_or(true);
-
                 if self.individual_tracking() {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_DELAY_SLOTS,
                         &["block", id],
                         delay.as_u64() as i64,
                     );
+
+                    let is_first_inclusion_block = validator
+                        .get_from_epoch_summary(epoch, |summary_opt| {
+                            if let Some(summary) = summary_opt {
+                                Some(summary.attestation_block_inclusions == 0)
+                            } else {
+                                // No data for this validator: no inclusion.
+                                Some(true)
+                            }
+                        })
+                        .unwrap_or(true);
 
                     if is_first_inclusion_block {
                         info!(
@@ -1490,6 +1489,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             "validator" => %id,
                         );
                     } else {
+                        // Downgrade to Debug for second and onwards of logging to reduce verbosity
                         debug!(
                             self.log,
                             "Attestation included in block";
