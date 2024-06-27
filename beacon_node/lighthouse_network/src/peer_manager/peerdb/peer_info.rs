@@ -98,8 +98,8 @@ impl<E: EthSpec> PeerInfo<E> {
                     // There's no metadata field for data column subnets, we use the `csc` enr field
                     // along with `node_id` to determine whether peer SHOULD be subscribed to a
                     // given subnet.
-                    return true
-                },
+                    return true;
+                }
             }
         }
         false

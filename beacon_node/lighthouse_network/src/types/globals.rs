@@ -5,6 +5,7 @@ use crate::types::{BackFillState, SyncState};
 use crate::EnrExt;
 use crate::{Client, Eth2Enr};
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
+use itertools::Itertools;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use types::data_column_sidecar::ColumnIndex;
@@ -128,6 +129,31 @@ impl<E: EthSpec> NetworkGlobals<E> {
         DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_subnet_count, spec)
     }
 
+    pub fn custody_peers_for_column(
+        &self,
+        column_index: ColumnIndex,
+        spec: &ChainSpec,
+    ) -> Vec<PeerId> {
+        self.peers
+            .read()
+            .connected_peers()
+            .filter_map(|(peer_id, peer_info)| {
+                peer_info.enr().and_then(|enr| {
+                    let custody_subnet_count = enr.custody_subnet_count::<E>(spec);
+                    // TODO(das): consider caching a map of subnet -> Vec<PeerId> and invalidating
+                    // whenever a peer connected or disconnect event in received
+                    DataColumnSubnetId::compute_custody_columns::<E>(
+                        enr.node_id().raw().into(),
+                        custody_subnet_count,
+                        spec,
+                    )
+                    .contains(&column_index)
+                    .then_some(*peer_id)
+                })
+            })
+            .collect::<Vec<_>>()
+    }
+
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
     pub fn new_test_globals(trusted_peers: Vec<PeerId>, log: &slog::Logger) -> NetworkGlobals<E> {
         use crate::CombinedKeyExt;
@@ -150,7 +176,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
 
 #[cfg(test)]
 mod test {
-    use crate::NetworkGlobals;
+    use super::*;
+    use std::str::FromStr;
     use types::{EthSpec, MainnetEthSpec as E};
 
     #[test]
@@ -166,5 +193,45 @@ mod test {
             columns.len(),
             default_custody_requirement_column_count as usize
         );
+    }
+
+    #[test]
+    fn custody_peers_for_column() {
+        let spec = E::default_spec();
+        let log = logging::test_logger();
+        let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log);
+
+        let mut peers_db_write_lock = globals.peers.write();
+        let valid_enrs = [
+            "enr:-Mm4QDJpcg5mZ8EFeYuDcUX78tOTigHLz4_zJlCY7vOTd2-XPPqlAoWM02Us69c4ov85pHgTgeo77Z3_nAhJ4yF1y30Bh2F0dG5ldHOIAAAAAAAAAACDY3NjIIRldGgykAHMVa1gAAA4AOH1BQAAAACCaWSCdjSCaXCEiPMgroRxdWljgpR0iXNlY3AyNTZrMaECvF7Y-fD1MEEVQq3y5qW7C8UoTsq6J_tfwvQIJ5fo1TGIc3luY25ldHMAg3RjcIKUc4N1ZHCClHM",
+            "enr:-Mm4QBw4saycbk-Up2PvppJOv0KzBqgFFHl6_OfFlh8_HxtwWkZpSFgJ0hFV3qOelh_Ai4L9HhSAEJSG48LE8YJ-7WABh2F0dG5ldHOIAAAAAAAAAACDY3NjIIRldGgykAHMVa1gAAA4AOH1BQAAAACCaWSCdjSCaXCEiPMgroRxdWljgpR1iXNlY3AyNTZrMaECsRjhgRrAuRWelB9VTTzTa0tHtcWyLTLSReL4RNWhJgGIc3luY25ldHMAg3RjcIKUdIN1ZHCClHQ",
+            "enr:-Mm4QMFlqbpGrmN21EM-70_hDW9c3MrulhIZElmsP3kb7XSLOEmV7-Msj2jlwGR5C_TicwOXYsZrN6eEIJlGgluM_XgBh2F0dG5ldHOIAAAAAAAAAACDY3NjAYRldGgykAHMVa1gAAA4AOH1BQAAAACCaWSCdjSCaXCEiPMgroRxdWljgpR2iXNlY3AyNTZrMaECpAOonvUcYbBX8Tf0ErNPKwJeeidKzJftLTryBZUusMSIc3luY25ldHMAg3RjcIKUdYN1ZHCClHU",
+            "enr:-Mm4QEHdVjmQ7mH2qIX7_6SDablQUcrZuA4Sxjprh9WGbipfHUjPrELtBaRIRJUrpI8cgJRoAF1wMwoeRS7j3d8xviRGh2F0dG5ldHOIAAAAAAAAAACDY3NjAYRldGgykAHMVa1gAAA4AOH1BQAAAACCaWSCdjSCaXCEiPMgroRxdWljgpR2iXNlY3AyNTZrMaECpAOonvUcYbBX8Tf0ErNPKwJeeidKzJftLTryBZUusMSIc3luY25ldHMAg3RjcIKUdYN1ZHCClHU"
+        ];
+        let peers = valid_enrs
+            .into_iter()
+            .map(|enr_str| {
+                let enr = Enr::from_str(enr_str).unwrap();
+                let peer_id = enr.peer_id();
+                peers_db_write_lock.__add_connected_peer_enr_testing_only(enr);
+                peer_id
+            })
+            .collect::<Vec<_>>();
+
+        drop(peers_db_write_lock);
+        let [supernode_peer_1, supernode_peer_2, _, _] =
+            peers.try_into().expect("expected exactly 4 peer ids");
+
+        for col_index in 0..spec.number_of_columns {
+            let custody_peers = globals.custody_peers_for_column(col_index as ColumnIndex, &spec);
+            assert!(
+                custody_peers.contains(&supernode_peer_1),
+                "must at least return supernode peer"
+            );
+            assert!(
+                custody_peers.contains(&supernode_peer_2),
+                "must at least return supernode peer"
+            );
+        }
     }
 }

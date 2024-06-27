@@ -26,7 +26,7 @@ use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
 use lighthouse_network::{
-    Client, Eth2Enr, NetworkGlobals, PeerAction, PeerId, ReportSource, Request,
+    Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request,
 };
 pub use requests::LookupVerifyError;
 use slog::{debug, error, warn};
@@ -38,7 +38,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, EthSpec, Hash256,
     SignedBeaconBlock, Slot,
 };
 
@@ -238,31 +238,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    // TODO(das): epoch argument left here in case custody rotation is implemented
     pub fn get_custodial_peers(&self, column_index: ColumnIndex) -> Vec<PeerId> {
-        let mut peer_ids = vec![];
-
-        for (peer_id, peer_info) in self.network_globals().peers.read().connected_peers() {
-            if let Some(enr) = peer_info.enr() {
-                let custody_subnet_count = enr.custody_subnet_count::<T::EthSpec>(&self.chain.spec);
-                // TODO(das): consider caching a map of subnet -> Vec<PeerId> and invalidating
-                // whenever a peer connected or disconnect event in received
-                let mut subnets = DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
-                    enr.node_id().raw().into(),
-                    custody_subnet_count,
-                    &self.chain.spec,
-                );
-                if subnets.any(|subnet| {
-                    subnet
-                        .columns::<T::EthSpec>(&self.chain.spec)
-                        .any(|index| index == column_index)
-                }) {
-                    peer_ids.push(*peer_id)
-                }
-            }
-        }
-
-        peer_ids
+        self.network_globals()
+            .custody_peers_for_column(column_index, &self.chain.spec)
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
