@@ -201,7 +201,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
     ) -> Result<libp2p::swarm::THandler<Self>, ConnectionDenied> {
         trace!(self.log, "Inbound connection"; "peer_id" => %peer_id, "multiaddr" => %remote_addr);
         // We already checked if the peer was banned on `handle_pending_inbound_connection`.
-        if let Some(BanResult::BadScore) = self.ban_status(&peer_id) {
+        if self.ban_status(&peer_id).is_some() {
             return Err(ConnectionDenied::new(
                 "Connection to peer rejected: peer has a bad score",
             ));
