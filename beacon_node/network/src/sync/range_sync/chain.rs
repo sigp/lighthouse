@@ -396,9 +396,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.request_batches(network)?;
                 }
             }
-        } else if self.good_peers_on_custody_subnets(self.processing_target, network) {
+        } else if !self.good_peers_on_custody_subnets(self.processing_target, network) {
             // If there's no good custody peers for this epoch, batch won't be created
-            return Ok(KeepChain)
+            return Ok(KeepChain);
         } else {
             return Err(RemoveChain::WrongChainState(format!(
                 "Batch not found for current processing target {}",
