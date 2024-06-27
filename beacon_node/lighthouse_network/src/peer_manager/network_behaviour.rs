@@ -14,7 +14,6 @@ use slog::{debug, error, trace};
 use types::EthSpec;
 
 use crate::discovery::enr_ext::EnrExt;
-use crate::peer_manager::peerdb::BanResult;
 use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
 use crate::{metrics, ClearDialError};
