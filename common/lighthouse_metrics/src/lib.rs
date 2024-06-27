@@ -283,6 +283,12 @@ pub fn stop_timer(timer: Option<HistogramTimer>) {
     }
 }
 
+pub fn observe_vec(vec: &Result<HistogramVec>, name: &[&str], value: f64) {
+    if let Some(h) = get_histogram(vec, name) {
+        h.observe(value)
+    }
+}
+
 pub fn inc_counter(counter: &Result<IntCounter>) {
     if let Ok(counter) = counter {
         counter.inc();
