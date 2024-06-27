@@ -908,39 +908,32 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             match resp.responses {
                 Ok(blocks) => {
-                    for block in blocks
-                        .into_iter()
-                        .map(Some)
-                        // chain the stream terminator
-                        .chain(vec![None])
-                    {
-                        match resp.sender_id {
-                            RangeRequestId::RangeSync { chain_id, batch_id } => {
-                                self.range_sync.blocks_by_range_response(
-                                    &mut self.network,
-                                    peer_id,
-                                    chain_id,
-                                    batch_id,
-                                    id,
-                                    block,
-                                );
-                                self.update_sync_state();
-                            }
-                            RangeRequestId::BackfillSync { batch_id } => {
-                                match self.backfill_sync.on_block_response(
-                                    &mut self.network,
-                                    batch_id,
-                                    &peer_id,
-                                    id,
-                                    block,
-                                ) {
-                                    Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
-                                    Ok(ProcessResult::Successful) => {}
-                                    Err(_error) => {
-                                        // The backfill sync has failed, errors are reported
-                                        // within.
-                                        self.update_sync_state();
-                                    }
+                    match resp.sender_id {
+                        RangeRequestId::RangeSync { chain_id, batch_id } => {
+                            self.range_sync.blocks_by_range_response(
+                                &mut self.network,
+                                peer_id,
+                                chain_id,
+                                batch_id,
+                                id,
+                                blocks,
+                            );
+                            self.update_sync_state();
+                        }
+                        RangeRequestId::BackfillSync { batch_id } => {
+                            match self.backfill_sync.on_block_response(
+                                &mut self.network,
+                                batch_id,
+                                &peer_id,
+                                id,
+                                blocks,
+                            ) {
+                                Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                                Ok(ProcessResult::Successful) => {}
+                                Err(_error) => {
+                                    // The backfill sync has failed, errors are reported
+                                    // within.
+                                    self.update_sync_state();
                                 }
                             }
                         }
