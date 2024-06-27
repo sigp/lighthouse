@@ -51,10 +51,10 @@ fn bls_library_name() -> &'static str {
 }
 
 fn allocator_name() -> &'static str {
-    if cfg!(feature = "jemalloc") {
-        "jemalloc"
-    } else {
+    if cfg!(target_os = "windows") {
         "system"
+    } else {
+        "jemalloc"
     }
 }
 
