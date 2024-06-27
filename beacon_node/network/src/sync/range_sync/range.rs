@@ -210,11 +210,11 @@ where
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
-        beacon_block: Option<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
-            chain.on_block_response(network, batch_id, &peer_id, request_id, beacon_block)
+            chain.on_block_response(network, batch_id, &peer_id, request_id, blocks)
         }) {
             Ok((removed_chain, sync_type)) => {
                 if let Some((removed_chain, remove_reason)) = removed_chain {
@@ -795,7 +795,7 @@ mod tests {
         rig.cx.update_execution_engine_state(EngineState::Offline);
 
         // send the response to the request
-        range.blocks_by_range_response(&mut rig.cx, peer1, chain1, batch1, id1, None);
+        range.blocks_by_range_response(&mut rig.cx, peer1, chain1, batch1, id1, vec![]);
 
         // the beacon processor shouldn't have received any work
         rig.expect_empty_processor();
@@ -809,7 +809,7 @@ mod tests {
             rig.complete_range_block_and_blobs_response(block_req, blob_req_opt);
 
         // send the response to the request
-        range.blocks_by_range_response(&mut rig.cx, peer2, chain2, batch2, id2, None);
+        range.blocks_by_range_response(&mut rig.cx, peer2, chain2, batch2, id2, vec![]);
 
         // the beacon processor shouldn't have received any work
         rig.expect_empty_processor();
