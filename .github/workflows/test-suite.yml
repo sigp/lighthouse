@@ -41,7 +41,7 @@ jobs:
          LABELS: ${{ toJson(github.event.pull_request.labels) }}
        run: |
          SKIP_CI="false"
-         if [ -z "${LABELS}" ]; then
+         if [ -z "${LABELS}" ]  || [ "${LABELS}" = "null" ]; then
            LABELS="none";
          else
            LABELS=$(echo ${LABELS} | jq -r '.[].name')
@@ -52,7 +52,7 @@ jobs:
              break
            fi
          done
-         echo "::set-output name=skip_ci::$SKIP_CI"
+         echo "skip_ci=$SKIP_CI" >> $GITHUB_OUTPUT
 
   target-branch-check:
     name: target-branch-check
@@ -112,11 +112,6 @@ jobs:
     - name: Install make
       if: env.SELF_HOSTED_RUNNERS == 'false'
       run: choco install -y make
-#    - uses: KyleMayes/install-llvm-action@v1
-#         if: env.SELF_HOSTED_RUNNERS == 'false'
-#      with:
-#        version: "16.0"
-#        directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release

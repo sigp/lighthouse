@@ -15,6 +15,7 @@
 - [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice)
 - [My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?](#bn-queue-full)
 - [My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?](#bn-deposit-cache)
+- [My beacon node logs `WARN Could not verify blob sidecar for gossip`, what does it mean?](#bn-blob)
 
 ## [Validator](#validator-1)
 
@@ -214,6 +215,16 @@ This suggests that the computer resources are being overwhelmed. It could be due
 
 This is a known [bug](https://github.com/sigp/lighthouse/issues/3707) that will fix by itself.
 
+### <a name="bn-blob"></a> My beacon node logs `WARN Could not verify blob sidecar for gossip`, what does it mean?
+
+An example of the full log is shown below:
+
+```text
+Jun 07 23:05:12.170 WARN Could not verify blob sidecar for gossip. Ignoring the blob sidecar, commitment: 0xaa97…6f54, index: 1, root: 0x93b8…c47c, slot: 9248017, error: PastFinalizedSlot { blob_slot: Slot(9248017), finalized_slot: Slot(9248032) }, module: network::network_beacon_processor::gossip_methods:720
+```
+
+The `PastFinalizedSlot` indicates that the time at which the node received the blob has past the finalization period. This could be due to a peer sending an earlier blob. The log will be gone when Lighthouse eventually drops the peer.
+
 ## Validator
 
 ### <a name="vc-activation"></a> Why does it take so long for a validator to be activated?
@@ -327,13 +338,24 @@ The first thing is to ensure both consensus and execution clients are synced wit
 
 You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
 
-Another cause for missing attestations is delays during block processing. When this happens, the debug logs will show (debug logs can be found under `$datadir/beacon/logs`):
+Another cause for missing attestations is the block arriving late, or there are delays during block processing.
+
+An example of the log: (debug logs can be found under `$datadir/beacon/logs`):
 
 ```text
-DEBG Delayed head block                      set_as_head_delay: Some(93.579425ms), imported_delay: Some(1.460405278s), observed_delay: Some(2.540811921s), block_delay: 4.094796624s, slot: 6837344, proposer_index: 211108, block_root: 0x2c52231c0a5a117401f5231585de8aa5dd963bc7cbc00c544e681342eedd1700, service: beacon
+Delayed head block, set_as_head_time_ms: 27, imported_time_ms: 168, attestable_delay_ms: 4209, available_delay_ms: 4186, execution_time_ms: 201, blob_delay_ms: 3815, observed_delay_ms: 3984, total_delay_ms: 4381, slot: 1886014, proposer_index: 733, block_root: 0xa7390baac88d50f1cbb5ad81691915f6402385a12521a670bbbd4cd5f8bf3934, service: beacon, module: beacon_chain::canonical_head:1441
 ```
 
-The fields to look for are `imported_delay > 1s` and `observed_delay < 3s`. The `imported_delay` is how long the node took to process the block. The `imported_delay` of larger than 1 second suggests that there is slowness in processing the block. It could be due to high CPU usage, high I/O disk usage or the clients are doing some background maintenance processes. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). The `observed_delay` of less than 3 seconds means that the block is not arriving late from the block proposer. Combining the above, this implies that the validator should have been able to attest to the block, but failed due to slowness in the node processing the block.
+The field to look for is `attestable_delay`, which defines the time when a block is ready for the validator to attest. If the `attestable_delay` is greater than 4s which has past the window of attestation, the attestation wil fail. In the above example, the delay is mostly caused by late block observed by the node, as shown in  `observed_delay`. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). Ideally,  `observed_delay` should be less than 3 seconds. In this example, the validator failed to attest the block due to the block arriving late.
+
+Another example of log:
+
+```
+DEBG Delayed head block, set_as_head_time_ms: 22, imported_time_ms: 312, attestable_delay_ms: 7052, available_delay_ms: 6874, execution_time_ms: 4694, blob_delay_ms: 2159, observed_delay_ms: 2179, total_delay_ms: 7209, slot: 1885922, proposer_index: 606896, block_root: 0x9966df24d24e722d7133068186f0caa098428696e9f441ac416d0aca70cc0a23, service: beacon, module: beacon_chain::canonical_head:1441
+/159.69.68.247/tcp/9000, service: libp2p, module: lighthouse_network::service:1811
+```
+
+In this example, we see that the `execution_time_ms` is 4694ms. The `execution_time_ms` is how long the node took to process the block. The `execution_time_ms` of larger than 1 second suggests that there is slowness in processing the block. If the `execution_time_ms` is high, it could be due to high CPU usage, high I/O disk usage or the clients are doing some background maintenance processes.
 
 ### <a name="vc-head-vote"></a> Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
@@ -514,21 +536,23 @@ If you would still like to subscribe to all subnets, you can use the flag `subsc
 
 ### <a name="net-quic"></a> How to know how many of my peers are connected via QUIC?
 
-With `--metrics` enabled in the beacon node, you can find the number of peers connected via QUIC using:
+With `--metrics` enabled in the beacon node, the [Grafana Network dashboard](https://github.com/sigp/lighthouse-metrics/blob/master/dashboards/Network.json) displays the connected by transport, which will show the number of peers connected via QUIC.
+
+Alternatively, you can find the number of peers connected via QUIC manually using:
 
 ```bash
- curl -s "http://localhost:5054/metrics" | grep libp2p_quic_peers
+ curl -s "http://localhost:5054/metrics" | grep 'transport="quic"'
 ```
 
 A response example is:
 
 ```text
-# HELP libp2p_quic_peers Count of libp2p peers currently connected via QUIC
-# TYPE libp2p_quic_peers gauge
-libp2p_quic_peers 4
+libp2p_peers_multi{direction="inbound",transport="quic"} 27
+libp2p_peers_multi{direction="none",transport="quic"} 0
+libp2p_peers_multi{direction="outbound",transport="quic"} 9
 ```
 
-which shows that there are 4 peers connected via QUIC.
+which shows that there are a total of 36 peers connected via QUIC.
 
 ## Miscellaneous
 

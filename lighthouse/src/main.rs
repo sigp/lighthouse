@@ -688,9 +688,15 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let mut config = beacon_node::get_config::<E>(matches, &context)?;
             config.logger_config = logger_config;
-            let shutdown_flag = matches.get_flag("immediate-shutdown");
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
+
+            let shutdown_flag = matches.get_flag("immediate-shutdown");
+            if shutdown_flag {
+                info!(log, "Beacon node immediate shutdown triggered.");
+                return Ok(());
+            }
+
             executor.clone().spawn(
                 async move {
                     if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
@@ -700,10 +706,6 @@ fn run<E: EthSpec>(
                         let _ = executor
                             .shutdown_sender()
                             .try_send(ShutdownReason::Failure("Failed to start beacon node"));
-                    } else if shutdown_flag {
-                        let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
-                            "Beacon node immediate shutdown triggered.",
-                        ));
                     }
                 },
                 "beacon_node",
@@ -715,31 +717,31 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let config = validator_client::Config::from_cli(matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
-            let shutdown_flag = matches.get_flag("immediate-shutdown");
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
-            if !shutdown_flag {
-                executor.clone().spawn(
-                    async move {
-                        if let Err(e) = ProductionValidatorClient::new(context, config)
-                            .and_then(|mut vc| async move { vc.start_service().await })
-                            .await
-                        {
-                            crit!(log, "Failed to start validator client"; "reason" => e);
-                            // Ignore the error since it always occurs during normal operation when
-                            // shutting down.
-                            let _ = executor.shutdown_sender().try_send(ShutdownReason::Failure(
-                                "Failed to start validator client",
-                            ));
-                        }
-                    },
-                    "validator_client",
-                );
-            } else {
-                let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
-                    "Validator client immediate shutdown triggered.",
-                ));
+
+            let shutdown_flag = matches.get_flag("immediate-shutdown");
+            if shutdown_flag {
+                info!(log, "Validator client immediate shutdown triggered.");
+                return Ok(());
             }
+
+            executor.clone().spawn(
+                async move {
+                    if let Err(e) = ProductionValidatorClient::new(context, config)
+                        .and_then(|mut vc| async move { vc.start_service().await })
+                        .await
+                    {
+                        crit!(log, "Failed to start validator client"; "reason" => e);
+                        // Ignore the error since it always occurs during normal operation when
+                        // shutting down.
+                        let _ = executor
+                            .shutdown_sender()
+                            .try_send(ShutdownReason::Failure("Failed to start validator client"));
+                    }
+                },
+                "validator_client",
+            );
         }
         _ => {
             crit!(log, "No subcommand supplied. See --help .");

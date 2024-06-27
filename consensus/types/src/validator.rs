@@ -63,7 +63,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        if current_fork >= ForkName::Electra {
+        if current_fork.electra_enabled() {
             self.is_eligible_for_activation_queue_electra(spec)
         } else {
             self.is_eligible_for_activation_queue_base(spec)
@@ -130,9 +130,9 @@ impl Validator {
         is_compounding_withdrawal_credential(self.withdrawal_credentials, spec)
     }
 
-    /// Get the eth1 withdrawal address if this validator has one initialized.
-    pub fn get_eth1_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
-        self.has_eth1_withdrawal_credential(spec)
+    /// Get the execution withdrawal address if this validator has one initialized.
+    pub fn get_execution_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
+        self.has_execution_withdrawal_credential(spec)
             .then(|| {
                 self.withdrawal_credentials
                     .as_bytes()
@@ -162,7 +162,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        if current_fork >= ForkName::Electra {
+        if current_fork.electra_enabled() {
             self.is_fully_withdrawable_at_electra(balance, epoch, spec)
         } else {
             self.is_fully_withdrawable_at_capella(balance, epoch, spec)
@@ -202,8 +202,8 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        if current_fork >= ForkName::Electra {
-            self.is_partially_withdrawable_validator_electra(balance, spec)
+        if current_fork.electra_enabled() {
+            self.is_partially_withdrawable_validator_electra(balance, spec, current_fork)
         } else {
             self.is_partially_withdrawable_validator_capella(balance, spec)
         }
@@ -223,8 +223,9 @@ impl Validator {
         &self,
         balance: u64,
         spec: &ChainSpec,
+        current_fork: ForkName,
     ) -> bool {
-        let max_effective_balance = self.get_validator_max_effective_balance(spec);
+        let max_effective_balance = self.get_validator_max_effective_balance(spec, current_fork);
         let has_max_effective_balance = self.effective_balance == max_effective_balance;
         let has_excess_balance = balance > max_effective_balance;
         self.has_execution_withdrawal_credential(spec)
@@ -239,11 +240,19 @@ impl Validator {
     }
 
     /// Returns the max effective balance for a validator in gwei.
-    pub fn get_validator_max_effective_balance(&self, spec: &ChainSpec) -> u64 {
-        if self.has_compounding_withdrawal_credential(spec) {
-            spec.max_effective_balance_electra
+    pub fn get_validator_max_effective_balance(
+        &self,
+        spec: &ChainSpec,
+        current_fork: ForkName,
+    ) -> u64 {
+        if current_fork >= ForkName::Electra {
+            if self.has_compounding_withdrawal_credential(spec) {
+                spec.max_effective_balance_electra
+            } else {
+                spec.min_activation_balance
+            }
         } else {
-            spec.min_activation_balance
+            spec.max_effective_balance
         }
     }
 }
@@ -254,12 +263,12 @@ impl Default for Validator {
         Self {
             pubkey: PublicKeyBytes::empty(),
             withdrawal_credentials: Hash256::default(),
-            activation_eligibility_epoch: Epoch::from(std::u64::MAX),
-            activation_epoch: Epoch::from(std::u64::MAX),
-            exit_epoch: Epoch::from(std::u64::MAX),
-            withdrawable_epoch: Epoch::from(std::u64::MAX),
+            activation_eligibility_epoch: Epoch::from(u64::MAX),
+            activation_epoch: Epoch::from(u64::MAX),
+            exit_epoch: Epoch::from(u64::MAX),
+            withdrawable_epoch: Epoch::from(u64::MAX),
             slashed: false,
-            effective_balance: std::u64::MAX,
+            effective_balance: u64::MAX,
         }
     }
 }

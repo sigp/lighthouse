@@ -1,18 +1,21 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 use types::{
-    AggregateSignature, AttestationData, AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch,
-    Hash256, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
+    indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra},
+    AggregateSignature, AttestationData, AttesterSlashing, AttesterSlashingBase,
+    AttesterSlashingElectra, BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256,
+    IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;
 
-pub fn indexed_att(
+pub fn indexed_att_electra(
     attesting_indices: impl AsRef<[u64]>,
     source_epoch: u64,
     target_epoch: u64,
     target_root: u64,
 ) -> IndexedAttestation<E> {
-    IndexedAttestation {
+    IndexedAttestation::Electra(IndexedAttestationElectra {
         attesting_indices: attesting_indices.as_ref().to_vec().into(),
         data: AttestationData {
             slot: Slot::new(0),
@@ -28,16 +31,50 @@ pub fn indexed_att(
             },
         },
         signature: AggregateSignature::empty(),
-    }
+    })
+}
+
+pub fn indexed_att(
+    attesting_indices: impl AsRef<[u64]>,
+    source_epoch: u64,
+    target_epoch: u64,
+    target_root: u64,
+) -> IndexedAttestation<E> {
+    IndexedAttestation::Base(IndexedAttestationBase {
+        attesting_indices: attesting_indices.as_ref().to_vec().into(),
+        data: AttestationData {
+            slot: Slot::new(0),
+            index: 0,
+            beacon_block_root: Hash256::zero(),
+            source: Checkpoint {
+                epoch: Epoch::new(source_epoch),
+                root: Hash256::from_low_u64_be(0),
+            },
+            target: Checkpoint {
+                epoch: Epoch::new(target_epoch),
+                root: Hash256::from_low_u64_be(target_root),
+            },
+        },
+        signature: AggregateSignature::empty(),
+    })
 }
 
 pub fn att_slashing(
     attestation_1: &IndexedAttestation<E>,
     attestation_2: &IndexedAttestation<E>,
 ) -> AttesterSlashing<E> {
-    AttesterSlashing {
-        attestation_1: attestation_1.clone(),
-        attestation_2: attestation_2.clone(),
+    match (attestation_1, attestation_2) {
+        (IndexedAttestation::Base(att1), IndexedAttestation::Base(att2)) => {
+            AttesterSlashing::Base(AttesterSlashingBase {
+                attestation_1: att1.clone(),
+                attestation_2: att2.clone(),
+            })
+        }
+        // A slashing involving an electra attestation type must return an electra AttesterSlashing type
+        (_, _) => AttesterSlashing::Electra(AttesterSlashingElectra {
+            attestation_1: attestation_1.clone().to_electra(),
+            attestation_2: attestation_2.clone().to_electra(),
+        }),
     }
 }
 
@@ -59,14 +96,16 @@ pub fn slashed_validators_from_slashings(slashings: &HashSet<AttesterSlashing<E>
     slashings
         .iter()
         .flat_map(|slashing| {
-            let att1 = &slashing.attestation_1;
-            let att2 = &slashing.attestation_2;
+            let att1 = slashing.attestation_1();
+            let att2 = slashing.attestation_2();
             assert!(
                 att1.is_double_vote(att2) || att1.is_surround_vote(att2),
                 "invalid slashing: {:#?}",
                 slashing
             );
-            hashset_intersection(&att1.attesting_indices, &att2.attesting_indices)
+            let attesting_indices_1 = att1.attesting_indices_to_vec();
+            let attesting_indices_2 = att2.attesting_indices_to_vec();
+            hashset_intersection(&attesting_indices_1, &attesting_indices_2)
         })
         .collect()
 }
@@ -83,9 +122,11 @@ pub fn slashed_validators_from_attestations(
             }
 
             if att1.is_double_vote(att2) || att1.is_surround_vote(att2) {
+                let attesting_indices_1 = att1.attesting_indices_to_vec();
+                let attesting_indices_2 = att2.attesting_indices_to_vec();
                 slashed_validators.extend(hashset_intersection(
-                    &att1.attesting_indices,
-                    &att2.attesting_indices,
+                    &attesting_indices_1,
+                    &attesting_indices_2,
                 ));
             }
         }
@@ -104,4 +145,8 @@ pub fn block(slot: u64, proposer_index: u64, block_root: u64) -> SignedBeaconBlo
         },
         signature: Signature::empty(),
     }
+}
+
+pub fn chain_spec() -> Arc<ChainSpec> {
+    Arc::new(E::default_spec())
 }

@@ -407,6 +407,15 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("latency-measurement-service")
+                .long("latency-measurement-service")
+                .help("DEPRECATED")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+                .hide(true)
+        )
+        .arg(
             Arg::new("validator-registration-batch-size")
                 .long("validator-registration-batch-size")
                 .value_name("INTEGER")

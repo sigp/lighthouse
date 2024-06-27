@@ -244,8 +244,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        if let Some(&expected) = expected_withdrawals_root {
-            if let Some(&got) = got_withdrawals_root {
+        if let Some(expected) = expected_withdrawals_root {
+            if let Some(got) = got_withdrawals_root {
                 if got != expected {
                     return Ok(GenesisExecutionPayloadStatus::WithdrawalsRootMismatch {
                         got,

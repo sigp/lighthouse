@@ -376,7 +376,7 @@ impl ChainSpec {
         state: &BeaconState<E>,
     ) -> u64 {
         let fork_name = state.fork_name_unchecked();
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             self.min_slashing_penalty_quotient_electra
         } else if fork_name >= ForkName::Bellatrix {
             self.min_slashing_penalty_quotient_bellatrix
@@ -384,6 +384,19 @@ impl ChainSpec {
             self.min_slashing_penalty_quotient_altair
         } else {
             self.min_slashing_penalty_quotient
+        }
+    }
+
+    /// For a given `BeaconState`, return the whistleblower reward quotient associated with its variant.
+    pub fn whistleblower_reward_quotient_for_state<E: EthSpec>(
+        &self,
+        state: &BeaconState<E>,
+    ) -> u64 {
+        let fork_name = state.fork_name_unchecked();
+        if fork_name >= ForkName::Electra {
+            self.whistleblower_reward_quotient_electra
+        } else {
+            self.whistleblower_reward_quotient
         }
     }
 
