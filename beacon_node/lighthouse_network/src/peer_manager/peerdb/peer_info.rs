@@ -94,8 +94,12 @@ impl<E: EthSpec> PeerInfo<E> {
                         .syncnets()
                         .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
                 }
-                // TODO(das) Add data column nets bitfield
-                Subnet::DataColumn(_) => return false,
+                Subnet::DataColumn(_) => {
+                    // There's no metadata field for data column subnets, we use the `csc` enr field
+                    // along with `node_id` to determine whether peer SHOULD be subscribed to a
+                    // given subnet.
+                    return true
+                },
             }
         }
         false
