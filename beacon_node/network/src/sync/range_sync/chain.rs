@@ -7,7 +7,7 @@ use crate::sync::{
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
-use lighthouse_network::{PeerAction, PeerId};
+use lighthouse_network::{PeerAction, PeerId, Subnet};
 use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
@@ -884,6 +884,29 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, batch_type) = batch.to_blocks_by_range_request();
+
+            let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
+            if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
+                // Require peers on all custody column subnets before sending batches
+                let has_peers_for_all_custody_subnets = network
+                    .network_globals()
+                    .custody_subnets(&network.chain.spec)
+                    .all(|subnet_id| {
+                        network
+                            .network_globals()
+                            .peers
+                            .read()
+                            .good_peers_on_subnet(Subnet::DataColumn(subnet_id))
+                            .next()
+                            .is_some()
+                    });
+
+                if !has_peers_for_all_custody_subnets {
+                    debug!(self.log, "Waiting for peers to appear on all custody subnets before requesting batches");
+                    return Ok(KeepChain);
+                }
+            }
+
             match network.block_components_by_range_request(
                 peer,
                 batch_type,

@@ -38,7 +38,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSubnetId, Epoch, EthSpec, Hash256,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
     SignedBeaconBlock, Slot,
 };
 
@@ -239,7 +239,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     // TODO(das): epoch argument left here in case custody rotation is implemented
-    pub fn get_custodial_peers(&self, _epoch: Epoch, column_index: ColumnIndex) -> Vec<PeerId> {
+    pub fn get_custodial_peers(&self, column_index: ColumnIndex) -> Vec<PeerId> {
         let mut peer_ids = vec![];
 
         for (peer_id, peer_info) in self.network_globals().peers.read().connected_peers() {
@@ -357,12 +357,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let expects_custody_columns = if matches!(batch_type, ByRangeRequestType::BlocksAndColumns)
         {
-            let custody_indexes = self
-                .network_globals()
-                .custody_columns(epoch, &self.chain.spec);
+            let custody_indexes = self.network_globals().custody_columns(&self.chain.spec);
 
             for column_index in &custody_indexes {
-                let custody_peer_ids = self.get_custodial_peers(epoch, *column_index);
+                let custody_peer_ids = self.get_custodial_peers(*column_index);
                 let Some(custody_peer) = custody_peer_ids.first().cloned() else {
                     // TODO(das): this will be pretty bad UX. To improve we should:
                     // - Attempt to fetch custody requests first, before requesting blocks
@@ -682,11 +680,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .imported_custody_column_indexes(&block_root)
             .unwrap_or_default();
 
-        // TODO(das): figure out how to pass block.slot if we end up doing rotation
-        let block_epoch = Epoch::new(0);
-        let custody_indexes_duty = self
-            .network_globals()
-            .custody_columns(block_epoch, &self.chain.spec);
+        let custody_indexes_duty = self.network_globals().custody_columns(&self.chain.spec);
 
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = custody_indexes_duty

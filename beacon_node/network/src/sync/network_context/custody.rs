@@ -13,7 +13,7 @@ use slog::{debug, warn};
 use std::time::Duration;
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use types::EthSpec;
-use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Epoch, Hash256};
+use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256};
 
 use super::{LookupRequestResult, PeerGroup, ReqId, RpcResponseResult, SyncNetworkContext};
 
@@ -34,7 +34,6 @@ type DataColumnSidecarVec<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     block_root: Hash256,
-    block_epoch: Epoch,
     custody_id: CustodyId,
     /// List of column indices this request needs to download to complete successfully
     column_requests: FnvHashMap<ColumnIndex, ColumnRequest<T::EthSpec>>,
@@ -80,8 +79,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     ) -> Self {
         Self {
             block_root,
-            // TODO(das): use actual epoch if there's rotation
-            block_epoch: Epoch::new(0),
             custody_id,
             column_requests: HashMap::from_iter(
                 column_indices
@@ -248,7 +245,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
                 // TODO: When is a fork and only a subset of your peers know about a block, we should only
                 // query the peers on that fork. Should this case be handled? How to handle it?
-                let custodial_peers = cx.get_custodial_peers(self.block_epoch, *column_index);
+                let custodial_peers = cx.get_custodial_peers(*column_index);
 
                 // TODO(das): cache this computation in a OneCell or similar to prevent having to
                 // run it every loop

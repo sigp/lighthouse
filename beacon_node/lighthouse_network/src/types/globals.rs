@@ -8,7 +8,7 @@ use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use types::data_column_sidecar::ColumnIndex;
-use types::{ChainSpec, DataColumnSubnetId, Epoch, EthSpec};
+use types::{ChainSpec, DataColumnSubnetId, EthSpec};
 
 pub struct NetworkGlobals<E: EthSpec> {
     /// The current local ENR.
@@ -112,12 +112,20 @@ impl<E: EthSpec> NetworkGlobals<E> {
     }
 
     /// Compute custody data columns the node is assigned to custody.
-    pub fn custody_columns(&self, _epoch: Epoch, spec: &ChainSpec) -> Vec<ColumnIndex> {
+    pub fn custody_columns(&self, spec: &ChainSpec) -> Vec<ColumnIndex> {
         let enr = self.local_enr();
         let node_id = enr.node_id().raw().into();
         let custody_subnet_count = enr.custody_subnet_count::<E>(spec);
         DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count, spec)
             .collect()
+    }
+
+    /// Compute custody data column subnets the node is assigned to custody.
+    pub fn custody_subnets(&self, spec: &ChainSpec) -> impl Iterator<Item = DataColumnSubnetId> {
+        let enr = self.local_enr();
+        let node_id = enr.node_id().raw().into();
+        let custody_subnet_count = enr.custody_subnet_count::<E>(spec);
+        DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_subnet_count, spec)
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
@@ -143,7 +151,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
 #[cfg(test)]
 mod test {
     use crate::NetworkGlobals;
-    use types::{Epoch, EthSpec, MainnetEthSpec as E};
+    use types::{EthSpec, MainnetEthSpec as E};
 
     #[test]
     fn test_custody_count_default() {
@@ -153,8 +161,7 @@ mod test {
             / spec.data_column_sidecar_subnet_count
             * spec.custody_requirement;
         let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log);
-        let any_epoch = Epoch::new(0);
-        let columns = globals.custody_columns(any_epoch, &spec);
+        let columns = globals.custody_columns(&spec);
         assert_eq!(
             columns.len(),
             default_custody_requirement_column_count as usize
