@@ -496,8 +496,8 @@ impl ProtocolId {
             Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
             Protocol::DataColumnsByRoot => RpcLimits::new(0, spec.max_data_columns_by_root_request),
             Protocol::DataColumnsByRange => RpcLimits::new(
-                <DataColumnsByRangeRequest as Encode>::ssz_fixed_len(),
-                <DataColumnsByRangeRequest as Encode>::ssz_fixed_len(),
+                DataColumnsByRangeRequest::ssz_min_len(),
+                DataColumnsByRangeRequest::ssz_max_len(spec),
             ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),

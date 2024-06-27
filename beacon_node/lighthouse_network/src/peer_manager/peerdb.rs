@@ -686,10 +686,7 @@ impl<E: EthSpec> PeerDB<E> {
         if supernode {
             enr.insert(
                 PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
-                &spec
-                    .data_column_sidecar_subnet_count
-                    .to_be_bytes()
-                    .as_slice(),
+                &spec.data_column_sidecar_subnet_count,
                 &enr_key,
             )
             .expect("u64 can be encoded");
