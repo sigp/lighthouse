@@ -161,7 +161,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let mut next_epoch_cache = PreEpochCache::new_for_next_epoch(state)?;
 
     let pending_balance_deposits_ctxt =
-        if fork_name >= ForkName::Electra && conf.pending_balance_deposits {
+        if fork_name.electra_enabled() && conf.pending_balance_deposits {
             Some(PendingBalanceDepositsContext::new(state, spec)?)
         } else {
             None
