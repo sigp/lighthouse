@@ -25,9 +25,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineStat
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
-use lighthouse_network::{
-    Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request,
-};
+use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 pub use requests::LookupVerifyError;
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
@@ -38,8 +36,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -238,7 +235,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    pub fn get_custodial_peers(&self, column_index: ColumnIndex) -> Vec<PeerId> {
+    // TODO(das): epoch argument left here in case custody rotation is implemented
+    pub fn get_custodial_peers(&self, _epoch: Epoch, column_index: ColumnIndex) -> Vec<PeerId> {
         self.network_globals()
             .custody_peers_for_column(column_index, &self.chain.spec)
     }
@@ -335,10 +333,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let expects_custody_columns = if matches!(batch_type, ByRangeRequestType::BlocksAndColumns)
         {
-            let custody_indexes = self.network_globals().custody_columns(&self.chain.spec);
+            let custody_indexes = self
+                .network_globals()
+                .custody_columns(epoch, &self.chain.spec);
 
             for column_index in &custody_indexes {
-                let custody_peer_ids = self.get_custodial_peers(*column_index);
+                let custody_peer_ids = self.get_custodial_peers(epoch, *column_index);
                 let Some(custody_peer) = custody_peer_ids.first().cloned() else {
                     // TODO(das): this will be pretty bad UX. To improve we should:
                     // - Attempt to fetch custody requests first, before requesting blocks
@@ -658,7 +658,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .imported_custody_column_indexes(&block_root)
             .unwrap_or_default();
 
-        let custody_indexes_duty = self.network_globals().custody_columns(&self.chain.spec);
+        // TODO(das): figure out how to pass block.slot if we end up doing rotation
+        let block_epoch = Epoch::new(0);
+        let custody_indexes_duty = self
+            .network_globals()
+            .custody_columns(block_epoch, &self.chain.spec);
 
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = custody_indexes_duty

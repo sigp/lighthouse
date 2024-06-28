@@ -10,7 +10,7 @@ use std::{
     collections::hash_map::Entry, collections::HashMap, marker::PhantomData, sync::Arc,
     time::Duration,
 };
-use types::{data_column_sidecar::ColumnIndex, ChainSpec, DataColumnSidecar, Hash256};
+use types::{data_column_sidecar::ColumnIndex, ChainSpec, DataColumnSidecar, Hash256, Slot};
 
 pub type SamplingResult = Result<(), SamplingError>;
 
@@ -57,6 +57,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     pub fn on_new_sample_request(
         &mut self,
         block_root: Hash256,
+        block_slot: Slot,
         cx: &mut SyncNetworkContext<T>,
     ) -> Option<(SamplingRequester, SamplingResult)> {
         let id = SamplingRequester::ImportedBlock(block_root);
@@ -64,6 +65,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
         let request = match self.requests.entry(id) {
             Entry::Vacant(e) => e.insert(ActiveSamplingRequest::new(
                 block_root,
+                block_slot,
                 id,
                 &self.sampling_config,
                 self.log.clone(),
@@ -161,6 +163,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
 
 pub struct ActiveSamplingRequest<T: BeaconChainTypes> {
     block_root: Hash256,
+    block_slot: Slot,
     requester_id: SamplingRequester,
     column_requests: FnvHashMap<ColumnIndex, ActiveColumnSampleRequest>,
     column_shuffle: Vec<ColumnIndex>,
@@ -195,6 +198,7 @@ pub enum SamplingConfig {
 impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
     fn new(
         block_root: Hash256,
+        block_slot: Slot,
         requester_id: SamplingRequester,
         sampling_config: &SamplingConfig,
         log: slog::Logger,
@@ -208,6 +212,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
 
         Self {
             block_root,
+            block_slot,
             requester_id,
             column_requests: <_>::default(),
             column_shuffle,
@@ -396,7 +401,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 .entry(column_index)
                 .or_insert(ActiveColumnSampleRequest::new(column_index));
 
-            if request.request(self.block_root, self.requester_id, cx)? {
+            if request.request(self.block_root, self.block_slot, self.requester_id, cx)? {
                 sent_requests += 1
             }
         }
@@ -422,7 +427,7 @@ mod request {
     use beacon_chain::BeaconChainTypes;
     use lighthouse_network::PeerId;
     use std::collections::HashSet;
-    use types::{data_column_sidecar::ColumnIndex, Hash256};
+    use types::{data_column_sidecar::ColumnIndex, EthSpec, Hash256, Slot};
 
     pub(crate) struct ActiveColumnSampleRequest {
         column_index: ColumnIndex,
@@ -473,6 +478,7 @@ mod request {
         pub(crate) fn request<T: BeaconChainTypes>(
             &mut self,
             block_root: Hash256,
+            block_slot: Slot,
             requester: SamplingRequester,
             cx: &mut SyncNetworkContext<T>,
         ) -> Result<bool, SamplingError> {
@@ -484,7 +490,10 @@ mod request {
 
             // TODO: When is a fork and only a subset of your peers know about a block, sampling should only
             // be queried on the peers on that fork. Should this case be handled? How to handle it?
-            let peer_ids = cx.get_custodial_peers(self.column_index);
+            let peer_ids = cx.get_custodial_peers(
+                block_slot.epoch(<T::EthSpec as EthSpec>::slots_per_epoch()),
+                self.column_index,
+            );
 
             // TODO(das) randomize custodial peer and avoid failing peers
             if let Some(peer_id) = peer_ids.first().cloned() {
