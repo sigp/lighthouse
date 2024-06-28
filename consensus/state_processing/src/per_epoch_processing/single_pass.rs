@@ -554,7 +554,7 @@ fn process_single_registry_update(
     exit_balance_to_consume: Option<&mut u64>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state_ctxt.fork_name < ForkName::Electra {
+    if !state_ctxt.fork_name.electra_enabled() {
         let (activation_queue, next_epoch_activation_queue) =
             activation_queues.ok_or(Error::SinglePassMissingActivationQueue)?;
         process_single_registry_update_pre_electra(
